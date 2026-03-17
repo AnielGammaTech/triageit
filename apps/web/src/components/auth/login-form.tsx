@@ -28,6 +28,7 @@ export function LoginForm() {
       return;
     }
 
+    setLoading(false);
     router.push("/tickets");
     router.refresh();
   }
