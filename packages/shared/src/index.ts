@@ -26,10 +26,23 @@ export type {
   DattoConfig,
   VultrConfig,
   MxToolboxConfig,
+  GenericApiKeyConfig,
+  GenericApiUrlKeyConfig,
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,
 } from "./types/integration";
+
+export type {
+  SkillType,
+  AgentSkill,
+  MemoryType,
+  AgentMemory,
+  MemoryMatch,
+  MemoryConfig,
+} from "./types/memory";
+
+export { DEFAULT_MEMORY_CONFIG } from "./types/memory";
 
 // Constants
 export {
