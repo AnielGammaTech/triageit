@@ -272,116 +272,234 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
 
       {/* Mappings tab */}
       {activeTab === "mappings" && (
-        <div className="space-y-4">
-          {!integrationId && (
-            <p className="text-sm text-white/50">
-              Configure the integration first before setting up customer mappings.
-            </p>
-          )}
-
-          {integrationId && mappings.length === 0 && (
-            <div className="rounded-lg border border-white/10 bg-white/5 p-8 text-center">
-              <p className="text-sm text-white/50">
-                No customer mappings yet. Add mappings to link external
-                customers/sites to your internal records.
-              </p>
-              <AddMappingForm onAdd={handleAddMapping} />
-            </div>
-          )}
-
-          {integrationId && mappings.length > 0 && (
-            <>
-              <AddMappingForm onAdd={handleAddMapping} />
-              <div className="overflow-hidden rounded-lg border border-white/10">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/10 bg-white/5">
-                      <th className="px-4 py-3 text-left font-medium text-white/50">
-                        External ID
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-white/50">
-                        External Name
-                      </th>
-                      <th className="px-4 py-3 text-left font-medium text-white/50">
-                        Customer
-                      </th>
-                      <th className="px-4 py-3 text-right font-medium text-white/50">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mappings.map((m) => (
-                      <tr
-                        key={m.id}
-                        className="border-b border-white/5 transition-colors hover:bg-white/5"
-                      >
-                        <td className="px-4 py-3 font-mono text-xs text-white/70">
-                          {m.external_id}
-                        </td>
-                        <td className="px-4 py-3 text-white">
-                          {m.external_name}
-                        </td>
-                        <td className="px-4 py-3 text-white/70">
-                          {m.customer_name || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleDeleteMapping(m.id)}
-                            className="rounded px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
+        <CustomerMappingTab
+          service={item.service}
+          integrationId={integrationId}
+          mappings={mappings}
+          onAddMapping={handleAddMapping}
+          onDeleteMapping={handleDeleteMapping}
+        />
       )}
     </div>
   );
 }
 
-function AddMappingForm({
-  onAdd,
-}: {
-  readonly onAdd: (externalId: string, externalName: string) => void;
-}) {
-  const [externalId, setExternalId] = useState("");
-  const [externalName, setExternalName] = useState("");
+// ── Customer Mapping Tab ──────────────────────────────────────────────
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!externalId.trim() || !externalName.trim()) return;
-    onAdd(externalId.trim(), externalName.trim());
-    setExternalId("");
-    setExternalName("");
+interface ExternalCustomer {
+  readonly id: number;
+  readonly name: string;
+  readonly is_active: boolean;
+}
+
+interface CustomerMappingTabProps {
+  readonly service: string;
+  readonly integrationId: string | null;
+  readonly mappings: ReadonlyArray<MappingRow>;
+  readonly onAddMapping: (externalId: string, externalName: string) => void;
+  readonly onDeleteMapping: (mappingId: string) => void;
+}
+
+function CustomerMappingTab({
+  service,
+  integrationId,
+  mappings,
+  onAddMapping,
+  onDeleteMapping,
+}: CustomerMappingTabProps) {
+  const [externalCustomers, setExternalCustomers] = useState<ReadonlyArray<ExternalCustomer>>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  async function loadExternalCustomers() {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      // Route to the right API based on integration service
+      const apiUrl = service === "halo" ? "/api/halo/customers" : null;
+      if (!apiUrl) {
+        setFetchError(`Customer fetch not implemented for ${service} yet`);
+        setLoading(false);
+        return;
+      }
+
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        const data = await response.json();
+        setFetchError(data.error ?? "Failed to fetch customers");
+        setLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+      setExternalCustomers(data.customers ?? []);
+    } catch (err) {
+      setFetchError((err as Error).message);
+    }
+    setLoading(false);
   }
 
+  useEffect(() => {
+    if (integrationId) {
+      loadExternalCustomers();
+    }
+  }, [integrationId, service]);
+
+  if (!integrationId) {
+    return (
+      <p className="text-sm text-white/50">
+        Configure the integration first before setting up customer mappings.
+      </p>
+    );
+  }
+
+  // Filter out already-mapped external customers
+  const mappedExternalIds = new Set(mappings.map((m) => m.external_id));
+  const unmappedCustomers = externalCustomers.filter(
+    (c) => !mappedExternalIds.has(String(c.id)),
+  );
+
+  const filteredUnmapped = search.trim()
+    ? unmappedCustomers.filter((c) =>
+        c.name.toLowerCase().includes(search.toLowerCase()),
+      )
+    : unmappedCustomers;
+
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <input
-        value={externalId}
-        onChange={(e) => setExternalId(e.target.value)}
-        placeholder="External ID"
-        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
-      />
-      <input
-        value={externalName}
-        onChange={(e) => setExternalName(e.target.value)}
-        placeholder="External Name"
-        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
-      />
-      <button
-        type="submit"
-        className="rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white hover:bg-[#5558e6]"
-      >
-        Add
-      </button>
-    </form>
+    <div className="space-y-5">
+      {/* Mapped customers */}
+      {mappings.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-medium text-white/70">
+            Mapped ({mappings.length})
+          </h4>
+          <div className="overflow-hidden rounded-lg border border-white/10">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5">
+                  <th className="px-4 py-2.5 text-left font-medium text-white/50">
+                    External ID
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-white/50">
+                    External Name
+                  </th>
+                  <th className="px-4 py-2.5 text-left font-medium text-white/50">
+                    Internal Customer
+                  </th>
+                  <th className="px-4 py-2.5 text-right font-medium text-white/50" />
+                </tr>
+              </thead>
+              <tbody>
+                {mappings.map((m) => (
+                  <tr
+                    key={m.id}
+                    className="border-b border-white/5 transition-colors hover:bg-white/5"
+                  >
+                    <td className="px-4 py-2.5 font-mono text-xs text-white/50">
+                      {m.external_id}
+                    </td>
+                    <td className="px-4 py-2.5 text-white">
+                      {m.external_name}
+                    </td>
+                    <td className="px-4 py-2.5 text-white/70">
+                      {m.customer_name || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() => onDeleteMapping(m.id)}
+                        className="rounded px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Unmapped customers from integration */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="text-sm font-medium text-white/70">
+            {service === "halo" ? "Halo" : service} Customers
+            {!loading && (
+              <span className="ml-2 text-xs text-white/30">
+                {unmappedCustomers.length} unmapped
+              </span>
+            )}
+          </h4>
+          <button
+            onClick={loadExternalCustomers}
+            disabled={loading}
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+
+        {fetchError && (
+          <p className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            {fetchError}
+          </p>
+        )}
+
+        {loading && (
+          <div className="flex items-center justify-center py-8">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          </div>
+        )}
+
+        {!loading && unmappedCustomers.length > 0 && (
+          <>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search customers..."
+              className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
+            />
+            <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
+              {filteredUnmapped.map((customer) => (
+                <div
+                  key={customer.id}
+                  className="flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-white/5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white">{customer.name}</p>
+                    <p className="text-xs text-white/30">ID: {customer.id}</p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      onAddMapping(String(customer.id), customer.name)
+                    }
+                    className="shrink-0 rounded-lg bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20"
+                  >
+                    Map
+                  </button>
+                </div>
+              ))}
+              {filteredUnmapped.length === 0 && search.trim() && (
+                <p className="px-3 py-4 text-center text-xs text-white/30">
+                  No customers match &quot;{search}&quot;
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {!loading && unmappedCustomers.length === 0 && !fetchError && (
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6 text-center">
+            <p className="text-sm text-white/50">
+              {externalCustomers.length === 0
+                ? "No customers found in this integration."
+                : "All customers are mapped!"}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
