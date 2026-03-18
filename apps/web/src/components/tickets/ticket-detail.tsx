@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import type { TicketStatus } from "@triageit/shared";
@@ -19,6 +19,7 @@ interface TriageResult {
   readonly security_notes: string | null;
   readonly internal_notes: string | null;
   readonly suggested_response: string | null;
+  readonly findings: Record<string, { agent_name: string; summary: string; data: Record<string, unknown>; confidence: number }> | null;
   readonly processing_time_ms: number | null;
   readonly created_at: string;
 }
@@ -98,6 +99,18 @@ const AGENT_NAMES: Record<string, string> = {
   angela_martin: "Angela Martin",
 };
 
+const AGENT_ROLES: Record<string, string> = {
+  michael_scott: "Triage Manager",
+  ryan_howard: "Classifier",
+  dwight_schrute: "Documentation & Assets",
+  jim_halpert: "Identity & Access",
+  pam_beesly: "Communications",
+  andy_bernard: "Endpoint & RMM",
+  stanley_hudson: "Cloud Infrastructure",
+  phyllis_vance: "Email & DNS",
+  angela_martin: "Security Assessment",
+};
+
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -117,12 +130,10 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
   const [agentLogs, setAgentLogs] = useState<ReadonlyArray<AgentLog>>([]);
   const [activeTab, setActiveTab] = useState<"overview" | "agents" | "raw">("overview");
   const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadTicket();
-  }, [ticketId]);
-
-  async function loadTicket() {
+  const loadTicket = useCallback(async () => {
     const supabase = createClient();
 
     const [ticketRes, triageRes, logsRes] = await Promise.all([
@@ -145,7 +156,89 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
     if (triageRes.data) setTriage(triageRes.data as TriageResult);
     if (logsRes.data) setAgentLogs(logsRes.data as AgentLog[]);
     setLoading(false);
-  }
+  }, [ticketId]);
+
+  // Initial load + real-time subscriptions
+  useEffect(() => {
+    loadTicket();
+
+    const supabase = createClient();
+
+    // Subscribe to new agent_logs for this ticket (live thinking)
+    const logsChannel = supabase
+      .channel(`agent-logs-${ticketId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "agent_logs",
+          filter: `ticket_id=eq.${ticketId}`,
+        },
+        (payload) => {
+          const newLog = payload.new as AgentLog;
+          setAgentLogs((prev) => [...prev, newLog]);
+          setIsLive(true);
+          // Auto-scroll to bottom
+          setTimeout(() => {
+            scrollRef.current?.scrollTo({
+              top: scrollRef.current.scrollHeight,
+              behavior: "smooth",
+            });
+          }, 100);
+        },
+      )
+      .subscribe();
+
+    // Subscribe to ticket status changes
+    const ticketChannel = supabase
+      .channel(`ticket-${ticketId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "tickets",
+          filter: `id=eq.${ticketId}`,
+        },
+        (payload) => {
+          setTicket((prev) =>
+            prev ? { ...prev, ...(payload.new as Partial<TicketData>) } : prev,
+          );
+        },
+      )
+      .subscribe();
+
+    // Subscribe to triage_results for this ticket
+    const triageChannel = supabase
+      .channel(`triage-${ticketId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "triage_results",
+          filter: `ticket_id=eq.${ticketId}`,
+        },
+        (payload) => {
+          setTriage(payload.new as TriageResult);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(logsChannel);
+      supabase.removeChannel(ticketChannel);
+      supabase.removeChannel(triageChannel);
+    };
+  }, [ticketId, loadTicket]);
+
+  // Auto-switch to agents tab when triaging starts
+  useEffect(() => {
+    if (ticket?.status === "triaging" && agentLogs.length > 0) {
+      setActiveTab("agents");
+    }
+  }, [ticket?.status, agentLogs.length]);
 
   if (loading) {
     return (
@@ -162,6 +255,7 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
   }
 
   const statusStyle = STATUS_STYLES[ticket.status] ?? STATUS_STYLES.pending;
+  const isTriaging = ticket.status === "triaging";
 
   return (
     <div className="space-y-6">
@@ -181,6 +275,9 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
               Ticket #{ticket.halo_id}
             </h2>
             <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", statusStyle.bg, statusStyle.text)}>
+              {isTriaging && (
+                <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+              )}
               {ticket.status}
             </span>
             {triage?.security_flag && (
@@ -189,6 +286,12 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
                 </svg>
                 Security
+              </span>
+            )}
+            {isLive && isTriaging && (
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                Live
               </span>
             )}
           </div>
@@ -214,6 +317,8 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
             <h3 className="text-sm font-semibold text-white">AI Triage Result</h3>
             <span className="text-xs text-white/30">
               {triage.processing_time_ms ? `${(triage.processing_time_ms / 1000).toFixed(1)}s` : ""}
+              {" · "}
+              {triage.findings ? `${Object.keys(triage.findings).length} agents` : ""}
               {" · "}
               {timeAgo(triage.created_at)}
             </span>
@@ -277,7 +382,18 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
                 : "text-white/50 hover:text-white",
             )}
           >
-            {tab === "raw" ? "Raw Data" : tab === "agents" ? `Agent Activity (${agentLogs.length})` : "Details"}
+            {tab === "raw"
+              ? "Raw Data"
+              : tab === "agents"
+                ? (
+                    <>
+                      Agent Thinking ({agentLogs.length})
+                      {isTriaging && (
+                        <span className="ml-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                      )}
+                    </>
+                  )
+                : "Details"}
           </button>
         ))}
       </div>
@@ -285,7 +401,6 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
       {/* Tab content */}
       {activeTab === "overview" && (
         <div className="space-y-4">
-          {/* Ticket details */}
           {ticket.details && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/30">Description</h4>
@@ -293,7 +408,6 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
             </div>
           )}
 
-          {/* Internal notes from triage */}
           {triage?.internal_notes && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/30">Internal Notes (AI)</h4>
@@ -301,7 +415,41 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
             </div>
           )}
 
-          {/* Suggested response */}
+          {/* Specialist findings */}
+          {triage?.findings && Object.keys(triage.findings).length > 1 && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
+              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/30">Specialist Findings</h4>
+              <div className="space-y-3">
+                {Object.entries(triage.findings)
+                  .filter(([name]) => name !== "ryan_howard")
+                  .map(([name, finding]) => (
+                    <div
+                      key={name}
+                      className="rounded-lg border border-white/5 bg-white/[0.02] p-4"
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <div className={cn("flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[name] ?? "bg-white/20")}>
+                          {(AGENT_NAMES[name] ?? name).split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                        </div>
+                        <span className="text-sm font-medium text-white">
+                          {AGENT_NAMES[name] ?? name}
+                        </span>
+                        <span className="text-[10px] text-white/30">
+                          {AGENT_ROLES[name] ?? finding.agent_name}
+                        </span>
+                        <span className="ml-auto text-[10px] text-white/20">
+                          {(finding.confidence * 100).toFixed(0)}% confidence
+                        </span>
+                      </div>
+                      <p className="text-xs text-white/60 leading-relaxed">
+                        {finding.summary}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           {triage?.suggested_response && (
             <div className="rounded-xl border border-[#6366f1]/20 bg-[#6366f1]/5 p-5">
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#6366f1]/60">Suggested Client Response</h4>
@@ -314,7 +462,9 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
               <p className="text-sm text-white/40">
                 {ticket.status === "pending"
                   ? "This ticket is pending triage. Michael Scott will analyze it soon."
-                  : "No additional details available."}
+                  : ticket.status === "triaging"
+                    ? "Agents are working on this ticket right now..."
+                    : "No additional details available."}
               </p>
             </div>
           )}
@@ -322,56 +472,108 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
       )}
 
       {activeTab === "agents" && (
-        <div className="space-y-2">
+        <div
+          ref={scrollRef}
+          className="max-h-[600px] space-y-1.5 overflow-y-auto"
+        >
           {agentLogs.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
-              <p className="text-sm text-white/40">No agent activity yet.</p>
+              <p className="text-sm text-white/40">
+                {isTriaging ? "Waiting for agent activity..." : "No agent activity yet."}
+              </p>
+              {isTriaging && (
+                <div className="mt-3 flex items-center justify-center">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+                </div>
+              )}
             </div>
           ) : (
-            agentLogs.map((log) => {
-              const dotColor =
-                log.status === "completed" ? "bg-emerald-400" :
-                log.status === "started" ? "bg-blue-400" :
-                log.status === "error" ? "bg-red-400" :
-                "bg-white/30";
+            <>
+              {agentLogs.map((log, index) => {
+                const isThinking = log.status === "thinking";
+                const dotColor =
+                  log.status === "completed" ? "bg-emerald-400" :
+                  log.status === "started" ? "bg-blue-400" :
+                  log.status === "error" ? "bg-red-400" :
+                  isThinking ? "bg-amber-400" :
+                  "bg-white/30";
 
-              return (
-                <div
-                  key={log.id}
-                  className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
-                >
-                  <div className={cn("mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
-                    {(AGENT_NAMES[log.agent_name] ?? log.agent_name)
-                      .split(" ")
-                      .map((w) => w[0])
-                      .join("")
-                      .slice(0, 2)}
+                const isLatest = index === agentLogs.length - 1 && isTriaging;
+
+                return (
+                  <div
+                    key={log.id}
+                    className={cn(
+                      "flex items-start gap-3 rounded-xl px-4 py-3 transition-all",
+                      isThinking
+                        ? "border border-amber-500/10 bg-amber-500/[0.03]"
+                        : "border border-white/10 bg-white/[0.02]",
+                      isLatest && "ring-1 ring-[#6366f1]/30",
+                    )}
+                  >
+                    <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
+                      {(AGENT_NAMES[log.agent_name] ?? log.agent_name)
+                        .split(" ")
+                        .map((w) => w[0])
+                        .join("")
+                        .slice(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium text-white">
+                          {AGENT_NAMES[log.agent_name] ?? log.agent_name}
+                        </p>
+                        <span className="text-[9px] text-white/30">
+                          {AGENT_ROLES[log.agent_name] ?? log.agent_role}
+                        </span>
+                        <span className={cn(
+                          "inline-block h-1.5 w-1.5 rounded-full",
+                          dotColor,
+                          isLatest && isThinking && "animate-pulse",
+                        )} />
+                        <span className={cn(
+                          "text-[9px]",
+                          isThinking ? "text-amber-400/60" : "text-white/30",
+                        )}>
+                          {log.status}
+                        </span>
+                        {log.duration_ms != null && (
+                          <span className="text-[9px] text-white/20">{log.duration_ms}ms</span>
+                        )}
+                      </div>
+                      {log.output_summary && (
+                        <p className={cn(
+                          "mt-1 text-xs leading-relaxed",
+                          isThinking ? "text-amber-200/50 italic" : "text-white/50",
+                        )}>
+                          {isThinking && "💭 "}
+                          {log.output_summary}
+                        </p>
+                      )}
+                      {log.input_summary && !log.output_summary && (
+                        <p className="mt-1 text-xs text-white/40">
+                          {log.input_summary}
+                        </p>
+                      )}
+                      {log.error_message && (
+                        <p className="mt-1 text-xs text-red-400/70">{log.error_message}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-[9px] text-white/20">
+                      {timeAgo(log.created_at)}
+                    </span>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-white">
-                        {AGENT_NAMES[log.agent_name] ?? log.agent_name}
-                      </p>
-                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
-                        {log.agent_role}
-                      </span>
-                      <span className={cn("inline-block h-1.5 w-1.5 rounded-full", dotColor)} />
-                      <span className="text-[10px] text-white/30">{log.status}</span>
-                    </div>
-                    {log.output_summary && (
-                      <p className="mt-1 text-xs text-white/50">{log.output_summary}</p>
-                    )}
-                    {log.error_message && (
-                      <p className="mt-1 text-xs text-red-400/70">{log.error_message}</p>
-                    )}
-                    <div className="mt-1 flex items-center gap-3 text-[10px] text-white/30">
-                      <span>{timeAgo(log.created_at)}</span>
-                      {log.duration_ms != null && <span>{log.duration_ms}ms</span>}
-                    </div>
+                );
+              })}
+              {isTriaging && (
+                <div className="flex items-center justify-center py-3">
+                  <div className="flex items-center gap-2 text-xs text-white/30">
+                    <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/60" />
+                    Agents are working...
                   </div>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       )}

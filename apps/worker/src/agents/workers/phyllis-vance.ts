@@ -1,6 +1,7 @@
 import type { MemoryMatch } from "@triageit/shared";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
+import { parseLlmJson } from "../parse-json.js";
 
 /**
  * Phyllis Vance — Email & DNS Diagnostics (MX Toolbox)
@@ -59,7 +60,7 @@ Respond with ONLY valid JSON:
 
     const text =
       response.content[0].type === "text" ? response.content[0].text : "{}";
-    const result = JSON.parse(text) as Record<string, unknown>;
+    const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
       summary: (result.email_notes as string) ?? "No email/DNS data found",

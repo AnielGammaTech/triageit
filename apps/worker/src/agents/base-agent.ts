@@ -192,6 +192,20 @@ export abstract class BaseAgent {
   }
 
   /**
+   * Log a thinking step — visible in real-time in the UI.
+   * Use this to show the agent's reasoning as it works.
+   */
+  async logThinking(ticketId: string, thought: string): Promise<void> {
+    await this.supabase.from("agent_logs").insert({
+      ticket_id: ticketId,
+      agent_name: this.definition.name,
+      agent_role: this.definition.role,
+      status: "thinking",
+      output_summary: thought,
+    });
+  }
+
+  /**
    * Log agent execution to the database.
    */
   private async log(

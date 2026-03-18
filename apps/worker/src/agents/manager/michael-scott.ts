@@ -1,30 +1,46 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Ticket } from "@triageit/shared";
+import type { Ticket, AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { HaloConfig } from "@triageit/shared";
+import {
+  createAgent,
+  getAgentsForClassification,
+} from "../registry.js";
+// AgentResult used internally by specialist agents via registry
+
+// ── System Prompt ────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage.
 
-You have just received the classification results from Ryan Howard (your classifier agent) for a support ticket. Your job is to:
+You have received the classification from Ryan Howard AND specialist findings from your team of agents. Your job is to:
 
-1. Review Ryan's classification and adjust if needed
-2. Synthesize all findings into clear internal notes for the technician
-3. Suggest which team should handle this ticket
-4. Write a brief internal summary
+1. Review Ryan's classification and all specialist findings
+2. Synthesize EVERYTHING into comprehensive, actionable technician notes
+3. Identify the root cause hypothesis based on all evidence
+4. Provide specific troubleshooting steps the tech should follow
+5. Flag anything the tech needs to know before touching this ticket
+6. Suggest which team should handle this and why
+
+Think deeply. The technician depends on your analysis to work efficiently.
 
 ## Output Format
 Respond with ONLY valid JSON, no markdown:
 {
   "recommended_team": "<team name: Network, Security, Endpoint, Cloud, Identity, Email, Application, General>",
   "recommended_agent": "<specific technician if known, null otherwise>",
-  "internal_notes": "<comprehensive internal notes for the assigned technician>",
-  "suggested_response": "<brief client-facing acknowledgment if appropriate, null if not needed>",
-  "adjustments": "<any adjustments to Ryan's classification, null if none>"
+  "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
+  "internal_notes": "<comprehensive internal notes: include root cause analysis, all evidence from specialists, step-by-step troubleshooting plan, what to check first, what tools to use, and any gotchas>",
+  "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
+  "adjustments": "<any adjustments to Ryan's classification, null if none>",
+  "escalation_needed": <true/false>,
+  "escalation_reason": "<why escalation is needed, null if not>"
 }`;
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 async function getHaloConfig(
   supabase: SupabaseClient,
@@ -51,6 +67,35 @@ function buildTriageContext(ticket: Ticket): TriageContext {
   };
 }
 
+async function logThinking(
+  supabase: SupabaseClient,
+  ticketId: string,
+  agentName: string,
+  agentRole: string,
+  thought: string,
+): Promise<void> {
+  await supabase.from("agent_logs").insert({
+    ticket_id: ticketId,
+    agent_name: agentName,
+    agent_role: agentRole,
+    status: "thinking",
+    output_summary: thought,
+  });
+}
+
+// ── Agent name to display label ──────────────────────────────────────
+
+const AGENT_LABELS: Record<string, string> = {
+  dwight_schrute: "Dwight Schrute (Documentation)",
+  jim_halpert: "Jim Halpert (Identity)",
+  andy_bernard: "Andy Bernard (Endpoint/RMM)",
+  stanley_hudson: "Stanley Hudson (Cloud)",
+  phyllis_vance: "Phyllis Vance (Email/DNS)",
+  angela_martin: "Angela Martin (Security)",
+};
+
+// ── Main Triage Pipeline ─────────────────────────────────────────────
+
 export async function runTriage(
   ticket: Ticket,
   supabase: SupabaseClient,
@@ -58,7 +103,8 @@ export async function runTriage(
   const startTime = Date.now();
   const context = buildTriageContext(ticket);
 
-  // Log Michael starting
+  // ── Step 1: Michael starts ─────────────────────────────────────────
+
   await supabase.from("agent_logs").insert({
     ticket_id: ticket.id,
     agent_name: "michael_scott",
@@ -67,7 +113,16 @@ export async function runTriage(
     input_summary: `Triaging ticket #${ticket.halo_id}: ${ticket.summary}`,
   });
 
-  // Step 1: Ryan classifies the ticket
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Received ticket #${ticket.halo_id} from ${ticket.client_name ?? "unknown client"}. Starting triage — sending to Ryan Howard for classification first.`,
+  );
+
+  // ── Step 2: Ryan classifies ────────────────────────────────────────
+
   await supabase.from("agent_logs").insert({
     ticket_id: ticket.id,
     agent_name: "ryan_howard",
@@ -89,8 +144,104 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
-  // Step 2: Michael synthesizes and makes final decisions
+  // ── Step 3: Michael analyzes classification & picks specialists ────
+
+  const classType = classification.classification.type;
+  const specialistNames = getAgentsForClassification(classType);
+
+  // Always include Angela Martin for security assessment
+  const allSpecialists = classification.security_flag
+    ? [...new Set([...specialistNames, "angela_martin"])]
+    : specialistNames;
+
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Ryan classified as ${classType}/${classification.classification.subtype} (${(classification.classification.confidence * 100).toFixed(0)}% confidence), urgency ${classification.urgency_score}/5. ${classification.security_flag ? "⚠ SECURITY FLAG raised — deploying Angela Martin for security assessment." : ""} Deploying specialist agents: ${allSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}.`,
+  );
+
+  // ── Step 4: Run specialist agents in parallel ──────────────────────
+
+  const findings: Record<string, AgentFinding> = {
+    ryan_howard: {
+      agent_name: "ryan_howard",
+      summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
+      data: classification as unknown as Record<string, unknown>,
+      confidence: classification.classification.confidence,
+    },
+  };
+
+  const workerTokens: Record<string, number> = { ryan_howard: 0 };
+
+  const specialistResults = await Promise.allSettled(
+    allSpecialists.map(async (agentName) => {
+      const agent = createAgent(agentName, supabase);
+      if (!agent) {
+        await supabase.from("agent_logs").insert({
+          ticket_id: ticket.id,
+          agent_name: agentName,
+          agent_role: "worker",
+          status: "skipped",
+          output_summary: "Agent implementation not available",
+        });
+        return { agentName, result: null };
+      }
+
+      try {
+        const result = await agent.execute(context);
+        return { agentName, result };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error(`[MICHAEL] Specialist ${agentName} failed:`, message);
+        return { agentName, result: null };
+      }
+    }),
+  );
+
+  // Collect all specialist findings
+  for (const settled of specialistResults) {
+    if (settled.status === "fulfilled" && settled.value.result) {
+      const { agentName, result } = settled.value;
+      findings[agentName] = {
+        agent_name: agentName,
+        summary: result.summary,
+        data: result.data,
+        confidence: result.confidence,
+      };
+      workerTokens[agentName] = 0; // Token tracking per agent TBD
+    }
+  }
+
+  const successfulSpecialists = Object.keys(findings).filter(
+    (k) => k !== "ryan_howard",
+  );
+
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `${successfulSpecialists.length} specialist agents completed: ${successfulSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}. Now synthesizing all findings into final triage decision.`,
+  );
+
+  // ── Step 5: Michael synthesizes ALL findings ───────────────────────
+
   const client = new Anthropic();
+
+  const specialistSections = Object.entries(findings)
+    .map(([name, finding]) => {
+      const label = AGENT_LABELS[name] ?? name;
+      return [
+        `## ${label}'s Findings`,
+        `**Summary:** ${finding.summary}`,
+        `**Confidence:** ${(finding.confidence * 100).toFixed(0)}%`,
+        `**Data:** ${JSON.stringify(finding.data, null, 2)}`,
+      ].join("\n");
+    })
+    .join("\n\n");
 
   const michaelMessage = [
     `## Ticket #${context.haloId}`,
@@ -98,6 +249,9 @@ export async function runTriage(
     context.details ? `**Description:** ${context.details}` : "",
     context.clientName ? `**Client:** ${context.clientName}` : "",
     context.userName ? `**Reported By:** ${context.userName}` : "",
+    context.originalPriority
+      ? `**Original Priority:** P${context.originalPriority}`
+      : "",
     "",
     "## Ryan Howard's Classification",
     `**Type:** ${classification.classification.type} / ${classification.classification.subtype}`,
@@ -107,15 +261,17 @@ export async function runTriage(
     `**Recommended Priority:** P${classification.recommended_priority}`,
     `**Entities Found:** ${classification.entities.join(", ") || "None"}`,
     classification.security_flag
-      ? `**SECURITY FLAG:** ${classification.security_notes}`
+      ? `**⚠ SECURITY FLAG:** ${classification.security_notes}`
       : "",
+    "",
+    specialistSections,
   ]
     .filter(Boolean)
     .join("\n");
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 2048,
+    max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: michaelMessage }],
   });
@@ -125,27 +281,136 @@ export async function runTriage(
   const michaelResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
+    root_cause_hypothesis: string;
     internal_notes: string;
     suggested_response: string | null;
     adjustments: string | null;
+    escalation_needed: boolean;
+    escalation_reason: string | null;
   }>(text);
 
   const processingTime = Date.now() - startTime;
 
-  // Step 3: Write back to Halo if configured
+  // ── Step 6: Write comprehensive note to Halo ───────────────────────
+
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
     try {
-      const securityHtml = classification.security_flag
-        ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#ef4444;border-bottom:1px solid #374151;">⚠ SECURITY ALERT</td><td style="padding:6px 12px;color:#ef4444;border-bottom:1px solid #374151;">${classification.security_notes}</td></tr>`
-        : "";
+      const internalNote = buildHaloNote(
+        classification,
+        michaelResult,
+        findings,
+        processingTime,
+      );
+      await halo.addInternalNote(ticket.halo_id, internalNote);
+    } catch (error) {
+      console.error(
+        `[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`,
+        error,
+      );
+    }
+  }
 
-      const internalNote = `<div style="font-family:Segoe UI,Roboto,sans-serif;max-width:640px;">
+  // ── Step 7: Final thinking + completed log ─────────────────────────
+
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Triage complete. Root cause hypothesis: ${michaelResult.root_cause_hypothesis}. Routing to ${michaelResult.recommended_team} team.${michaelResult.escalation_needed ? ` ⚠ ESCALATION NEEDED: ${michaelResult.escalation_reason}` : ""}`,
+  );
+
+  await supabase.from("agent_logs").insert({
+    ticket_id: ticket.id,
+    agent_name: "michael_scott",
+    agent_role: "manager",
+    status: "completed",
+    output_summary: `Team: ${michaelResult.recommended_team}, Priority: P${classification.recommended_priority}, Agents used: ${Object.keys(findings).length}`,
+    duration_ms: processingTime,
+  });
+
+  // ── Return triage output ───────────────────────────────────────────
+
+  const triageId = crypto.randomUUID();
+
+  return {
+    id: triageId,
+    ticket_id: ticket.id,
+    classification: classification.classification,
+    urgency_score: classification.urgency_score,
+    urgency_reasoning: classification.urgency_reasoning,
+    recommended_priority: classification.recommended_priority,
+    recommended_team: michaelResult.recommended_team,
+    recommended_agent: michaelResult.recommended_agent,
+    security_flag: classification.security_flag,
+    security_notes: classification.security_notes,
+    findings,
+    suggested_response: michaelResult.suggested_response,
+    internal_notes: michaelResult.internal_notes,
+    processing_time_ms: processingTime,
+    model_tokens_used: {
+      manager: response.usage.input_tokens + response.usage.output_tokens,
+      workers: workerTokens,
+    },
+  };
+}
+
+// ── Halo Note Builder ────────────────────────────────────────────────
+
+function buildHaloNote(
+  classification: {
+    classification: { type: string; subtype: string; confidence: number };
+    urgency_score: number;
+    urgency_reasoning: string;
+    recommended_priority: number;
+    security_flag: boolean;
+    security_notes: string | null;
+    entities: ReadonlyArray<string>;
+  },
+  michaelResult: {
+    recommended_team: string;
+    root_cause_hypothesis: string;
+    internal_notes: string;
+    escalation_needed: boolean;
+    escalation_reason: string | null;
+  },
+  findings: Record<string, AgentFinding>,
+  processingTime: number,
+): string {
+  const securityRow = classification.security_flag
+    ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;">⚠ Security Alert</td><td style="padding:6px 12px;color:#ef4444;border-bottom:1px solid #e2e8f0;">${classification.security_notes}</td></tr>`
+    : "";
+
+  const escalationRow = michaelResult.escalation_needed
+    ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;">⬆ Escalation</td><td style="padding:6px 12px;color:#f59e0b;border-bottom:1px solid #e2e8f0;">${michaelResult.escalation_reason}</td></tr>`
+    : "";
+
+  const entitiesRow =
+    classification.entities.length > 0
+      ? `<tr style="background:#f8fafc;"><td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Entities Detected</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.entities.join(", ")}</td></tr>`
+      : "";
+
+  // Build specialist findings sections
+  const specialistHtml = Object.entries(findings)
+    .filter(([name]) => name !== "ryan_howard")
+    .map(([name, finding]) => {
+      const label = AGENT_LABELS[name] ?? name;
+      return `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:8px 12px;margin-bottom:8px;border-radius:0 4px 4px 0;">
+  <div style="font-weight:600;font-size:13px;color:#475569;margin-bottom:4px;">${label}</div>
+  <div style="color:#334155;font-size:12px;line-height:1.5;">${finding.summary}</div>
+</div>`;
+    })
+    .join("\n");
+
+  const agentCount = Object.keys(findings).length;
+
+  return `<div style="font-family:Segoe UI,Roboto,sans-serif;max-width:680px;">
 <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
   <tr style="background:#1e293b;">
     <td colspan="2" style="padding:10px 14px;color:#f8fafc;font-size:15px;font-weight:600;border-radius:6px 6px 0 0;">
-      🤖 AI Triage Summary — TriageIt
+      🤖 AI Triage Summary — TriageIt <span style="font-weight:400;font-size:12px;opacity:0.7;">(${agentCount} agents)</span>
     </td>
   </tr>
   <tr style="background:#f8fafc;">
@@ -164,63 +429,23 @@ export async function runTriage(
     <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Recommended Team</td>
     <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${michaelResult.recommended_team}</td>
   </tr>
-  ${securityHtml}
+  ${entitiesRow}
+  ${securityRow}
+  ${escalationRow}
 </table>
 
-<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
-  <div style="font-weight:600;margin-bottom:6px;color:#1e40af;">📋 Technician Notes</div>
-  <div style="color:#334155;line-height:1.6;">${michaelResult.internal_notes}</div>
+<div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
+  <div style="font-weight:600;margin-bottom:4px;color:#92400e;font-size:13px;">🔍 Root Cause Hypothesis</div>
+  <div style="color:#78350f;line-height:1.5;font-size:13px;">${michaelResult.root_cause_hypothesis}</div>
 </div>
 
-<div style="color:#94a3b8;font-size:12px;text-align:right;">Processed in ${processingTime}ms by TriageIt</div>
+<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
+  <div style="font-weight:600;margin-bottom:6px;color:#1e40af;font-size:13px;">📋 Technician Notes</div>
+  <div style="color:#334155;line-height:1.6;font-size:13px;">${michaelResult.internal_notes}</div>
+</div>
+
+${specialistHtml ? `<div style="margin-bottom:12px;"><div style="font-weight:600;font-size:13px;color:#475569;margin-bottom:8px;">🔬 Specialist Findings</div>${specialistHtml}</div>` : ""}
+
+<div style="color:#94a3b8;font-size:11px;text-align:right;border-top:1px solid #e2e8f0;padding-top:8px;">Processed in ${processingTime}ms by TriageIt · ${agentCount} agents deployed</div>
 </div>`;
-
-      await halo.addInternalNote(ticket.halo_id, internalNote);
-    } catch (error) {
-      console.error(
-        `[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`,
-        error,
-      );
-    }
-  }
-
-  // Log Michael completed
-  await supabase.from("agent_logs").insert({
-    ticket_id: ticket.id,
-    agent_name: "michael_scott",
-    agent_role: "manager",
-    status: "completed",
-    output_summary: `Team: ${michaelResult.recommended_team}, Priority: P${classification.recommended_priority}`,
-    duration_ms: processingTime,
-  });
-
-  const triageId = crypto.randomUUID();
-
-  return {
-    id: triageId,
-    ticket_id: ticket.id,
-    classification: classification.classification,
-    urgency_score: classification.urgency_score,
-    urgency_reasoning: classification.urgency_reasoning,
-    recommended_priority: classification.recommended_priority,
-    recommended_team: michaelResult.recommended_team,
-    recommended_agent: michaelResult.recommended_agent,
-    security_flag: classification.security_flag,
-    security_notes: classification.security_notes,
-    findings: {
-      ryan_howard: {
-        agent_name: "ryan_howard",
-        summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
-        data: classification as unknown as Record<string, unknown>,
-        confidence: classification.classification.confidence,
-      },
-    },
-    suggested_response: michaelResult.suggested_response,
-    internal_notes: michaelResult.internal_notes,
-    processing_time_ms: processingTime,
-    model_tokens_used: {
-      manager: response.usage.input_tokens + response.usage.output_tokens,
-      workers: { ryan_howard: 0 },
-    },
-  };
 }
