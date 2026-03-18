@@ -1,4 +1,4 @@
-export interface AdminSection {
+export interface AdminMenuItem {
   readonly id: string;
   readonly label: string;
   readonly desc: string;
@@ -15,12 +15,14 @@ export interface IntegrationItem {
   readonly iconColor: string;
 }
 
-export const ADMIN_SECTIONS: ReadonlyArray<{
-  readonly category: string;
-  readonly items: ReadonlyArray<AdminSection>;
-}> = [
+export interface MenuGroup {
+  readonly title: string;
+  readonly items: ReadonlyArray<AdminMenuItem>;
+}
+
+export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
   {
-    category: "People",
+    title: "People",
     items: [
       {
         id: "users",
@@ -32,7 +34,7 @@ export const ADMIN_SECTIONS: ReadonlyArray<{
     ],
   },
   {
-    category: "Appearance",
+    title: "Appearance",
     items: [
       {
         id: "branding",
@@ -44,7 +46,19 @@ export const ADMIN_SECTIONS: ReadonlyArray<{
     ],
   },
   {
-    category: "Triage Settings",
+    title: "Integrations",
+    items: [
+      {
+        id: "integrations",
+        label: "Integrations",
+        desc: "PSA, RMM, identity & cloud services",
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-400",
+      },
+    ],
+  },
+  {
+    title: "Triage Settings",
     items: [
       {
         id: "triage-rules",
@@ -76,8 +90,8 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
         label: "Halo PSA",
         desc: "Ticket intake, triage output, and internal notes",
         service: "halo",
-        iconBg: "bg-blue-500/10",
-        iconColor: "text-blue-400",
+        iconBg: "bg-indigo-500/10",
+        iconColor: "text-indigo-400",
       },
     ],
   },
@@ -95,6 +109,64 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
     ],
   },
   {
+    category: "RMM & Security",
+    items: [
+      {
+        id: "datto",
+        label: "Datto RMM",
+        desc: "Device monitoring, alerts, and patch compliance",
+        service: "datto",
+        iconBg: "bg-blue-500/10",
+        iconColor: "text-blue-400",
+      },
+      {
+        id: "datto-edr",
+        label: "Datto EDR",
+        desc: "Endpoint detection & response",
+        service: "datto-edr",
+        iconBg: "bg-cyan-500/10",
+        iconColor: "text-cyan-400",
+      },
+      {
+        id: "rocketcyber",
+        label: "RocketCyber SOC",
+        desc: "Security incidents and alerts",
+        service: "rocketcyber",
+        iconBg: "bg-orange-500/10",
+        iconColor: "text-orange-400",
+      },
+      {
+        id: "unifi",
+        label: "UniFi Network",
+        desc: "Sync firewalls and network devices",
+        service: "unifi",
+        iconBg: "bg-sky-500/10",
+        iconColor: "text-sky-400",
+      },
+      {
+        id: "vpentest",
+        label: "vPenTest",
+        desc: "Automated network penetration testing",
+        service: "vpentest",
+        iconBg: "bg-rose-500/10",
+        iconColor: "text-rose-400",
+      },
+    ],
+  },
+  {
+    category: "SaaS Security",
+    items: [
+      {
+        id: "saas-alerts",
+        label: "SaaS Alerts",
+        desc: "Monitor SaaS app security events",
+        service: "saas-alerts",
+        iconBg: "bg-violet-500/10",
+        iconColor: "text-violet-400",
+      },
+    ],
+  },
+  {
     category: "Identity & Access",
     items: [
       {
@@ -108,28 +180,65 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
     ],
   },
   {
-    category: "RMM & Monitoring",
+    category: "Backup & Recovery",
     items: [
       {
-        id: "datto",
-        label: "Datto RMM",
-        desc: "Device monitoring, alerts, and patch compliance",
-        service: "datto",
-        iconBg: "bg-sky-500/10",
-        iconColor: "text-sky-400",
+        id: "unitrends",
+        label: "Unitrends",
+        desc: "Sync backup data from Unitrends MSP",
+        service: "unitrends",
+        iconBg: "bg-purple-500/10",
+        iconColor: "text-purple-400",
+      },
+      {
+        id: "cove",
+        label: "Cove Data Protection",
+        desc: "Sync backup devices from N-able Cove",
+        service: "cove",
+        iconBg: "bg-teal-500/10",
+        iconColor: "text-teal-400",
       },
     ],
   },
   {
-    category: "Cloud Infrastructure",
+    category: "Marketplace & Licensing",
     items: [
       {
-        id: "vultr",
-        label: "Vultr",
-        desc: "Server status, bandwidth, DNS, and firewalls",
-        service: "vultr",
-        iconBg: "bg-indigo-500/10",
-        iconColor: "text-indigo-400",
+        id: "pax8",
+        label: "Pax8",
+        desc: "Microsoft 365, Azure & cloud subscriptions",
+        service: "pax8",
+        iconBg: "bg-pink-500/10",
+        iconColor: "text-pink-400",
+      },
+    ],
+  },
+  {
+    category: "Security Awareness",
+    items: [
+      {
+        id: "darkweb",
+        label: "Dark Web ID",
+        desc: "Monitor dark web compromises",
+        service: "darkweb",
+        iconBg: "bg-red-500/10",
+        iconColor: "text-red-400",
+      },
+      {
+        id: "bullphish",
+        label: "BullPhish ID",
+        desc: "Phishing simulation reports",
+        service: "bullphish",
+        iconBg: "bg-orange-500/10",
+        iconColor: "text-orange-400",
+      },
+      {
+        id: "inky",
+        label: "Inky",
+        desc: "Email protection reports",
+        service: "inky",
+        iconBg: "bg-blue-500/10",
+        iconColor: "text-blue-400",
       },
     ],
   },
@@ -143,6 +252,48 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
         service: "mxtoolbox",
         iconBg: "bg-orange-500/10",
         iconColor: "text-orange-400",
+      },
+      {
+        id: "dmarc",
+        label: "DMARC Report",
+        desc: "Domain DMARC compliance monitoring",
+        service: "dmarc",
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-400",
+      },
+    ],
+  },
+  {
+    category: "VoIP & Cloud",
+    items: [
+      {
+        id: "threecx",
+        label: "3CX",
+        desc: "Per-customer VoIP extension sync",
+        service: "threecx",
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-400",
+      },
+      {
+        id: "vultr",
+        label: "Vultr",
+        desc: "Server status, bandwidth, DNS, and firewalls",
+        service: "vultr",
+        iconBg: "bg-indigo-500/10",
+        iconColor: "text-indigo-400",
+      },
+    ],
+  },
+  {
+    category: "AI & Automation",
+    items: [
+      {
+        id: "ai-provider",
+        label: "AI Provider",
+        desc: "AI model selection for triage agents",
+        service: "ai-provider",
+        iconBg: "bg-amber-500/10",
+        iconColor: "text-amber-400",
       },
     ],
   },

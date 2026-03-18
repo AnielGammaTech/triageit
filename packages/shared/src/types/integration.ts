@@ -3,8 +3,22 @@ export type ServiceType =
   | "hudu"
   | "jumpcloud"
   | "datto"
+  | "datto-edr"
+  | "rocketcyber"
+  | "unifi"
+  | "vpentest"
+  | "saas-alerts"
+  | "unitrends"
+  | "cove"
+  | "pax8"
+  | "darkweb"
+  | "bullphish"
+  | "inky"
   | "vultr"
-  | "mxtoolbox";
+  | "mxtoolbox"
+  | "dmarc"
+  | "threecx"
+  | "ai-provider";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
@@ -50,13 +64,25 @@ export interface MxToolboxConfig {
   readonly api_key: string;
 }
 
+export interface GenericApiKeyConfig {
+  readonly api_key: string;
+}
+
+export interface GenericApiUrlKeyConfig {
+  readonly api_url: string;
+  readonly api_key: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
   | JumpCloudConfig
   | DattoConfig
   | VultrConfig
-  | MxToolboxConfig;
+  | MxToolboxConfig
+  | GenericApiKeyConfig
+  | GenericApiUrlKeyConfig
+  | Record<string, string>;
 
 export interface IntegrationConfigField {
   readonly key: string;

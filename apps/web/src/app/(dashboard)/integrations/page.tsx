@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function IntegrationsPage() {
-  redirect("/adminland?section=halo");
+  redirect("/adminland?section=integrations");
 }

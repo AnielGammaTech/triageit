@@ -60,21 +60,6 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     ],
   },
   {
-    service: "jumpcloud",
-    display_name: "JumpCloud",
-    description:
-      "Directory & IAM platform. Provides user identity, MFA status, device associations, and group policies.",
-    fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "password",
-        placeholder: "Your JumpCloud API Key",
-        required: true,
-      },
-    ],
-  },
-  {
     service: "datto",
     display_name: "Datto RMM",
     description:
@@ -104,16 +89,237 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     ],
   },
   {
-    service: "vultr",
-    display_name: "Vultr",
+    service: "datto-edr",
+    display_name: "Datto EDR",
     description:
-      "Cloud hosting platform. Provides server status, bandwidth metrics, DNS, and firewall configuration.",
+      "Endpoint detection & response. Monitors endpoint threats, suspicious processes, and lateral movement.",
+    fields: [
+      {
+        key: "api_url",
+        label: "API URL",
+        type: "url",
+        placeholder: "https://edr-api.datto.com",
+        required: true,
+      },
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Datto EDR API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "rocketcyber",
+    display_name: "RocketCyber SOC",
+    description:
+      "Managed SOC platform. Provides security incidents, alerts, and threat intelligence.",
     fields: [
       {
         key: "api_key",
         label: "API Key",
         type: "password",
-        placeholder: "Your Vultr API Key",
+        placeholder: "Your RocketCyber API Key",
+        required: true,
+      },
+      {
+        key: "msp_account_id",
+        label: "MSP Account ID",
+        type: "text",
+        placeholder: "Your MSP Account ID",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "unifi",
+    display_name: "UniFi Network",
+    description:
+      "Network infrastructure. Sync firewalls, switches, access points, and client devices.",
+    fields: [
+      {
+        key: "controller_url",
+        label: "Controller URL",
+        type: "url",
+        placeholder: "https://unifi.your-domain.com",
+        required: true,
+      },
+      {
+        key: "username",
+        label: "Username",
+        type: "text",
+        placeholder: "UniFi controller username",
+        required: true,
+      },
+      {
+        key: "password",
+        label: "Password",
+        type: "password",
+        placeholder: "UniFi controller password",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "vpentest",
+    display_name: "vPenTest",
+    description:
+      "Automated network penetration testing. Provides vulnerability assessment and compliance reports.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your vPenTest API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "saas-alerts",
+    display_name: "SaaS Alerts",
+    description:
+      "SaaS security monitoring. Detects unusual user behavior, unauthorized access, and data exfiltration.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your SaaS Alerts API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "jumpcloud",
+    display_name: "JumpCloud",
+    description:
+      "Directory & IAM platform. Provides user identity, MFA status, device associations, and group policies.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your JumpCloud API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "unitrends",
+    display_name: "Unitrends",
+    description:
+      "Backup & disaster recovery. Sync backup job status, protected assets, and recovery points.",
+    fields: [
+      {
+        key: "api_url",
+        label: "API URL",
+        type: "url",
+        placeholder: "https://api.unitrends.com",
+        required: true,
+      },
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Unitrends API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "cove",
+    display_name: "Cove Data Protection",
+    description:
+      "Cloud backup monitoring from N-able Cove. Sync backup devices, job status, and storage usage.",
+    fields: [
+      {
+        key: "api_url",
+        label: "API URL",
+        type: "url",
+        placeholder: "https://api.backup.management",
+        required: true,
+      },
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Cove API Key",
+        required: true,
+      },
+      {
+        key: "partner_id",
+        label: "Partner ID",
+        type: "text",
+        placeholder: "Your partner/MSP ID",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "pax8",
+    display_name: "Pax8",
+    description:
+      "Cloud marketplace. Sync Microsoft 365, Azure, and other cloud subscription data.",
+    fields: [
+      {
+        key: "client_id",
+        label: "Client ID",
+        type: "text",
+        placeholder: "Your Pax8 Client ID",
+        required: true,
+      },
+      {
+        key: "client_secret",
+        label: "Client Secret",
+        type: "password",
+        placeholder: "Your Pax8 Client Secret",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "darkweb",
+    display_name: "Dark Web ID",
+    description:
+      "Dark web monitoring. Detects compromised credentials and personal data on the dark web.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Dark Web ID API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "bullphish",
+    display_name: "BullPhish ID",
+    description:
+      "Phishing simulation & security awareness training. Track campaign results and user susceptibility.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your BullPhish ID API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "inky",
+    display_name: "Inky",
+    description:
+      "Email protection platform. Provides phishing detection, impersonation alerts, and email threat reports.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Inky API Key",
         required: true,
       },
     ],
@@ -130,6 +336,87 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
         type: "password",
         placeholder: "Your MX Toolbox API Key",
         required: true,
+      },
+    ],
+  },
+  {
+    service: "dmarc",
+    display_name: "DMARC Report",
+    description:
+      "Domain DMARC compliance monitoring. Aggregate and forensic report analysis.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your DMARC Report API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "threecx",
+    display_name: "3CX",
+    description:
+      "VoIP phone system. Per-customer extension sync, call logs, and system status.",
+    fields: [
+      {
+        key: "api_url",
+        label: "API URL",
+        type: "url",
+        placeholder: "https://your-3cx.example.com",
+        required: true,
+      },
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your 3CX API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "vultr",
+    display_name: "Vultr",
+    description:
+      "Cloud hosting platform. Provides server status, bandwidth metrics, DNS, and firewall configuration.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Vultr API Key",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "ai-provider",
+    display_name: "AI Provider",
+    description:
+      "Configure the AI model used for triage agents. Choose between Claude and other providers.",
+    fields: [
+      {
+        key: "provider",
+        label: "Provider",
+        type: "text",
+        placeholder: "claude or openai",
+        required: true,
+      },
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your AI provider API Key",
+        required: true,
+      },
+      {
+        key: "model",
+        label: "Model (optional)",
+        type: "text",
+        placeholder: "e.g. claude-sonnet-4-20250514",
+        required: false,
       },
     ],
   },
