@@ -27,6 +27,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
   }
 
+  // Clear old triage data so the UI starts fresh
+  await supabase
+    .from("triage_results")
+    .delete()
+    .eq("ticket_id", body.ticket_id);
+
+  await supabase
+    .from("agent_logs")
+    .delete()
+    .eq("ticket_id", body.ticket_id);
+
   // Reset status to pending so worker picks it up fresh
   await supabase
     .from("tickets")
