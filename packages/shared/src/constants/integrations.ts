@@ -392,6 +392,50 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     ],
   },
   {
+    service: "twilio",
+    display_name: "Twilio",
+    description:
+      "Cloud communications platform. Provides call logs, SMS history, SIP trunking status, number management, and call quality metrics.",
+    fields: [
+      {
+        key: "account_sid",
+        label: "Account SID",
+        type: "text",
+        placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        required: true,
+      },
+      {
+        key: "auth_token",
+        label: "Auth Token",
+        type: "password",
+        placeholder: "Your Twilio Auth Token",
+        required: true,
+      },
+    ],
+  },
+  {
+    service: "spanning",
+    display_name: "Spanning Backup",
+    description:
+      "Cloud-to-cloud backup for Microsoft 365. Monitors backup status, user protection, error logs, and recovery points.",
+    fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Your Spanning API Key (Bearer token)",
+        required: true,
+      },
+      {
+        key: "region",
+        label: "Region",
+        type: "text",
+        placeholder: "us, eu, or ap",
+        required: true,
+      },
+    ],
+  },
+  {
     service: "ai-provider",
     display_name: "AI Provider",
     description:

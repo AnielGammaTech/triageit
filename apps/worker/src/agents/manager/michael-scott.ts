@@ -92,6 +92,8 @@ const AGENT_LABELS: Record<string, string> = {
   stanley_hudson: "Stanley Hudson (Cloud)",
   phyllis_vance: "Phyllis Vance (Email/DNS)",
   angela_martin: "Angela Martin (Security)",
+  meredith_palmer: "Meredith Palmer (Backup/Recovery)",
+  kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
 };
 
 // ── Main Triage Pipeline ─────────────────────────────────────────────
@@ -379,30 +381,60 @@ function buildHaloNote(
   findings: Record<string, AgentFinding>,
   processingTime: number,
 ): string {
-  const securityRow = classification.security_flag
-    ? `<tr><td style="padding:3px 8px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:10px;vertical-align:top;">⚠ Security</td><td style="padding:3px 8px;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:10px;line-height:1.3;">${classification.security_notes}</td></tr>`
-    : "";
-
-  const escalationRow = michaelResult.escalation_needed
-    ? `<tr><td style="padding:3px 8px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:10px;vertical-align:top;">⬆ Escalation</td><td style="padding:3px 8px;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:10px;line-height:1.3;">${michaelResult.escalation_reason}</td></tr>`
-    : "";
-
-  const entitiesRow =
-    classification.entities.length > 0
-      ? `<tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Entities</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.entities.join(", ")}</td></tr>`
-      : "";
-
-  // Build specialist findings as table rows
-  const specialistRows = Object.entries(findings)
-    .filter(([name]) => name !== "ryan_howard")
-    .map(([name, finding]) => {
-      const label = AGENT_LABELS[name] ?? name;
-      return `<tr><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:600;color:#475569;width:140px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#334155;line-height:1.3;">${finding.summary}</td></tr>`;
-    })
-    .join("");
-
   const agentCount = Object.keys(findings).length;
+  const td1 = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#64748b;"';
+  const td2 = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;"';
 
-  // Single continuous table — no gaps between sections
-  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:600px;border-collapse:collapse;font-size:11px;line-height:1.3;color:#334155;margin:0;padding:0;"><tr style="background:#1e293b;"><td colspan="2" style="padding:5px 8px;color:#f8fafc;font-size:11px;font-weight:600;">🤖 AI Triage — TriageIt <span style="font-weight:400;font-size:9px;opacity:0.6;">(${agentCount} agents · ${processingTime}ms)</span></td></tr><tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;width:140px;border-bottom:1px solid #e2e8f0;font-size:10px;">Classification</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.classification.type}/${classification.classification.subtype} <span style="color:#94a3b8;font-size:9px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr><tr><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Urgency</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td></tr><tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Priority</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;"><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>${entitiesRow}${securityRow}${escalationRow}<tr style="background:#fffbeb;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;color:#92400e;vertical-align:top;">🔍 Root Cause</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#78350f;line-height:1.3;">${michaelResult.root_cause_hypothesis}</td></tr><tr style="background:#f0f9ff;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;color:#1e40af;vertical-align:top;">📋 Tech Notes</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#334155;line-height:1.4;">${michaelResult.internal_notes}</td></tr>${specialistRows}<tr><td colspan="2" style="padding:3px 8px;color:#94a3b8;font-size:8px;text-align:right;">TriageIt AI · ${agentCount} agents</td></tr></table>`;
+  const rows: string[] = [];
+
+  // Header
+  rows.push(`<tr style="background:#1e293b;"><td colspan="2" style="padding:6px 8px;color:white;font-size:11px;font-weight:600;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:9px;opacity:0.7;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+
+  // Classification
+  rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Classification</td><td ${td2}>${classification.classification.type} / ${classification.classification.subtype} <span style="color:#94a3b8;font-size:9px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
+
+  // Urgency — score on its own, reasoning on next line
+  rows.push(`<tr><td ${td1}>Urgency</td><td ${td2}><strong>${classification.urgency_score}/5</strong></td></tr>`);
+  if (classification.urgency_reasoning) {
+    rows.push(`<tr style="background:#f8fafc;"><td ${td1} style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#94a3b8;width:110px;vertical-align:top;"></td><td style="padding:2px 8px 4px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#64748b;line-height:1.3;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
+  }
+
+  // Priority + Team
+  rows.push(`<tr><td ${td1}>Priority</td><td ${td2}><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
+
+  // Entities
+  if (classification.entities.length > 0) {
+    rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Entities</td><td ${td2}>${classification.entities.join(", ")}</td></tr>`);
+  }
+
+  // Security
+  if (classification.security_flag) {
+    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#dc2626;">⚠ Security</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#dc2626;line-height:1.4;word-break:break-word;">${classification.security_notes}</td></tr>`);
+  }
+
+  // Escalation
+  if (michaelResult.escalation_needed) {
+    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#d97706;">⬆ Escalation</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#d97706;line-height:1.4;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
+  }
+
+  // Root Cause — highlighted section
+  rows.push(`<tr style="background:#fefce8;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#854d0e;">🔍 Root Cause</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#713f12;line-height:1.4;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
+
+  // Tech Notes — highlighted section
+  rows.push(`<tr style="background:#eff6ff;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#1d4ed8;">📋 Tech Notes</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;">${michaelResult.internal_notes}</td></tr>`);
+
+  // Specialist findings
+  const specialists = Object.entries(findings).filter(([name]) => name !== "ryan_howard");
+  if (specialists.length > 0) {
+    rows.push(`<tr style="background:#f1f5f9;"><td colspan="2" style="padding:4px 8px;font-size:9px;font-weight:600;color:#64748b;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:0.5px;">Specialist Findings</td></tr>`);
+    for (const [name, finding] of specialists) {
+      const label = AGENT_LABELS[name] ?? name;
+      rows.push(`<tr><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;font-weight:600;color:#64748b;width:110px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;color:#475569;line-height:1.3;word-break:break-word;">${finding.summary}</td></tr>`);
+    }
+  }
+
+  // Footer
+  rows.push(`<tr><td colspan="2" style="padding:3px 8px;color:#94a3b8;font-size:8px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
+
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:620px;border-collapse:collapse;font-size:10px;color:#334155;margin:0;padding:0;border:1px solid #e5e7eb;">${rows.join("")}</table>`;
 }

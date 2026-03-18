@@ -85,6 +85,8 @@ const AGENT_COLORS: Record<string, string> = {
   stanley_hudson: "bg-sky-500",
   phyllis_vance: "bg-orange-500",
   angela_martin: "bg-red-500",
+  meredith_palmer: "bg-purple-500",
+  kelly_kapoor: "bg-fuchsia-500",
 };
 
 const AGENT_NAMES: Record<string, string> = {
@@ -97,6 +99,8 @@ const AGENT_NAMES: Record<string, string> = {
   stanley_hudson: "Stanley Hudson",
   phyllis_vance: "Phyllis Vance",
   angela_martin: "Angela Martin",
+  meredith_palmer: "Meredith Palmer",
+  kelly_kapoor: "Kelly Kapoor",
 };
 
 const AGENT_ROLES: Record<string, string> = {
@@ -109,6 +113,8 @@ const AGENT_ROLES: Record<string, string> = {
   stanley_hudson: "Cloud Infrastructure",
   phyllis_vance: "Email & DNS",
   angela_martin: "Security Assessment",
+  meredith_palmer: "Backup & Recovery",
+  kelly_kapoor: "VoIP & Telephony",
 };
 
 function timeAgo(dateStr: string): string {

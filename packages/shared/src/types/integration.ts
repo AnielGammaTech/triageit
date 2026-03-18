@@ -18,6 +18,8 @@ export type ServiceType =
   | "mxtoolbox"
   | "dmarc"
   | "threecx"
+  | "spanning"
+  | "twilio"
   | "ai-provider";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
@@ -64,6 +66,21 @@ export interface MxToolboxConfig {
   readonly api_key: string;
 }
 
+export interface SpanningConfig {
+  readonly api_key: string;
+  readonly region: string;
+}
+
+export interface ThreeCxConfig {
+  readonly api_url: string;
+  readonly api_key: string;
+}
+
+export interface TwilioConfig {
+  readonly account_sid: string;
+  readonly auth_token: string;
+}
+
 export interface GenericApiKeyConfig {
   readonly api_key: string;
 }
@@ -80,6 +97,9 @@ export type IntegrationConfig =
   | DattoConfig
   | VultrConfig
   | MxToolboxConfig
+  | SpanningConfig
+  | ThreeCxConfig
+  | TwilioConfig
   | GenericApiKeyConfig
   | GenericApiUrlKeyConfig
   | Record<string, string>;

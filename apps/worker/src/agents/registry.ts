@@ -9,6 +9,8 @@ import { AndyBernardAgent } from "./workers/andy-bernard.js";
 import { StanleyHudsonAgent } from "./workers/stanley-hudson.js";
 import { PhyllisVanceAgent } from "./workers/phyllis-vance.js";
 import { AngelaMartin } from "./workers/angela-martin.js";
+import { MeredithPalmerAgent } from "./workers/meredith-palmer.js";
+import { KellyKapoorAgent } from "./workers/kelly-kapoor.js";
 
 /**
  * Agent Registry — maps agent names to their implementations.
@@ -31,6 +33,8 @@ const AGENT_IMPLEMENTATIONS: Record<string, AgentConstructor> = {
   stanley_hudson: StanleyHudsonAgent,
   phyllis_vance: PhyllisVanceAgent,
   angela_martin: AngelaMartin,
+  meredith_palmer: MeredithPalmerAgent,
+  kelly_kapoor: KellyKapoorAgent,
 };
 
 /**
@@ -66,10 +70,14 @@ export function getAgentsForClassification(
   classificationType: string,
 ): ReadonlyArray<string> {
   const mapping: Record<string, ReadonlyArray<string>> = {
+    voip: ["kelly_kapoor"],
+    telephony: ["kelly_kapoor"],
+    phone: ["kelly_kapoor"],
     network: ["andy_bernard", "stanley_hudson"],
     email: ["phyllis_vance", "dwight_schrute"],
     endpoint: ["andy_bernard", "dwight_schrute"],
-    cloud: ["stanley_hudson"],
+    cloud: ["stanley_hudson", "meredith_palmer"],
+    backup: ["meredith_palmer"],
     security: ["angela_martin", "jim_halpert"],
     identity: ["jim_halpert"],
     application: ["dwight_schrute"],
