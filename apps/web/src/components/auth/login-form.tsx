@@ -28,10 +28,11 @@ export function LoginForm() {
         return;
       }
 
-      router.push("/tickets");
+      // Refresh server session first, then navigate
       router.refresh();
-    } catch {
-      setError("Unable to connect to authentication service. Please try again.");
+      router.push("/tickets");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
