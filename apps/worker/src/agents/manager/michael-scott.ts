@@ -380,68 +380,29 @@ function buildHaloNote(
   processingTime: number,
 ): string {
   const securityRow = classification.security_flag
-    ? `<tr><td style="padding:4px 8px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:11px;">⚠ Security</td><td style="padding:4px 8px;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.security_notes}</td></tr>`
+    ? `<tr><td style="padding:3px 8px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:10px;vertical-align:top;">⚠ Security</td><td style="padding:3px 8px;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:10px;line-height:1.3;">${classification.security_notes}</td></tr>`
     : "";
 
   const escalationRow = michaelResult.escalation_needed
-    ? `<tr><td style="padding:4px 8px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:11px;">⬆ Escalation</td><td style="padding:4px 8px;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:11px;">${michaelResult.escalation_reason}</td></tr>`
+    ? `<tr><td style="padding:3px 8px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:10px;vertical-align:top;">⬆ Escalation</td><td style="padding:3px 8px;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:10px;line-height:1.3;">${michaelResult.escalation_reason}</td></tr>`
     : "";
 
   const entitiesRow =
     classification.entities.length > 0
-      ? `<tr style="background:#f8fafc;"><td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Entities</td><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.entities.join(", ")}</td></tr>`
+      ? `<tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Entities</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.entities.join(", ")}</td></tr>`
       : "";
 
-  // Build specialist findings sections
-  const specialistHtml = Object.entries(findings)
+  // Build specialist findings as table rows
+  const specialistRows = Object.entries(findings)
     .filter(([name]) => name !== "ryan_howard")
     .map(([name, finding]) => {
       const label = AGENT_LABELS[name] ?? name;
-      return `<div style="background:#f8fafc;border-left:2px solid #94a3b8;padding:4px 8px;margin-bottom:4px;border-radius:0 3px 3px 0;">
-  <div style="font-weight:600;font-size:10px;color:#475569;margin-bottom:1px;">${label}</div>
-  <div style="color:#334155;font-size:10px;line-height:1.4;">${finding.summary}</div>
-</div>`;
+      return `<tr><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;font-weight:600;color:#475569;width:140px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#334155;line-height:1.3;">${finding.summary}</td></tr>`;
     })
-    .join("\n");
+    .join("");
 
   const agentCount = Object.keys(findings).length;
 
-  return `<div style="font-family:'Segoe UI',Roboto,Arial,sans-serif;max-width:600px;font-size:11px;line-height:1.4;color:#334155;">
-<table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
-  <tr style="background:#1e293b;">
-    <td colspan="2" style="padding:6px 10px;color:#f8fafc;font-size:12px;font-weight:600;border-radius:4px 4px 0 0;">
-      🤖 AI Triage — TriageIt <span style="font-weight:400;font-size:10px;opacity:0.6;">(${agentCount} agents · ${processingTime}ms)</span>
-    </td>
-  </tr>
-  <tr style="background:#f8fafc;">
-    <td style="padding:4px 8px;font-weight:600;width:140px;border-bottom:1px solid #e2e8f0;font-size:11px;">Classification</td>
-    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.classification.type}/${classification.classification.subtype} <span style="color:#94a3b8;font-size:10px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td>
-  </tr>
-  <tr>
-    <td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Urgency</td>
-    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
-  </tr>
-  <tr style="background:#f8fafc;">
-    <td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Priority</td>
-    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;"><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td>
-  </tr>
-  ${entitiesRow}
-  ${securityRow}
-  ${escalationRow}
-</table>
-
-<div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:8px;">
-  <div style="font-weight:600;margin-bottom:2px;color:#92400e;font-size:11px;">🔍 Root Cause</div>
-  <div style="color:#78350f;font-size:11px;line-height:1.4;">${michaelResult.root_cause_hypothesis}</div>
-</div>
-
-<div style="background:#f0f9ff;border-left:3px solid #3b82f6;padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:8px;">
-  <div style="font-weight:600;margin-bottom:2px;color:#1e40af;font-size:11px;">📋 Tech Notes</div>
-  <div style="color:#334155;font-size:11px;line-height:1.5;">${michaelResult.internal_notes}</div>
-</div>
-
-${specialistHtml ? `<div style="margin-bottom:8px;"><div style="font-weight:600;font-size:11px;color:#475569;margin-bottom:4px;">🔬 Specialist Findings</div>${specialistHtml}</div>` : ""}
-
-<div style="color:#94a3b8;font-size:9px;text-align:right;border-top:1px solid #e2e8f0;padding-top:4px;">TriageIt AI · ${agentCount} agents</div>
-</div>`;
+  // Single continuous table — no gaps between sections
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:600px;border-collapse:collapse;font-size:11px;line-height:1.3;color:#334155;margin:0;padding:0;"><tr style="background:#1e293b;"><td colspan="2" style="padding:5px 8px;color:#f8fafc;font-size:11px;font-weight:600;">🤖 AI Triage — TriageIt <span style="font-weight:400;font-size:9px;opacity:0.6;">(${agentCount} agents · ${processingTime}ms)</span></td></tr><tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;width:140px;border-bottom:1px solid #e2e8f0;font-size:10px;">Classification</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.classification.type}/${classification.classification.subtype} <span style="color:#94a3b8;font-size:9px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr><tr><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Urgency</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td></tr><tr style="background:#f8fafc;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;">Priority</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;"><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>${entitiesRow}${securityRow}${escalationRow}<tr style="background:#fffbeb;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;color:#92400e;vertical-align:top;">🔍 Root Cause</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#78350f;line-height:1.3;">${michaelResult.root_cause_hypothesis}</td></tr><tr style="background:#f0f9ff;"><td style="padding:3px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:10px;color:#1e40af;vertical-align:top;">📋 Tech Notes</td><td style="padding:3px 8px;border-bottom:1px solid #e2e8f0;font-size:10px;color:#334155;line-height:1.4;">${michaelResult.internal_notes}</td></tr>${specialistRows}<tr><td colspan="2" style="padding:3px 8px;color:#94a3b8;font-size:8px;text-align:right;">TriageIt AI · ${agentCount} agents</td></tr></table>`;
 }

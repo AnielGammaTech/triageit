@@ -41,6 +41,53 @@ server.post<{ Body: { ticket_id: string } }>(
   },
 );
 
+/**
+ * On startup, scan for any tickets stuck in "pending" status.
+ * These are tickets that came in while the worker was down.
+ */
+async function processPendingTickets(): Promise<void> {
+  const supabase = createSupabaseClient();
+
+  const { data: pendingTickets, error } = await supabase
+    .from("tickets")
+    .select("id, halo_id, summary")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (error) {
+    console.error("[WORKER] Failed to scan pending tickets:", error);
+    return;
+  }
+
+  if (!pendingTickets || pendingTickets.length === 0) {
+    console.log("[WORKER] No pending tickets to process");
+    return;
+  }
+
+  console.log(
+    `[WORKER] Found ${pendingTickets.length} pending tickets — enqueuing for triage`,
+  );
+
+  for (const ticket of pendingTickets) {
+    try {
+      const jobId = await enqueueTriageJob({
+        ticketId: ticket.id,
+        haloId: ticket.halo_id,
+        summary: ticket.summary,
+      });
+      console.log(
+        `[WORKER] Enqueued pending ticket #${ticket.halo_id} (job: ${jobId})`,
+      );
+    } catch (err) {
+      console.error(
+        `[WORKER] Failed to enqueue ticket #${ticket.halo_id}:`,
+        err,
+      );
+    }
+  }
+}
+
 async function start() {
   const port = parseInt(process.env.PORT ?? "3001", 10);
   const host = process.env.HOST ?? "0.0.0.0";
@@ -52,6 +99,9 @@ async function start() {
   // Start Fastify
   await server.listen({ port, host });
   console.log(`[WORKER] Server listening on ${host}:${port}`);
+
+  // Process any tickets stuck in pending (missed while worker was down)
+  await processPendingTickets();
 
   // Graceful shutdown
   const shutdown = async () => {
