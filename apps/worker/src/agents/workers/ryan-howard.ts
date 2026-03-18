@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TriageContext, ClassificationResult } from "../types.js";
+import { parseLlmJson } from "../parse-json.js";
 
 const SYSTEM_PROMPT = `You are Ryan Howard, the Ticket Classification Specialist at Dunder Mifflin IT Triage.
 
@@ -78,7 +79,7 @@ export async function classifyTicket(
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
 
-  const parsed = JSON.parse(text) as ClassificationResult;
+  const parsed = parseLlmJson<ClassificationResult>(text);
 
   return {
     classification: parsed.classification,

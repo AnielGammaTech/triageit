@@ -36,6 +36,10 @@ const CLOSED_STATUS_NAMES = new Set([
   "resolved onsite",
   "resolved - awaiting confirmation",
 ]);
+
+// Common Halo status IDs for closed/resolved (Halo API often omits statusname)
+// 9 = Closed is the most common across Halo instances
+const CLOSED_STATUS_IDS = new Set([9, 10, 24, 26, 27]);
 export async function POST(request: NextRequest) {
   // Auth check — supports both Basic auth (Halo's format) and Bearer token
   const authHeader = request.headers.get("authorization") ?? "";
@@ -166,9 +170,13 @@ export async function POST(request: NextRequest) {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function isTicketClosed(ticket: HaloApiTicket): boolean {
-  // Check by status name (most reliable)
+  // Check by status name (most reliable when present)
   const statusName = (ticket.statusname ?? ticket.status_name ?? "").toString().toLowerCase().trim();
   if (CLOSED_STATUS_NAMES.has(statusName)) return true;
+
+  // Check by status_id — Halo API often omits statusname
+  // Common closed/resolved status IDs across Halo instances
+  if (typeof ticket.status_id === "number" && CLOSED_STATUS_IDS.has(ticket.status_id)) return true;
 
   // Halo's "inactive" flag
   if (ticket.inactive === true) return true;
@@ -177,11 +185,31 @@ function isTicketClosed(ticket: HaloApiTicket): boolean {
 }
 
 function extractTicketId(body: Record<string, unknown>): number | null {
-  // Direct: { id: 123 }
+  // Halo webhook notification format (most common):
+  // { id: "uuid", object_id: 33479, ticket: {...}, event: "...", webhook_id: "..." }
+  // object_id is the REAL ticket ID — body.id is the notification UUID!
+  if (typeof body.object_id === "number") return body.object_id;
+  if (typeof body.object_id === "string") {
+    const parsed = parseInt(body.object_id, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  // Nested ticket object: { ticket: { id: 33479 } }
+  if (body.ticket && typeof body.ticket === "object") {
+    const ticket = body.ticket as Record<string, unknown>;
+    if (typeof ticket.id === "number") return ticket.id;
+  }
+
+  // Direct ticket object (when Halo sends full ticket): { id: 123, summary: "..." }
+  // Only use body.id if it's a number (not a UUID string)
   if (typeof body.id === "number") return body.id;
 
   // Notification: { ticket_id: 123 }
   if (typeof body.ticket_id === "number") return body.ticket_id;
+  if (typeof body.ticket_id === "string") {
+    const parsed = parseInt(body.ticket_id, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
 
   // Wrapped: { event_data: { id: 123 } }
   if (body.event_data && typeof body.event_data === "object") {
@@ -189,14 +217,9 @@ function extractTicketId(body: Record<string, unknown>): number | null {
     if (typeof eventData.id === "number") return eventData.id;
   }
 
-  // String versions
-  if (typeof body.id === "string") {
-    const parsed = parseInt(body.id, 10);
-    if (!isNaN(parsed)) return parsed;
-  }
-  if (typeof body.ticket_id === "string") {
-    const parsed = parseInt(body.ticket_id, 10);
-    if (!isNaN(parsed)) return parsed;
+  // body.id as string — ONLY if it looks like a pure number (not a UUID)
+  if (typeof body.id === "string" && /^\d+$/.test(body.id)) {
+    return parseInt(body.id, 10);
   }
 
   return null;

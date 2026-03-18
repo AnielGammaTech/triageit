@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ticket } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
+import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { HaloConfig } from "@triageit/shared";
 
@@ -121,13 +122,13 @@ export async function runTriage(
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
-  const michaelResult = JSON.parse(text) as {
+  const michaelResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
     internal_notes: string;
     suggested_response: string | null;
     adjustments: string | null;
-  };
+  }>(text);
 
   const processingTime = Date.now() - startTime;
 
