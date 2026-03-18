@@ -28,6 +28,17 @@ Before assigning urgency, determine the SCOPE of the issue:
 - A backup error for one site is NOT "backup system failure" — it's a single site issue (urgency 3)
 - Only classify as "outage" if the ticket explicitly says MULTIPLE users/systems are affected
 
+## IMPORTANT: Notification & Automated Alert Detection
+These are NOT urgent and should ALWAYS be urgency 1 (Minimal):
+- Order confirmations, completion notices, auto-replenishment alerts
+- Low balance warnings (billing, not outage)
+- Automated system notifications that require no immediate action
+- Subscription renewals, license notifications
+- Scheduled maintenance notices, planned change notifications
+- "FYI" or informational emails forwarded as tickets
+- Vendor marketing or service update emails
+If a ticket is clearly an automated notification or confirmation email, set urgency to 1 regardless of keywords like "ALERT" or "WARNING" in the subject
+
 ## Urgency Scoring (1-5)
 - 5 (Critical): Complete business outage affecting ALL users, active security breach, data loss in progress
 - 4 (High): Major service degradation affecting MULTIPLE users, confirmed security incident
@@ -98,11 +109,17 @@ export async function classifyTicket(
 
   const parsed = parseLlmJson<ClassificationResult>(text);
 
+  // CRITICAL: Force priority = inverse of urgency.
+  // The LLM often returns both as the same value instead of inverting.
+  // P1 = urgency 5 (Critical), P5 = urgency 1 (Minimal).
+  const urgency = Math.max(1, Math.min(5, parsed.urgency_score ?? 3));
+  const computedPriority = 6 - urgency;
+
   return {
     classification: parsed.classification,
-    urgency_score: parsed.urgency_score,
+    urgency_score: urgency,
     urgency_reasoning: parsed.urgency_reasoning,
-    recommended_priority: parsed.recommended_priority,
+    recommended_priority: computedPriority,
     entities: parsed.entities,
     security_flag: parsed.security_flag,
     security_notes: parsed.security_notes,
