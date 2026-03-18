@@ -1,4 +1,4 @@
-import type { AgentDefinition } from "../types/agent";
+import type { AgentDefinition } from "../types/agent.js";
 
 export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {
@@ -7,7 +7,7 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
     role: "manager",
     specialty: "Triage Orchestrator",
     integration: "halo",
-    model: "sonnet",
+    model: "opus",
     description:
       "The Regional Manager. Analyzes incoming tickets, delegates to specialist agents, synthesizes all findings, and makes the final triage decision. Communicates results back to Halo PSA.",
   },
@@ -114,12 +114,12 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {
     name: "kelly_kapoor",
     character: "Kelly Kapoor",
-    role: "notifications",
-    specialty: "Alert & Notification Routing",
-    integration: null,
+    role: "voip",
+    specialty: "VoIP & Telephony (3CX + Twilio)",
+    integration: "threecx",
     model: "haiku",
     description:
-      "Handles escalation rules, notification delivery, and ensures the right people are alerted based on ticket severity and type.",
+      "Queries 3CX for system status, trunk registrations, extensions, and call logs. Also checks Twilio for SIP trunks, failed calls, and number config. Accurately scopes issues — a single trunk 404 is NOT a system-wide outage.",
   },
   {
     name: "toby_flenderson",
@@ -134,12 +134,12 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {
     name: "meredith_palmer",
     character: "Meredith Palmer",
-    role: "legacy",
-    specialty: "Legacy & Edge Cases",
-    integration: null,
+    role: "backup",
+    specialty: "Backup & Recovery (Spanning)",
+    integration: "spanning",
     model: "haiku",
     description:
-      "Handles unusual ticket types that don't fit standard categories, legacy system issues, and edge cases that other agents can't classify.",
+      "Queries Spanning Backup for Office 365 to check tenant backup status, user protection, error codes, and recovery points. Correlates ticket details with real backup data.",
   },
 ] as const;
 
@@ -155,4 +155,6 @@ export const PHASE_3_AGENTS = [
   "phyllis_vance",
   "angela_martin",
   "kevin_malone",
+  "meredith_palmer",
+  "kelly_kapoor",
 ] as const;

@@ -18,6 +18,12 @@ export interface TriageContext {
   readonly clientName: string | null;
   readonly userName: string | null;
   readonly originalPriority: number | null;
+  readonly actions?: ReadonlyArray<{
+    readonly note: string;
+    readonly who: string | null;
+    readonly outcome: string | null;
+    readonly date: string | null;
+  }>;
 }
 
 export interface TriageOutput {

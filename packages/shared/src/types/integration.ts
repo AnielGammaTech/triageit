@@ -3,8 +3,24 @@ export type ServiceType =
   | "hudu"
   | "jumpcloud"
   | "datto"
+  | "datto-edr"
+  | "rocketcyber"
+  | "unifi"
+  | "vpentest"
+  | "saas-alerts"
+  | "unitrends"
+  | "cove"
+  | "pax8"
+  | "darkweb"
+  | "bullphish"
+  | "inky"
   | "vultr"
   | "mxtoolbox"
+  | "dmarc"
+  | "threecx"
+  | "spanning"
+  | "twilio"
+  | "ai-provider"
   | "teams"
   | "cipp";
 
@@ -52,6 +68,30 @@ export interface MxToolboxConfig {
   readonly api_key: string;
 }
 
+export interface SpanningConfig {
+  readonly api_key: string;
+  readonly region: string;
+}
+
+export interface ThreeCxConfig {
+  readonly api_url: string;
+  readonly api_key: string;
+}
+
+export interface TwilioConfig {
+  readonly account_sid: string;
+  readonly auth_token: string;
+}
+
+export interface GenericApiKeyConfig {
+  readonly api_key: string;
+}
+
+export interface GenericApiUrlKeyConfig {
+  readonly api_url: string;
+  readonly api_key: string;
+}
+
 export interface TeamsConfig {
   readonly webhook_url: string;
   readonly channel_name?: string;
@@ -71,15 +111,22 @@ export type IntegrationConfig =
   | DattoConfig
   | VultrConfig
   | MxToolboxConfig
+  | SpanningConfig
+  | ThreeCxConfig
+  | TwilioConfig
+  | GenericApiKeyConfig
+  | GenericApiUrlKeyConfig
   | TeamsConfig
-  | CippConfig;
+  | CippConfig
+  | Record<string, string>;
 
 export interface IntegrationConfigField {
   readonly key: string;
   readonly label: string;
-  readonly type: "text" | "password" | "url";
+  readonly type: "text" | "password" | "url" | "select";
   readonly placeholder: string;
   readonly required: boolean;
+  readonly options?: ReadonlyArray<{ readonly value: string; readonly label: string }>;
 }
 
 export interface IntegrationDefinition {

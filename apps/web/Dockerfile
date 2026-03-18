@@ -11,6 +11,8 @@ RUN npm ci --include=dev
 
 # Build the app
 FROM base AS builder
+ENV NEXT_PUBLIC_SUPABASE_URL=https://ijhzkinomuzamyynvaal.supabase.co
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlqaHpraW5vbXV6YW15eW52YWFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3Nzg5NzUsImV4cCI6MjA4OTM1NDk3NX0.jOihrZosjzghfTuURkX0hxVzPOKeuBJlkgRD9QUaWGE
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build:web

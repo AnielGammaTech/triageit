@@ -1,32 +1,46 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Ticket } from "@triageit/shared";
+import type { Ticket, AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
-import { diagnoseEmail } from "../workers/phyllis-vance.js";
-import type { EmailDiagnosticsResult } from "../workers/phyllis-vance.js";
+import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { HaloConfig } from "@triageit/shared";
+import {
+  createAgent,
+  getAgentsForClassification,
+} from "../registry.js";
+// AgentResult used internally by specialist agents via registry
+
+// ── System Prompt ────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage.
 
-You have just received the classification results from your team for a support ticket. Your job is to:
+You have received the classification from Ryan Howard AND specialist findings from your team of agents. Your job is to:
 
-1. Review Ryan Howard's classification and adjust if needed
-2. If Phyllis Vance (Email & DNS Specialist) provided findings, incorporate her diagnostics — she understands Mimecast, MX records, SPF/DKIM/DMARC, email gateways, and bounce reasons deeply
-3. Synthesize ALL agent findings into clear, actionable internal notes for the technician
-4. Suggest which team should handle this ticket
-5. Write a brief internal summary that includes specific next steps
+1. Review Ryan's classification and all specialist findings
+2. Synthesize EVERYTHING into comprehensive, actionable technician notes
+3. Identify the root cause hypothesis based on all evidence
+4. Provide specific troubleshooting steps the tech should follow
+5. Flag anything the tech needs to know before touching this ticket
+6. Suggest which team should handle this and why
+
+Think deeply. The technician depends on your analysis to work efficiently.
 
 ## Output Format
 Respond with ONLY valid JSON, no markdown:
 {
   "recommended_team": "<team name: Network, Security, Endpoint, Cloud, Identity, Email, Application, General>",
   "recommended_agent": "<specific technician if known, null otherwise>",
-  "internal_notes": "<comprehensive internal notes for the assigned technician>",
-  "suggested_response": "<brief client-facing acknowledgment if appropriate, null if not needed>",
-  "adjustments": "<any adjustments to Ryan's classification, null if none>"
+  "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
+  "internal_notes": "<comprehensive internal notes: include root cause analysis, all evidence from specialists, step-by-step troubleshooting plan, what to check first, what tools to use, and any gotchas>",
+  "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
+  "adjustments": "<any adjustments to Ryan's classification, null if none>",
+  "escalation_needed": <true/false>,
+  "escalation_reason": "<why escalation is needed, null if not>"
 }`;
+
+// ── Helpers ──────────────────────────────────────────────────────────
 
 async function getHaloConfig(
   supabase: SupabaseClient,
@@ -53,14 +67,72 @@ function buildTriageContext(ticket: Ticket): TriageContext {
   };
 }
 
+async function logThinking(
+  supabase: SupabaseClient,
+  ticketId: string,
+  agentName: string,
+  agentRole: string,
+  thought: string,
+): Promise<void> {
+  await supabase.from("agent_logs").insert({
+    ticket_id: ticketId,
+    agent_name: agentName,
+    agent_role: agentRole,
+    status: "thinking",
+    output_summary: thought,
+  });
+}
+
+// ── Agent name to display label ──────────────────────────────────────
+
+const AGENT_LABELS: Record<string, string> = {
+  dwight_schrute: "Dwight Schrute (Documentation)",
+  jim_halpert: "Jim Halpert (Identity)",
+  andy_bernard: "Andy Bernard (Endpoint/RMM)",
+  stanley_hudson: "Stanley Hudson (Cloud)",
+  phyllis_vance: "Phyllis Vance (Email/DNS)",
+  angela_martin: "Angela Martin (Security)",
+  meredith_palmer: "Meredith Palmer (Backup/Recovery)",
+  kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
+};
+
+// ── Main Triage Pipeline ─────────────────────────────────────────────
+
 export async function runTriage(
   ticket: Ticket,
   supabase: SupabaseClient,
 ): Promise<TriageOutput> {
   const startTime = Date.now();
-  const context = buildTriageContext(ticket);
+  let context = buildTriageContext(ticket);
 
-  // Log Michael starting
+  // ── Pre-step: Fetch Halo ticket actions (history/comments) ─────────
+
+  const haloConfigEarly = await getHaloConfig(supabase);
+  if (haloConfigEarly) {
+    try {
+      const haloEarly = new HaloClient(haloConfigEarly);
+      const rawActions = await haloEarly.getTicketActions(ticket.halo_id);
+      const formattedActions = rawActions.map((a) => ({
+        note: stripHtmlActions(a.note),
+        who: a.who ?? null,
+        outcome: a.outcome ?? null,
+        date: a.datecreated ?? null,
+      }));
+      context = { ...context, actions: formattedActions };
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `Fetched ${formattedActions.length} action(s)/comment(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
+      );
+    } catch (err) {
+      console.warn(`[MICHAEL] Could not fetch Halo actions for ticket #${ticket.halo_id}:`, err);
+    }
+  }
+
+  // ── Step 1: Michael starts ─────────────────────────────────────────
+
   await supabase.from("agent_logs").insert({
     ticket_id: ticket.id,
     agent_name: "michael_scott",
@@ -69,7 +141,16 @@ export async function runTriage(
     input_summary: `Triaging ticket #${ticket.halo_id}: ${ticket.summary}`,
   });
 
-  // Step 1: Ryan classifies the ticket
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Received ticket #${ticket.halo_id} from ${ticket.client_name ?? "unknown client"}. Starting triage — sending to Ryan Howard for classification first.`,
+  );
+
+  // ── Step 2: Ryan classifies ────────────────────────────────────────
+
   await supabase.from("agent_logs").insert({
     ticket_id: ticket.id,
     agent_name: "ryan_howard",
@@ -91,169 +172,104 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
-  // Fast path: skip expensive Sonnet call for simple notifications/transactional emails
-  const subtypeLower = classification.classification.subtype?.toLowerCase() ?? "";
-  const typeLower = classification.classification.type.toLowerCase();
-  const notificationKeywords = [
-    "notification", "alert", "auto-replenish", "informational",
-    "transactional", "confirmation", "order_confirmation", "receipt",
-    "renewal", "subscription", "invoice", "statement", "reminder",
-  ];
-  const isNotification =
-    notificationKeywords.some((kw) => subtypeLower.includes(kw)) ||
-    (typeLower === "billing" && classification.urgency_score <= 2) ||
-    (typeLower === "other" && subtypeLower.includes("email") && classification.urgency_score <= 2);
+  // ── Step 3: Michael analyzes classification & picks specialists ────
 
-  if (
-    isNotification &&
-    classification.urgency_score <= 2 &&
-    !classification.security_flag
-  ) {
-    const processingTime = Date.now() - startTime;
+  const classType = classification.classification.type;
+  const specialistNames = getAgentsForClassification(classType);
 
-    await supabase.from("agent_logs").insert({
-      ticket_id: ticket.id,
-      agent_name: "michael_scott",
-      agent_role: "manager",
-      status: "completed",
-      output_summary: `Fast path — notification. Team: General, Priority: P${classification.recommended_priority}`,
-      duration_ms: processingTime,
-    });
+  // Always include Angela Martin for security assessment
+  const allSpecialists = classification.security_flag
+    ? [...new Set([...specialistNames, "angela_martin"])]
+    : specialistNames;
 
-    const defaultNotes = `This is an informational notification, not a support request. Classification: ${classification.classification.type}/${classification.classification.subtype}. No technical action required.`;
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Ryan classified as ${classType}/${classification.classification.subtype} (${(classification.classification.confidence * 100).toFixed(0)}% confidence), urgency ${classification.urgency_score}/5. ${classification.security_flag ? "⚠ SECURITY FLAG raised — deploying Angela Martin for security assessment." : ""} Deploying specialist agents: ${allSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}.`,
+  );
 
-    // Write to Halo if configured
-    const haloConfig = await getHaloConfig(supabase);
-    if (haloConfig) {
-      const halo = new HaloClient(haloConfig);
-      try {
-        const processingSeconds = (processingTime / 1000).toFixed(1);
-        const confidencePct = (classification.classification.confidence * 100).toFixed(0);
+  // ── Step 4: Run specialist agents in parallel ──────────────────────
 
-        const internalNote = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;background:#1E2028;border-radius:8px;overflow:hidden;border:1px solid #2A2D35;">
-  <div style="background:linear-gradient(135deg,#2C3E6B,#1A2744);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
-    <span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:0.3px;">TriageIt</span>
-    <span style="font-size:12px;color:#8899BB;">1 agent &middot; ${processingSeconds}s</span>
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;width:140px;">Classification</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.classification.type} / ${classification.classification.subtype} <span style="color:#546E7A;font-size:12px;">(${confidencePct}%)</span></td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Urgency</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Priority</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">P${classification.recommended_priority} — General</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;">Entities</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;">${classification.entities.join(", ") || "None detected"}</td>
-    </tr>
-  </table>
-  <div style="padding:14px 18px;">
-    <p style="margin:0;font-size:14px;color:#90A4AE;line-height:1.6;background:#252830;padding:10px 14px;border-radius:6px;border-left:3px solid #546E7A;">Notification only — no technical action required.</p>
-  </div>
-  <div style="padding:10px 18px;background:#1A1C22;text-align:right;">
-    <span style="font-size:11px;color:#546E7A;">TriageIt AI &middot; 1 agent &middot; ${processingSeconds}s</span>
-  </div>
-</div>`;
+  const findings: Record<string, AgentFinding> = {
+    ryan_howard: {
+      agent_name: "ryan_howard",
+      summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
+      data: classification as unknown as Record<string, unknown>,
+      confidence: classification.classification.confidence,
+    },
+  };
 
-        await halo.addInternalNote(ticket.halo_id, internalNote);
-      } catch (error) {
-        console.error(
-          `[MICHAEL] Failed to write fast-path note to Halo for ticket #${ticket.halo_id}:`,
-          error,
-        );
+  const workerTokens: Record<string, number> = { ryan_howard: 0 };
+
+  const specialistResults = await Promise.allSettled(
+    allSpecialists.map(async (agentName) => {
+      const agent = createAgent(agentName, supabase);
+      if (!agent) {
+        await supabase.from("agent_logs").insert({
+          ticket_id: ticket.id,
+          agent_name: agentName,
+          agent_role: "worker",
+          status: "skipped",
+          output_summary: "Agent implementation not available",
+        });
+        return { agentName, result: null };
       }
-    }
 
-    const triageId = crypto.randomUUID();
+      try {
+        const result = await agent.execute(context);
+        return { agentName, result };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error(`[MICHAEL] Specialist ${agentName} failed:`, message);
+        return { agentName, result: null };
+      }
+    }),
+  );
 
-    return {
-      id: triageId,
-      ticket_id: ticket.id,
-      classification: classification.classification,
-      urgency_score: classification.urgency_score,
-      urgency_reasoning: classification.urgency_reasoning,
-      recommended_priority: classification.recommended_priority,
-      recommended_team: "General",
-      recommended_agent: null,
-      security_flag: false,
-      security_notes: null,
-      findings: {
-        ryan_howard: {
-          agent_name: "ryan_howard",
-          summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
-          data: classification as unknown as Record<string, unknown>,
-          confidence: classification.classification.confidence,
-        },
-      },
-      suggested_response: null,
-      internal_notes: defaultNotes,
-      processing_time_ms: processingTime,
-      model_tokens_used: {
-        manager: 0,
-        workers: { ryan_howard: 0 },
-      },
-    };
-  }
-
-  // Step 2: If email-related, call Phyllis Vance for diagnostics
-  let phyllisResult: EmailDiagnosticsResult | null = null;
-  const isEmailTicket =
-    classification.classification.type === "email" ||
-    classification.classification.subtype
-      ?.toLowerCase()
-      .includes("email") ||
-    classification.classification.subtype
-      ?.toLowerCase()
-      .includes("dns");
-
-  if (isEmailTicket) {
-    await supabase.from("agent_logs").insert({
-      ticket_id: ticket.id,
-      agent_name: "phyllis_vance",
-      agent_role: "dns_email",
-      status: "started",
-      input_summary: `Email diagnostics for ticket #${ticket.halo_id}`,
-    });
-
-    const phyllisStart = Date.now();
-    try {
-      phyllisResult = await diagnoseEmail(context, supabase);
-      const phyllisDuration = Date.now() - phyllisStart;
-
-      await supabase.from("agent_logs").insert({
-        ticket_id: ticket.id,
-        agent_name: "phyllis_vance",
-        agent_role: "dns_email",
-        status: "completed",
-        output_summary: `Severity: ${phyllisResult.severity}, Domain: ${phyllisResult.domain_analyzed ?? "N/A"}, Root cause: ${phyllisResult.root_cause ?? "undetermined"}`,
-        duration_ms: phyllisDuration,
-      });
-    } catch (err) {
-      const phyllisDuration = Date.now() - phyllisStart;
-      console.error(
-        `[MICHAEL] Phyllis Vance failed for ticket #${ticket.halo_id}:`,
-        err,
-      );
-      await supabase.from("agent_logs").insert({
-        ticket_id: ticket.id,
-        agent_name: "phyllis_vance",
-        agent_role: "dns_email",
-        status: "error",
-        error_message:
-          err instanceof Error ? err.message : String(err),
-        duration_ms: phyllisDuration,
-      });
+  // Collect all specialist findings
+  for (const settled of specialistResults) {
+    if (settled.status === "fulfilled" && settled.value.result) {
+      const { agentName, result } = settled.value;
+      findings[agentName] = {
+        agent_name: agentName,
+        summary: result.summary,
+        data: result.data,
+        confidence: result.confidence,
+      };
+      workerTokens[agentName] = 0; // Token tracking per agent TBD
     }
   }
 
-  // Step 3: Michael synthesizes and makes final decisions
+  const successfulSpecialists = Object.keys(findings).filter(
+    (k) => k !== "ryan_howard",
+  );
+
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `${successfulSpecialists.length} specialist agents completed: ${successfulSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}. Now synthesizing all findings into final triage decision.`,
+  );
+
+  // ── Step 5: Michael synthesizes ALL findings ───────────────────────
+
   const client = new Anthropic();
+
+  const specialistSections = Object.entries(findings)
+    .map(([name, finding]) => {
+      const label = AGENT_LABELS[name] ?? name;
+      return [
+        `## ${label}'s Findings`,
+        `**Summary:** ${finding.summary}`,
+        `**Confidence:** ${(finding.confidence * 100).toFixed(0)}%`,
+        `**Data:** ${JSON.stringify(finding.data, null, 2)}`,
+      ].join("\n");
+    })
+    .join("\n\n");
 
   const michaelMessage = [
     `## Ticket #${context.haloId}`,
@@ -261,6 +277,9 @@ export async function runTriage(
     context.details ? `**Description:** ${context.details}` : "",
     context.clientName ? `**Client:** ${context.clientName}` : "",
     context.userName ? `**Reported By:** ${context.userName}` : "",
+    context.originalPriority
+      ? `**Original Priority:** P${context.originalPriority}`
+      : "",
     "",
     "## Ryan Howard's Classification",
     `**Type:** ${classification.classification.type} / ${classification.classification.subtype}`,
@@ -270,161 +289,60 @@ export async function runTriage(
     `**Recommended Priority:** P${classification.recommended_priority}`,
     `**Entities Found:** ${classification.entities.join(", ") || "None"}`,
     classification.security_flag
-      ? `**SECURITY FLAG:** ${classification.security_notes}`
+      ? `**⚠ SECURITY FLAG:** ${classification.security_notes}`
       : "",
-    ...(phyllisResult
+    "",
+    ...(context.actions && context.actions.length > 0
       ? [
+          "## Ticket History / Comments",
+          ...context.actions.map((a) => {
+            const who = a.who ?? "Unknown";
+            const when = a.date ?? "unknown date";
+            const outcome = a.outcome ? ` [${a.outcome}]` : "";
+            return `- **${who}** (${when})${outcome}: ${a.note}`;
+          }),
           "",
-          "## Phyllis Vance's Email & DNS Diagnostics",
-          `**Severity:** ${phyllisResult.severity}`,
-          `**Domain Analyzed:** ${phyllisResult.domain_analyzed ?? "N/A"}`,
-          `**Diagnosis:** ${phyllisResult.summary}`,
-          `**Root Cause:** ${phyllisResult.root_cause ?? "Undetermined"}`,
-          `**Findings:**`,
-          ...phyllisResult.findings.map((f) => `- ${f}`),
-          `**Recommended Actions:**`,
-          ...phyllisResult.recommended_actions.map((a) => `- ${a}`),
-          `**Confidence:** ${(phyllisResult.confidence * 100).toFixed(0)}%`,
         ]
       : []),
+    specialistSections,
   ]
     .filter(Boolean)
     .join("\n");
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-6-20250514",
-    max_tokens: 2048,
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: michaelMessage }],
   });
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
-  const michaelResult = JSON.parse(text) as {
+  const michaelResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
+    root_cause_hypothesis: string;
     internal_notes: string;
     suggested_response: string | null;
     adjustments: string | null;
-  };
+    escalation_needed: boolean;
+    escalation_reason: string | null;
+  }>(text);
 
   const processingTime = Date.now() - startTime;
 
-  // Step 4: Write back to Halo if configured
+  // ── Step 6: Write comprehensive note to Halo ───────────────────────
+
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
     try {
-      const agentCount = phyllisResult ? 2 : 1;
-      const processingSeconds = (processingTime / 1000).toFixed(1);
-      const confidencePct = (classification.classification.confidence * 100).toFixed(0);
-
-      const priorityMap: Record<number, string> = {
-        1: "P1 — Critical",
-        2: "P2 — High",
-        3: "P3 — Medium",
-        4: "P4 — Low",
-        5: "P5 — Minimal",
-      };
-      const priorityLabel = priorityMap[classification.recommended_priority] ?? `P${classification.recommended_priority}`;
-
-      // Parse tech notes into separate numbered points
-      const techNoteLines = michaelResult.internal_notes
-        .split(/(?:\d+\)\s*|\d+\.\s*|(?:^|\n)[-•]\s*)/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const techNotesHtml = techNoteLines.length > 1
-        ? `<ol style="margin:0;padding-left:20px;font-size:14px;color:#E0E0E0;line-height:1.7;">${techNoteLines.map((t) => `<li style="margin-bottom:8px;">${t}</li>`).join("")}</ol>`
-        : `<p style="margin:0;font-size:14px;color:#E0E0E0;line-height:1.7;">${michaelResult.internal_notes}</p>`;
-
-      // Build specialist findings rows
-      const specialistRows: string[] = [];
-
-      // Ryan Howard (always present)
-      specialistRows.push(`
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#90CAF9;font-weight:600;border-bottom:1px solid #2A2D35;white-space:nowrap;vertical-align:top;">Ryan Howard<br><span style="font-weight:400;color:#78909C;font-size:11px;">(Classification)</span></td>
-          <td style="padding:10px 14px;font-size:13px;color:#B0B8C1;border-bottom:1px solid #2A2D35;line-height:1.6;">Classified as <strong>${classification.classification.type}/${classification.classification.subtype}</strong> with ${confidencePct}% confidence. Urgency ${classification.urgency_score}/5.</td>
-        </tr>`);
-
-      // Phyllis Vance (if present)
-      if (phyllisResult) {
-        specialistRows.push(`
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#CE93D8;font-weight:600;border-bottom:1px solid #2A2D35;white-space:nowrap;vertical-align:top;">Phyllis Vance<br><span style="font-weight:400;color:#78909C;font-size:11px;">(Email & DNS)</span></td>
-          <td style="padding:10px 14px;font-size:13px;color:#B0B8C1;border-bottom:1px solid #2A2D35;line-height:1.6;">${phyllisResult.summary}${phyllisResult.domain_analyzed ? ` Domain: <strong>${phyllisResult.domain_analyzed}</strong>.` : ""}${phyllisResult.root_cause ? ` Root cause: ${phyllisResult.root_cause}.` : ""}</td>
-        </tr>`);
-      }
-
-      const securityHtml = classification.security_flag
-        ? `<tr>
-            <td style="padding:10px 14px;font-size:14px;color:#EF5350;font-weight:600;vertical-align:top;">Security Alert</td>
-            <td style="padding:10px 14px;font-size:14px;color:#EF9A9A;background:#3E1A1A;border-radius:4px;">${classification.security_notes}</td>
-          </tr>`
-        : "";
-
-      const rootCauseText = phyllisResult?.root_cause ?? michaelResult.internal_notes.split(".")[0] + ".";
-
-      const internalNote = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;background:#1E2028;border-radius:8px;overflow:hidden;border:1px solid #2A2D35;">
-  <!-- Header -->
-  <div style="background:linear-gradient(135deg,#2C3E6B,#1A2744);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
-    <span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:0.3px;">TriageIt</span>
-    <span style="font-size:12px;color:#8899BB;">${agentCount} agent${agentCount > 1 ? "s" : ""} &middot; ${processingSeconds}s</span>
-  </div>
-
-  <!-- Main fields -->
-  <table style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;width:140px;vertical-align:top;">Classification</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.classification.type} / ${classification.classification.subtype} <span style="color:#546E7A;font-size:12px;">(${confidencePct}%)</span></td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;vertical-align:top;">Urgency</td>
-      <td style="padding:12px 14px;border-bottom:1px solid #2A2D35;">
-        <span style="font-size:14px;font-weight:600;color:#E0E0E0;">${classification.urgency_score}/5</span>
-        <p style="margin:6px 0 0;font-size:13px;color:#90A4AE;line-height:1.5;">${classification.urgency_reasoning}</p>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Priority</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${priorityLabel} &rarr; ${michaelResult.recommended_team}</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Entities</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.entities.join(", ") || "None detected"}</td>
-    </tr>
-    ${securityHtml}
-  </table>
-
-  <!-- Root Cause -->
-  <div style="padding:14px 18px;border-bottom:1px solid #2A2D35;">
-    <div style="font-size:13px;color:#FFB74D;font-weight:600;margin-bottom:8px;">Root Cause</div>
-    <p style="margin:0;font-size:14px;color:#E0E0E0;line-height:1.6;background:#252830;padding:10px 14px;border-radius:6px;border-left:3px solid #FFB74D;">${rootCauseText}</p>
-  </div>
-
-  <!-- Tech Notes -->
-  <div style="padding:14px 18px;border-bottom:1px solid #2A2D35;">
-    <div style="font-size:13px;color:#4FC3F7;font-weight:600;margin-bottom:10px;">Tech Notes</div>
-    <div style="background:#252830;padding:12px 14px;border-radius:6px;">
-      ${techNotesHtml}
-    </div>
-  </div>
-
-  <!-- Specialist Findings -->
-  <div style="padding:14px 18px;">
-    <div style="font-size:12px;color:#78909C;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Specialist Findings</div>
-    <table style="width:100%;border-collapse:collapse;background:#252830;border-radius:6px;overflow:hidden;">
-      ${specialistRows.join("")}
-    </table>
-  </div>
-
-  <!-- Footer -->
-  <div style="padding:10px 18px;background:#1A1C22;text-align:right;">
-    <span style="font-size:11px;color:#546E7A;">TriageIt AI &middot; ${agentCount} agent${agentCount > 1 ? "s" : ""} &middot; ${processingSeconds}s</span>
-  </div>
-</div>`;
-
+      const internalNote = buildHaloNote(
+        classification,
+        michaelResult,
+        findings,
+        processingTime,
+      );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {
       console.error(
@@ -434,15 +352,26 @@ export async function runTriage(
     }
   }
 
-  // Log Michael completed
+  // ── Step 7: Final thinking + completed log ─────────────────────────
+
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Triage complete. Root cause hypothesis: ${michaelResult.root_cause_hypothesis}. Routing to ${michaelResult.recommended_team} team.${michaelResult.escalation_needed ? ` ⚠ ESCALATION NEEDED: ${michaelResult.escalation_reason}` : ""}`,
+  );
+
   await supabase.from("agent_logs").insert({
     ticket_id: ticket.id,
     agent_name: "michael_scott",
     agent_role: "manager",
     status: "completed",
-    output_summary: `Team: ${michaelResult.recommended_team}, Priority: P${classification.recommended_priority}`,
+    output_summary: `Team: ${michaelResult.recommended_team}, Priority: P${classification.recommended_priority}, Agents used: ${Object.keys(findings).length}`,
     duration_ms: processingTime,
   });
+
+  // ── Return triage output ───────────────────────────────────────────
 
   const triageId = crypto.randomUUID();
 
@@ -457,36 +386,128 @@ export async function runTriage(
     recommended_agent: michaelResult.recommended_agent,
     security_flag: classification.security_flag,
     security_notes: classification.security_notes,
-    findings: {
-      ryan_howard: {
-        agent_name: "ryan_howard",
-        summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
-        data: classification as unknown as Record<string, unknown>,
-        confidence: classification.classification.confidence,
-      },
-      ...(phyllisResult
-        ? {
-            phyllis_vance: {
-              agent_name: "phyllis_vance",
-              summary: phyllisResult.summary,
-              data: {
-                domain_analyzed: phyllisResult.domain_analyzed,
-                findings: phyllisResult.findings,
-                root_cause: phyllisResult.root_cause,
-                recommended_actions: phyllisResult.recommended_actions,
-                severity: phyllisResult.severity,
-              } as Record<string, unknown>,
-              confidence: phyllisResult.confidence,
-            },
-          }
-        : {}),
-    },
+    findings,
     suggested_response: michaelResult.suggested_response,
     internal_notes: michaelResult.internal_notes,
     processing_time_ms: processingTime,
     model_tokens_used: {
       manager: response.usage.input_tokens + response.usage.output_tokens,
-      workers: { ryan_howard: 0, ...(phyllisResult ? { phyllis_vance: 0 } : {}) },
+      workers: workerTokens,
     },
   };
+}
+
+// ── HTML Strip (for Halo action notes) ───────────────────────────────
+
+function stripHtmlActions(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ── Halo Note Builder ────────────────────────────────────────────────
+
+function buildHaloNote(
+  classification: {
+    classification: { type: string; subtype: string; confidence: number };
+    urgency_score: number;
+    urgency_reasoning: string;
+    recommended_priority: number;
+    security_flag: boolean;
+    security_notes: string | null;
+    entities: ReadonlyArray<string>;
+  },
+  michaelResult: {
+    recommended_team: string;
+    root_cause_hypothesis: string;
+    internal_notes: string;
+    escalation_needed: boolean;
+    escalation_reason: string | null;
+  },
+  findings: Record<string, AgentFinding>,
+  processingTime: number,
+): string {
+  const agentCount = Object.keys(findings).length;
+  const td1 = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#64748b;"';
+  const td2 = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;"';
+
+  const rows: string[] = [];
+
+  // Header
+  rows.push(`<tr style="background:#1e293b;"><td colspan="2" style="padding:6px 8px;color:white;font-size:11px;font-weight:600;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:9px;opacity:0.7;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+
+  // Classification
+  rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Classification</td><td ${td2}>${classification.classification.type} / ${classification.classification.subtype} <span style="color:#94a3b8;font-size:9px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
+
+  // Urgency — score on its own, reasoning on next line
+  rows.push(`<tr><td ${td1}>Urgency</td><td ${td2}><strong>${classification.urgency_score}/5</strong></td></tr>`);
+  if (classification.urgency_reasoning) {
+    rows.push(`<tr style="background:#f8fafc;"><td ${td1} style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#94a3b8;width:110px;vertical-align:top;"></td><td style="padding:2px 8px 4px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#64748b;line-height:1.3;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
+  }
+
+  // Priority + Team
+  rows.push(`<tr><td ${td1}>Priority</td><td ${td2}><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
+
+  // Entities
+  if (classification.entities.length > 0) {
+    rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Entities</td><td ${td2}>${classification.entities.join(", ")}</td></tr>`);
+  }
+
+  // Security
+  if (classification.security_flag) {
+    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#dc2626;">⚠ Security</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#dc2626;line-height:1.4;word-break:break-word;">${classification.security_notes}</td></tr>`);
+  }
+
+  // Escalation
+  if (michaelResult.escalation_needed) {
+    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#d97706;">⬆ Escalation</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#d97706;line-height:1.4;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
+  }
+
+  // Root Cause — highlighted section
+  rows.push(`<tr style="background:#fefce8;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#854d0e;">🔍 Root Cause</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#713f12;line-height:1.4;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
+
+  // Tech Notes — highlighted section
+  rows.push(`<tr style="background:#eff6ff;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#1d4ed8;">📋 Tech Notes</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;">${michaelResult.internal_notes}</td></tr>`);
+
+  // Specialist findings
+  const specialists = Object.entries(findings).filter(([name]) => name !== "ryan_howard");
+  if (specialists.length > 0) {
+    rows.push(`<tr style="background:#f1f5f9;"><td colspan="2" style="padding:4px 8px;font-size:9px;font-weight:600;color:#64748b;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:0.5px;">Specialist Findings</td></tr>`);
+    for (const [name, finding] of specialists) {
+      const label = AGENT_LABELS[name] ?? name;
+      rows.push(`<tr><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;font-weight:600;color:#64748b;width:110px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;color:#475569;line-height:1.3;word-break:break-word;">${finding.summary}</td></tr>`);
+    }
+  }
+
+  // Quick Links — Hudu links and credentials from Dwight
+  const dwightData = findings.dwight_schrute?.data;
+  const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
+  const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+
+  if (huduLinks.length > 0 || relevantPasswords.length > 0) {
+    const td1ql = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#15803d;"';
+    const td2ql = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.6;word-break:break-word;"';
+    const linkItems = huduLinks
+      .map((l) => `<a href="${l.url}" style="color:#2563eb;text-decoration:none;">${l.label}</a>`)
+      .join(" · ");
+    const pwItems = relevantPasswords.map((p) => p.name).join(", ");
+    const content = [
+      linkItems,
+      pwItems ? `<br/><span style="color:#64748b;font-size:9px;">Credentials: ${pwItems}</span>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    rows.push(`<tr style="background:#f0fdf4;"><td ${td1ql}>📎 Quick Links</td><td ${td2ql}>${content}</td></tr>`);
+  }
+
+  // Footer
+  rows.push(`<tr><td colspan="2" style="padding:3px 8px;color:#94a3b8;font-size:8px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
+
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:620px;border-collapse:collapse;font-size:10px;color:#334155;margin:0;padding:0;border:1px solid #e5e7eb;">${rows.join("")}</table>`;
 }

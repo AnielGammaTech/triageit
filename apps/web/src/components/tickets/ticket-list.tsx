@@ -23,6 +23,9 @@ interface TicketRow {
 
 interface TicketListProps {
   readonly tickets: ReadonlyArray<TicketRow>;
+  readonly selectedIds?: ReadonlyArray<string>;
+  readonly onSelectTicket: (ticketId: string) => void;
+  readonly onToggleSelect?: (ticketId: string) => void;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -50,7 +53,12 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function TicketList({ tickets }: TicketListProps) {
+export function TicketList({
+  tickets,
+  selectedIds = [],
+  onSelectTicket,
+  onToggleSelect,
+}: TicketListProps) {
   if (tickets.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -67,8 +75,13 @@ export function TicketList({ tickets }: TicketListProps) {
       <table className="w-full text-sm">
         <thead className="bg-[var(--card)]">
           <tr className="border-b border-[var(--border)]">
+            {onToggleSelect && (
+              <th className="w-10 px-3 py-3">
+                <span className="sr-only">Select</span>
+              </th>
+            )}
             <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              ID
+              Ticket #
             </th>
             <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
               Summary
@@ -96,21 +109,52 @@ export function TicketList({ tickets }: TicketListProps) {
         <tbody>
           {tickets.map((ticket) => {
             const triage = ticket.triage_results[0];
+            const isSelected = selectedIds.includes(ticket.id);
             return (
               <tr
                 key={ticket.id}
-                className="border-b border-[var(--border)] hover:bg-[var(--accent)] transition-colors cursor-pointer"
+                className={cn(
+                  "border-b border-[var(--border)] transition-colors cursor-pointer",
+                  isSelected
+                    ? "bg-indigo-500/10 hover:bg-indigo-500/15"
+                    : "hover:bg-[var(--accent)]",
+                )}
               >
-                <td className="px-4 py-3 font-mono text-xs">
+                {onToggleSelect && (
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        onToggleSelect(ticket.id);
+                      }}
+                      className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                    />
+                  </td>
+                )}
+                <td
+                  className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   #{ticket.halo_id}
                 </td>
-                <td className="max-w-xs truncate px-4 py-3">
+                <td
+                  className="max-w-xs truncate px-4 py-3"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {ticket.summary}
                 </td>
-                <td className="px-4 py-3 text-[var(--muted-foreground)]">
+                <td
+                  className="px-4 py-3 text-[var(--muted-foreground)]"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {ticket.client_name ?? "—"}
                 </td>
-                <td className="px-4 py-3">
+                <td
+                  className="px-4 py-3"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   <span
                     className={cn(
                       "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
@@ -120,13 +164,19 @@ export function TicketList({ tickets }: TicketListProps) {
                     {ticket.status}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-[var(--muted-foreground)]">
+                <td
+                  className="px-4 py-3 text-[var(--muted-foreground)]"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {ticket.original_priority
                     ? PRIORITY_LABELS[ticket.original_priority] ??
                       `P${ticket.original_priority}`
                     : "—"}
                 </td>
-                <td className="px-4 py-3">
+                <td
+                  className="px-4 py-3"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {triage ? (
                     <span className="font-medium">
                       {PRIORITY_LABELS[triage.recommended_priority] ??
@@ -139,10 +189,16 @@ export function TicketList({ tickets }: TicketListProps) {
                     <span className="text-[var(--muted-foreground)]">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-[var(--muted-foreground)]">
+                <td
+                  className="px-4 py-3 text-[var(--muted-foreground)]"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {triage?.classification?.type ?? "—"}
                 </td>
-                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
+                <td
+                  className="px-4 py-3 text-xs text-[var(--muted-foreground)]"
+                  onClick={() => onSelectTicket(ticket.id)}
+                >
                   {formatDate(ticket.created_at)}
                 </td>
               </tr>

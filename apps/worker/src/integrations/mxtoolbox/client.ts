@@ -1,21 +1,25 @@
 import type { MxToolboxConfig } from "@triageit/shared";
-import type { MxLookupResponse, EmailDiagnostics } from "./types.js";
 
-const BASE_URL = "https://mxtoolbox.com/api/v1";
-
+/**
+ * MxToolboxClient — Queries MX Toolbox API for email/DNS diagnostics.
+ *
+ * Used by Phyllis Vance to run real MX record lookups, SPF/DKIM/DMARC
+ * validation, blacklist checks, and SMTP diagnostics.
+ */
 export class MxToolboxClient {
-  constructor(private readonly config: MxToolboxConfig) {}
+  private static readonly BASE_URL = "https://mxtoolbox.com/api/v1";
+  private readonly apiKey: string;
 
-  private async lookup(
-    type: string,
-    argument: string,
-  ): Promise<MxLookupResponse> {
-    const url = `${BASE_URL}/Lookup/${type}/${argument}`;
+  constructor(config: MxToolboxConfig) {
+    this.apiKey = config.api_key;
+  }
+
+  private async request<T>(path: string): Promise<T> {
+    const url = `${MxToolboxClient.BASE_URL}${path}`;
 
     const response = await fetch(url, {
-      method: "GET",
       headers: {
-        Authorization: this.config.api_key,
+        Authorization: this.apiKey,
         "Content-Type": "application/json",
       },
     });
@@ -23,67 +27,117 @@ export class MxToolboxClient {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(
-        `MX Toolbox ${type} lookup failed (${response.status}): ${text}`,
+        `MxToolbox API ${path} failed (${response.status}): ${text}`,
       );
     }
 
-    return (await response.json()) as MxLookupResponse;
+    return (await response.json()) as T;
   }
 
-  async mxLookup(domain: string): Promise<MxLookupResponse> {
-    return this.lookup("mx", domain);
+  // ── MX Lookup ─────────────────────────────────────────────────────
+
+  async mxLookup(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/mx/${domain}`);
   }
 
-  async spfLookup(domain: string): Promise<MxLookupResponse> {
-    return this.lookup("spf", domain);
+  // ── SPF Lookup ────────────────────────────────────────────────────
+
+  async spfLookup(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/spf/${domain}`);
   }
 
-  async dmarcLookup(domain: string): Promise<MxLookupResponse> {
-    return this.lookup("dmarc", domain);
+  // ── DKIM Lookup ───────────────────────────────────────────────────
+
+  async dkimLookup(
+    domain: string,
+    selector = "default",
+  ): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(
+      `/lookup/dkim/${selector}._domainkey.${domain}`,
+    );
   }
 
-  async blacklistCheck(domainOrIp: string): Promise<MxLookupResponse> {
-    return this.lookup("blacklist", domainOrIp);
+  // ── DMARC Lookup ──────────────────────────────────────────────────
+
+  async dmarcLookup(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/dmarc/${domain}`);
   }
 
-  async smtpDiagnostics(mailServer: string): Promise<MxLookupResponse> {
-    return this.lookup("smtp", mailServer);
+  // ── Blacklist Check ───────────────────────────────────────────────
+
+  async blacklistCheck(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/blacklist/${domain}`);
   }
 
-  async runFullDiagnostics(domain: string): Promise<EmailDiagnostics> {
-    const errors: string[] = [];
+  // ── SMTP Test ─────────────────────────────────────────────────────
 
-    const safeCall = async (
-      fn: () => Promise<MxLookupResponse>,
-      label: string,
-    ): Promise<MxLookupResponse | null> => {
-      try {
-        return await fn();
-      } catch (err) {
-        errors.push(
-          `${label}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return null;
-      }
-    };
+  async smtpTest(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/smtp/${domain}`);
+  }
 
-    const [mx, spf, dmarc, blacklist] = await Promise.all([
-      safeCall(() => this.mxLookup(domain), "MX lookup"),
-      safeCall(() => this.spfLookup(domain), "SPF lookup"),
-      safeCall(() => this.dmarcLookup(domain), "DMARC lookup"),
-      safeCall(() => this.blacklistCheck(domain), "Blacklist check"),
+  // ── DNS Lookup ────────────────────────────────────────────────────
+
+  async dnsLookup(domain: string): Promise<MxToolboxResult> {
+    return this.request<MxToolboxResult>(`/lookup/dns/${domain}`);
+  }
+
+  // ── Full Domain Health Check ──────────────────────────────────────
+
+  async fullDomainCheck(domain: string): Promise<MxToolboxDomainHealth> {
+    const [mx, spf, dmarc, blacklist] = await Promise.allSettled([
+      this.mxLookup(domain),
+      this.spfLookup(domain),
+      this.dmarcLookup(domain),
+      this.blacklistCheck(domain),
     ]);
 
-    // Run SMTP against the first MX record if available
-    let smtp: MxLookupResponse | null = null;
-    const firstMxHost = mx?.Information?.[0]?.Hostname;
-    if (firstMxHost) {
-      smtp = await safeCall(
-        () => this.smtpDiagnostics(firstMxHost),
-        "SMTP diagnostics",
-      );
-    }
-
-    return { domain, mx, spf, dmarc, blacklist, smtp, errors };
+    return {
+      domain,
+      mx: mx.status === "fulfilled" ? mx.value : null,
+      spf: spf.status === "fulfilled" ? spf.value : null,
+      dmarc: dmarc.status === "fulfilled" ? dmarc.value : null,
+      blacklist: blacklist.status === "fulfilled" ? blacklist.value : null,
+    };
   }
+}
+
+// ── MxToolbox Types ───────────────────────────────────────────────────
+
+export interface MxToolboxResult {
+  readonly Command?: string;
+  readonly CommandArgument?: string;
+  readonly IsTransitioned?: boolean;
+  readonly MxRep?: number;
+  readonly EmailServiceProvider?: string;
+  readonly Failed?: ReadonlyArray<MxToolboxEntry>;
+  readonly Warnings?: ReadonlyArray<MxToolboxEntry>;
+  readonly Passed?: ReadonlyArray<MxToolboxEntry>;
+  readonly Information?: ReadonlyArray<MxToolboxEntry>;
+  readonly Errors?: ReadonlyArray<string>;
+  readonly Timeouts?: ReadonlyArray<string>;
+  readonly RelatedLookups?: ReadonlyArray<{
+    readonly Name?: string;
+    readonly URL?: string;
+    readonly Command?: string;
+    readonly CommandArgument?: string;
+  }>;
+  readonly [key: string]: unknown;
+}
+
+export interface MxToolboxEntry {
+  readonly ID?: number;
+  readonly Name?: string;
+  readonly Info?: string;
+  readonly Url?: string;
+  readonly PublicDescription?: string;
+  readonly IsExcludedByUser?: boolean;
+  readonly [key: string]: unknown;
+}
+
+export interface MxToolboxDomainHealth {
+  readonly domain: string;
+  readonly mx: MxToolboxResult | null;
+  readonly spf: MxToolboxResult | null;
+  readonly dmarc: MxToolboxResult | null;
+  readonly blacklist: MxToolboxResult | null;
 }
