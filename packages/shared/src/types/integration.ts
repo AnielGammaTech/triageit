@@ -4,7 +4,9 @@ export type ServiceType =
   | "jumpcloud"
   | "datto"
   | "vultr"
-  | "mxtoolbox";
+  | "mxtoolbox"
+  | "teams"
+  | "cipp";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
@@ -50,13 +52,27 @@ export interface MxToolboxConfig {
   readonly api_key: string;
 }
 
+export interface TeamsConfig {
+  readonly webhook_url: string;
+  readonly channel_name?: string;
+}
+
+export interface CippConfig {
+  readonly base_url: string;
+  readonly client_id: string;
+  readonly client_secret: string;
+  readonly tenant_id: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
   | JumpCloudConfig
   | DattoConfig
   | VultrConfig
-  | MxToolboxConfig;
+  | MxToolboxConfig
+  | TeamsConfig
+  | CippConfig;
 
 export interface IntegrationConfigField {
   readonly key: string;

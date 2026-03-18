@@ -133,4 +133,62 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
       },
     ],
   },
+  {
+    service: "teams",
+    display_name: "Microsoft Teams",
+    description:
+      "Daily triage summaries and alerts. Posts re-triage reports, SLA warnings, and stale ticket alerts to your Teams channel.",
+    fields: [
+      {
+        key: "webhook_url",
+        label: "Incoming Webhook URL",
+        type: "url",
+        placeholder: "https://outlook.office.com/webhook/...",
+        required: true,
+      },
+      {
+        key: "channel_name",
+        label: "Channel Name (for display)",
+        type: "text",
+        placeholder: "e.g. #triage-alerts",
+        required: false,
+      },
+    ],
+  },
+  {
+    service: "cipp",
+    display_name: "CIPP",
+    description:
+      "Microsoft 365 management via CyberDrain Improved Partner Portal. User info, mailbox status, MFA, licenses, device compliance, and tenant health.",
+    fields: [
+      {
+        key: "base_url",
+        label: "CIPP API URL",
+        type: "url",
+        placeholder: "https://your-cipp-instance.azurewebsites.net",
+        required: true,
+      },
+      {
+        key: "client_id",
+        label: "Application (Client) ID",
+        type: "text",
+        placeholder: "Azure AD App Registration Client ID",
+        required: true,
+      },
+      {
+        key: "client_secret",
+        label: "Client Secret",
+        type: "password",
+        placeholder: "Azure AD App Registration Secret",
+        required: true,
+      },
+      {
+        key: "tenant_id",
+        label: "Tenant ID",
+        type: "text",
+        placeholder: "Your Azure AD Tenant ID",
+        required: true,
+      },
+    ],
+  },
 ] as const;

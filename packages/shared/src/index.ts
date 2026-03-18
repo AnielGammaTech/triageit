@@ -26,6 +26,8 @@ export type {
   DattoConfig,
   VultrConfig,
   MxToolboxConfig,
+  TeamsConfig,
+  CippConfig,
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,
