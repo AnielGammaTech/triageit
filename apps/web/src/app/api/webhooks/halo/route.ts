@@ -17,16 +17,39 @@ import { createServiceClient } from "@/lib/supabase/server";
  *   Configuration > Integrations > Webhooks
  *   URL: https://your-domain.com/api/webhooks/halo
  *   Method: POST
- *   Auth: Bearer token (set HALO_WEBHOOK_SECRET env var)
+ *   Auth: Basic authentication
+ *   Username: HALO_WEBHOOK_USERNAME env var
+ *   Password: HALO_WEBHOOK_PASSWORD env var
  *   Trigger: Ticket Created (and optionally Ticket Updated)
  */
 export async function POST(request: NextRequest) {
-  // Auth check
-  const authHeader = request.headers.get("authorization");
-  const webhookSecret = process.env.HALO_WEBHOOK_SECRET;
+  // Auth check — supports both Basic auth (Halo's format) and Bearer token
+  const authHeader = request.headers.get("authorization") ?? "";
+  const expectedUser = process.env.HALO_WEBHOOK_USERNAME;
+  const expectedPass = process.env.HALO_WEBHOOK_PASSWORD;
+  const bearerSecret = process.env.HALO_WEBHOOK_SECRET;
 
-  if (webhookSecret && authHeader !== `Bearer ${webhookSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (expectedUser && expectedPass) {
+    // Basic auth: "Basic base64(username:password)"
+    if (!authHeader.startsWith("Basic ")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const encoded = authHeader.slice(6);
+    let decoded: string;
+    try {
+      decoded = atob(encoded);
+    } catch {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const [user, pass] = decoded.split(":");
+    if (user !== expectedUser || pass !== expectedPass) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else if (bearerSecret) {
+    // Fallback: Bearer token
+    if (authHeader !== `Bearer ${bearerSecret}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   // Parse body — Halo may send various formats
