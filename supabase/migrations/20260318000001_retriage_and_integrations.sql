@@ -81,4 +81,13 @@ INSERT INTO triage_rules (name, description, rule_type, conditions, actions, pri
   '{"team": "Security", "notify_teams": true, "priority_override": 1}',
   1,
   true
+),
+(
+  'Customer Update Request',
+  'When a customer asks for an update, post private note @mentioning the assigned tech with AI suggestions, notify management via Teams',
+  'notification',
+  '{"customer_message_patterns": ["update", "status", "follow up", "any news", "waiting", "ETA", "haven''t heard"]}',
+  '{"post_internal_note": true, "mention_assigned_agent": true, "notify_teams": true, "retriage": true, "notify_superiors": true}',
+  1,
+  true
 );

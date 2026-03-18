@@ -7,6 +7,10 @@ import {
   stopCronScheduler,
   triggerDailyRetriage,
 } from "./cron/scheduler.js";
+import {
+  isUpdateRequest,
+  handleUpdateRequest,
+} from "./agents/retriage/update-request.js";
 
 const server = Fastify({ logger: true });
 
@@ -59,6 +63,42 @@ server.post("/retriage", async (_request, reply) => {
     return reply.status(500).send({ error: message });
   }
 });
+
+// Customer action webhook — detects update requests
+server.post<{
+  Body: { ticket_id: number; note: string; who?: string; hiddenfromuser?: boolean };
+}>(
+  "/webhook/action",
+  async (request, reply) => {
+    const { ticket_id, note, hiddenfromuser } = request.body;
+
+    if (!ticket_id || !note) {
+      return reply.status(400).send({ error: "ticket_id and note are required" });
+    }
+
+    // Only process customer-visible actions (not internal notes)
+    if (hiddenfromuser) {
+      return { status: "skipped", reason: "internal note" };
+    }
+
+    // Check if the customer is asking for an update
+    if (isUpdateRequest(note)) {
+      const supabase = createSupabaseClient();
+
+      // Fire and forget — don't block the webhook response
+      handleUpdateRequest(ticket_id, note, supabase).catch((err) => {
+        console.error(
+          `[WEBHOOK] Failed to handle update request for ticket #${ticket_id}:`,
+          err,
+        );
+      });
+
+      return { status: "update_request_detected", ticket_id };
+    }
+
+    return { status: "ok", detected: false };
+  },
+);
 
 async function start() {
   const port = parseInt(process.env.PORT ?? "3001", 10);
