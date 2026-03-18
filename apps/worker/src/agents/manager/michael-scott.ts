@@ -91,16 +91,22 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
-  // Fast path: skip expensive Sonnet call for simple notifications
+  // Fast path: skip expensive Sonnet call for simple notifications/transactional emails
+  const subtypeLower = classification.classification.subtype?.toLowerCase() ?? "";
+  const typeLower = classification.classification.type.toLowerCase();
+  const notificationKeywords = [
+    "notification", "alert", "auto-replenish", "informational",
+    "transactional", "confirmation", "order_confirmation", "receipt",
+    "renewal", "subscription", "invoice", "statement", "reminder",
+  ];
   const isNotification =
-    classification.classification.subtype?.toLowerCase().includes("notification") ||
-    classification.classification.subtype?.toLowerCase().includes("alert") ||
-    classification.classification.subtype?.toLowerCase().includes("auto-replenish") ||
-    classification.classification.subtype?.toLowerCase().includes("informational");
+    notificationKeywords.some((kw) => subtypeLower.includes(kw)) ||
+    (typeLower === "billing" && classification.urgency_score <= 2) ||
+    (typeLower === "other" && subtypeLower.includes("email") && classification.urgency_score <= 2);
 
   if (
     isNotification &&
-    classification.urgency_score <= 1 &&
+    classification.urgency_score <= 2 &&
     !classification.security_flag
   ) {
     const processingTime = Date.now() - startTime;
