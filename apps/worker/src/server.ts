@@ -2,6 +2,11 @@ import Fastify from "fastify";
 import { startTriageWorker } from "./queue/consumer.js";
 import { createSupabaseClient } from "./db/supabase.js";
 import { enqueueTriageJob } from "./queue/producer.js";
+import {
+  startCronScheduler,
+  stopCronScheduler,
+  triggerDailyRetriage,
+} from "./cron/scheduler.js";
 
 const server = Fastify({ logger: true });
 
@@ -41,6 +46,20 @@ server.post<{ Body: { ticket_id: string } }>(
   },
 );
 
+// Manual daily re-triage trigger
+server.post("/retriage", async (_request, reply) => {
+  try {
+    const result = await triggerDailyRetriage();
+    return {
+      status: "completed",
+      ...result,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 async function start() {
   const port = parseInt(process.env.PORT ?? "3001", 10);
   const host = process.env.HOST ?? "0.0.0.0";
@@ -49,6 +68,9 @@ async function start() {
   const worker = startTriageWorker();
   console.log("[WORKER] Triage worker started, waiting for jobs...");
 
+  // Start the cron scheduler for daily re-triage
+  startCronScheduler();
+
   // Start Fastify
   await server.listen({ port, host });
   console.log(`[WORKER] Server listening on ${host}:${port}`);
@@ -56,6 +78,7 @@ async function start() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[WORKER] Shutting down...");
+    stopCronScheduler();
     await worker.close();
     await server.close();
     process.exit(0);
