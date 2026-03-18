@@ -87,9 +87,10 @@ export type IntegrationConfig =
 export interface IntegrationConfigField {
   readonly key: string;
   readonly label: string;
-  readonly type: "text" | "password" | "url";
+  readonly type: "text" | "password" | "url" | "select";
   readonly placeholder: string;
   readonly required: boolean;
+  readonly options?: ReadonlyArray<{ readonly value: string; readonly label: string }>;
 }
 
 export interface IntegrationDefinition {

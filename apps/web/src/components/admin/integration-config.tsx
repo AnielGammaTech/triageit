@@ -224,13 +224,33 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
                 {field.label}
                 {field.required && <span className="text-red-400"> *</span>}
               </label>
-              <input
-                type={field.type === "password" ? "password" : "text"}
-                value={values[field.key] ?? ""}
-                onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                placeholder={field.placeholder}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1]"
-              />
+              {field.type === "select" && field.options ? (
+                <div className="flex gap-2">
+                  {field.options.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleFieldChange(field.key, opt.value)}
+                      className={cn(
+                        "flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-all",
+                        values[field.key] === opt.value
+                          ? "border-[#6366f1] bg-[#6366f1]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <input
+                  type={field.type === "password" ? "password" : "text"}
+                  value={values[field.key] ?? ""}
+                  onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                  placeholder={field.placeholder}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1]"
+                />
+              )}
             </div>
           ))}
 
