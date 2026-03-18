@@ -40,6 +40,12 @@ const SKILL_TYPES = [
   { value: "context", label: "Context" },
 ];
 
+const DETAIL_MODEL_STYLES: Record<string, { label: string; color: string }> = {
+  opus: { label: "Claude Opus", color: "bg-purple-500/10 text-purple-400" },
+  sonnet: { label: "Claude Sonnet", color: "bg-violet-500/10 text-violet-400" },
+  haiku: { label: "Claude Haiku", color: "bg-sky-500/10 text-sky-400" },
+};
+
 const MEMORY_TYPE_COLORS: Record<string, string> = {
   resolution: "bg-emerald-500/10 text-emerald-400",
   pattern: "bg-blue-500/10 text-blue-400",
@@ -127,11 +133,9 @@ export function WorkerDetail({ agent }: WorkerDetailProps) {
         <div className="mt-4 flex gap-2">
           <span className={cn(
             "rounded-full px-3 py-1 text-xs font-medium",
-            agent.model === "sonnet"
-              ? "bg-violet-500/10 text-violet-400"
-              : "bg-sky-500/10 text-sky-400",
+            DETAIL_MODEL_STYLES[agent.model]?.color ?? "bg-white/10 text-white/50",
           )}>
-            {agent.model === "sonnet" ? "Claude Sonnet" : "Claude Haiku"}
+            {DETAIL_MODEL_STYLES[agent.model]?.label ?? `Claude ${agent.model}`}
           </span>
           {agent.integration && (
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/40">
