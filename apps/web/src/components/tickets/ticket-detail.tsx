@@ -21,6 +21,7 @@ interface TriageResult {
   readonly suggested_response: string | null;
   readonly findings: Record<string, { agent_name: string; summary: string; data: Record<string, unknown>; confidence: number }> | null;
   readonly processing_time_ms: number | null;
+  readonly model_tokens_used: { manager: number; workers: Record<string, number> } | null;
   readonly created_at: string;
 }
 
@@ -367,16 +368,25 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
       {/* Triage summary card */}
       {triage && (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">AI Triage Result</h3>
-            <span className="text-xs text-white/30">
-              {triage.processing_time_ms ? `${(triage.processing_time_ms / 1000).toFixed(1)}s` : ""}
-              {" · "}
-              {triage.findings ? `${Object.keys(triage.findings).length} agents` : ""}
-              {" · "}
-              {timeAgo(triage.created_at)}
-            </span>
-          </div>
+          {(() => {
+            const totalTokens = triage.model_tokens_used
+              ? triage.model_tokens_used.manager +
+                Object.values(triage.model_tokens_used.workers).reduce((a, b) => a + b, 0)
+              : null;
+            return (
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-white">AI Triage Result</h3>
+                <span className="text-xs text-white/30">
+                  {triage.processing_time_ms ? `${(triage.processing_time_ms / 1000).toFixed(1)}s` : ""}
+                  {" · "}
+                  {triage.findings ? `${Object.keys(triage.findings).length} agents` : ""}
+                  {totalTokens != null ? ` · ${totalTokens.toLocaleString()} tokens` : ""}
+                  {" · "}
+                  {timeAgo(triage.created_at)}
+                </span>
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30">Classification</p>

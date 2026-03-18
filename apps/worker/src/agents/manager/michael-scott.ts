@@ -103,7 +103,33 @@ export async function runTriage(
   supabase: SupabaseClient,
 ): Promise<TriageOutput> {
   const startTime = Date.now();
-  const context = buildTriageContext(ticket);
+  let context = buildTriageContext(ticket);
+
+  // ── Pre-step: Fetch Halo ticket actions (history/comments) ─────────
+
+  const haloConfigEarly = await getHaloConfig(supabase);
+  if (haloConfigEarly) {
+    try {
+      const haloEarly = new HaloClient(haloConfigEarly);
+      const rawActions = await haloEarly.getTicketActions(ticket.halo_id);
+      const formattedActions = rawActions.map((a) => ({
+        note: stripHtmlActions(a.note),
+        who: a.who ?? null,
+        outcome: a.outcome ?? null,
+        date: a.datecreated ?? null,
+      }));
+      context = { ...context, actions: formattedActions };
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `Fetched ${formattedActions.length} action(s)/comment(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
+      );
+    } catch (err) {
+      console.warn(`[MICHAEL] Could not fetch Halo actions for ticket #${ticket.halo_id}:`, err);
+    }
+  }
 
   // ── Step 1: Michael starts ─────────────────────────────────────────
 
@@ -266,6 +292,18 @@ export async function runTriage(
       ? `**⚠ SECURITY FLAG:** ${classification.security_notes}`
       : "",
     "",
+    ...(context.actions && context.actions.length > 0
+      ? [
+          "## Ticket History / Comments",
+          ...context.actions.map((a) => {
+            const who = a.who ?? "Unknown";
+            const when = a.date ?? "unknown date";
+            const outcome = a.outcome ? ` [${a.outcome}]` : "";
+            return `- **${who}** (${when})${outcome}: ${a.note}`;
+          }),
+          "",
+        ]
+      : []),
     specialistSections,
   ]
     .filter(Boolean)
@@ -359,6 +397,20 @@ export async function runTriage(
   };
 }
 
+// ── HTML Strip (for Halo action notes) ───────────────────────────────
+
+function stripHtmlActions(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ── Halo Note Builder ────────────────────────────────────────────────
 
 function buildHaloNote(
@@ -431,6 +483,27 @@ function buildHaloNote(
       const label = AGENT_LABELS[name] ?? name;
       rows.push(`<tr><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;font-weight:600;color:#64748b;width:110px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;color:#475569;line-height:1.3;word-break:break-word;">${finding.summary}</td></tr>`);
     }
+  }
+
+  // Quick Links — Hudu links and credentials from Dwight
+  const dwightData = findings.dwight_schrute?.data;
+  const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
+  const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+
+  if (huduLinks.length > 0 || relevantPasswords.length > 0) {
+    const td1ql = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#15803d;"';
+    const td2ql = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.6;word-break:break-word;"';
+    const linkItems = huduLinks
+      .map((l) => `<a href="${l.url}" style="color:#2563eb;text-decoration:none;">${l.label}</a>`)
+      .join(" · ");
+    const pwItems = relevantPasswords.map((p) => p.name).join(", ");
+    const content = [
+      linkItems,
+      pwItems ? `<br/><span style="color:#64748b;font-size:9px;">Credentials: ${pwItems}</span>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    rows.push(`<tr style="background:#f0fdf4;"><td ${td1ql}>📎 Quick Links</td><td ${td2ql}>${content}</td></tr>`);
   }
 
   // Footer

@@ -53,6 +53,7 @@ Respond with ONLY valid JSON:
   "kb_articles": [{"title": "<title>", "summary": "<key information from this article>", "actionable_steps": "<specific steps if applicable>"}],
   "procedures": [{"title": "<title>", "steps_summary": "<key steps relevant to this issue>"}],
   "relevant_passwords": [{"name": "<credential name>", "type": "<type>", "note": "<what this credential is for>"}],
+  "hudu_links": [{"label": "<what this link is for>", "url": "<Hudu URL>"}],
   "client_config_notes": "<any client-specific configurations that affect this issue>",
   "documentation_notes": "<comprehensive summary of ALL relevant documentation found>",
   "has_documented_solution": <true/false>,
@@ -304,7 +305,7 @@ Respond with ONLY valid JSON:
         for (const article of huduData.articles) {
           const preview = stripHtml(article.content ?? "").slice(0, 500);
           sections.push(
-            `- **${article.name}** (Folder: ${article.folder_name ?? "Root"})`,
+            `- **${article.name}** (Folder: ${article.folder_name ?? "Root"}) (URL: ${article.url ?? "N/A"})`,
           );
           if (preview) sections.push(`  > ${preview}`);
         }
@@ -321,7 +322,7 @@ Respond with ONLY valid JSON:
             .map((f) => `${f.label}: ${f.value}`)
             .join(", ");
           sections.push(
-            `- **${asset.name}** (Model: ${asset.primary_model ?? "N/A"}, Manufacturer: ${asset.primary_manufacturer ?? "N/A"}, Serial: ${asset.primary_serial ?? "N/A"})`,
+            `- **${asset.name}** (Model: ${asset.primary_model ?? "N/A"}, Manufacturer: ${asset.primary_manufacturer ?? "N/A"}, Serial: ${asset.primary_serial ?? "N/A"}) (URL: ${asset.url ?? "N/A"})`,
           );
           if (fields) sections.push(`  Fields: ${fields}`);
         }
@@ -335,7 +336,7 @@ Respond with ONLY valid JSON:
         );
         for (const pw of huduData.passwords) {
           sections.push(
-            `- **${pw.name}** (Type: ${pw.password_type ?? "N/A"}, Username: ${pw.username ?? "N/A"})`,
+            `- **${pw.name}** (Type: ${pw.password_type ?? "N/A"}, Username: ${pw.username ?? "N/A"}) (URL: ${pw.url ?? "N/A"})`,
           );
           if (pw.description) sections.push(`  Note: ${pw.description}`);
         }

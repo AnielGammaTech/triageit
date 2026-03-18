@@ -218,6 +218,7 @@ export interface HuduArticle {
   readonly folder_name?: string;
   readonly enable_sharing?: boolean;
   readonly slug?: string;
+  readonly url?: string;
   readonly created_at?: string;
   readonly updated_at?: string;
   readonly [key: string]: unknown;
