@@ -31,6 +31,8 @@ export type {
   TwilioConfig,
   GenericApiKeyConfig,
   GenericApiUrlKeyConfig,
+  TeamsConfig,
+  CippConfig,
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,

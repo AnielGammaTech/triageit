@@ -1,7 +1,6 @@
 "use client";
 
 import { cn } from "@/lib/utils/cn";
-import type { TicketStatus } from "@triageit/shared";
 
 interface TicketRow {
   readonly id: string;
@@ -10,7 +9,7 @@ interface TicketRow {
   readonly client_name: string | null;
   readonly user_name: string | null;
   readonly original_priority: number | null;
-  readonly status: TicketStatus;
+  readonly status: string;
   readonly created_at: string;
   readonly triage_results: ReadonlyArray<{
     readonly urgency_score: number;
@@ -29,7 +28,7 @@ interface TicketListProps {
   readonly onToggleSelect?: (ticketId: string) => void;
 }
 
-const STATUS_STYLES: Record<TicketStatus, string> = {
+const STATUS_STYLES: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400",
   triaging: "bg-blue-500/20 text-blue-400",
   triaged: "bg-green-500/20 text-green-400",

@@ -73,6 +73,35 @@ export class HaloClient {
     ]);
   }
 
+  async getOpenTickets(): Promise<ReadonlyArray<HaloTicket>> {
+    // Halo API: status_id filtering — we get all tickets NOT in Resolved status
+    // pageinate through all results
+    const pageSize = 100;
+    let page = 1;
+    const allTickets: HaloTicket[] = [];
+
+    while (true) {
+      const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
+        "GET",
+        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true`,
+      );
+      const tickets = result.tickets ?? [];
+      allTickets.push(...tickets);
+
+      if (tickets.length < pageSize) break;
+      page++;
+    }
+
+    return allTickets;
+  }
+
+  async getTicketWithSLA(ticketId: number): Promise<HaloTicket & { sla_timer_text?: string }> {
+    return this.request<HaloTicket & { sla_timer_text?: string }>(
+      "GET",
+      `/tickets/${ticketId}?includeslainfo=true`,
+    );
+  }
+
   async updateCustomFields(
     ticketId: number,
     fields: ReadonlyArray<{ id: number; value: string }>,

@@ -20,7 +20,9 @@ export type ServiceType =
   | "threecx"
   | "spanning"
   | "twilio"
-  | "ai-provider";
+  | "ai-provider"
+  | "teams"
+  | "cipp";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
@@ -90,6 +92,18 @@ export interface GenericApiUrlKeyConfig {
   readonly api_key: string;
 }
 
+export interface TeamsConfig {
+  readonly webhook_url: string;
+  readonly channel_name?: string;
+}
+
+export interface CippConfig {
+  readonly base_url: string;
+  readonly client_id: string;
+  readonly client_secret: string;
+  readonly tenant_id: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
@@ -102,6 +116,8 @@ export type IntegrationConfig =
   | TwilioConfig
   | GenericApiKeyConfig
   | GenericApiUrlKeyConfig
+  | TeamsConfig
+  | CippConfig
   | Record<string, string>;
 
 export interface IntegrationConfigField {
