@@ -138,9 +138,6 @@ export function OpenTicketList({ tickets }: OpenTicketListProps) {
         <tbody>
           {tickets.map((ticket) => {
             const flags = getFlags(ticket);
-            const latestRetriage = ticket.triage_results.find(
-              (t) => t.triage_type === "retriage",
-            );
             const statusStyle =
               HALO_STATUS_STYLES[ticket.halo_status ?? ""] ??
               "bg-gray-500/20 text-gray-400";

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import { TicketList } from "./ticket-list";
 import { OpenTicketList } from "./open-ticket-list";
@@ -41,6 +42,7 @@ interface TicketTabsProps {
 
 export function TicketTabs({ newTickets, openTickets }: TicketTabsProps) {
   const [activeTab, setActiveTab] = useState<"new" | "open">("new");
+  const router = useRouter();
 
   return (
     <div className="space-y-4">
@@ -86,7 +88,10 @@ export function TicketTabs({ newTickets, openTickets }: TicketTabsProps) {
       </div>
 
       {activeTab === "new" ? (
-        <TicketList tickets={newTickets} />
+        <TicketList
+          tickets={newTickets}
+          onSelectTicket={(id) => router.push(`/tickets?id=${id}`)}
+        />
       ) : (
         <OpenTicketList tickets={openTickets} />
       )}

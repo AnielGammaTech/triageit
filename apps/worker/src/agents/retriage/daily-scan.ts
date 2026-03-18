@@ -3,20 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloTicket, HaloAction, HaloConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 
-interface OpenTicketContext {
-  readonly haloId: number;
-  readonly summary: string;
-  readonly details: string | null;
-  readonly clientName: string | null;
-  readonly status: string;
-  readonly statusId: number;
-  readonly team: string | null;
-  readonly agent: string | null;
-  readonly priority: string | null;
-  readonly createdAt: string;
-  readonly actions: ReadonlyArray<HaloAction>;
-  readonly slaInfo: string | null;
-}
 
 interface ReTriageResult {
   readonly haloId: number;
