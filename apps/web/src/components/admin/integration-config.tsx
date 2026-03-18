@@ -131,13 +131,20 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
     if (integrationId) loadMappings(integrationId);
   }
 
-  async function handleAddMapping(externalId: string, externalName: string) {
+  async function handleAddMapping(
+    externalId: string,
+    externalName: string,
+    customerName?: string,
+    customerId?: string,
+  ) {
     if (!integrationId) return;
     await supabase.from("integration_mappings").insert({
       integration_id: integrationId,
       service: item.service,
       external_id: externalId,
       external_name: externalName,
+      customer_name: customerName ?? null,
+      customer_id: customerId ?? null,
     });
     loadMappings(integrationId);
   }
@@ -287,7 +294,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
 // ── Customer Mapping Tab ──────────────────────────────────────────────
 
 interface ExternalCustomer {
-  readonly id: number;
+  readonly id: number | string;
   readonly name: string;
   readonly is_active: boolean;
 }
@@ -296,7 +303,12 @@ interface CustomerMappingTabProps {
   readonly service: string;
   readonly integrationId: string | null;
   readonly mappings: ReadonlyArray<MappingRow>;
-  readonly onAddMapping: (externalId: string, externalName: string) => void;
+  readonly onAddMapping: (
+    externalId: string,
+    externalName: string,
+    customerName?: string,
+    customerId?: string,
+  ) => void;
   readonly onDeleteMapping: (mappingId: string) => void;
 }
 
@@ -308,30 +320,33 @@ function CustomerMappingTab({
   onDeleteMapping,
 }: CustomerMappingTabProps) {
   const [externalCustomers, setExternalCustomers] = useState<ReadonlyArray<ExternalCustomer>>([]);
+  const [haloCustomers, setHaloCustomers] = useState<ReadonlyArray<ExternalCustomer>>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingHalo, setLoadingHalo] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [searchExternal, setSearchExternal] = useState("");
+  const [mappingTarget, setMappingTarget] = useState<{
+    externalId: string;
+    externalName: string;
+  } | null>(null);
+  const [haloSearch, setHaloSearch] = useState("");
+
+  const isHaloService = service === "halo";
+  const serviceLabel = service.charAt(0).toUpperCase() + service.slice(1);
 
   async function loadExternalCustomers() {
     setLoading(true);
     setFetchError(null);
     try {
-      // Route to the right API based on integration service
-      const apiUrl = service === "halo" ? "/api/halo/customers" : null;
-      if (!apiUrl) {
-        setFetchError(`Customer fetch not implemented for ${service} yet`);
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(apiUrl);
+      const response = await fetch(
+        `/api/integrations/customers?service=${encodeURIComponent(service)}`,
+      );
       if (!response.ok) {
         const data = await response.json();
         setFetchError(data.error ?? "Failed to fetch customers");
         setLoading(false);
         return;
       }
-
       const data = await response.json();
       setExternalCustomers(data.customers ?? []);
     } catch (err) {
@@ -340,9 +355,26 @@ function CustomerMappingTab({
     setLoading(false);
   }
 
+  async function loadHaloCustomers() {
+    setLoadingHalo(true);
+    try {
+      const response = await fetch("/api/halo/customers");
+      if (response.ok) {
+        const data = await response.json();
+        setHaloCustomers(data.customers ?? []);
+      }
+    } catch {
+      // Halo customers are optional for non-Halo integrations
+    }
+    setLoadingHalo(false);
+  }
+
   useEffect(() => {
     if (integrationId) {
       loadExternalCustomers();
+      if (!isHaloService) {
+        loadHaloCustomers();
+      }
     }
   }, [integrationId, service]);
 
@@ -354,20 +386,108 @@ function CustomerMappingTab({
     );
   }
 
-  // Filter out already-mapped external customers
   const mappedExternalIds = new Set(mappings.map((m) => m.external_id));
   const unmappedCustomers = externalCustomers.filter(
     (c) => !mappedExternalIds.has(String(c.id)),
   );
 
-  const filteredUnmapped = search.trim()
+  const filteredUnmapped = searchExternal.trim()
     ? unmappedCustomers.filter((c) =>
-        c.name.toLowerCase().includes(search.toLowerCase()),
+        c.name.toLowerCase().includes(searchExternal.toLowerCase()),
       )
     : unmappedCustomers;
 
+  const filteredHaloCustomers = haloSearch.trim()
+    ? haloCustomers.filter((c) =>
+        c.name.toLowerCase().includes(haloSearch.toLowerCase()),
+      )
+    : haloCustomers;
+
+  function handleMapClick(externalId: string, externalName: string) {
+    if (isHaloService) {
+      onAddMapping(externalId, externalName, externalName, externalId);
+    } else {
+      setMappingTarget({ externalId, externalName });
+      setHaloSearch("");
+    }
+  }
+
+  function handleSelectHaloCustomer(haloCustomer: ExternalCustomer) {
+    if (!mappingTarget) return;
+    onAddMapping(
+      mappingTarget.externalId,
+      mappingTarget.externalName,
+      haloCustomer.name,
+      String(haloCustomer.id),
+    );
+    setMappingTarget(null);
+    setHaloSearch("");
+  }
+
   return (
     <div className="space-y-5">
+      {/* Mapping picker modal */}
+      {mappingTarget && (
+        <div className="rounded-xl border border-[#6366f1]/30 bg-[#6366f1]/5 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-white/50">
+                Mapping {serviceLabel} customer
+              </p>
+              <p className="text-sm font-medium text-white">
+                {mappingTarget.externalName}
+              </p>
+            </div>
+            <button
+              onClick={() => setMappingTarget(null)}
+              className="rounded-lg px-2 py-1 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="mb-2 text-xs text-white/40">
+            Select the Halo PSA customer this maps to:
+          </p>
+          <input
+            value={haloSearch}
+            onChange={(e) => setHaloSearch(e.target.value)}
+            placeholder="Search Halo customers..."
+            autoFocus
+            className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
+          />
+          {loadingHalo ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+            </div>
+          ) : (
+            <div className="max-h-48 space-y-0.5 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-1.5">
+              {filteredHaloCustomers.map((hc) => (
+                <button
+                  key={hc.id}
+                  onClick={() => handleSelectHaloCustomer(hc)}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-white transition-colors hover:bg-[#6366f1]/10"
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-blue-500/10 text-[10px] font-bold text-blue-400">
+                    {hc.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 truncate">{hc.name}</span>
+                  <span className="ml-auto shrink-0 text-xs text-white/20">
+                    #{hc.id}
+                  </span>
+                </button>
+              ))}
+              {filteredHaloCustomers.length === 0 && (
+                <p className="px-3 py-3 text-center text-xs text-white/30">
+                  {haloCustomers.length === 0
+                    ? "No Halo customers loaded. Is Halo PSA configured?"
+                    : "No match found"}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Mapped customers */}
       {mappings.length > 0 && (
         <div>
@@ -379,14 +499,29 @@ function CustomerMappingTab({
               <thead>
                 <tr className="border-b border-white/10 bg-white/5">
                   <th className="px-4 py-2.5 text-left font-medium text-white/50">
-                    External ID
+                    {serviceLabel} Customer
                   </th>
-                  <th className="px-4 py-2.5 text-left font-medium text-white/50">
-                    External Name
-                  </th>
-                  <th className="px-4 py-2.5 text-left font-medium text-white/50">
-                    Internal Customer
-                  </th>
+                  {!isHaloService && (
+                    <th className="px-4 py-2.5 text-center font-medium text-white/50">
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="mx-auto"
+                      >
+                        <path d="M8 12h8" />
+                        <path d="m12 8 4 4-4 4" />
+                      </svg>
+                    </th>
+                  )}
+                  {!isHaloService && (
+                    <th className="px-4 py-2.5 text-left font-medium text-white/50">
+                      Halo Customer
+                    </th>
+                  )}
                   <th className="px-4 py-2.5 text-right font-medium text-white/50" />
                 </tr>
               </thead>
@@ -396,15 +531,33 @@ function CustomerMappingTab({
                     key={m.id}
                     className="border-b border-white/5 transition-colors hover:bg-white/5"
                   >
-                    <td className="px-4 py-2.5 font-mono text-xs text-white/50">
-                      {m.external_id}
+                    <td className="px-4 py-2.5">
+                      <div>
+                        <p className="text-white">{m.external_name}</p>
+                        <p className="text-xs text-white/30">
+                          ID: {m.external_id}
+                        </p>
+                      </div>
                     </td>
-                    <td className="px-4 py-2.5 text-white">
-                      {m.external_name}
-                    </td>
-                    <td className="px-4 py-2.5 text-white/70">
-                      {m.customer_name || "—"}
-                    </td>
+                    {!isHaloService && (
+                      <td className="px-4 py-2.5 text-center">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/10 text-[10px] text-emerald-400">
+                          ✓
+                        </span>
+                      </td>
+                    )}
+                    {!isHaloService && (
+                      <td className="px-4 py-2.5">
+                        <p className="text-white/70">
+                          {m.customer_name || "—"}
+                        </p>
+                        {m.customer_id && (
+                          <p className="text-xs text-white/30">
+                            ID: {m.customer_id}
+                          </p>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-2.5 text-right">
                       <button
                         onClick={() => onDeleteMapping(m.id)}
@@ -425,7 +578,7 @@ function CustomerMappingTab({
       <div>
         <div className="mb-3 flex items-center justify-between">
           <h4 className="text-sm font-medium text-white/70">
-            {service === "halo" ? "Halo" : service} Customers
+            {serviceLabel} Customers
             {!loading && (
               <span className="ml-2 text-xs text-white/30">
                 {unmappedCustomers.length} unmapped
@@ -433,7 +586,10 @@ function CustomerMappingTab({
             )}
           </h4>
           <button
-            onClick={loadExternalCustomers}
+            onClick={() => {
+              loadExternalCustomers();
+              if (!isHaloService) loadHaloCustomers();
+            }}
             disabled={loading}
             className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
           >
@@ -456,9 +612,9 @@ function CustomerMappingTab({
         {!loading && unmappedCustomers.length > 0 && (
           <>
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search customers..."
+              value={searchExternal}
+              onChange={(e) => setSearchExternal(e.target.value)}
+              placeholder={`Search ${serviceLabel} customers...`}
               className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
             />
             <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
@@ -469,11 +625,13 @@ function CustomerMappingTab({
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-white">{customer.name}</p>
-                    <p className="text-xs text-white/30">ID: {customer.id}</p>
+                    <p className="text-xs text-white/30">
+                      ID: {customer.id}
+                    </p>
                   </div>
                   <button
                     onClick={() =>
-                      onAddMapping(String(customer.id), customer.name)
+                      handleMapClick(String(customer.id), customer.name)
                     }
                     className="shrink-0 rounded-lg bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20"
                   >
@@ -481,9 +639,9 @@ function CustomerMappingTab({
                   </button>
                 </div>
               ))}
-              {filteredUnmapped.length === 0 && search.trim() && (
+              {filteredUnmapped.length === 0 && searchExternal.trim() && (
                 <p className="px-3 py-4 text-center text-xs text-white/30">
-                  No customers match &quot;{search}&quot;
+                  No customers match &quot;{searchExternal}&quot;
                 </p>
               )}
             </div>

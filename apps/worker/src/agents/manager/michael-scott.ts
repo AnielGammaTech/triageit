@@ -137,24 +137,43 @@ export async function runTriage(
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
     try {
-      const internalNote = [
-        "## AI Triage Summary (TriageIt)",
-        "",
-        `**Classification:** ${classification.classification.type} / ${classification.classification.subtype} (${(classification.classification.confidence * 100).toFixed(0)}% confidence)`,
-        `**Urgency:** ${classification.urgency_score}/5 — ${classification.urgency_reasoning}`,
-        `**Recommended Priority:** P${classification.recommended_priority}`,
-        `**Recommended Team:** ${michaelResult.recommended_team}`,
-        classification.security_flag
-          ? `**SECURITY ALERT:** ${classification.security_notes}`
-          : "",
-        "",
-        "### Technician Notes",
-        michaelResult.internal_notes,
-        "",
-        `*Processed in ${processingTime}ms by TriageIt*`,
-      ]
-        .filter(Boolean)
-        .join("\n");
+      const securityHtml = classification.security_flag
+        ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#ef4444;border-bottom:1px solid #374151;">⚠ SECURITY ALERT</td><td style="padding:6px 12px;color:#ef4444;border-bottom:1px solid #374151;">${classification.security_notes}</td></tr>`
+        : "";
+
+      const internalNote = `<div style="font-family:Segoe UI,Roboto,sans-serif;max-width:640px;">
+<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+  <tr style="background:#1e293b;">
+    <td colspan="2" style="padding:10px 14px;color:#f8fafc;font-size:15px;font-weight:600;border-radius:6px 6px 0 0;">
+      🤖 AI Triage Summary — TriageIt
+    </td>
+  </tr>
+  <tr style="background:#f8fafc;">
+    <td style="padding:6px 12px;font-weight:600;width:180px;border-bottom:1px solid #e2e8f0;">Classification</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.classification.type} / ${classification.classification.subtype} <span style="color:#64748b;">(${(classification.classification.confidence * 100).toFixed(0)}% confidence)</span></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Urgency</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
+  </tr>
+  <tr style="background:#f8fafc;">
+    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Recommended Priority</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;"><strong>P${classification.recommended_priority}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Recommended Team</td>
+    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${michaelResult.recommended_team}</td>
+  </tr>
+  ${securityHtml}
+</table>
+
+<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
+  <div style="font-weight:600;margin-bottom:6px;color:#1e40af;">📋 Technician Notes</div>
+  <div style="color:#334155;line-height:1.6;">${michaelResult.internal_notes}</div>
+</div>
+
+<div style="color:#94a3b8;font-size:12px;text-align:right;">Processed in ${processingTime}ms by TriageIt</div>
+</div>`;
 
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {
