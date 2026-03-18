@@ -91,6 +91,110 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
+  // Fast path: skip expensive Sonnet call for simple notifications
+  const isNotification =
+    classification.classification.subtype?.toLowerCase().includes("notification") ||
+    classification.classification.subtype?.toLowerCase().includes("alert") ||
+    classification.classification.subtype?.toLowerCase().includes("auto-replenish") ||
+    classification.classification.subtype?.toLowerCase().includes("informational");
+
+  if (
+    isNotification &&
+    classification.urgency_score <= 1 &&
+    !classification.security_flag
+  ) {
+    const processingTime = Date.now() - startTime;
+
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "michael_scott",
+      agent_role: "manager",
+      status: "completed",
+      output_summary: `Fast path — notification. Team: General, Priority: P${classification.recommended_priority}`,
+      duration_ms: processingTime,
+    });
+
+    const defaultNotes = `This is an informational notification, not a support request. Classification: ${classification.classification.type}/${classification.classification.subtype}. No technical action required.`;
+
+    // Write to Halo if configured
+    const haloConfig = await getHaloConfig(supabase);
+    if (haloConfig) {
+      const halo = new HaloClient(haloConfig);
+      try {
+        const processingSeconds = (processingTime / 1000).toFixed(1);
+        const confidencePct = (classification.classification.confidence * 100).toFixed(0);
+
+        const internalNote = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;background:#1E2028;border-radius:8px;overflow:hidden;border:1px solid #2A2D35;">
+  <div style="background:linear-gradient(135deg,#2C3E6B,#1A2744);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-size:15px;font-weight:700;color:#FFFFFF;letter-spacing:0.3px;">TriageIt</span>
+    <span style="font-size:12px;color:#8899BB;">1 agent &middot; ${processingSeconds}s</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;">
+    <tr>
+      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;width:140px;">Classification</td>
+      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.classification.type} / ${classification.classification.subtype} <span style="color:#546E7A;font-size:12px;">(${confidencePct}%)</span></td>
+    </tr>
+    <tr>
+      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Urgency</td>
+      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
+    </tr>
+    <tr>
+      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Priority</td>
+      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">P${classification.recommended_priority} — General</td>
+    </tr>
+    <tr>
+      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;">Entities</td>
+      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;">${classification.entities.join(", ") || "None detected"}</td>
+    </tr>
+  </table>
+  <div style="padding:14px 18px;">
+    <p style="margin:0;font-size:14px;color:#90A4AE;line-height:1.6;background:#252830;padding:10px 14px;border-radius:6px;border-left:3px solid #546E7A;">Notification only — no technical action required.</p>
+  </div>
+  <div style="padding:10px 18px;background:#1A1C22;text-align:right;">
+    <span style="font-size:11px;color:#546E7A;">TriageIt AI &middot; 1 agent &middot; ${processingSeconds}s</span>
+  </div>
+</div>`;
+
+        await halo.addInternalNote(ticket.halo_id, internalNote);
+      } catch (error) {
+        console.error(
+          `[MICHAEL] Failed to write fast-path note to Halo for ticket #${ticket.halo_id}:`,
+          error,
+        );
+      }
+    }
+
+    const triageId = crypto.randomUUID();
+
+    return {
+      id: triageId,
+      ticket_id: ticket.id,
+      classification: classification.classification,
+      urgency_score: classification.urgency_score,
+      urgency_reasoning: classification.urgency_reasoning,
+      recommended_priority: classification.recommended_priority,
+      recommended_team: "General",
+      recommended_agent: null,
+      security_flag: false,
+      security_notes: null,
+      findings: {
+        ryan_howard: {
+          agent_name: "ryan_howard",
+          summary: `Classified as ${classification.classification.type}/${classification.classification.subtype} with ${classification.urgency_score}/5 urgency`,
+          data: classification as unknown as Record<string, unknown>,
+          confidence: classification.classification.confidence,
+        },
+      },
+      suggested_response: null,
+      internal_notes: defaultNotes,
+      processing_time_ms: processingTime,
+      model_tokens_used: {
+        manager: 0,
+        workers: { ryan_howard: 0 },
+      },
+    };
+  }
+
   // Step 2: If email-related, call Phyllis Vance for diagnostics
   let phyllisResult: EmailDiagnosticsResult | null = null;
   const isEmailTicket =
