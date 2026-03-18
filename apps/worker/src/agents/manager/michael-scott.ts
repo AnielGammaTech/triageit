@@ -380,16 +380,16 @@ function buildHaloNote(
   processingTime: number,
 ): string {
   const securityRow = classification.security_flag
-    ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;">⚠ Security Alert</td><td style="padding:6px 12px;color:#ef4444;border-bottom:1px solid #e2e8f0;">${classification.security_notes}</td></tr>`
+    ? `<tr><td style="padding:4px 8px;font-weight:bold;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:11px;">⚠ Security</td><td style="padding:4px 8px;color:#ef4444;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.security_notes}</td></tr>`
     : "";
 
   const escalationRow = michaelResult.escalation_needed
-    ? `<tr><td style="padding:6px 12px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;">⬆ Escalation</td><td style="padding:6px 12px;color:#f59e0b;border-bottom:1px solid #e2e8f0;">${michaelResult.escalation_reason}</td></tr>`
+    ? `<tr><td style="padding:4px 8px;font-weight:bold;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:11px;">⬆ Escalation</td><td style="padding:4px 8px;color:#f59e0b;border-bottom:1px solid #e2e8f0;font-size:11px;">${michaelResult.escalation_reason}</td></tr>`
     : "";
 
   const entitiesRow =
     classification.entities.length > 0
-      ? `<tr style="background:#f8fafc;"><td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Entities Detected</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.entities.join(", ")}</td></tr>`
+      ? `<tr style="background:#f8fafc;"><td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Entities</td><td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.entities.join(", ")}</td></tr>`
       : "";
 
   // Build specialist findings sections
@@ -397,55 +397,51 @@ function buildHaloNote(
     .filter(([name]) => name !== "ryan_howard")
     .map(([name, finding]) => {
       const label = AGENT_LABELS[name] ?? name;
-      return `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:8px 12px;margin-bottom:8px;border-radius:0 4px 4px 0;">
-  <div style="font-weight:600;font-size:13px;color:#475569;margin-bottom:4px;">${label}</div>
-  <div style="color:#334155;font-size:12px;line-height:1.5;">${finding.summary}</div>
+      return `<div style="background:#f8fafc;border-left:2px solid #94a3b8;padding:4px 8px;margin-bottom:4px;border-radius:0 3px 3px 0;">
+  <div style="font-weight:600;font-size:10px;color:#475569;margin-bottom:1px;">${label}</div>
+  <div style="color:#334155;font-size:10px;line-height:1.4;">${finding.summary}</div>
 </div>`;
     })
     .join("\n");
 
   const agentCount = Object.keys(findings).length;
 
-  return `<div style="font-family:Segoe UI,Roboto,sans-serif;max-width:680px;">
-<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+  return `<div style="font-family:'Segoe UI',Roboto,Arial,sans-serif;max-width:600px;font-size:11px;line-height:1.4;color:#334155;">
+<table style="width:100%;border-collapse:collapse;margin-bottom:10px;">
   <tr style="background:#1e293b;">
-    <td colspan="2" style="padding:10px 14px;color:#f8fafc;font-size:15px;font-weight:600;border-radius:6px 6px 0 0;">
-      🤖 AI Triage Summary — TriageIt <span style="font-weight:400;font-size:12px;opacity:0.7;">(${agentCount} agents)</span>
+    <td colspan="2" style="padding:6px 10px;color:#f8fafc;font-size:12px;font-weight:600;border-radius:4px 4px 0 0;">
+      🤖 AI Triage — TriageIt <span style="font-weight:400;font-size:10px;opacity:0.6;">(${agentCount} agents · ${processingTime}ms)</span>
     </td>
   </tr>
   <tr style="background:#f8fafc;">
-    <td style="padding:6px 12px;font-weight:600;width:180px;border-bottom:1px solid #e2e8f0;">Classification</td>
-    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.classification.type} / ${classification.classification.subtype} <span style="color:#64748b;">(${(classification.classification.confidence * 100).toFixed(0)}% confidence)</span></td>
+    <td style="padding:4px 8px;font-weight:600;width:140px;border-bottom:1px solid #e2e8f0;font-size:11px;">Classification</td>
+    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.classification.type}/${classification.classification.subtype} <span style="color:#94a3b8;font-size:10px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td>
   </tr>
   <tr>
-    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Urgency</td>
-    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
+    <td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Urgency</td>
+    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${classification.urgency_score}/5 — ${classification.urgency_reasoning}</td>
   </tr>
   <tr style="background:#f8fafc;">
-    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Recommended Priority</td>
-    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;"><strong>P${classification.recommended_priority}</strong></td>
-  </tr>
-  <tr>
-    <td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #e2e8f0;">Recommended Team</td>
-    <td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;">${michaelResult.recommended_team}</td>
+    <td style="padding:4px 8px;font-weight:600;border-bottom:1px solid #e2e8f0;font-size:11px;">Priority</td>
+    <td style="padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;"><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td>
   </tr>
   ${entitiesRow}
   ${securityRow}
   ${escalationRow}
 </table>
 
-<div style="background:#fffbeb;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
-  <div style="font-weight:600;margin-bottom:4px;color:#92400e;font-size:13px;">🔍 Root Cause Hypothesis</div>
-  <div style="color:#78350f;line-height:1.5;font-size:13px;">${michaelResult.root_cause_hypothesis}</div>
+<div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:8px;">
+  <div style="font-weight:600;margin-bottom:2px;color:#92400e;font-size:11px;">🔍 Root Cause</div>
+  <div style="color:#78350f;font-size:11px;line-height:1.4;">${michaelResult.root_cause_hypothesis}</div>
 </div>
 
-<div style="background:#f0f9ff;border-left:4px solid #3b82f6;padding:12px 16px;border-radius:0 6px 6px 0;margin-bottom:12px;">
-  <div style="font-weight:600;margin-bottom:6px;color:#1e40af;font-size:13px;">📋 Technician Notes</div>
-  <div style="color:#334155;line-height:1.6;font-size:13px;">${michaelResult.internal_notes}</div>
+<div style="background:#f0f9ff;border-left:3px solid #3b82f6;padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:8px;">
+  <div style="font-weight:600;margin-bottom:2px;color:#1e40af;font-size:11px;">📋 Tech Notes</div>
+  <div style="color:#334155;font-size:11px;line-height:1.5;">${michaelResult.internal_notes}</div>
 </div>
 
-${specialistHtml ? `<div style="margin-bottom:12px;"><div style="font-weight:600;font-size:13px;color:#475569;margin-bottom:8px;">🔬 Specialist Findings</div>${specialistHtml}</div>` : ""}
+${specialistHtml ? `<div style="margin-bottom:8px;"><div style="font-weight:600;font-size:11px;color:#475569;margin-bottom:4px;">🔬 Specialist Findings</div>${specialistHtml}</div>` : ""}
 
-<div style="color:#94a3b8;font-size:11px;text-align:right;border-top:1px solid #e2e8f0;padding-top:8px;">Processed in ${processingTime}ms by TriageIt · ${agentCount} agents deployed</div>
+<div style="color:#94a3b8;font-size:9px;text-align:right;border-top:1px solid #e2e8f0;padding-top:4px;">TriageIt AI · ${agentCount} agents</div>
 </div>`;
 }

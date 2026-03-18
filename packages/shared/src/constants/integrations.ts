@@ -1,4 +1,4 @@
-import type { IntegrationDefinition } from "../types/integration";
+import type { IntegrationDefinition } from "../types/integration.js";
 
 export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
   {

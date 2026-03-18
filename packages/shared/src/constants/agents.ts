@@ -1,4 +1,4 @@
-import type { AgentDefinition } from "../types/agent";
+import type { AgentDefinition } from "../types/agent.js";
 
 export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {

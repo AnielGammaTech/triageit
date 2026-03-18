@@ -5,16 +5,16 @@ export type {
   HaloAction,
   TicketStatus,
   Ticket,
-} from "./types/ticket";
+} from "./types/ticket.js";
 
 export type {
   TicketClassification,
   AgentFinding,
   ModelTokenUsage,
   TriageResult,
-} from "./types/triage";
+} from "./types/triage.js";
 
-export type { AgentStatus, AgentLog, AgentDefinition } from "./types/agent";
+export type { AgentStatus, AgentLog, AgentDefinition } from "./types/agent.js";
 
 export type {
   ServiceType,
@@ -31,7 +31,7 @@ export type {
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,
-} from "./types/integration";
+} from "./types/integration.js";
 
 export type {
   SkillType,
@@ -40,9 +40,9 @@ export type {
   AgentMemory,
   MemoryMatch,
   MemoryConfig,
-} from "./types/memory";
+} from "./types/memory.js";
 
-export { DEFAULT_MEMORY_CONFIG } from "./types/memory";
+export { DEFAULT_MEMORY_CONFIG } from "./types/memory.js";
 
 // Constants
 export {
@@ -50,6 +50,6 @@ export {
   PHASE_1_AGENTS,
   PHASE_2_AGENTS,
   PHASE_3_AGENTS,
-} from "./constants/agents";
+} from "./constants/agents.js";
 
-export { INTEGRATION_DEFINITIONS } from "./constants/integrations";
+export { INTEGRATION_DEFINITIONS } from "./constants/integrations.js";
