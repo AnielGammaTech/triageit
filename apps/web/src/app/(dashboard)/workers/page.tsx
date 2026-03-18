@@ -44,6 +44,7 @@ function getInitials(name: string): string {
 }
 
 const MODEL_LABELS: Record<string, { label: string; color: string }> = {
+  opus: { label: "Opus", color: "text-purple-400 bg-purple-500/10" },
   sonnet: { label: "Sonnet", color: "text-violet-400 bg-violet-500/10" },
   haiku: { label: "Haiku", color: "text-sky-400 bg-sky-500/10" },
 };
@@ -145,7 +146,7 @@ export default function WorkersPage() {
             bg: "bg-white/10",
             text: "text-white/60",
           };
-          const modelInfo = MODEL_LABELS[agent.model];
+          const modelInfo = MODEL_LABELS[agent.model] ?? { label: agent.model, color: "text-white/40 bg-white/10" };
 
           return (
             <button

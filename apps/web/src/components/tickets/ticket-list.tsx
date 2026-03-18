@@ -24,6 +24,7 @@ interface TicketRow {
 
 interface TicketListProps {
   readonly tickets: ReadonlyArray<TicketRow>;
+  readonly onSelectTicket: (ticketId: string) => void;
 }
 
 const STATUS_STYLES: Record<TicketStatus, string> = {
@@ -51,7 +52,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function TicketList({ tickets }: TicketListProps) {
+export function TicketList({ tickets, onSelectTicket }: TicketListProps) {
   if (tickets.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -69,7 +70,7 @@ export function TicketList({ tickets }: TicketListProps) {
         <thead className="bg-[var(--card)]">
           <tr className="border-b border-[var(--border)]">
             <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              ID
+              Ticket #
             </th>
             <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
               Summary
@@ -100,9 +101,10 @@ export function TicketList({ tickets }: TicketListProps) {
             return (
               <tr
                 key={ticket.id}
+                onClick={() => onSelectTicket(ticket.id)}
                 className="border-b border-[var(--border)] hover:bg-[var(--accent)] transition-colors cursor-pointer"
               >
-                <td className="px-4 py-3 font-mono text-xs">
+                <td className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]">
                   #{ticket.halo_id}
                 </td>
                 <td className="max-w-xs truncate px-4 py-3">
