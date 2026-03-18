@@ -16,21 +16,25 @@ export function LoginForm() {
     setError(null);
     setLoading(true);
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (authError) {
-      setError(authError.message);
+      if (authError) {
+        setError(authError.message);
+        return;
+      }
+
+      router.push("/tickets");
+      router.refresh();
+    } catch {
+      setError("Unable to connect to authentication service. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setLoading(false);
-    router.push("/tickets");
-    router.refresh();
   }
 
   return (
