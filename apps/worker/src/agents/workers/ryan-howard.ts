@@ -34,6 +34,14 @@ Set security_flag to true if the ticket mentions ANY of:
 - Unusual login activity
 - Social engineering attempts
 
+## Recommended Priority (Halo PSA convention)
+Priority is the INVERSE of urgency — P1 is the most critical, P5 is the least:
+- 1 (P1 Critical): Maps to urgency 5 — business outage, security breach
+- 2 (P2 High): Maps to urgency 4 — major degradation, multiple users impacted
+- 3 (P3 Medium): Maps to urgency 3 — single user, workaround available
+- 4 (P4 Low): Maps to urgency 2 — minor inconvenience, cosmetic, feature request
+- 5 (P5 Minimal): Maps to urgency 1 — informational, notifications, general questions
+
 ## Output Format
 Respond with ONLY valid JSON, no markdown:
 {
@@ -44,7 +52,7 @@ Respond with ONLY valid JSON, no markdown:
   },
   "urgency_score": <1-5>,
   "urgency_reasoning": "<brief explanation of why this urgency level>",
-  "recommended_priority": <1-5>,
+  "recommended_priority": <1-5 where 1=Critical and 5=Minimal, should be inverse of urgency_score>,
   "entities": ["<extracted entities: usernames, device names, error codes, IPs, domains>"],
   "security_flag": <true/false>,
   "security_notes": "<security concerns if flagged, null otherwise>"
