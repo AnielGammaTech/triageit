@@ -51,18 +51,21 @@ server.post<{ Body: { ticket_id: string } }>(
 );
 
 // Manual daily re-triage trigger
-server.post("/retriage", async (_request, reply) => {
-  try {
-    const result = await triggerDailyRetriage();
-    return {
-      status: "completed",
-      ...result,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return reply.status(500).send({ error: message });
-  }
-});
+server.post<{ Body: Record<string, never> }>(
+  "/retriage",
+  async (_request, reply) => {
+    try {
+      const result = await triggerDailyRetriage();
+      return {
+        status: "completed",
+        ...result,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
 
 // Customer action webhook — detects update requests
 server.post<{
