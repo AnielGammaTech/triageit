@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { TicketList } from "@/components/tickets/ticket-list";
@@ -33,12 +33,11 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<ReadonlyArray<string>>([]);
+  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    loadTickets();
-  }, []);
-
-  async function loadTickets() {
+  const loadTickets = useCallback(async () => {
+    setLoading(true);
     const supabase = createClient();
     const { data, error: dbError } = await supabase
       .from("tickets")
@@ -50,8 +49,44 @@ export default function TicketsPage() {
       setError(dbError.message);
     } else {
       setTickets((data ?? []) as TicketRow[]);
+      setError(null);
     }
     setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadTickets();
+  }, [loadTickets]);
+
+  async function handleDelete() {
+    if (selectedIds.length === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${selectedIds.length} ticket(s)? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      const response = await fetch("/api/triage", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_ids: selectedIds }),
+      });
+      if (response.ok) {
+        setSelectedIds([]);
+        await loadTickets();
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function handleToggleSelect(ticketId: string) {
+    setSelectedIds((prev) =>
+      prev.includes(ticketId)
+        ? prev.filter((id) => id !== ticketId)
+        : [...prev, ticketId],
+    );
   }
 
   if (selectedTicketId) {
@@ -78,6 +113,27 @@ export default function TicketsPage() {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Tickets</h2>
         <div className="flex items-center gap-3">
+          {selectedIds.length > 0 && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : `Delete ${selectedIds.length} selected`}
+            </button>
+          )}
+          <button
+            onClick={() =>
+              setSelectedIds((prev) =>
+                prev.length === tickets.length
+                  ? []
+                  : tickets.map((t) => t.id),
+              )
+            }
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            {selectedIds.length === tickets.length ? "Deselect All" : "Select All"}
+          </button>
           <button
             onClick={loadTickets}
             className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white"
@@ -91,7 +147,9 @@ export default function TicketsPage() {
       </div>
       <TicketList
         tickets={tickets}
+        selectedIds={selectedIds}
         onSelectTicket={(id) => router.push(`/tickets?id=${id}`)}
+        onToggleSelect={handleToggleSelect}
       />
     </div>
   );

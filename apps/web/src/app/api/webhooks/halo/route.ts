@@ -10,8 +10,10 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  * 1. Extract the ticket ID from the webhook payload
  * 2. Fetch the full ticket from Halo API (to get reliable, complete data)
- * 3. Upsert into our tickets table
- * 4. Set status to "pending" for new tickets (ready for triage)
+ * 3. Skip closed/resolved tickets — only triage open tickets
+ * 4. Upsert into our tickets table
+ * 5. Set status to "pending" for new tickets (ready for triage)
+ * 6. Trigger the worker to begin AI triage
  *
  * Setup in Halo PSA:
  *   Configuration > Integrations > Webhooks
@@ -22,6 +24,18 @@ import { createServiceClient } from "@/lib/supabase/server";
  *   Password: HALO_WEBHOOK_PASSWORD env var
  *   Trigger: Ticket Created (and optionally Ticket Updated)
  */
+
+// Halo statuses that indicate a ticket is closed/resolved and should be skipped
+const CLOSED_STATUS_NAMES = new Set([
+  "closed",
+  "resolved",
+  "cancelled",
+  "canceled",
+  "completed",
+  "resolved remotely",
+  "resolved onsite",
+  "resolved - awaiting confirmation",
+]);
 export async function POST(request: NextRequest) {
   // Auth check — supports both Basic auth (Halo's format) and Bearer token
   const authHeader = request.headers.get("authorization") ?? "";
@@ -118,6 +132,18 @@ export async function POST(request: NextRequest) {
 
     const haloTicket = (await ticketResponse.json()) as HaloApiTicket;
 
+    // Skip closed/resolved tickets — no need to triage old tickets
+    if (isTicketClosed(haloTicket)) {
+      console.log(
+        `[WEBHOOK] Skipping closed ticket #${ticketId} (status: ${haloTicket.statusname ?? haloTicket.status_id})`,
+      );
+      return NextResponse.json({
+        status: "skipped",
+        reason: "Ticket is closed/resolved",
+        halo_id: ticketId,
+      });
+    }
+
     // Upsert into our tickets table
     return await upsertTicket(supabase, {
       halo_id: haloTicket.id,
@@ -126,6 +152,7 @@ export async function POST(request: NextRequest) {
       client_name: haloTicket.client_name ?? null,
       client_id: haloTicket.client_id ?? null,
       user_name: haloTicket.user_name ?? null,
+      user_email: haloTicket.user_emailaddress ?? null,
       original_priority: haloTicket.priority_id ?? null,
       raw_data: haloTicket,
     });
@@ -137,6 +164,17 @@ export async function POST(request: NextRequest) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+function isTicketClosed(ticket: HaloApiTicket): boolean {
+  // Check by status name (most reliable)
+  const statusName = (ticket.statusname ?? ticket.status_name ?? "").toString().toLowerCase().trim();
+  if (CLOSED_STATUS_NAMES.has(statusName)) return true;
+
+  // Halo's "inactive" flag
+  if (ticket.inactive === true) return true;
+
+  return false;
+}
 
 function extractTicketId(body: Record<string, unknown>): number | null {
   // Direct: { id: 123 }
@@ -171,6 +209,7 @@ interface TicketInsertData {
   readonly client_name: string | null;
   readonly client_id: number | null;
   readonly user_name: string | null;
+  readonly user_email: string | null;
   readonly original_priority: number | null;
   readonly raw_data: unknown;
 }
@@ -194,6 +233,7 @@ async function upsertTicket(
         client_name: data.client_name,
         client_id: data.client_id,
         user_name: data.user_name,
+        user_email: data.user_email,
         original_priority: data.original_priority,
         raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
@@ -215,6 +255,7 @@ async function upsertTicket(
       client_name: data.client_name,
       client_id: data.client_id,
       user_name: data.user_name,
+      user_email: data.user_email,
       original_priority: data.original_priority,
       status: "pending",
       raw_data: data.raw_data,
@@ -225,6 +266,9 @@ async function upsertTicket(
   if (error) {
     return NextResponse.json({ error: "Failed to insert ticket" }, { status: 500 });
   }
+
+  // Trigger the worker to begin AI triage
+  await triggerTriage(inserted.id);
 
   return NextResponse.json({ status: "created", ticket_id: inserted.id }, { status: 201 });
 }
@@ -241,9 +285,40 @@ async function upsertFromWebhookBody(
     client_name: (body.client_name as string) ?? null,
     client_id: typeof body.client_id === "number" ? body.client_id : null,
     user_name: (body.user_name as string) ?? (body.reportedby as string) ?? null,
+    user_email: (body.user_emailaddress as string) ?? (body.user_email as string) ?? null,
     original_priority: typeof body.priority_id === "number" ? body.priority_id : null,
     raw_data: body,
   });
+}
+
+/**
+ * Trigger the worker service to begin AI triage on the ticket.
+ * The worker runs as a separate Railway service with a /triage endpoint.
+ * Falls back gracefully — ticket stays "pending" and can be retriggered.
+ */
+async function triggerTriage(ticketId: string): Promise<void> {
+  const workerUrl = process.env.WORKER_URL;
+  if (!workerUrl) {
+    console.warn("[WEBHOOK] WORKER_URL not set — ticket will stay pending until manually triggered");
+    return;
+  }
+
+  try {
+    const response = await fetch(`${workerUrl}/triage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_id: ticketId }),
+    });
+
+    if (!response.ok) {
+      console.error(`[WEBHOOK] Worker triage trigger failed: ${response.status}`);
+    } else {
+      console.log(`[WEBHOOK] Triage triggered for ticket ${ticketId}`);
+    }
+  } catch (error) {
+    // Non-fatal — ticket stays "pending", can be retried
+    console.error("[WEBHOOK] Failed to reach worker:", error);
+  }
 }
 
 async function getHaloToken(config: {
@@ -300,9 +375,13 @@ interface HaloApiTicket {
   readonly client_id?: number;
   readonly client_name?: string;
   readonly user_name?: string;
+  readonly user_emailaddress?: string;
   readonly user_id?: number;
   readonly priority_id?: number;
   readonly status_id?: number;
+  readonly statusname?: string;
+  readonly status_name?: string;
+  readonly inactive?: boolean;
   readonly tickettype_id?: number;
   readonly category_1?: string;
   readonly datecreated?: string;
