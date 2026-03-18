@@ -3,17 +3,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ticket } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
+import { diagnoseEmail } from "../workers/phyllis-vance.js";
+import type { EmailDiagnosticsResult } from "../workers/phyllis-vance.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { HaloConfig } from "@triageit/shared";
 
 const SYSTEM_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage.
 
-You have just received the classification results from Ryan Howard (your classifier agent) for a support ticket. Your job is to:
+You have just received the classification results from your team for a support ticket. Your job is to:
 
-1. Review Ryan's classification and adjust if needed
-2. Synthesize all findings into clear internal notes for the technician
-3. Suggest which team should handle this ticket
-4. Write a brief internal summary
+1. Review Ryan Howard's classification and adjust if needed
+2. If Phyllis Vance (Email & DNS Specialist) provided findings, incorporate her diagnostics — she understands Mimecast, MX records, SPF/DKIM/DMARC, email gateways, and bounce reasons deeply
+3. Synthesize ALL agent findings into clear, actionable internal notes for the technician
+4. Suggest which team should handle this ticket
+5. Write a brief internal summary that includes specific next steps
 
 ## Output Format
 Respond with ONLY valid JSON, no markdown:
@@ -88,7 +91,58 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
-  // Step 2: Michael synthesizes and makes final decisions
+  // Step 2: If email-related, call Phyllis Vance for diagnostics
+  let phyllisResult: EmailDiagnosticsResult | null = null;
+  const isEmailTicket =
+    classification.classification.type === "email" ||
+    classification.classification.subtype
+      ?.toLowerCase()
+      .includes("email") ||
+    classification.classification.subtype
+      ?.toLowerCase()
+      .includes("dns");
+
+  if (isEmailTicket) {
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "phyllis_vance",
+      agent_role: "dns_email",
+      status: "started",
+      input_summary: `Email diagnostics for ticket #${ticket.halo_id}`,
+    });
+
+    const phyllisStart = Date.now();
+    try {
+      phyllisResult = await diagnoseEmail(context, supabase);
+      const phyllisDuration = Date.now() - phyllisStart;
+
+      await supabase.from("agent_logs").insert({
+        ticket_id: ticket.id,
+        agent_name: "phyllis_vance",
+        agent_role: "dns_email",
+        status: "completed",
+        output_summary: `Severity: ${phyllisResult.severity}, Domain: ${phyllisResult.domain_analyzed ?? "N/A"}, Root cause: ${phyllisResult.root_cause ?? "undetermined"}`,
+        duration_ms: phyllisDuration,
+      });
+    } catch (err) {
+      const phyllisDuration = Date.now() - phyllisStart;
+      console.error(
+        `[MICHAEL] Phyllis Vance failed for ticket #${ticket.halo_id}:`,
+        err,
+      );
+      await supabase.from("agent_logs").insert({
+        ticket_id: ticket.id,
+        agent_name: "phyllis_vance",
+        agent_role: "dns_email",
+        status: "error",
+        error_message:
+          err instanceof Error ? err.message : String(err),
+        duration_ms: phyllisDuration,
+      });
+    }
+  }
+
+  // Step 3: Michael synthesizes and makes final decisions
   const client = new Anthropic();
 
   const michaelMessage = [
@@ -108,6 +162,21 @@ export async function runTriage(
     classification.security_flag
       ? `**SECURITY FLAG:** ${classification.security_notes}`
       : "",
+    ...(phyllisResult
+      ? [
+          "",
+          "## Phyllis Vance's Email & DNS Diagnostics",
+          `**Severity:** ${phyllisResult.severity}`,
+          `**Domain Analyzed:** ${phyllisResult.domain_analyzed ?? "N/A"}`,
+          `**Diagnosis:** ${phyllisResult.summary}`,
+          `**Root Cause:** ${phyllisResult.root_cause ?? "Undetermined"}`,
+          `**Findings:**`,
+          ...phyllisResult.findings.map((f) => `- ${f}`),
+          `**Recommended Actions:**`,
+          ...phyllisResult.recommended_actions.map((a) => `- ${a}`),
+          `**Confidence:** ${(phyllisResult.confidence * 100).toFixed(0)}%`,
+        ]
+      : []),
   ]
     .filter(Boolean)
     .join("\n");
@@ -131,7 +200,7 @@ export async function runTriage(
 
   const processingTime = Date.now() - startTime;
 
-  // Step 3: Write back to Halo if configured
+  // Step 4: Write back to Halo if configured
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
@@ -146,6 +215,24 @@ export async function runTriage(
         classification.security_flag
           ? `**SECURITY ALERT:** ${classification.security_notes}`
           : "",
+        ...(phyllisResult
+          ? [
+              "",
+              "### Email & DNS Diagnostics (Phyllis Vance)",
+              `**Severity:** ${phyllisResult.severity}`,
+              `**Domain:** ${phyllisResult.domain_analyzed ?? "N/A"}`,
+              `**Diagnosis:** ${phyllisResult.summary}`,
+              phyllisResult.root_cause
+                ? `**Root Cause:** ${phyllisResult.root_cause}`
+                : "",
+              "",
+              "**Findings:**",
+              ...phyllisResult.findings.map((f) => `- ${f}`),
+              "",
+              "**Recommended Actions:**",
+              ...phyllisResult.recommended_actions.map((a) => `- ${a}`),
+            ]
+          : []),
         "",
         "### Technician Notes",
         michaelResult.internal_notes,
@@ -194,13 +281,29 @@ export async function runTriage(
         data: classification as unknown as Record<string, unknown>,
         confidence: classification.classification.confidence,
       },
+      ...(phyllisResult
+        ? {
+            phyllis_vance: {
+              agent_name: "phyllis_vance",
+              summary: phyllisResult.summary,
+              data: {
+                domain_analyzed: phyllisResult.domain_analyzed,
+                findings: phyllisResult.findings,
+                root_cause: phyllisResult.root_cause,
+                recommended_actions: phyllisResult.recommended_actions,
+                severity: phyllisResult.severity,
+              } as Record<string, unknown>,
+              confidence: phyllisResult.confidence,
+            },
+          }
+        : {}),
     },
     suggested_response: michaelResult.suggested_response,
     internal_notes: michaelResult.internal_notes,
     processing_time_ms: processingTime,
     model_tokens_used: {
       manager: response.usage.input_tokens + response.usage.output_tokens,
-      workers: { ryan_howard: 0 },
+      workers: { ryan_howard: 0, ...(phyllisResult ? { phyllis_vance: 0 } : {}) },
     },
   };
 }
