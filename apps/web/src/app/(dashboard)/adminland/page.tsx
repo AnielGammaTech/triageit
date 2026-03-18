@@ -10,6 +10,7 @@ import {
   type IntegrationItem,
 } from "@/components/admin/adminland-constants";
 import { IntegrationConfig } from "@/components/admin/integration-config";
+import { AgentConfigSection } from "@/components/admin/agent-config";
 
 type ActiveView =
   | { type: "menu" }
@@ -269,14 +270,18 @@ export default function AdminlandPage() {
           <span className="text-white/30">{CHEVRON_RIGHT}</span>
           <span className="text-white font-medium">{sectionLabel}</span>
         </div>
-        <div
-          className="rounded-xl border border-white/10 p-8 text-center"
-          style={{ backgroundColor: "#1a0f35" }}
-        >
-          <p className="text-sm text-white/50">
-            This section is coming soon.
-          </p>
-        </div>
+        {activeView.id === "agent-config" ? (
+          <AgentConfigSection />
+        ) : (
+          <div
+            className="rounded-xl border border-white/10 p-8 text-center"
+            style={{ backgroundColor: "#1a0f35" }}
+          >
+            <p className="text-sm text-white/50">
+              This section is coming soon.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

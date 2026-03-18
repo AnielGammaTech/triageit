@@ -20,6 +20,6 @@ export interface AgentDefinition {
   readonly role: string;
   readonly specialty: string;
   readonly integration: string | null;
-  readonly model: "sonnet" | "haiku";
+  readonly model: "opus" | "sonnet" | "haiku";
   readonly description: string;
 }

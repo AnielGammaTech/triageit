@@ -290,7 +290,7 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
       {
         id: "ai-provider",
         label: "AI Provider",
-        desc: "AI model selection for triage agents",
+        desc: "Claude, OpenAI, and Moonshot Kimi API keys",
         service: "ai-provider",
         iconBg: "bg-amber-500/10",
         iconColor: "text-amber-400",

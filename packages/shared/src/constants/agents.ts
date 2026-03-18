@@ -7,7 +7,7 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
     role: "manager",
     specialty: "Triage Orchestrator",
     integration: "halo",
-    model: "sonnet",
+    model: "opus",
     description:
       "The Regional Manager. Analyzes incoming tickets, delegates to specialist agents, synthesizes all findings, and makes the final triage decision. Communicates results back to Halo PSA.",
   },

@@ -113,7 +113,7 @@ export async function runTriage(
     .join("\n");
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-6-20250514",
+    model: "claude-opus-4-0-20250514",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: michaelMessage }],
