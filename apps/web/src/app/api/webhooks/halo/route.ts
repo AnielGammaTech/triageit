@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { HaloTicket } from "@triageit/shared";
 
+/**
+ * POST /api/webhooks/halo
+ *
+ * Halo PSA sends a webhook when tickets are created/updated.
+ * Halo can send the ticket object directly in the body, or just a notification
+ * with the ticket ID. We handle both cases:
+ *
+ * 1. Extract the ticket ID from the webhook payload
+ * 2. Fetch the full ticket from Halo API (to get reliable, complete data)
+ * 3. Upsert into our tickets table
+ * 4. Set status to "pending" for new tickets (ready for triage)
+ *
+ * Setup in Halo PSA:
+ *   Configuration > Integrations > Webhooks
+ *   URL: https://your-domain.com/api/webhooks/halo
+ *   Method: POST
+ *   Auth: Bearer token (set HALO_WEBHOOK_SECRET env var)
+ *   Trigger: Ticket Created (and optionally Ticket Updated)
+ */
 export async function POST(request: NextRequest) {
+  // Auth check
   const authHeader = request.headers.get("authorization");
   const webhookSecret = process.env.HALO_WEBHOOK_SECRET;
 
@@ -10,80 +29,259 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: unknown;
+  // Parse body — Halo may send various formats
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const ticket = body as HaloTicket;
-
-  if (!ticket.id || !ticket.summary) {
+  // Extract ticket ID — Halo webhooks can send:
+  // { id: 123, summary: "..." }  (direct ticket object)
+  // { ticket_id: 123 }           (notification style)
+  // { event_data: { id: 123 } }  (wrapped format)
+  const ticketId = extractTicketId(body);
+  if (!ticketId) {
     return NextResponse.json(
-      { error: "Missing required fields: id, summary" },
+      { error: "Could not extract ticket ID from webhook payload" },
       { status: 400 },
     );
   }
 
   const supabase = await createServiceClient();
 
+  // Get Halo credentials to fetch the full ticket
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("config, is_active")
+    .eq("service", "halo")
+    .single();
+
+  if (!integration?.is_active) {
+    // No Halo config — try to use the webhook body directly
+    return await upsertFromWebhookBody(supabase, ticketId, body);
+  }
+
+  const config = integration.config as {
+    base_url: string;
+    client_id: string;
+    client_secret: string;
+    tenant?: string;
+  };
+
+  try {
+    // Authenticate with Halo
+    const token = await getHaloToken(config);
+
+    // Fetch the full ticket from Halo API
+    const ticketResponse = await fetch(
+      `${config.base_url}/api/tickets/${ticketId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!ticketResponse.ok) {
+      console.error(
+        `[WEBHOOK] Failed to fetch ticket #${ticketId} from Halo: ${ticketResponse.status}`,
+      );
+      // Fallback to webhook body
+      return await upsertFromWebhookBody(supabase, ticketId, body);
+    }
+
+    const haloTicket = (await ticketResponse.json()) as HaloApiTicket;
+
+    // Upsert into our tickets table
+    return await upsertTicket(supabase, {
+      halo_id: haloTicket.id,
+      summary: haloTicket.summary ?? "No subject",
+      details: haloTicket.details ?? null,
+      client_name: haloTicket.client_name ?? null,
+      client_id: haloTicket.client_id ?? null,
+      user_name: haloTicket.user_name ?? null,
+      original_priority: haloTicket.priority_id ?? null,
+      raw_data: haloTicket,
+    });
+  } catch (error) {
+    console.error("[WEBHOOK] Error processing Halo webhook:", error);
+    // Last resort fallback
+    return await upsertFromWebhookBody(supabase, ticketId, body);
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function extractTicketId(body: Record<string, unknown>): number | null {
+  // Direct: { id: 123 }
+  if (typeof body.id === "number") return body.id;
+
+  // Notification: { ticket_id: 123 }
+  if (typeof body.ticket_id === "number") return body.ticket_id;
+
+  // Wrapped: { event_data: { id: 123 } }
+  if (body.event_data && typeof body.event_data === "object") {
+    const eventData = body.event_data as Record<string, unknown>;
+    if (typeof eventData.id === "number") return eventData.id;
+  }
+
+  // String versions
+  if (typeof body.id === "string") {
+    const parsed = parseInt(body.id, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (typeof body.ticket_id === "string") {
+    const parsed = parseInt(body.ticket_id, 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+interface TicketInsertData {
+  readonly halo_id: number;
+  readonly summary: string;
+  readonly details: string | null;
+  readonly client_name: string | null;
+  readonly client_id: number | null;
+  readonly user_name: string | null;
+  readonly original_priority: number | null;
+  readonly raw_data: unknown;
+}
+
+async function upsertTicket(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  data: TicketInsertData,
+) {
   const { data: existing } = await supabase
     .from("tickets")
     .select("id")
-    .eq("halo_id", ticket.id)
+    .eq("halo_id", data.halo_id)
     .single();
 
   if (existing) {
     const { error } = await supabase
       .from("tickets")
       .update({
-        summary: ticket.summary,
-        details: ticket.details ?? null,
-        client_name: ticket.client_name ?? null,
-        client_id: ticket.client_id ?? null,
-        user_name: ticket.user_name ?? null,
-        original_priority: ticket.priority_id ?? null,
-        raw_data: ticket,
+        summary: data.summary,
+        details: data.details,
+        client_name: data.client_name,
+        client_id: data.client_id,
+        user_name: data.user_name,
+        original_priority: data.original_priority,
+        raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
 
     if (error) {
-      return NextResponse.json(
-        { error: "Failed to update ticket" },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: "Failed to update ticket" }, { status: 500 });
     }
-
     return NextResponse.json({ status: "updated", ticket_id: existing.id });
   }
 
   const { data: inserted, error } = await supabase
     .from("tickets")
     .insert({
-      halo_id: ticket.id,
-      summary: ticket.summary,
-      details: ticket.details ?? null,
-      client_name: ticket.client_name ?? null,
-      client_id: ticket.client_id ?? null,
-      user_name: ticket.user_name ?? null,
-      original_priority: ticket.priority_id ?? null,
+      halo_id: data.halo_id,
+      summary: data.summary,
+      details: data.details,
+      client_name: data.client_name,
+      client_id: data.client_id,
+      user_name: data.user_name,
+      original_priority: data.original_priority,
       status: "pending",
-      raw_data: ticket,
+      raw_data: data.raw_data,
     })
     .select("id")
     .single();
 
   if (error) {
-    return NextResponse.json(
-      { error: "Failed to insert ticket" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to insert ticket" }, { status: 500 });
   }
 
-  return NextResponse.json(
-    { status: "created", ticket_id: inserted.id },
-    { status: 201 },
-  );
+  return NextResponse.json({ status: "created", ticket_id: inserted.id }, { status: 201 });
+}
+
+async function upsertFromWebhookBody(
+  supabase: Awaited<ReturnType<typeof createServiceClient>>,
+  ticketId: number,
+  body: Record<string, unknown>,
+) {
+  return await upsertTicket(supabase, {
+    halo_id: ticketId,
+    summary: (body.summary as string) ?? (body.subject as string) ?? "No subject",
+    details: (body.details as string) ?? (body.description as string) ?? null,
+    client_name: (body.client_name as string) ?? null,
+    client_id: typeof body.client_id === "number" ? body.client_id : null,
+    user_name: (body.user_name as string) ?? (body.reportedby as string) ?? null,
+    original_priority: typeof body.priority_id === "number" ? body.priority_id : null,
+    raw_data: body,
+  });
+}
+
+async function getHaloToken(config: {
+  base_url: string;
+  client_id: string;
+  client_secret: string;
+  tenant?: string;
+}): Promise<string> {
+  const tokenUrl = await discoverTokenEndpoint(config.base_url, config.tenant);
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      scope: "all",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Halo auth failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { access_token: string };
+  return data.access_token;
+}
+
+async function discoverTokenEndpoint(
+  baseUrl: string,
+  tenant?: string,
+): Promise<string> {
+  try {
+    const infoResponse = await fetch(`${baseUrl}/api/authinfo`);
+    if (infoResponse.ok) {
+      const info = (await infoResponse.json()) as {
+        auth_url?: string;
+        token_endpoint?: string;
+      };
+      if (info.token_endpoint) return info.token_endpoint;
+      if (info.auth_url) return `${info.auth_url}/token`;
+    }
+  } catch {
+    // Fall through
+  }
+  const tokenUrl = `${baseUrl}/auth/token`;
+  return tenant ? `${tokenUrl}?tenant=${tenant}` : tokenUrl;
+}
+
+interface HaloApiTicket {
+  readonly id: number;
+  readonly summary?: string;
+  readonly details?: string;
+  readonly client_id?: number;
+  readonly client_name?: string;
+  readonly user_name?: string;
+  readonly user_id?: number;
+  readonly priority_id?: number;
+  readonly status_id?: number;
+  readonly tickettype_id?: number;
+  readonly category_1?: string;
+  readonly datecreated?: string;
+  readonly [key: string]: unknown;
 }
