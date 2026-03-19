@@ -285,6 +285,45 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
     ],
   },
   {
+    category: "Microsoft 365 Management",
+    items: [
+      {
+        id: "cipp",
+        label: "CIPP",
+        desc: "Microsoft 365 management via CyberDrain",
+        service: "cipp",
+        iconBg: "bg-blue-500/10",
+        iconColor: "text-blue-400",
+      },
+    ],
+  },
+  {
+    category: "Notifications & Output",
+    items: [
+      {
+        id: "teams",
+        label: "Microsoft Teams",
+        desc: "Daily triage summaries and alerts to Teams",
+        service: "teams",
+        iconBg: "bg-indigo-500/10",
+        iconColor: "text-indigo-400",
+      },
+    ],
+  },
+  {
+    category: "Customer Mapping",
+    items: [
+      {
+        id: "automapper",
+        label: "AutoMapper",
+        desc: "Auto-map customers across integrations by name",
+        service: "automapper",
+        iconBg: "bg-fuchsia-500/10",
+        iconColor: "text-fuchsia-400",
+      },
+    ],
+  },
+  {
     category: "AI & Automation",
     items: [
       {
