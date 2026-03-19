@@ -207,7 +207,7 @@ export async function runTriage(
         haloEarly.getTicketImages(ticket.halo_id, rawActions),
         haloEarly.extractInlineImages(rawActions),
       ]);
-      const allImages = [...attachmentImages, ...inlineImages].slice(0, 5);
+      const allImages = [...attachmentImages, ...inlineImages].slice(0, 3);
       const imageContexts = allImages.map((img) => ({
         filename: img.filename,
         mediaType: img.mediaType,
@@ -232,12 +232,16 @@ export async function runTriage(
       // ── Vision Pre-Processing: Describe images for specialist agents ──
       // Specialists only see text — so we use Haiku vision to describe any
       // screenshots/images BEFORE dispatching to specialists.
+      // Timeout after 15s to avoid blocking triage if vision is slow.
       if (imageContexts.length > 0) {
         try {
-          const descriptions = await describeTicketImages(
-            imageContexts,
-            context.summary,
+          const visionTimeout = new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 15_000),
           );
+          const descriptions = await Promise.race([
+            describeTicketImages(imageContexts, context.summary),
+            visionTimeout,
+          ]);
           if (descriptions) {
             // Enrich the details field so ALL specialist agents automatically
             // see the image content without any per-agent changes.
@@ -260,6 +264,8 @@ export async function runTriage(
               "manager",
               `Described ${imageContexts.length} image(s) for specialist agents: ${descriptions.substring(0, 200)}...`,
             );
+          } else {
+            console.warn(`[MICHAEL] Vision timed out after 15s for #${ticket.halo_id} — proceeding without image descriptions`);
           }
         } catch (err) {
           console.warn(`[MICHAEL] Image description failed for #${ticket.halo_id}:`, err);

@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AGENTS } from "@triageit/shared";
-import { QuickActions, CollapsibleSection, SpinnerStyles } from "./actions";
+import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, AutoRefresh } from "./actions";
 
 /**
  * Embeddable Triage Tab — loaded inside Halo PSA as a custom web tab.
@@ -93,9 +93,16 @@ export default async function EmbedTriagePage({
 
   if (!ticket) {
     return (
-      <EmptyState
-        message={`No triage data found for Halo ticket #${haloId}. This ticket hasn't been triaged yet.`}
-      />
+      <div style={s.page}>
+        <SpinnerStyles />
+        <div style={s.emptyWrap}>
+          <div style={s.emptyIcon}>{"\u2014"}</div>
+          <p style={s.emptyText}>
+            No triage data found for Halo ticket #{haloId}.
+          </p>
+          <EmbedTriageButton haloId={Number(haloId)} />
+        </div>
+      </div>
     );
   }
 
@@ -109,14 +116,24 @@ export default async function EmbedTriagePage({
 
   if (triageResults.length === 0) {
     return (
-      <EmptyState
-        message={
-          ticket.status === "triaging"
-            ? "Currently being triaged... Refresh in a moment."
-            : "Queued for triage."
-        }
-        status={ticket.status}
-      />
+      <div style={s.page}>
+        <SpinnerStyles />
+        <div style={s.emptyWrap}>
+          <div style={s.emptyIcon}>
+            {ticket.status === "triaging" ? "\u23F3" : "\u2014"}
+          </div>
+          <p style={s.emptyText}>
+            {ticket.status === "triaging"
+              ? "Currently being triaged..."
+              : "Queued for triage."}
+          </p>
+          {ticket.status === "triaging" ? (
+            <AutoRefresh />
+          ) : (
+            <EmbedTriageButton haloId={ticket.halo_id} />
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -368,18 +385,6 @@ function HistoryCard({ triage }: { readonly triage: TriageData }) {
         {triage.recommended_team && (
           <span style={s.historyTeam}>{triage.recommended_team}</span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ message, status }: { readonly message: string; readonly status?: string }) {
-  return (
-    <div style={s.page}>
-      <SpinnerStyles />
-      <div style={s.emptyWrap}>
-        <div style={s.emptyIcon}>{status === "triaging" ? "\u23F3" : "\u2014"}</div>
-        <p style={s.emptyText}>{message}</p>
       </div>
     </div>
   );

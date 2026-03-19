@@ -36,13 +36,15 @@ Your job is to identify:
 2. Is there a communication gap? (customer replied but tech hasn't responded, or vice versa)
 3. Is this ticket at SLA risk?
 4. Should it be escalated or reassigned?
-5. Any recommendations for the tech team?
+5. Has the tech documented their work? (internal notes showing what was tried, next steps, etc.)
+6. Is the tech making real progress or just touching the ticket without advancing it?
+7. For long-running tickets (7+ days): is the tech blocked, waiting on something, or just not prioritizing?
 
 Respond with ONLY valid JSON:
 {
-  "flags": ["list of flags: wot_overdue, customer_waiting, sla_risk, stale, unassigned, needs_escalation"],
+  "flags": ["list of flags: wot_overdue, customer_waiting, sla_risk, stale, unassigned, needs_escalation, no_tech_notes, low_progress, high_priority_aging, no_documentation"],
   "severity": "critical|warning|info",
-  "recommendation": "Brief actionable recommendation for the team"
+  "recommendation": "Brief actionable recommendation — MAX 2 sentences"
 }`;
 
 function getStatusName(ticket: HaloTicket): string {
@@ -141,6 +143,26 @@ function quickRuleCheck(
     }
   }
 
+  // No tech notes — ticket has been open 1+ days but tech hasn't added any
+  // internal notes (no documentation of what they've done)
+  const techNotes = actions.filter((a) => a.hiddenfromuser && a.who && !a.who.toLowerCase().includes("triageit"));
+  if (daysOpen >= 1 && techNotes.length === 0) {
+    flags.push("no_tech_notes");
+    if (severity === "info") severity = "warning";
+  }
+
+  // Long-running — open 7+ days with low tech activity (< 3 notes)
+  if (daysOpen >= 7 && techNotes.length < 3) {
+    flags.push("low_progress");
+    if (severity === "info") severity = "warning";
+  }
+
+  // High priority aging — P1/P2 open more than 2 days
+  if (ticket.priority_id && ticket.priority_id <= 2 && daysOpen >= 2) {
+    flags.push("high_priority_aging");
+    severity = "critical";
+  }
+
   if (flags.length === 0) return null;
 
   const recommendations: string[] = [];
@@ -152,6 +174,12 @@ function quickRuleCheck(
     recommendations.push("Ticket is unassigned — needs to be picked up by a tech.");
   if (flags.includes("stale"))
     recommendations.push(`No activity for ${daysBetween(lastActivity!, now)} days — review and update.`);
+  if (flags.includes("no_tech_notes"))
+    recommendations.push("No internal tech notes — document what's been done and next steps.");
+  if (flags.includes("low_progress"))
+    recommendations.push(`Open ${daysOpen} days with minimal tech activity (${techNotes.length} notes) — needs attention.`);
+  if (flags.includes("high_priority_aging"))
+    recommendations.push(`P${ticket.priority_id} ticket open ${daysOpen} days — high priority aging, escalate if blocked.`);
 
   return {
     haloId: ticket.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useEffect, type ReactNode } from "react";
 
 // ── Copy Button ─────────────────────────────────────────────────────────
 
@@ -421,6 +421,120 @@ export function CollapsibleSection({
         <div style={{ padding: "0 16px 14px 16px" }}>{children}</div>
       )}
     </div>
+  );
+}
+
+// ── Triage Button (for embed empty state) ────────────────────────────────
+
+export function EmbedTriageButton({ haloId }: { readonly haloId: number }) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+
+  const handleTriage = useCallback(async () => {
+    if (state === "loading") return;
+    setState("loading");
+
+    try {
+      const response = await fetch("/api/triage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId }),
+      });
+
+      if (response.ok) {
+        setState("done");
+        // Start polling for results
+        const poll = setInterval(() => {
+          window.location.reload();
+        }, 5000);
+        // Stop polling after 3 minutes
+        setTimeout(() => clearInterval(poll), 180_000);
+      } else {
+        setState("error");
+        setTimeout(() => setState("idle"), 3000);
+      }
+    } catch {
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
+    }
+  }, [haloId, state]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", gap: "12px" }}>
+      <button
+        onClick={handleTriage}
+        disabled={state === "loading" || state === "done"}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 24px",
+          fontSize: "13px",
+          fontWeight: 700,
+          fontFamily: "inherit",
+          color: "#fff",
+          background: state === "done"
+            ? "linear-gradient(135deg, #10b981, #059669)"
+            : state === "error"
+              ? "linear-gradient(135deg, #ef4444, #dc2626)"
+              : "linear-gradient(135deg, #6366f1, #4f46e5)",
+          border: "none",
+          borderRadius: "10px",
+          cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
+          transition: "all 0.2s ease",
+          opacity: state === "loading" ? 0.85 : 1,
+          boxShadow: state === "idle" ? "0 2px 12px rgba(99, 102, 241, 0.4)" : "none",
+          letterSpacing: "0.02em",
+        }}
+      >
+        {state === "loading" && (
+          <span
+            style={{
+              display: "inline-block",
+              width: "14px",
+              height: "14px",
+              border: "2px solid rgba(255,255,255,0.3)",
+              borderTopColor: "#fff",
+              borderRadius: "50%",
+              animation: "spin 0.6s linear infinite",
+            }}
+          />
+        )}
+        {state === "idle" && "Triage This Ticket"}
+        {state === "loading" && "Triaging..."}
+        {state === "done" && "Triaging — refreshing..."}
+        {state === "error" && "Failed — Try Again"}
+      </button>
+      {state === "done" && (
+        <span style={{ fontSize: "11px", color: "#6366f1", opacity: 0.7 }}>
+          Page will refresh automatically when triage completes
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Auto Refresh (for triaging state) ────────────────────────────────────
+
+export function AutoRefresh() {
+  const [dots, setDots] = useState("");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      window.location.reload();
+    }, 5000);
+    const dotInterval = setInterval(() => {
+      setDots((d) => (d.length >= 3 ? "" : d + "."));
+    }, 500);
+    return () => {
+      clearInterval(interval);
+      clearInterval(dotInterval);
+    };
+  }, []);
+
+  return (
+    <span style={{ fontSize: "11px", color: "#6366f1", opacity: 0.7 }}>
+      Auto-refreshing{dots}
+    </span>
   );
 }
 
