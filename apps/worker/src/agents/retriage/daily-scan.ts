@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloTicket, HaloAction, HaloConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
+import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 
 
 interface ReTriageResult {
@@ -194,6 +195,20 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
     try {
       // Pull actions for this ticket
       const actions = await halo.getTicketActions(ticket.id);
+
+      // Check if the latest customer reply is an update request
+      const latestCustomerAction = [...actions]
+        .filter((a) => !a.hiddenfromuser && a.note && a.who)
+        .sort((a, b) => new Date(b.datecreated ?? "").getTime() - new Date(a.datecreated ?? "").getTime())[0];
+
+      if (latestCustomerAction?.note && isUpdateRequest(latestCustomerAction.note)) {
+        try {
+          await handleUpdateRequest(ticket.id, latestCustomerAction.note, supabase);
+          console.log(`[RETRIAGE] Detected update request in ticket #${ticket.id}`);
+        } catch (err) {
+          console.error(`[RETRIAGE] Failed to handle update request for #${ticket.id}:`, err);
+        }
+      }
 
       // Quick rule-based check first (free, no tokens)
       const ruleResult = quickRuleCheck(ticket, actions);

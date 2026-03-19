@@ -266,6 +266,11 @@ async function upsertTicket(
     if (error) {
       return NextResponse.json({ error: "Failed to update ticket" }, { status: 500 });
     }
+
+    // Check for update request patterns on ticket updates
+    // Forward the latest action to the worker's /webhook/action endpoint
+    await checkForUpdateRequest(data.halo_id);
+
     return NextResponse.json({ status: "updated", ticket_id: existing.id });
   }
 
@@ -312,6 +317,73 @@ async function upsertFromWebhookBody(
     original_priority: typeof body.priority_id === "number" ? body.priority_id : null,
     raw_data: body,
   });
+}
+
+/**
+ * Check if the latest customer action on a ticket is an update request.
+ * If so, forward it to the worker's /webhook/action endpoint for handling.
+ */
+async function checkForUpdateRequest(haloId: number): Promise<void> {
+  const workerUrl = process.env.WORKER_URL;
+  if (!workerUrl) return;
+
+  try {
+    // Fetch recent actions from Halo via the worker's proxy
+    // The worker will detect if it's an update request and handle it
+    const supabase = await createServiceClient();
+    const { data: integration } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "halo")
+      .eq("is_active", true)
+      .single();
+
+    if (!integration) return;
+
+    const config = integration.config as {
+      base_url: string;
+      client_id: string;
+      client_secret: string;
+      tenant?: string;
+    };
+
+    const token = await getHaloToken(config);
+
+    // Fetch the latest actions for this ticket
+    const actionsResponse = await fetch(
+      `${config.base_url}/api/actions?ticket_id=${haloId}&excludesys=true&count=3&order=datecreated&orderdesc=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!actionsResponse.ok) return;
+
+    const actionsData = (await actionsResponse.json()) as { actions?: Array<{ note?: string; hiddenfromuser?: boolean; who?: string }> };
+    const actions = actionsData.actions ?? [];
+
+    // Find the most recent customer-visible action (not internal)
+    const latestCustomerAction = actions.find((a) => !a.hiddenfromuser && a.note);
+    if (!latestCustomerAction?.note) return;
+
+    // Forward to worker's /webhook/action endpoint — it will check patterns
+    await fetch(`${workerUrl}/webhook/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ticket_id: haloId,
+        note: latestCustomerAction.note,
+        who: latestCustomerAction.who,
+        hiddenfromuser: false,
+      }),
+    });
+  } catch (error) {
+    // Non-fatal — don't block the webhook response
+    console.error(`[WEBHOOK] Failed to check for update request on #${haloId}:`, error);
+  }
 }
 
 /**
