@@ -1,14 +1,18 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AGENTS } from "@triageit/shared";
+import { QuickActions, CollapsibleSection, SpinnerStyles } from "./actions";
 
 /**
  * Embeddable Triage Tab — loaded inside Halo PSA as a custom web tab.
  *
  * URL format: /embed/triage?halo_id={id}&token={EMBED_SECRET}
  * Halo replaces {id} with the ticket's Halo ID automatically.
+ *
+ * Shows the latest triage prominently + full triage history with timestamps.
  */
 
-// Priority label mapping
+// ── Constants ───────────────────────────────────────────────────────────
+
 const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
   1: { label: "Critical", color: "#ef4444" },
   2: { label: "High", color: "#f97316" },
@@ -17,10 +21,14 @@ const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
   5: { label: "Minimal", color: "#6b7280" },
 };
 
-// Agent name → display character
+const URGENCY_COLOR = (score: number): string =>
+  score >= 4 ? "#ef4444" : score >= 3 ? "#f59e0b" : "#10b981";
+
 const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
   AGENTS.map((a) => [a.name, a.character]),
 );
+
+// ── Types ───────────────────────────────────────────────────────────────
 
 interface TriageData {
   readonly id: string;
@@ -43,6 +51,7 @@ interface TriageData {
   readonly internal_notes: string;
   readonly processing_time_ms: number | null;
   readonly created_at: string;
+  readonly triage_type?: string;
 }
 
 interface AgentLog {
@@ -54,14 +63,7 @@ interface AgentLog {
   readonly duration_ms: number | null;
 }
 
-interface TicketData {
-  readonly id: string;
-  readonly halo_id: number;
-  readonly summary: string;
-  readonly client_name: string | null;
-  readonly user_name: string | null;
-  readonly status: string;
-}
+// ── Page Component ──────────────────────────────────────────────────────
 
 export default async function EmbedTriagePage({
   searchParams,
@@ -93,20 +95,22 @@ export default async function EmbedTriagePage({
 
   if (!ticket) {
     return (
-      <EmptyState message={`No triage data found for Halo ticket #${haloId}. This ticket hasn't been triaged by TriageIt yet.`} />
+      <EmptyState
+        message={`No triage data found for Halo ticket #${haloId}. This ticket hasn't been triaged by TriageIt yet.`}
+      />
     );
   }
 
-  // Fetch latest triage result
-  const { data: triage } = await supabase
+  // Fetch ALL triage results (not just latest) for history
+  const { data: allTriageResults } = await supabase
     .from("triage_results")
     .select("*")
     .eq("ticket_id", ticket.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    .order("created_at", { ascending: false });
 
-  if (!triage) {
+  const triageResults = (allTriageResults ?? []) as ReadonlyArray<TriageData>;
+
+  if (triageResults.length === 0) {
     return (
       <EmptyState
         message={`Ticket #${haloId} is ${ticket.status === "triaging" ? "currently being triaged..." : "queued for triage."}${ticket.status === "triaging" ? " Refresh in a moment." : ""}`}
@@ -115,7 +119,11 @@ export default async function EmbedTriagePage({
     );
   }
 
-  // Fetch agent logs
+  // Latest is the first item (sorted desc)
+  const latest = triageResults[0];
+  const history = triageResults.slice(1);
+
+  // Fetch agent logs for latest triage
   const { data: agentLogs } = await supabase
     .from("agent_logs")
     .select("agent_name, agent_role, status, output_summary, tokens_used, duration_ms")
@@ -123,96 +131,81 @@ export default async function EmbedTriagePage({
     .order("created_at", { ascending: true });
 
   return (
-    <TriageEmbed
-      ticket={ticket as TicketData}
-      triage={triage as TriageData}
-      agentLogs={(agentLogs ?? []) as ReadonlyArray<AgentLog>}
-    />
-  );
-}
-
-// ── Main Triage Embed Component ────────────────────────────────────────
-
-function TriageEmbed({
-  ticket,
-  triage,
-  agentLogs,
-}: {
-  readonly ticket: TicketData;
-  readonly triage: TriageData;
-  readonly agentLogs: ReadonlyArray<AgentLog>;
-}) {
-  const priority = PRIORITY_LABELS[triage.recommended_priority] ?? {
-    label: `P${triage.recommended_priority}`,
-    color: "#6b7280",
-  };
-  const classification = triage.classification;
-  const triageDate = new Date(triage.created_at).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  return (
     <div style={styles.container}>
-      {/* Header */}
+      <SpinnerStyles />
+
+      {/* ── Header ──────────────────────────────────────────────── */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.logo}>🤖 TriageIt</span>
+          <span style={styles.logo}>TriageIt</span>
           {ticket.client_name && (
-            <span style={styles.headerClient}>{ticket.client_name}</span>
+            <span style={styles.headerChip}>{ticket.client_name}</span>
           )}
-          <span style={styles.headerDate}>{triageDate}</span>
         </div>
         <div style={styles.headerRight}>
-          {triage.security_flag && (
-            <span style={styles.securityBadge}>🔒 Security</span>
+          {latest.security_flag && (
+            <span style={styles.securityBadge}>SECURITY</span>
           )}
-          <span style={{ ...styles.priorityBadge, backgroundColor: priority.color }}>
-            {priority.label}
-          </span>
+          {latest.triage_type === "retriage" && (
+            <span style={styles.retriageBadge}>RE-TRIAGE</span>
+          )}
         </div>
       </div>
 
-      {/* Classification & Priority Row */}
-      <div style={styles.statsRow}>
-        <StatCard
-          label="Classification"
-          value={classification.type}
-          subvalue={classification.subtype}
+      {/* ── At-a-Glance Row ─────────────────────────────────────── */}
+      <AtAGlanceRow triage={latest} />
+
+      {/* ── Quick Actions ───────────────────────────────────────── */}
+      <div style={styles.actionsBar}>
+        <QuickActions
+          ticketId={ticket.id}
+          suggestedResponse={latest.suggested_response}
+          internalNotes={latest.internal_notes}
         />
-        <StatCard
-          label="Urgency"
-          value={`${triage.urgency_score}/5`}
-          color={triage.urgency_score >= 4 ? "#ef4444" : triage.urgency_score >= 3 ? "#f59e0b" : "#10b981"}
-        />
-        <StatCard label="Priority" value={priority.label} color={priority.color} />
-        {triage.recommended_team && (
-          <StatCard label="Team" value={triage.recommended_team} />
-        )}
-        {triage.recommended_agent && (
-          <StatCard label="Assign To" value={triage.recommended_agent} />
-        )}
+        <span style={styles.timestamp}>
+          {formatTimestamp(latest.created_at)}
+        </span>
       </div>
 
-      {/* Urgency Reasoning */}
-      <Section title="Urgency Analysis">
-        <p style={styles.text}>{triage.urgency_reasoning}</p>
-      </Section>
-
-      {/* Security Alert */}
-      {triage.security_flag && triage.security_notes && (
-        <Section title="🔒 Security Alert" accent="#ef4444">
-          <p style={styles.text}>{triage.security_notes}</p>
-        </Section>
+      {/* ── Security Alert ──────────────────────────────────────── */}
+      {latest.security_flag && latest.security_notes && (
+        <div style={styles.securityAlert}>
+          <div style={styles.securityAlertHeader}>SECURITY ALERT</div>
+          <p style={styles.bodyText}>{latest.security_notes}</p>
+        </div>
       )}
 
-      {/* Agent Findings */}
-      {Object.keys(triage.findings).length > 0 && (
-        <Section title="Agent Findings">
+      {/* ── Urgency Analysis ────────────────────────────────────── */}
+      <Section title="Urgency Analysis">
+        <p style={styles.bodyText}>{latest.urgency_reasoning}</p>
+      </Section>
+
+      {/* ── Suggested Response (collapsible) ─────────────────────── */}
+      {latest.suggested_response && (
+        <CollapsibleSection
+          title="Suggested Customer Response"
+          accent="#06b6d4"
+          defaultOpen
+        >
+          <p style={styles.responseText}>{latest.suggested_response}</p>
+        </CollapsibleSection>
+      )}
+
+      {/* ── Internal Notes (collapsible) ─────────────────────────── */}
+      {latest.internal_notes && (
+        <CollapsibleSection title="Internal Notes" accent="#a78bfa" defaultOpen>
+          <p style={styles.bodyText}>{latest.internal_notes}</p>
+        </CollapsibleSection>
+      )}
+
+      {/* ── Agent Findings (collapsible) ─────────────────────────── */}
+      {Object.keys(latest.findings).length > 0 && (
+        <CollapsibleSection
+          title="Agent Findings"
+          badge={`${Object.keys(latest.findings).length} agents`}
+        >
           <div style={styles.findingsGrid}>
-            {Object.entries(triage.findings).map(([agentName, finding]) => (
+            {Object.entries(latest.findings).map(([agentName, finding]) => (
               <FindingCard
                 key={agentName}
                 agentName={agentName}
@@ -221,88 +214,135 @@ function TriageEmbed({
               />
             ))}
           </div>
-        </Section>
+        </CollapsibleSection>
       )}
 
-      {/* Suggested Customer Response */}
-      {triage.suggested_response && (
-        <Section title="💬 Suggested Customer Response" accent="#06b6d4">
-          <p style={styles.responseText}>{triage.suggested_response}</p>
-        </Section>
-      )}
-
-      {/* Internal Notes */}
-      {triage.internal_notes && (
-        <Section title="📝 Internal Notes">
-          <p style={styles.text}>{triage.internal_notes}</p>
-        </Section>
-      )}
-
-      {/* Agent Activity */}
-      {agentLogs.length > 0 && (
-        <Section title="Agent Activity">
+      {/* ── Agent Activity (collapsible) ─────────────────────────── */}
+      {(agentLogs ?? []).length > 0 && (
+        <CollapsibleSection
+          title="Agent Activity"
+          badge={`${(agentLogs ?? []).filter((l) => l.status === "completed").length}/${(agentLogs ?? []).length}`}
+        >
           <div style={styles.agentLogList}>
-            {agentLogs.map((log, i) => (
-              <AgentLogRow key={i} log={log} />
+            {(agentLogs ?? []).map((log, i) => (
+              <AgentLogRow key={i} log={log as AgentLog} />
             ))}
           </div>
-        </Section>
+        </CollapsibleSection>
       )}
 
-      {/* Footer */}
+      {/* ── Triage History ──────────────────────────────────────── */}
+      {history.length > 0 && (
+        <CollapsibleSection
+          title="Triage History"
+          accent="#f59e0b"
+          badge={`${history.length} previous`}
+        >
+          <div style={styles.historyList}>
+            {history.map((triage) => (
+              <HistoryCard key={triage.id} triage={triage} />
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* ── Footer ──────────────────────────────────────────────── */}
       <div style={styles.footer}>
         <span>
-          Processed in {triage.processing_time_ms ? `${(triage.processing_time_ms / 1000).toFixed(1)}s` : "N/A"}
+          {latest.processing_time_ms
+            ? `${(latest.processing_time_ms / 1000).toFixed(1)}s`
+            : "N/A"}
         </span>
-        <span>•</span>
+        <span style={styles.footerDot} />
         <span>
-          {agentLogs.filter((l) => l.status === "completed").length} agents ran
+          {(agentLogs ?? []).filter((l) => l.status === "completed").length} agents
         </span>
-        <span>•</span>
+        <span style={styles.footerDot} />
         <span>
-          {agentLogs.reduce((sum, l) => sum + (l.tokens_used ?? 0), 0).toLocaleString()} tokens
+          {(agentLogs ?? []).reduce((sum, l) => sum + (l.tokens_used ?? 0), 0).toLocaleString()} tokens
         </span>
       </div>
     </div>
   );
 }
 
-// ── Sub Components ─────────────────────────────────────────────────────
+// ── Sub Components ──────────────────────────────────────────────────────
 
-function StatCard({
-  label,
-  value,
-  subvalue,
-  color,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly subvalue?: string;
-  readonly color?: string;
-}) {
+function AtAGlanceRow({ triage }: { readonly triage: TriageData }) {
+  const priority = PRIORITY_LABELS[triage.recommended_priority] ?? {
+    label: `P${triage.recommended_priority}`,
+    color: "#6b7280",
+  };
+  const classification = triage.classification;
+
   return (
-    <div style={styles.statCard}>
-      <span style={styles.statLabel}>{label}</span>
-      <span style={{ ...styles.statValue, color: color ?? "#fafafa" }}>
-        {value}
-      </span>
-      {subvalue && <span style={styles.statSub}>{subvalue}</span>}
+    <div style={styles.glanceRow}>
+      {/* Priority — most prominent */}
+      <div style={styles.glanceCard}>
+        <span style={styles.glanceLabel}>Priority</span>
+        <span
+          style={{
+            ...styles.glancePriorityValue,
+            color: priority.color,
+          }}
+        >
+          {priority.label}
+        </span>
+      </div>
+
+      {/* Urgency */}
+      <div style={styles.glanceCard}>
+        <span style={styles.glanceLabel}>Urgency</span>
+        <span
+          style={{
+            ...styles.glanceValue,
+            color: URGENCY_COLOR(triage.urgency_score),
+          }}
+        >
+          {triage.urgency_score}/5
+        </span>
+      </div>
+
+      {/* Classification */}
+      <div style={styles.glanceCard}>
+        <span style={styles.glanceLabel}>Type</span>
+        <span style={styles.glanceValue}>
+          {classification.type}
+        </span>
+        {classification.subtype && (
+          <span style={styles.glanceSub}>{classification.subtype}</span>
+        )}
+      </div>
+
+      {/* Team */}
+      {triage.recommended_team && (
+        <div style={styles.glanceCard}>
+          <span style={styles.glanceLabel}>Team</span>
+          <span style={styles.glanceValue}>{triage.recommended_team}</span>
+        </div>
+      )}
+
+      {/* Assign To */}
+      {triage.recommended_agent && (
+        <div style={styles.glanceCard}>
+          <span style={styles.glanceLabel}>Assign To</span>
+          <span style={styles.glanceValue}>{triage.recommended_agent}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 function Section({
   title,
-  accent,
   children,
 }: {
   readonly title: string;
-  readonly accent?: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <div style={{ ...styles.section, borderLeftColor: accent ?? "#6366f1" }}>
-      <h3 style={styles.sectionTitle}>{title}</h3>
+    <div style={styles.section}>
+      <div style={styles.sectionTitle}>{title}</div>
       {children}
     </div>
   );
@@ -318,13 +358,19 @@ function FindingCard({
   readonly confidence: number;
 }) {
   const character = AGENT_CHARACTERS[agentName] ?? agentName;
+  const pct = Math.round(confidence * 100);
 
   return (
     <div style={styles.findingCard}>
       <div style={styles.findingHeader}>
         <span style={styles.findingAgent}>{character}</span>
-        <span style={styles.findingConfidence}>
-          {Math.round(confidence * 100)}%
+        <span
+          style={{
+            ...styles.findingConfidence,
+            color: pct >= 80 ? "#10b981" : pct >= 60 ? "#f59e0b" : "#71717a",
+          }}
+        >
+          {pct}% confidence
         </span>
       </div>
       <p style={styles.findingText}>{summary}</p>
@@ -334,19 +380,78 @@ function FindingCard({
 
 function AgentLogRow({ log }: { readonly log: AgentLog }) {
   const character = AGENT_CHARACTERS[log.agent_name] ?? log.agent_name;
-  const statusIcon =
-    log.status === "completed" ? "✅" : log.status === "error" ? "❌" : log.status === "skipped" ? "⏭️" : "⏳";
+  const statusStyles: Record<string, { icon: string; color: string }> = {
+    completed: { icon: "\u2713", color: "#10b981" },
+    error: { icon: "\u2717", color: "#ef4444" },
+    skipped: { icon: "\u2192", color: "#71717a" },
+  };
+  const s = statusStyles[log.status] ?? { icon: "\u2026", color: "#f59e0b" };
 
   return (
     <div style={styles.agentLogRow}>
-      <span style={styles.agentLogIcon}>{statusIcon}</span>
+      <span style={{ ...styles.agentLogIcon, color: s.color }}>{s.icon}</span>
       <span style={styles.agentLogName}>{character}</span>
       <span style={styles.agentLogRole}>{log.agent_role}</span>
-      {log.duration_ms && (
+      {log.duration_ms != null && (
         <span style={styles.agentLogDuration}>
           {(log.duration_ms / 1000).toFixed(1)}s
         </span>
       )}
+    </div>
+  );
+}
+
+function HistoryCard({ triage }: { readonly triage: TriageData }) {
+  const priority = PRIORITY_LABELS[triage.recommended_priority] ?? {
+    label: `P${triage.recommended_priority}`,
+    color: "#6b7280",
+  };
+
+  return (
+    <div style={styles.historyCard}>
+      <div style={styles.historyCardHeader}>
+        <span style={styles.historyTimestamp}>
+          {formatTimestamp(triage.created_at)}
+        </span>
+        {triage.triage_type === "retriage" && (
+          <span style={styles.historyRetriageBadge}>re-triage</span>
+        )}
+        <span
+          style={{
+            ...styles.historyPriority,
+            color: priority.color,
+          }}
+        >
+          {priority.label}
+        </span>
+        <span
+          style={{
+            ...styles.historyUrgency,
+            color: URGENCY_COLOR(triage.urgency_score),
+          }}
+        >
+          U{triage.urgency_score}
+        </span>
+      </div>
+      <div style={styles.historyCardBody}>
+        <div style={styles.historyRow}>
+          <span style={styles.historyLabel}>Type</span>
+          <span style={styles.historyValue}>
+            {triage.classification.type}
+            {triage.classification.subtype ? ` / ${triage.classification.subtype}` : ""}
+          </span>
+        </div>
+        {triage.recommended_team && (
+          <div style={styles.historyRow}>
+            <span style={styles.historyLabel}>Team</span>
+            <span style={styles.historyValue}>{triage.recommended_team}</span>
+          </div>
+        )}
+        <div style={styles.historyRow}>
+          <span style={styles.historyLabel}>Reasoning</span>
+          <span style={styles.historyValue}>{triage.urgency_reasoning}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -361,9 +466,9 @@ function EmptyState({
   return (
     <div style={styles.container}>
       <div style={styles.emptyState}>
-        <span style={{ fontSize: "32px" }}>
-          {status === "triaging" ? "⏳" : "📋"}
-        </span>
+        <div style={{ fontSize: "28px", opacity: 0.6 }}>
+          {status === "triaging" ? "\u23F3" : "\u2014"}
+        </div>
         <p style={styles.emptyText}>{message}</p>
       </div>
     </div>
@@ -374,14 +479,24 @@ function ErrorState({ message }: { readonly message: string }) {
   return (
     <div style={styles.container}>
       <div style={styles.emptyState}>
-        <span style={{ fontSize: "32px" }}>⚠️</span>
         <p style={{ ...styles.emptyText, color: "#ef4444" }}>{message}</p>
       </div>
     </div>
   );
 }
 
-// ── Inline Styles (no Tailwind in iframe) ──────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// ── Inline Styles ───────────────────────────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
@@ -389,67 +504,76 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#09090b",
     color: "#fafafa",
     minHeight: "100vh",
-    padding: "16px 20px",
+    padding: "14px 18px",
     fontSize: "13px",
-    lineHeight: "1.5",
+    lineHeight: 1.5,
   },
+
+  // Header
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "16px",
-    paddingBottom: "12px",
+    marginBottom: "12px",
+    paddingBottom: "10px",
     borderBottom: "1px solid #1e1e22",
   },
   headerLeft: {
     display: "flex",
     alignItems: "center",
-    gap: "12px",
+    gap: "10px",
   },
   logo: {
-    fontSize: "15px",
-    fontWeight: 700,
+    fontSize: "14px",
+    fontWeight: 800,
     color: "#6366f1",
+    letterSpacing: "-0.02em",
   },
-  headerClient: {
-    fontSize: "12px",
+  headerChip: {
+    fontSize: "11px",
     color: "#a1a1aa",
     fontWeight: 500,
-  },
-  headerDate: {
-    fontSize: "12px",
-    color: "#71717a",
+    padding: "2px 8px",
+    backgroundColor: "#18181b",
+    borderRadius: "4px",
+    border: "1px solid #27272a",
   },
   headerRight: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "6px",
   },
   securityBadge: {
-    fontSize: "11px",
-    fontWeight: 600,
+    fontSize: "10px",
+    fontWeight: 700,
     padding: "2px 8px",
     borderRadius: "4px",
     backgroundColor: "rgba(239, 68, 68, 0.15)",
     color: "#ef4444",
     border: "1px solid rgba(239, 68, 68, 0.3)",
+    letterSpacing: "0.05em",
   },
-  priorityBadge: {
-    fontSize: "11px",
+  retriageBadge: {
+    fontSize: "10px",
     fontWeight: 700,
-    padding: "2px 10px",
+    padding: "2px 8px",
     borderRadius: "4px",
-    color: "#fff",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    color: "#f59e0b",
+    border: "1px solid rgba(245, 158, 11, 0.3)",
+    letterSpacing: "0.05em",
   },
-  statsRow: {
+
+  // At-a-glance row
+  glanceRow: {
     display: "flex",
-    gap: "10px",
-    marginBottom: "16px",
+    gap: "8px",
+    marginBottom: "12px",
     flexWrap: "wrap" as const,
   },
-  statCard: {
+  glanceCard: {
     flex: "1 1 0",
-    minWidth: "100px",
+    minWidth: "90px",
     backgroundColor: "#111113",
     border: "1px solid #1e1e22",
     borderRadius: "8px",
@@ -458,59 +582,109 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column" as const,
     gap: "2px",
   },
-  statLabel: {
-    fontSize: "10px",
-    fontWeight: 500,
-    color: "#71717a",
+  glanceLabel: {
+    fontSize: "9px",
+    fontWeight: 600,
+    color: "#52525b",
     textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
+    letterSpacing: "0.08em",
   },
-  statValue: {
-    fontSize: "15px",
+  glancePriorityValue: {
+    fontSize: "18px",
+    fontWeight: 800,
+    textTransform: "capitalize" as const,
+    lineHeight: 1.2,
+  },
+  glanceValue: {
+    fontSize: "14px",
     fontWeight: 700,
     textTransform: "capitalize" as const,
+    color: "#fafafa",
   },
-  statSub: {
+  glanceSub: {
     fontSize: "11px",
-    color: "#a1a1aa",
+    color: "#71717a",
     textTransform: "capitalize" as const,
   },
+
+  // Actions bar
+  actionsBar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "12px",
+    padding: "8px 12px",
+    backgroundColor: "#111113",
+    border: "1px solid #1e1e22",
+    borderRadius: "8px",
+  },
+  timestamp: {
+    fontSize: "11px",
+    color: "#52525b",
+    whiteSpace: "nowrap" as const,
+  },
+
+  // Security alert
+  securityAlert: {
+    backgroundColor: "rgba(239, 68, 68, 0.08)",
+    border: "1px solid rgba(239, 68, 68, 0.25)",
+    borderLeft: "3px solid #ef4444",
+    borderRadius: "8px",
+    padding: "12px 14px",
+    marginBottom: "10px",
+  },
+  securityAlertHeader: {
+    fontSize: "10px",
+    fontWeight: 700,
+    color: "#ef4444",
+    letterSpacing: "0.08em",
+    marginBottom: "6px",
+  },
+
+  // Section (non-collapsible)
   section: {
     backgroundColor: "#111113",
     border: "1px solid #1e1e22",
     borderLeft: "3px solid #6366f1",
     borderRadius: "8px",
-    padding: "12px 16px",
-    marginBottom: "12px",
+    padding: "12px 14px",
+    marginBottom: "10px",
   },
   sectionTitle: {
-    fontSize: "12px",
+    fontSize: "11px",
     fontWeight: 700,
     color: "#a1a1aa",
     textTransform: "uppercase" as const,
     letterSpacing: "0.05em",
-    marginBottom: "8px",
+    marginBottom: "6px",
   },
-  text: {
+
+  // Text
+  bodyText: {
     color: "#d4d4d8",
     margin: 0,
     whiteSpace: "pre-wrap" as const,
+    fontSize: "12px",
+    lineHeight: 1.6,
   },
   responseText: {
     color: "#67e8f9",
     margin: 0,
     whiteSpace: "pre-wrap" as const,
-    fontStyle: "italic" as const,
+    fontSize: "12px",
+    lineHeight: 1.6,
   },
+
+  // Findings
   findingsGrid: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "8px",
+    gap: "6px",
   },
   findingCard: {
     backgroundColor: "#18181b",
     borderRadius: "6px",
-    padding: "10px 12px",
+    padding: "8px 10px",
     border: "1px solid #27272a",
   },
   findingHeader: {
@@ -525,54 +699,135 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#a78bfa",
   },
   findingConfidence: {
-    fontSize: "11px",
-    color: "#71717a",
+    fontSize: "10px",
+    fontWeight: 600,
   },
   findingText: {
     color: "#d4d4d8",
     margin: 0,
-    fontSize: "12px",
+    fontSize: "11px",
+    lineHeight: 1.5,
   },
+
+  // Agent logs
   agentLogList: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "4px",
+    gap: "2px",
   },
   agentLogRow: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    padding: "4px 0",
+    padding: "3px 0",
     fontSize: "12px",
   },
   agentLogIcon: {
-    fontSize: "12px",
-    width: "18px",
+    fontSize: "11px",
+    width: "16px",
     textAlign: "center" as const,
+    fontWeight: 700,
   },
   agentLogName: {
     fontWeight: 600,
     color: "#fafafa",
-    minWidth: "120px",
-  },
-  agentLogRole: {
-    color: "#71717a",
-    flex: 1,
-  },
-  agentLogDuration: {
-    color: "#71717a",
+    minWidth: "110px",
     fontSize: "11px",
   },
+  agentLogRole: {
+    color: "#52525b",
+    flex: 1,
+    fontSize: "11px",
+  },
+  agentLogDuration: {
+    color: "#52525b",
+    fontSize: "10px",
+    fontFamily: "monospace",
+  },
+
+  // History
+  historyList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "8px",
+  },
+  historyCard: {
+    backgroundColor: "#18181b",
+    border: "1px solid #27272a",
+    borderRadius: "6px",
+    overflow: "hidden",
+  },
+  historyCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 10px",
+    backgroundColor: "#1a1a1e",
+    borderBottom: "1px solid #27272a",
+  },
+  historyTimestamp: {
+    fontSize: "11px",
+    fontWeight: 600,
+    color: "#a1a1aa",
+    flex: 1,
+  },
+  historyRetriageBadge: {
+    fontSize: "9px",
+    fontWeight: 600,
+    padding: "1px 5px",
+    borderRadius: "3px",
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    color: "#f59e0b",
+    border: "1px solid rgba(245, 158, 11, 0.2)",
+  },
+  historyPriority: {
+    fontSize: "11px",
+    fontWeight: 700,
+  },
+  historyUrgency: {
+    fontSize: "11px",
+    fontWeight: 600,
+  },
+  historyCardBody: {
+    padding: "8px 10px",
+  },
+  historyRow: {
+    display: "flex",
+    gap: "8px",
+    padding: "2px 0",
+    fontSize: "11px",
+  },
+  historyLabel: {
+    color: "#52525b",
+    fontWeight: 600,
+    minWidth: "60px",
+    flexShrink: 0,
+  },
+  historyValue: {
+    color: "#a1a1aa",
+    flex: 1,
+  },
+
+  // Footer
   footer: {
     display: "flex",
     gap: "8px",
     justifyContent: "center",
-    color: "#52525b",
-    fontSize: "11px",
-    marginTop: "16px",
-    paddingTop: "12px",
+    alignItems: "center",
+    color: "#3f3f46",
+    fontSize: "10px",
+    marginTop: "14px",
+    paddingTop: "10px",
     borderTop: "1px solid #1e1e22",
   },
+  footerDot: {
+    width: "3px",
+    height: "3px",
+    borderRadius: "50%",
+    backgroundColor: "#3f3f46",
+  },
+
+  // Empty / Error states
   emptyState: {
     display: "flex",
     flexDirection: "column" as const,
@@ -582,8 +837,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "12px",
   },
   emptyText: {
-    color: "#71717a",
+    color: "#52525b",
     textAlign: "center" as const,
     maxWidth: "360px",
+    fontSize: "13px",
+    lineHeight: 1.5,
   },
 };
