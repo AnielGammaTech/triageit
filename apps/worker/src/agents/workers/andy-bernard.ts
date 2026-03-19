@@ -152,8 +152,8 @@ Respond with ONLY valid JSON:
 
     const datto = new DattoClient(config);
 
-    // Find the site by client name
-    const site = await this.findSite(datto, context.clientName);
+    // Find the site by client name/ID
+    const site = await this.findSite(datto, context.clientName, context.clientId);
     if (!site) return emptyResult;
 
     // Fetch devices and alerts in parallel
@@ -174,17 +174,36 @@ Respond with ONLY valid JSON:
   private async findSite(
     datto: DattoClient,
     clientName: string | null,
+    clientId?: number | null,
   ): Promise<DattoSite | null> {
     if (!clientName) return null;
 
     try {
-      // 1. Check integration_mappings first (admin-approved mappings)
-      const { data: mapping } = await this.supabase
-        .from("integration_mappings")
-        .select("external_id, external_name")
-        .eq("service", "datto")
-        .eq("customer_name", clientName)
-        .single();
+      // 1. Check integration_mappings — try customer_id first (more reliable),
+      //    then fall back to case-insensitive name match
+      let mapping: { external_id: string; external_name: string } | null = null;
+
+      // Try by Halo client_id if available
+      if (clientId) {
+        const { data } = await this.supabase
+          .from("integration_mappings")
+          .select("external_id, external_name")
+          .eq("service", "datto")
+          .eq("customer_id", String(clientId))
+          .single();
+        mapping = data;
+      }
+
+      // Fall back to case-insensitive name lookup
+      if (!mapping) {
+        const { data } = await this.supabase
+          .from("integration_mappings")
+          .select("external_id, external_name")
+          .eq("service", "datto")
+          .ilike("customer_name", clientName)
+          .single();
+        mapping = data;
+      }
 
       if (mapping) {
         const siteId = Number(mapping.external_id);
@@ -192,16 +211,23 @@ Respond with ONLY valid JSON:
           try {
             const site = await datto.getSite(siteId);
             if (site) {
-              await this.logThinking(
-                "",
-                `Found Datto site via mapping: "${mapping.external_name}" (ID: ${siteId}) for Halo customer "${clientName}"`,
+              console.log(
+                `[ANDY] Found Datto site via mapping: "${mapping.external_name}" (ID: ${siteId}) for Halo customer "${clientName}"`,
               );
               return site;
             }
-          } catch {
-            // Mapping exists but site fetch failed — fall through to name search
+          } catch (err) {
+            console.error(
+              `[ANDY] Mapping found for "${clientName}" → site ${mapping.external_id}, but fetch failed:`,
+              err,
+            );
+            // Fall through to name search
           }
         }
+      } else {
+        console.log(
+          `[ANDY] No mapping found for client "${clientName}"${clientId ? ` (ID: ${clientId})` : ""} — trying name search`,
+        );
       }
 
       // 2. Fallback: search by name
@@ -214,10 +240,26 @@ Respond with ONLY valid JSON:
       );
       if (exact) return exact;
 
-      // Partial match
-      const partial = sites.find(
-        (s) => s.name.toLowerCase().includes(lower) || lower.includes(s.name.toLowerCase()),
-      );
+      // Partial match — strip common suffixes like LLC, Inc, Corp
+      const normalize = (name: string) =>
+        name.toLowerCase().replace(/[,.]|\b(llc|inc|corp|ltd|co)\b/gi, "").trim();
+
+      const normalizedClient = normalize(clientName);
+
+      const partial = sites.find((s) => {
+        const normalizedSite = normalize(s.name);
+        return (
+          normalizedSite.includes(normalizedClient) ||
+          normalizedClient.includes(normalizedSite)
+        );
+      });
+
+      if (partial) {
+        console.log(
+          `[ANDY] Matched Datto site by name: "${partial.name}" (ID: ${partial.id}) for "${clientName}"`,
+        );
+      }
+
       return partial ?? null;
     } catch (error) {
       console.error("[ANDY] Failed to search Datto sites:", error);

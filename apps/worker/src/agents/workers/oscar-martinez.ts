@@ -359,7 +359,7 @@ Respond with ONLY valid JSON:
       .from("integration_mappings")
       .select("external_id")
       .eq("service", "cove")
-      .eq("customer_name", clientName)
+      .ilike("customer_name", clientName)
       .single();
 
     return mapping?.external_id ?? null;

@@ -275,7 +275,7 @@ Respond with ONLY valid JSON:
         .from("integration_mappings")
         .select("external_id")
         .eq("service", "jumpcloud")
-        .eq("customer_name", customerName)
+        .ilike("customer_name", customerName)
         .single();
 
       return mapping?.external_id ?? null;

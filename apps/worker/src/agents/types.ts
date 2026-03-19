@@ -23,6 +23,7 @@ export interface TriageContext {
   readonly summary: string;
   readonly details: string | null;
   readonly clientName: string | null;
+  readonly clientId: number | null;
   readonly userName: string | null;
   readonly originalPriority: number | null;
   readonly assignedTechName?: string | null;

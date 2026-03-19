@@ -110,12 +110,12 @@ async function isIntegrationMappedForCustomer(
   // Let the agent try anyway (it will handle missing data gracefully)
   if (!customerName) return true;
 
-  // Check if a customer mapping exists for this client
+  // Check if a customer mapping exists for this client (case-insensitive)
   const { data: mapping } = await supabase
     .from("integration_mappings")
     .select("id")
     .eq("integration_id", integration.id)
-    .eq("customer_name", customerName)
+    .ilike("customer_name", customerName)
     .limit(1)
     .maybeSingle();
 

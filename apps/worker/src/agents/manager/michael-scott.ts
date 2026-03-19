@@ -125,6 +125,7 @@ function buildTriageContext(ticket: Ticket): TriageContext {
     summary: ticket.summary,
     details: ticket.details,
     clientName: ticket.client_name,
+    clientId: ticket.client_id,
     userName: ticket.user_name,
     originalPriority: ticket.original_priority,
   };
