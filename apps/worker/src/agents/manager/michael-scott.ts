@@ -820,10 +820,8 @@ export async function runTriage(
       );
 
       if (pamResult.customer_response) {
-        const customerResponseNote = buildCustomerResponseNote(
-          pamResult.customer_response,
-        );
-        await halo.addInternalNote(ticket.halo_id, customerResponseNote);
+        // Customer response is shown in the TriageIT embed tab — no need to
+        // clutter the Halo ticket with a separate note.
 
         // If there are documentation gaps, post a separate note
         if (pamResult.missing_info.length > 0) {
@@ -848,15 +846,8 @@ export async function runTriage(
       );
     } catch (error) {
       console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
-      // Fallback to Michael's response if Pam fails
-      if (michaelResult.customer_response) {
-        try {
-          const fallbackNote = buildCustomerResponseNote(michaelResult.customer_response);
-          await halo.addInternalNote(ticket.halo_id, fallbackNote);
-        } catch (fallbackError) {
-          console.error(`[MICHAEL] Fallback response also failed:`, fallbackError);
-        }
-      }
+      // Customer response (if any) is still saved to triage_results and
+      // displayed in the TriageIT embed tab — just not posted as a Halo note.
     }
 
     // ── Auto-tag: Write classification to Halo custom field ──────────
@@ -1358,13 +1349,5 @@ function buildCompactRetrieageNote(
   return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
 }
 
-// ── Customer Response Recommendation ──────────────────────────────────
-// Posted as a SECOND private comment with a suggested customer-facing response.
-
-function buildCustomerResponseNote(customerResponse: string): string {
-  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
-    `<tr><td style="padding:10px 12px;background:linear-gradient(135deg,#0891b2,#06b6d4);color:white;font-size:14px;font-weight:700;">💬 Suggested Customer Response — TriageIt</td></tr>` +
-    `<tr style="background:#0c1a26;"><td style="padding:12px 16px;font-size:14px;color:#e2e8f0;line-height:1.6;word-break:break-word;white-space:pre-wrap;">${customerResponse}</td></tr>` +
-    `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · Copy and customize before sending to customer</td></tr>` +
-    `</table>`;
-}
+// Customer response is now only displayed in the TriageIT embed tab
+// (no longer posted as a separate Halo note to reduce clutter).
