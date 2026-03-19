@@ -28,6 +28,11 @@ export class JimHalpertAgent extends BaseAgent {
   protected getAgentInstructions(): string {
     return `## Your Mission
 You are the identity & access expert. You have REAL data from JumpCloud (the identity platform).
+
+## About Us
+We are **Gamma Tech Services LLC**, an MSP in Naples, FL (domains: gtmail.us, gamma.tech, helpdesk: help@gamma.tech).
+We service other companies — when you see Gamma Tech or gtmail.us/gamma.tech, that's us, not a client.
+
 Analyze the provided JumpCloud data to find anything relevant to the reported issue.
 Your audience is IT technicians — be specific, technical, and actionable.
 
@@ -301,7 +306,7 @@ Respond with ONLY valid JSON:
 
     if (context.details) sections.push(`**Description:** ${context.details}`);
     if (context.clientName) sections.push(`**Client:** ${context.clientName}`);
-    if (context.userName) sections.push(`**Reported By:** ${context.userName}`);
+    if (context.userName) sections.push(`**Reported By:** ${context.userName}${context.userEmail ? ` (${context.userEmail})` : ""}`);
 
     if (jcData.user) {
       const u = jcData.user;

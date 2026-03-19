@@ -21,6 +21,7 @@ import {
 interface HuduData {
   readonly companyId: number | null;
   readonly companyName: string | null;
+  readonly huduBaseUrl: string | null;
   readonly articles: ReadonlyArray<HuduArticle>;
   readonly assets: ReadonlyArray<HuduAsset>;
   readonly passwords: ReadonlyArray<HuduPassword>;
@@ -31,6 +32,11 @@ export class DwightSchruteAgent extends BaseAgent {
   protected getAgentInstructions(): string {
     return `## Your Mission
 You are the documentation expert. You have REAL data from Hudu (the IT documentation platform).
+
+## About Us
+We are **Gamma Tech Services LLC**, an MSP in Naples, FL (domains: gtmail.us, gamma.tech, helpdesk: help@gamma.tech).
+We service other companies — when you see Gamma Tech or gtmail.us/gamma.tech, that's us, not a client.
+
 Analyze the provided Hudu data to find anything relevant to the reported issue.
 Your audience is IT technicians — be specific, technical, and actionable.
 
@@ -123,13 +129,15 @@ Respond with ONLY valid JSON:
     const adminLinks = buildAdminPortalLinks(context.summary, context.details);
     const llmLinks = (result.hudu_links as Array<{ label: string; url: string }>) ?? [];
 
-    // Merge: programmatic links first, admin portals, then any unique LLM-generated ones
+    // Merge: programmatic links first (Hudu customer + top articles/assets),
+    // then admin portal (max 1), then any unique LLM-generated ones.
+    // Cap at 6 total to keep the Quick Links section clean and scannable.
     const existingUrls = new Set(programmaticLinks.map(l => l.url));
     const mergedLinks = [
       ...programmaticLinks,
       ...adminLinks.filter(l => !existingUrls.has(l.url)),
       ...llmLinks.filter(l => l.url && !existingUrls.has(l.url) && !adminLinks.some(al => al.url === l.url)),
-    ];
+    ].slice(0, 6);
 
     // Also ensure relevant_passwords from raw data are included
     const programmaticPasswords = buildHuduPasswords(huduData);
@@ -138,7 +146,7 @@ Respond with ONLY valid JSON:
     const mergedPasswords = [
       ...programmaticPasswords,
       ...llmPasswords.filter(p => p.name && !existingPwNames.has(p.name)),
-    ];
+    ].slice(0, 3);
 
     return {
       summary: (result.documentation_notes as string) ?? "No documentation found",
@@ -157,6 +165,7 @@ Respond with ONLY valid JSON:
     const emptyResult: HuduData = {
       companyId: null,
       companyName: null,
+      huduBaseUrl: null,
       articles: [],
       assets: [],
       passwords: [],
@@ -186,6 +195,7 @@ Respond with ONLY valid JSON:
     return {
       companyId,
       companyName: context.clientName,
+      huduBaseUrl: huduConfig.base_url,
       articles,
       assets,
       passwords,
@@ -422,23 +432,31 @@ Respond with ONLY valid JSON:
 function buildHuduLinks(huduData: HuduData): ReadonlyArray<{ readonly label: string; readonly url: string }> {
   const links: Array<{ readonly label: string; readonly url: string }> = [];
 
-  for (const article of huduData.articles) {
+  // Always include the customer page in Hudu first
+  if (huduData.huduBaseUrl && huduData.companyId) {
+    const baseUrl = huduData.huduBaseUrl.replace(/\/+$/, "");
+    links.push({
+      label: `${huduData.companyName ?? "Customer"} in Hudu`,
+      url: `${baseUrl}/a/${huduData.companyId}`,
+    });
+  }
+
+  // Only include the most relevant KB articles (max 2)
+  for (const article of huduData.articles.slice(0, 2)) {
     if (article.url) {
       links.push({ label: `KB: ${article.name}`, url: article.url });
     }
   }
 
-  for (const asset of huduData.assets) {
+  // Only include the most relevant assets (max 2)
+  for (const asset of huduData.assets.slice(0, 2)) {
     if (asset.url) {
       links.push({ label: `Asset: ${asset.name}`, url: asset.url });
     }
   }
 
-  for (const pw of huduData.passwords) {
-    if (pw.url) {
-      links.push({ label: `Credential: ${pw.name}`, url: pw.url });
-    }
-  }
+  // Skip credential links entirely — credential names are shown separately,
+  // and linking to each one individually clutters the note
 
   return links;
 }
@@ -452,69 +470,53 @@ function buildHuduPasswords(huduData: HuduData): ReadonlyArray<{ readonly name: 
 }
 
 /**
- * Generate relevant admin portal quick links based on ticket content.
- * These are universal tools techs use — always include the relevant ones.
+ * Generate the single most relevant admin portal link based on ticket content.
+ * Keep this minimal — techs know their portals, just link the primary one.
  */
 function buildAdminPortalLinks(
   summary: string,
   details: string | null,
 ): ReadonlyArray<{ readonly label: string; readonly url: string }> {
   const text = `${summary} ${details ?? ""}`.toLowerCase();
-  const links: Array<{ readonly label: string; readonly url: string }> = [];
 
-  // Microsoft 365 / Email / Identity
-  if (
-    text.includes("email") || text.includes("mail") || text.includes("outlook") ||
-    text.includes("exchange") || text.includes("365") || text.includes("office") ||
-    text.includes("teams") || text.includes("sharepoint") || text.includes("onedrive") ||
-    text.includes("mfa") || text.includes("password") || text.includes("account") ||
-    text.includes("user") || text.includes("license") || text.includes("entra") ||
-    text.includes("azure ad") || text.includes("active directory") ||
-    text.includes("ndr") || text.includes("bounce") || text.includes("delivery")
-  ) {
-    links.push({ label: "M365 Admin", url: "https://admin.microsoft.com" });
-    links.push({ label: "Entra ID", url: "https://entra.microsoft.com" });
-    links.push({ label: "Exchange Admin", url: "https://admin.exchange.microsoft.com" });
-  }
-
-  // DNS / Email delivery
-  if (
-    text.includes("dns") || text.includes("domain") || text.includes("mx") ||
-    text.includes("spf") || text.includes("dkim") || text.includes("dmarc") ||
-    text.includes("email") || text.includes("delivery") || text.includes("bounce") ||
-    text.includes("ndr") || text.includes("relay") || text.includes("mimecast") ||
-    text.includes("spam") || text.includes("blacklist")
-  ) {
-    links.push({ label: "MX Toolbox", url: "https://mxtoolbox.com/SuperTool.aspx" });
-  }
-
-  // Azure / Cloud
-  if (
-    text.includes("azure") || text.includes("vm") || text.includes("cloud") ||
-    text.includes("intune") || text.includes("endpoint") || text.includes("autopilot")
-  ) {
-    links.push({ label: "Azure Portal", url: "https://portal.azure.com" });
-    links.push({ label: "Intune", url: "https://intune.microsoft.com" });
-  }
-
-  // Security
+  // Only return the single most relevant portal — not a laundry list
   if (
     text.includes("security") || text.includes("threat") || text.includes("defender") ||
     text.includes("phish") || text.includes("malware") || text.includes("virus") ||
     text.includes("breach") || text.includes("compromise")
   ) {
-    links.push({ label: "Security Portal", url: "https://security.microsoft.com" });
+    return [{ label: "Security Portal", url: "https://security.microsoft.com" }];
   }
 
-  // Networking
   if (
-    text.includes("vpn") || text.includes("firewall") || text.includes("network") ||
-    text.includes("wifi") || text.includes("switch") || text.includes("router")
+    text.includes("intune") || text.includes("autopilot") || text.includes("endpoint manager")
   ) {
-    links.push({ label: "WhatIsMyIP", url: "https://www.whatismyip.com" });
+    return [{ label: "Intune", url: "https://intune.microsoft.com" }];
   }
 
-  return links;
+  if (
+    text.includes("email") || text.includes("mail") || text.includes("outlook") ||
+    text.includes("exchange") || text.includes("ndr") || text.includes("bounce") ||
+    text.includes("spam") || text.includes("delivery")
+  ) {
+    return [{ label: "Exchange Admin", url: "https://admin.exchange.microsoft.com" }];
+  }
+
+  if (
+    text.includes("365") || text.includes("office") || text.includes("teams") ||
+    text.includes("sharepoint") || text.includes("onedrive") || text.includes("license") ||
+    text.includes("mfa") || text.includes("entra") || text.includes("azure ad")
+  ) {
+    return [{ label: "M365 Admin", url: "https://admin.microsoft.com" }];
+  }
+
+  if (
+    text.includes("azure") || text.includes("vm") || text.includes("cloud")
+  ) {
+    return [{ label: "Azure Portal", url: "https://portal.azure.com" }];
+  }
+
+  return [];
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────

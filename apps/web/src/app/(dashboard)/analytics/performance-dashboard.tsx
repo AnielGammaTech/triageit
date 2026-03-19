@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import type { TechMetrics, TeamOverview } from "./page";
 
@@ -27,14 +28,25 @@ function StatCard({
   value,
   subtitle,
   accent = "white",
+  href,
 }: {
   readonly label: string;
   readonly value: string | number;
   readonly subtitle?: string;
   readonly accent?: string;
+  readonly href?: string;
 }) {
+  const router = useRouter();
+  const clickable = !!href && Number(value) > 0;
+
   return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-5 backdrop-blur-sm">
+    <div
+      className={cn(
+        "rounded-xl border border-white/5 bg-white/[0.02] p-5 backdrop-blur-sm",
+        clickable && "cursor-pointer transition-colors hover:border-white/15 hover:bg-white/[0.04]",
+      )}
+      onClick={clickable ? () => router.push(href) : undefined}
+    >
       <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{label}</p>
       <p className={cn("mt-1 text-2xl font-bold", `text-${accent}`)}>{value}</p>
       {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
@@ -49,18 +61,22 @@ function TechRow({
   readonly tech: TechMetrics;
   readonly rank: number;
 }) {
+  const router = useRouter();
   const grade = responseGrade(tech.avgResponseHours);
   const customerGrade = responseGrade(tech.avgCustomerWaitHours);
 
   return (
-    <tr className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
+    <tr
+      className="cursor-pointer border-b border-white/5 transition-colors hover:bg-white/[0.04]"
+      onClick={() => router.push(`/tickets?tab=open&tech=${encodeURIComponent(tech.name)}`)}
+    >
       <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/5 text-xs font-medium text-zinc-400">
             {rank}
           </span>
           <div>
-            <p className="font-medium text-zinc-200">{tech.name}</p>
+            <p className="font-medium text-zinc-200 hover:text-indigo-400 transition-colors">{tech.name}</p>
             <p className="text-xs text-zinc-500">
               {tech.ticketsLastWeek} this week · {tech.ticketsLastMonth} this month
             </p>
@@ -126,6 +142,7 @@ export function PerformanceDashboard({
   readonly techMetrics: ReadonlyArray<TechMetrics>;
   readonly teamOverview: TeamOverview;
 }) {
+  const router = useRouter();
   const [sortField, setSortField] = useState<SortField>("openTickets");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -184,18 +201,21 @@ export function PerformanceDashboard({
           value={teamOverview.totalOpen}
           subtitle={`${teamOverview.unassignedTickets} unassigned`}
           accent="amber-400"
+          href="/tickets?tab=open"
         />
         <StatCard
           label="Needs Review"
           value={teamOverview.totalNeedsReview}
           subtitle="Flagged by re-triage"
           accent="rose-400"
+          href="/tickets?tab=needs_review"
         />
         <StatCard
           label="Stale (3+ days)"
           value={teamOverview.totalStale}
           subtitle="No tech activity"
           accent="orange-400"
+          href="/tickets?tab=open"
         />
         <StatCard
           label="Avg Response"
@@ -211,15 +231,24 @@ export function PerformanceDashboard({
 
       {/* Triage activity */}
       <div className="flex gap-3">
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3">
+        <div
+          className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
+          onClick={() => router.push("/tickets?tab=open")}
+        >
           <span className="text-xs text-zinc-500">Triaged today</span>
           <span className="ml-2 text-lg font-bold text-indigo-400">{teamOverview.ticketsTriagedToday}</span>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3">
+        <div
+          className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
+          onClick={() => router.push("/tickets?tab=open")}
+        >
           <span className="text-xs text-zinc-500">Triaged this week</span>
           <span className="ml-2 text-lg font-bold text-indigo-400">{teamOverview.ticketsTriagedThisWeek}</span>
         </div>
-        <div className="rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3">
+        <div
+          className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
+          onClick={() => router.push("/tickets?tab=resolved")}
+        >
           <span className="text-xs text-zinc-500">Resolved</span>
           <span className="ml-2 text-lg font-bold text-emerald-400">{teamOverview.totalResolved}</span>
         </div>

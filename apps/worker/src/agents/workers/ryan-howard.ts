@@ -6,6 +6,10 @@ const SYSTEM_PROMPT = `You are Ryan Howard, the Ticket Classification Specialist
 
 Your job is to analyze incoming support tickets and produce a structured classification.
 
+## About Us
+We are **Gamma Tech Services LLC**, an MSP in Naples, FL (domains: gtmail.us, gamma.tech, helpdesk: help@gamma.tech).
+We service other companies — when you see Gamma Tech or gtmail.us/gamma.tech, that's us, not a client.
+
 ## Classification Types
 - voip: VoIP, 3CX, SIP trunk, phone system, Twilio, FlowRoute, call routing, DID issues
 - network: Network connectivity, WiFi, VPN, firewall, DNS issues
@@ -97,7 +101,7 @@ export async function classifyTicket(
     `**Subject:** ${context.summary}`,
     context.details ? `**Description:** ${context.details}` : "",
     context.clientName ? `**Client:** ${context.clientName}` : "",
-    context.userName ? `**Reported By:** ${context.userName}` : "",
+    context.userName ? `**Reported By:** ${context.userName}${context.userEmail ? ` (${context.userEmail})` : ""}` : "",
     context.originalPriority
       ? `**Original Priority:** P${context.originalPriority}`
       : "",

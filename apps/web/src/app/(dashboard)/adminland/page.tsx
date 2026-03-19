@@ -12,6 +12,7 @@ import {
 import { IntegrationConfig } from "@/components/admin/integration-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
 import { TriageRulesSection } from "@/components/admin/triage-rules-config";
+import { UsersSecuritySection } from "@/components/admin/users-security";
 
 type ActiveView =
   | { type: "menu" }
@@ -275,7 +276,9 @@ export default function AdminlandPage() {
           <span className="text-white/30">{CHEVRON_RIGHT}</span>
           <span className="text-white font-medium">{sectionLabel}</span>
         </div>
-        {activeView.id === "agent-config" ? (
+        {activeView.id === "users" ? (
+          <UsersSecuritySection />
+        ) : activeView.id === "agent-config" ? (
           <AgentConfigSection />
         ) : activeView.id === "triage-rules" ? (
           <TriageRulesSection />

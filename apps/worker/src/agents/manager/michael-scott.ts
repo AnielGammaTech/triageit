@@ -27,6 +27,13 @@ import type { DuplicateCandidate } from "../duplicate-detector.js";
 
 const SYSTEM_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage.
 
+## About Us
+You work for **Gamma Tech Services LLC**, a managed service provider (MSP) based in Naples, FL.
+- Domains: gtmail.us, gamma.tech
+- Helpdesk email: help@gamma.tech
+- We service other companies (our clients) with a team of IT technicians.
+- When you see "Gamma Tech" or gtmail.us/gamma.tech in tickets, that's US — not a client.
+
 You have received the classification from Ryan Howard AND specialist findings from your team of agents. Your job is to:
 
 1. Review Ryan's classification and all specialist findings
@@ -82,7 +89,11 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_team": "<team name: Network, Security, Endpoint, Cloud, Identity, Email, Application, General>",
   "recommended_agent": "<specific technician if known, null otherwise>",
   "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
-  "internal_notes": "<CONCISE tech notes — MAX 5 bullet points. Each bullet is ONE actionable step the tech should take. Include specific tools/URLs. No fluff, no explanations of what each step does — just tell the tech what to do. Example: 'Check MX records for domain.com via mxtoolbox.com' NOT 'The first step would be to verify the MX records...' >",
+  "internal_notes": ["<step 1 — one short actionable sentence>", "<step 2>", "<step 3>"],
+  // IMPORTANT: internal_notes MUST be a JSON array of strings. MAX 5 items.
+  // Each item is ONE actionable step. Include specific tools/URLs. No fluff.
+  // Example: ["Check MX records for domain.com via mxtoolbox.com", "Verify SPF record in DNS"]
+  // NOT a paragraph, NOT a single long string with multiple steps.
   "customer_response": "<brief initial acknowledgment for the customer, or null if Pam Beesly will handle the detailed response>",
   "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
   "adjustments": "<any adjustments to Ryan's classification, null if none>",
@@ -127,6 +138,7 @@ function buildTriageContext(ticket: Ticket): TriageContext {
     clientName: ticket.client_name,
     clientId: ticket.client_id,
     userName: ticket.user_name,
+    userEmail: ticket.user_email,
     originalPriority: ticket.original_priority,
   };
 }
@@ -263,13 +275,16 @@ export async function runTriage(
         slaFixByDate,
         slaTimerText,
       };
-      await logThinking(
-        supabase,
-        ticket.id,
-        "michael_scott",
-        "manager",
-        `Fetched ${formattedActions.length} action(s)/comment(s) and ${imageContexts.length} image(s) from Halo for ticket #${ticket.halo_id}.${slaBreached ? ` ⚠ SLA BREACHED (fix target met: ${slaFixTargetMet}, response target met: ${slaResponseTargetMet})` : ""} These will be included in the triage context.`,
-      );
+      // Log SLA breach only — routine data fetches don't need agent activity entries
+      if (slaBreached) {
+        await logThinking(
+          supabase,
+          ticket.id,
+          "michael_scott",
+          "manager",
+          `⚠ SLA BREACHED for ticket #${ticket.halo_id} (fix target met: ${slaFixTargetMet}, response target met: ${slaResponseTargetMet}).`,
+        );
+      }
 
       // ── Vision Pre-Processing: Describe images for specialist agents ──
       // Specialists only see text — so we use Haiku vision to describe any
@@ -299,13 +314,7 @@ export async function runTriage(
               details: enrichedDetails,
               imageDescriptions: descriptions,
             };
-            await logThinking(
-              supabase,
-              ticket.id,
-              "michael_scott",
-              "manager",
-              `Described ${imageContexts.length} image(s) for specialist agents: ${descriptions.substring(0, 200)}...`,
-            );
+            console.log(`[MICHAEL] Described ${imageContexts.length} image(s) for ticket #${ticket.halo_id}`);
           } else {
             console.warn(`[MICHAEL] Vision timed out after 15s for #${ticket.halo_id} — proceeding without image descriptions`);
           }
@@ -327,14 +336,6 @@ export async function runTriage(
     status: "started",
     input_summary: `Triaging ticket #${ticket.halo_id}: ${ticket.summary}`,
   });
-
-  await logThinking(
-    supabase,
-    ticket.id,
-    "michael_scott",
-    "manager",
-    `Received ticket #${ticket.halo_id} from ${ticket.client_name ?? "unknown client"}. Starting triage — sending to Ryan Howard for classification first.`,
-  );
 
   // ── Step 2: Ryan classifies ────────────────────────────────────────
 
@@ -380,14 +381,6 @@ export async function runTriage(
     !context.slaBreached
   ) {
     const fastProcessingTime = Date.now() - startTime;
-
-    await logThinking(
-      supabase,
-      ticket.id,
-      "michael_scott",
-      "manager",
-      `Fast path: notification/transactional ticket (${classification.classification.type}/${classification.classification.subtype}, urgency ${classification.urgency_score}). Skipping Sonnet and specialists.`,
-    );
 
     // Write a simple note to Halo
     const fastHaloConfig = await getHaloConfig(supabase);
@@ -447,14 +440,6 @@ export async function runTriage(
 
   if (isAlert && !classification.security_flag && !context.slaBreached) {
     const alertStart = Date.now();
-
-    await logThinking(
-      supabase,
-      ticket.id,
-      "michael_scott",
-      "manager",
-      `Alert detected (${classification.classification.type}/${classification.classification.subtype}). Routing to Erin Hannon for cheap alert summary — skipping specialist agents.`,
-    );
 
     // Search for similar tickets in parallel with alert summary (both cheap)
     const [alertResult, alertSimilarTickets] = await Promise.all([
@@ -602,23 +587,7 @@ export async function runTriage(
     ]);
 
     if (duplicates.length > 0) {
-      await logThinking(
-        supabase,
-        ticket.id,
-        "michael_scott",
-        "manager",
-        `⚠ Potential duplicate(s) detected: ${duplicates.map((d) => `#${d.haloId} (${(d.similarity * 100).toFixed(0)}% match)`).join(", ")}`,
-      );
-    }
-
-    if (similarTickets.length > 0) {
-      await logThinking(
-        supabase,
-        ticket.id,
-        "michael_scott",
-        "manager",
-        `Found ${similarTickets.length} similar past ticket(s): ${similarTickets.map((t) => `#${t.haloId} (${(t.similarity * 100).toFixed(0)}%)`).join(", ")}`,
-      );
+      console.log(`[MICHAEL] Duplicates for #${ticket.halo_id}: ${duplicates.map((d) => `#${d.haloId}`).join(", ")}`);
     }
   } catch (error) {
     console.warn("[MICHAEL] Similar/duplicate detection failed (non-fatal):", error);
@@ -642,7 +611,7 @@ export async function runTriage(
     ticket.id,
     "michael_scott",
     "manager",
-    `Ryan classified as ${classType}/${classification.classification.subtype} (${(classification.classification.confidence * 100).toFixed(0)}% confidence), urgency ${classification.urgency_score}/5. ${classification.security_flag ? "⚠ SECURITY FLAG raised — deploying Angela Martin for security assessment." : ""} Deploying specialist agents: ${allSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}.`,
+    `${classType}/${classification.classification.subtype}, urgency ${classification.urgency_score}/5. ${classification.security_flag ? "⚠ SECURITY FLAG. " : ""}Deploying: ${allSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}.`,
   );
 
   // ── Step 4: Run specialist agents in parallel ──────────────────────
@@ -702,14 +671,6 @@ export async function runTriage(
     (k) => k !== "ryan_howard",
   );
 
-  await logThinking(
-    supabase,
-    ticket.id,
-    "michael_scott",
-    "manager",
-    `${successfulSpecialists.length} specialist agents completed: ${successfulSpecialists.map((n) => AGENT_LABELS[n] ?? n).join(", ")}. Now synthesizing all findings into final triage decision.`,
-  );
-
   // ── Step 5: Michael synthesizes ALL findings ───────────────────────
 
   const client = new Anthropic();
@@ -731,7 +692,7 @@ export async function runTriage(
     `**Subject:** ${context.summary}`,
     context.details ? `**Description:** ${context.details}` : "",
     context.clientName ? `**Client:** ${context.clientName}` : "",
-    context.userName ? `**Reported By:** ${context.userName}` : "",
+    context.userName ? `**Reported By:** ${context.userName}${context.userEmail ? ` (${context.userEmail})` : ""}` : "",
     context.originalPriority
       ? `**Original Priority:** P${context.originalPriority}`
       : "",
@@ -829,14 +790,6 @@ export async function runTriage(
 
   // Smart model routing — use Haiku for simple tickets, Sonnet for complex
   const routingDecision = selectManagerModel(classification, successfulSpecialists.length);
-  await logThinking(
-    supabase,
-    ticket.id,
-    "michael_scott",
-    "manager",
-    `Model routing: ${routingDecision.model.includes("haiku") ? "Haiku (efficient)" : "Sonnet (thorough)"} — ${routingDecision.reason}`,
-  );
-
   const response = await client.messages.create({
     model: routingDecision.model,
     max_tokens: routingDecision.maxTokens,
@@ -846,17 +799,26 @@ export async function runTriage(
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
-  const michaelResult = parseLlmJson<{
+  const rawMichaelResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
     root_cause_hypothesis: string;
-    internal_notes: string;
+    internal_notes: string | string[];
     customer_response: string | null;
     suggested_response: string | null;
     adjustments: string | null;
     escalation_needed: boolean;
     escalation_reason: string | null;
   }>(text);
+
+  // Normalize internal_notes: if LLM returned an array, join for storage but
+  // keep as array for formatTechNotes
+  const michaelResult = {
+    ...rawMichaelResult,
+    internal_notes: Array.isArray(rawMichaelResult.internal_notes)
+      ? rawMichaelResult.internal_notes
+      : rawMichaelResult.internal_notes ?? "",
+  };
 
   const processingTime = Date.now() - startTime;
 
@@ -952,13 +914,7 @@ export async function runTriage(
         }
       }
 
-      await logThinking(
-        supabase,
-        ticket.id,
-        "michael_scott",
-        "manager",
-        `Pam Beesly drafted customer response (tone: ${pamResult.tone}). Docs referenced: ${pamResult.documentation_used.length}. Gaps found: ${pamResult.missing_info.length}.`,
-      );
+      console.log(`[MICHAEL] Pam response for #${ticket.halo_id}: tone=${pamResult.tone}, gaps=${pamResult.missing_info.length}`);
     } catch (error) {
       console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
       // Customer response (if any) is still saved to triage_results and
@@ -1232,7 +1188,9 @@ export async function runTriage(
     security_notes: classification.security_notes,
     findings,
     suggested_response: michaelResult.suggested_response,
-    internal_notes: michaelResult.internal_notes,
+    internal_notes: Array.isArray(michaelResult.internal_notes)
+      ? michaelResult.internal_notes.join("\n")
+      : michaelResult.internal_notes,
     processing_time_ms: processingTime,
     model_tokens_used: {
       manager: response.usage.input_tokens + response.usage.output_tokens,
@@ -1258,26 +1216,35 @@ function stripHtmlActions(html: string): string {
 // ── Halo Note Builder ────────────────────────────────────────────────
 
 function formatTechNotes(notes: unknown): string {
-  // Handle non-string inputs (LLM sometimes returns array or null)
   if (!notes) return "No notes available.";
-  const text = Array.isArray(notes)
-    ? notes.map((n) => (typeof n === "string" ? n : JSON.stringify(n))).join("\n")
-    : typeof notes === "string"
-      ? notes
-      : JSON.stringify(notes);
 
-  // Split on numbered patterns like "1)", "1.", "(1)", or "STEP 1:" etc.
+  // Best case: LLM returned an array of steps (our new prompt format)
+  if (Array.isArray(notes)) {
+    const steps = notes
+      .map((n) => (typeof n === "string" ? n.trim() : JSON.stringify(n)))
+      .filter(Boolean);
+    if (steps.length > 0) {
+      const items = steps.map((s) => `<li style="margin-bottom:6px;">${s}</li>`).join("");
+      return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
+    }
+  }
+
+  const text = typeof notes === "string" ? notes : JSON.stringify(notes);
+
+  // Try splitting on numbered patterns like "1)", "1.", "(1)", or "STEP 1:"
   const numbered = text.split(/(?:^|\s)(?:\d+[\).\-:]|\(\d+\))\s*/g).filter(Boolean);
   if (numbered.length > 1) {
     const items = numbered.map((item) => `<li style="margin-bottom:6px;">${item.trim()}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
-  // Split on sentence-ending patterns (". UPPERCASE" or ". Action:")
+
+  // Try splitting on sentence boundaries
   const sentences = text.split(/(?<=\.)\s+(?=[A-Z])/).filter(Boolean);
   if (sentences.length > 2) {
     const items = sentences.map((s) => `<li style="margin-bottom:6px;">${s.trim()}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
+
   return text;
 }
 
@@ -1294,7 +1261,7 @@ function buildHaloNote(
   michaelResult: {
     recommended_team: string;
     root_cause_hypothesis: string;
-    internal_notes: string;
+    internal_notes: string | string[];
     escalation_needed: boolean;
     escalation_reason: string | null;
   },
@@ -1441,7 +1408,7 @@ function buildCompactRetrieageNote(
   michaelResult: {
     recommended_team: string;
     root_cause_hypothesis: string;
-    internal_notes: string;
+    internal_notes: string | string[];
     escalation_needed: boolean;
     escalation_reason: string | null;
   },

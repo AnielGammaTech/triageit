@@ -411,50 +411,40 @@ async function fetchUnitrendsCustomers(
 
   const tokenData = (await tokenRes.json()) as { access_token: string };
 
-  // Try multiple endpoint paths — Unitrends MSP public API path is not well documented
-  const apiPaths = [
-    "https://public-api.backup.net/organizations",
-    "https://public-api.backup.net/api/organizations",
-    "https://public-api.backup.net/api/v1/organizations",
-    "https://public-api.backup.net/v1/organizations",
-  ];
-
+  // Unitrends MSP public API: GET /v1/customers
+  // Docs: https://apidoc-public-api.backup.net/swagger-ui-v2/index.html
   const headers = {
     Authorization: `Bearer ${tokenData.access_token}`,
     Accept: "application/json",
   };
 
-  for (const apiPath of apiPaths) {
-    const res = await fetch(`${apiPath}?pageSize=500`, { headers });
+  const res = await fetch(
+    "https://public-api.backup.net/v1/customers?pageSize=500",
+    { headers },
+  );
 
-    if (res.status === 404) {
-      continue;
-    }
-
-    if (!res.ok) {
-      throw new Error(`Unitrends API error (${res.status}) at ${apiPath}`);
-    }
-
-    // Parse flexible response shape — could be array or wrapped
-    const raw = (await res.json()) as unknown;
-    const items: ReadonlyArray<Record<string, unknown>> =
-      Array.isArray(raw)
-        ? (raw as ReadonlyArray<Record<string, unknown>>)
-        : ((raw as Record<string, unknown>).items ??
-           (raw as Record<string, unknown>).data ??
-           (raw as Record<string, unknown>).organizations ??
-           []) as ReadonlyArray<Record<string, unknown>>;
-
-    return items.map((o) => ({
-      id: (o.id ?? o.organizationId ?? "") as string | number,
-      name: (o.name ?? o.organizationName ?? "Unknown") as string,
-      is_active: o.isActive !== false,
-    }));
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Unitrends API error (${res.status}): ${text.substring(0, 200)}`,
+    );
   }
 
-  throw new Error(
-    `Unitrends: Auth succeeded but organizations endpoint not found. Tried: ${apiPaths.join(", ")}. The Unitrends MSP public API structure may have changed.`,
-  );
+  // Parse flexible response shape — could be array or wrapped
+  const raw = (await res.json()) as unknown;
+  const items: ReadonlyArray<Record<string, unknown>> =
+    Array.isArray(raw)
+      ? (raw as ReadonlyArray<Record<string, unknown>>)
+      : ((raw as Record<string, unknown>).items ??
+         (raw as Record<string, unknown>).data ??
+         (raw as Record<string, unknown>).customers ??
+         []) as ReadonlyArray<Record<string, unknown>>;
+
+  return items.map((o) => ({
+    id: (o.id ?? o.customerId ?? "") as string | number,
+    name: (o.name ?? o.customerName ?? "Unknown") as string,
+    is_active: o.isActive !== false,
+  }));
 }
 
 async function fetchCoveCustomers(

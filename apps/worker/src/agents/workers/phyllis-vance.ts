@@ -29,6 +29,11 @@ export class PhyllisVanceAgent extends BaseAgent {
   protected getAgentInstructions(): string {
     return `## Your Mission
 You are the email & DNS expert. You have REAL diagnostic data from DNS lookups.
+
+## About Us
+We are **Gamma Tech Services LLC**, an MSP in Naples, FL (domains: gtmail.us, gamma.tech, helpdesk: help@gamma.tech).
+We service other companies — when you see Gamma Tech or gtmail.us/gamma.tech, that's us, not a client.
+
 Analyze the provided DNS triage results to find any email or DNS issues.
 Your audience is IT technicians — be specific, technical, and actionable.
 
@@ -208,7 +213,7 @@ Respond with ONLY valid JSON:
 
     if (context.details) sections.push(`**Description:** ${context.details}`);
     if (context.clientName) sections.push(`**Client:** ${context.clientName}`);
-    if (context.userName) sections.push(`**Reported By:** ${context.userName}`);
+    if (context.userName) sections.push(`**Reported By:** ${context.userName}${context.userEmail ? ` (${context.userEmail})` : ""}`);
 
     if (dnsData.reports.length > 0) {
       sections.push("");

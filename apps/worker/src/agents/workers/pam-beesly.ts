@@ -93,7 +93,7 @@ export async function generateCustomerResponse(
   michaelSynthesis: {
     readonly root_cause_hypothesis: string;
     readonly recommended_team: string;
-    readonly internal_notes: string;
+    readonly internal_notes: string | string[];
     readonly escalation_needed: boolean;
   },
   similarTickets?: ReadonlyArray<SimilarTicket>,
@@ -141,7 +141,7 @@ function buildUserMessage(
   michaelSynthesis: {
     readonly root_cause_hypothesis: string;
     readonly recommended_team: string;
-    readonly internal_notes: string;
+    readonly internal_notes: string | string[];
     readonly escalation_needed: boolean;
   },
   similarTickets?: ReadonlyArray<SimilarTicket>,

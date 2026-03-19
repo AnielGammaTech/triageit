@@ -49,7 +49,9 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved">("open");
+  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "resolved") ?? "open";
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved">(initialTab);
+  const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
@@ -198,32 +200,37 @@ export default function TicketsPage() {
     return alertKeywords.some((kw) => summary.includes(kw));
   };
 
+  // Apply tech filter from query params (e.g. from Analytics page)
+  const filteredTickets = techFilter
+    ? tickets.filter((t) => t.halo_agent === techFilter)
+    : tickets;
+
   // Incoming: tickets that just arrived and haven't been triaged yet
-  const incomingTickets = tickets.filter(
+  const incomingTickets = filteredTickets.filter(
     (t) => t.status === "pending" || t.status === "triaging",
   );
 
   // Alerts: automated alert tickets (non-resolved)
-  const alertTickets = tickets.filter((t) => {
+  const alertTickets = filteredTickets.filter((t) => {
     if (isResolved(t)) return false;
     if (t.status === "pending" || t.status === "triaging") return false;
     return isAlert(t);
   });
 
   // Open: non-resolved, non-alert, non-needs_review tickets
-  const openTickets = tickets.filter((t) => {
+  const openTickets = filteredTickets.filter((t) => {
     if (isResolved(t)) return false;
     if (t.status === "pending" || t.status === "triaging" || t.status === "needs_review") return false;
     return !isAlert(t);
   });
 
   // Needs Review: re-triaged tickets flagged for manager attention
-  const needsReviewTickets = tickets.filter(
+  const needsReviewTickets = filteredTickets.filter(
     (t) => t.status === "needs_review" && !isResolved(t),
   );
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
-  const resolvedTickets = tickets.filter((t) => isResolved(t));
+  const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
@@ -248,6 +255,21 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Tech filter banner */}
+      {techFilter && (
+        <div className="flex items-center justify-between rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-4 py-2">
+          <span className="text-sm text-indigo-300">
+            Filtering by technician: <strong>{techFilter}</strong>
+          </span>
+          <button
+            onClick={() => router.push("/tickets")}
+            className="text-xs text-indigo-400 hover:text-indigo-300 underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+
       {/* Header row: title + actions */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Tickets</h2>
