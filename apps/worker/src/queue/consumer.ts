@@ -11,6 +11,7 @@ export function startTriageWorker(): Worker<TriageJobData> {
   const worker = new Worker<TriageJobData>(
     QUEUE_NAME,
     async (job: Job<TriageJobData>) => {
+      console.log(`[TRIAGE] Processing job ${job.id}: ticket #${job.data.haloId} (${job.data.ticketId})`);
       const supabase = createSupabaseClient();
 
       await supabase
@@ -70,6 +71,18 @@ export function startTriageWorker(): Worker<TriageJobData> {
       `[TRIAGE] Failed: ${job?.id} (ticket: ${job?.data.haloId}):`,
       error.message,
     );
+  });
+
+  worker.on("error", (error) => {
+    console.error("[TRIAGE] Worker error:", error.message);
+  });
+
+  worker.on("ready", () => {
+    console.log("[TRIAGE] Worker connected to Redis and ready");
+  });
+
+  worker.on("stalled", (jobId) => {
+    console.warn(`[TRIAGE] Job stalled: ${jobId}`);
   });
 
   return worker;
