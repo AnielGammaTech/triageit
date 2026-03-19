@@ -163,6 +163,14 @@ function quickRuleCheck(
     severity = "critical";
   }
 
+  // SLA breach — response or fix target not met
+  const responseBreached = (ticket as unknown as { responsetargetmet?: boolean }).responsetargetmet === false;
+  const fixBreached = (ticket as unknown as { fixtargetmet?: boolean }).fixtargetmet === false;
+  if (responseBreached || fixBreached) {
+    flags.push("sla_breached");
+    severity = "critical";
+  }
+
   if (flags.length === 0) return null;
 
   const recommendations: string[] = [];
@@ -180,6 +188,8 @@ function quickRuleCheck(
     recommendations.push(`Open ${daysOpen} days with minimal tech activity (${techNotes.length} notes) — needs attention.`);
   if (flags.includes("high_priority_aging"))
     recommendations.push(`P${ticket.priority_id} ticket open ${daysOpen} days — high priority aging, escalate if blocked.`);
+  if (flags.includes("sla_breached"))
+    recommendations.push("SLA BREACHED — customer was promised a response/resolution time that has passed. Immediate action required.");
 
   return {
     haloId: ticket.id,

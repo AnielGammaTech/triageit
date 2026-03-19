@@ -26,6 +26,9 @@ interface HaloTicket {
   readonly responsetargetmet?: boolean;
   readonly fixtargetmet?: boolean;
   readonly sla_status?: string;
+  readonly sla_timer_text?: string;
+  readonly fixbydate?: string;
+  readonly respondbydate?: string;
   readonly [key: string]: unknown;
 }
 
@@ -113,7 +116,7 @@ export async function POST() {
 
     while (true) {
       const ticketsResponse = await fetch(
-        `${config.base_url}/api/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true`,
+        `${config.base_url}/api/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -320,6 +323,65 @@ export async function POST() {
       }
     }
 
+    // ── Auto-triage SLA-breaching tickets ────────────────────────────
+    // Tickets with breached response or fix SLA need immediate attention.
+    // Trigger triage for any that haven't been triaged recently.
+    let slaTriaged = 0;
+    const slaBreachers = allTickets.filter((t) => {
+      const responseBreached = t.responsetargetmet === false;
+      const fixBreached = t.fixtargetmet === false;
+      return responseBreached || fixBreached;
+    });
+
+    if (slaBreachers.length > 0) {
+      const workerUrl = process.env.WORKER_URL ?? process.env.NEXT_PUBLIC_WORKER_URL;
+
+      // Find which SLA breachers already have a recent triage (last 3h)
+      const breacherHaloIds = slaBreachers.map((t) => t.id);
+      const { data: recentlyTriaged } = await serviceClient
+        .from("tickets")
+        .select("halo_id, status, updated_at")
+        .in("halo_id", breacherHaloIds);
+
+      const recentlyTriagedMap = new Map(
+        (recentlyTriaged ?? []).map((t) => [t.halo_id, t]),
+      );
+
+      const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1000;
+
+      for (const breacher of slaBreachers) {
+        const local = recentlyTriagedMap.get(breacher.id);
+        const wasRecentlyUpdated = local?.updated_at
+          ? new Date(local.updated_at).getTime() > threeHoursAgo
+          : false;
+        const isAlreadyTriaging = local?.status === "triaging" || local?.status === "pending";
+
+        // Skip if recently triaged or currently triaging
+        if (wasRecentlyUpdated || isAlreadyTriaging) continue;
+
+        // Trigger triage via worker
+        if (workerUrl) {
+          try {
+            await fetch(`${workerUrl}/triage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ halo_id: breacher.id }),
+            });
+            slaTriaged++;
+            console.log(
+              `[HALO SYNC] SLA breach — auto-triaging #${breacher.id}: response=${breacher.responsetargetmet}, fix=${breacher.fixtargetmet}`,
+            );
+          } catch (err) {
+            console.error(`[HALO SYNC] Failed to auto-triage SLA breacher #${breacher.id}:`, err);
+          }
+        }
+      }
+
+      if (slaTriaged > 0) {
+        console.log(`[HALO SYNC] Auto-triaged ${slaTriaged} SLA-breaching tickets`);
+      }
+    }
+
     return NextResponse.json({
       pulled: allTickets.length,
       halo_total: totalRecordCount || allTickets.length,
@@ -327,6 +389,8 @@ export async function POST() {
       created,
       updated,
       closed: closedCount,
+      sla_breaching: slaBreachers.length,
+      sla_auto_triaged: slaTriaged,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {

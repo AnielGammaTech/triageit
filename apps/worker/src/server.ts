@@ -20,24 +20,27 @@ server.get("/health", async () => {
 });
 
 // Manual triage trigger (for testing or re-processing)
-server.post<{ Body: { ticket_id: string } }>(
+// Accepts either { ticket_id } (local UUID) or { halo_id } (Halo ticket number)
+server.post<{ Body: { ticket_id?: string; halo_id?: number } }>(
   "/triage",
   async (request, reply) => {
-    const { ticket_id } = request.body;
+    const { ticket_id, halo_id } = request.body;
 
-    if (!ticket_id) {
-      return reply.status(400).send({ error: "ticket_id is required" });
+    if (!ticket_id && !halo_id) {
+      return reply.status(400).send({ error: "ticket_id or halo_id is required" });
     }
 
     const supabase = createSupabaseClient();
-    const { data: ticket } = await supabase
-      .from("tickets")
-      .select("id, halo_id, summary")
-      .eq("id", ticket_id)
-      .single();
+
+    // Look up ticket by local ID or Halo ID
+    const query = ticket_id
+      ? supabase.from("tickets").select("id, halo_id, summary").eq("id", ticket_id).single()
+      : supabase.from("tickets").select("id, halo_id, summary").eq("halo_id", halo_id!).single();
+
+    const { data: ticket } = await query;
 
     if (!ticket) {
-      return reply.status(404).send({ error: "Ticket not found" });
+      return reply.status(404).send({ error: `Ticket not found: ${ticket_id ?? `halo #${halo_id}`}` });
     }
 
     const jobId = await enqueueTriageJob({

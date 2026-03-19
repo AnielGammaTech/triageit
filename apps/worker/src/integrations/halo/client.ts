@@ -98,7 +98,7 @@ export class HaloClient {
     while (true) {
       const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
         "GET",
-        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true`,
+        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includeslainfo=true`,
       );
       const tickets = result.tickets ?? [];
       allTickets.push(...tickets);
