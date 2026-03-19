@@ -172,6 +172,81 @@ export async function runTriage(
     duration_ms: ryanDuration,
   });
 
+  // ── Fast path: Skip Sonnet for obvious notifications ────────────────
+
+  const notificationKeywords = [
+    "notification", "transactional", "confirmation", "receipt", "alert",
+    "auto-replenish", "renewal", "invoice", "statement", "reminder",
+    "processed", "completion", "delivered", "shipped",
+  ];
+  const subtype = classification.classification.subtype?.toLowerCase() ?? "";
+  const classTypeLower = classification.classification.type?.toLowerCase() ?? "";
+  const isNotification =
+    notificationKeywords.some((kw) => subtype.includes(kw)) ||
+    (classTypeLower === "billing" && classification.urgency_score <= 2) ||
+    (classTypeLower === "other" && subtype.includes("email") && classification.urgency_score <= 2);
+
+  if (
+    isNotification &&
+    classification.urgency_score <= 2 &&
+    !classification.security_flag
+  ) {
+    const fastProcessingTime = Date.now() - startTime;
+
+    await logThinking(
+      supabase,
+      ticket.id,
+      "michael_scott",
+      "manager",
+      `Fast path: notification/transactional ticket (${classification.classification.type}/${classification.classification.subtype}, urgency ${classification.urgency_score}). Skipping Sonnet and specialists.`,
+    );
+
+    // Write a simple note to Halo
+    const fastHaloConfig = await getHaloConfig(supabase);
+    if (fastHaloConfig) {
+      const halo = new HaloClient(fastHaloConfig);
+      try {
+        const fastNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+          `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">fast path · ${(fastProcessingTime / 1000).toFixed(1)}s</span></td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Classification</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${classification.classification.type} / ${classification.classification.subtype}</strong></td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Result</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bbf7d0;">Notification / transactional — no action required. P${classification.recommended_priority} priority.</td></tr>` +
+          `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · fast path · ${(fastProcessingTime / 1000).toFixed(1)}s</td></tr>` +
+          `</table>`;
+        await halo.addInternalNote(ticket.halo_id, fastNote);
+      } catch (error) {
+        console.error(`[MICHAEL] Fast path: Failed to write Halo note for #${ticket.halo_id}:`, error);
+      }
+    }
+
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "michael_scott",
+      agent_role: "manager",
+      status: "completed",
+      output_summary: `Fast path: ${classification.classification.type}/${classification.classification.subtype}, P${classification.recommended_priority}`,
+      duration_ms: fastProcessingTime,
+    });
+
+    const triageId = crypto.randomUUID();
+    return {
+      id: triageId,
+      ticket_id: ticket.id,
+      classification: classification.classification,
+      urgency_score: classification.urgency_score,
+      urgency_reasoning: classification.urgency_reasoning,
+      recommended_priority: classification.recommended_priority,
+      recommended_team: "General",
+      recommended_agent: null,
+      security_flag: false,
+      security_notes: null,
+      findings: { ryan_howard: { agent_name: "ryan_howard", summary: `Notification: ${classification.classification.subtype}`, data: classification as unknown as Record<string, unknown>, confidence: classification.classification.confidence } },
+      suggested_response: null,
+      internal_notes: "Notification/transactional ticket — no action required.",
+      processing_time_ms: fastProcessingTime,
+      model_tokens_used: { manager: 0, workers: {} },
+    };
+  }
+
   // ── Step 3: Michael analyzes classification & picks specialists ────
 
   const classType = classification.classification.type;
@@ -413,6 +488,22 @@ function stripHtmlActions(html: string): string {
 
 // ── Halo Note Builder ────────────────────────────────────────────────
 
+function formatTechNotes(notes: string): string {
+  // Split on numbered patterns like "1)", "1.", "(1)", or "STEP 1:" etc.
+  const numbered = notes.split(/(?:^|\s)(?:\d+[\).\-:]|\(\d+\))\s*/g).filter(Boolean);
+  if (numbered.length > 1) {
+    const items = numbered.map((item) => `<li style="margin-bottom:6px;">${item.trim()}</li>`).join("");
+    return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
+  }
+  // Split on sentence-ending patterns (". UPPERCASE" or ". Action:")
+  const sentences = notes.split(/(?<=\.)\s+(?=[A-Z])/).filter(Boolean);
+  if (sentences.length > 2) {
+    const items = sentences.map((s) => `<li style="margin-bottom:6px;">${s.trim()}</li>`).join("");
+    return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
+  }
+  return notes;
+}
+
 function buildHaloNote(
   classification: {
     classification: { type: string; subtype: string; confidence: number };
@@ -434,54 +525,59 @@ function buildHaloNote(
   processingTime: number,
 ): string {
   const agentCount = Object.keys(findings).length;
-  const td1 = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#64748b;"';
-  const td2 = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;"';
+  // Dark theme base styles
+  const border = "border-bottom:1px solid #3a3f4b;";
+  const td1 = `style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;white-space:nowrap;color:#94a3b8;"`;
+  const td2 = `style="padding:8px 12px;${border}font-size:14px;color:#e2e8f0;line-height:1.5;word-break:break-word;"`;
 
   const rows: string[] = [];
 
-  // Header
-  rows.push(`<tr style="background:#1e293b;"><td colspan="2" style="padding:6px 8px;color:white;font-size:11px;font-weight:600;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:9px;opacity:0.7;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+  // Header — gradient
+  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
 
   // Classification
-  rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Classification</td><td ${td2}>${classification.classification.type} / ${classification.classification.subtype} <span style="color:#94a3b8;font-size:9px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
+  rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
-  // Urgency — score on its own, reasoning on next line
-  rows.push(`<tr><td ${td1}>Urgency</td><td ${td2}><strong>${classification.urgency_score}/5</strong></td></tr>`);
+  // Urgency
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#f59e0b;">Urgency</td><td ${td2}><strong style="color:#f59e0b;">${classification.urgency_score}/5</strong></td></tr>`);
   if (classification.urgency_reasoning) {
-    rows.push(`<tr style="background:#f8fafc;"><td ${td1} style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#94a3b8;width:110px;vertical-align:top;"></td><td style="padding:2px 8px 4px;border-bottom:1px solid #e5e7eb;font-size:9px;color:#64748b;line-height:1.3;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
+    rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:130px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
   }
 
   // Priority + Team
-  rows.push(`<tr><td ${td1}>Priority</td><td ${td2}><strong>P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#22d3ee;">Priority</td><td ${td2}><strong style="color:#22d3ee;">P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
 
   // Entities
   if (classification.entities.length > 0) {
-    rows.push(`<tr style="background:#f8fafc;"><td ${td1}>Entities</td><td ${td2}>${classification.entities.join(", ")}</td></tr>`);
+    rows.push(`<tr style="background:#252830;"><td ${td1}>Entities</td><td ${td2}>${classification.entities.join(", ")}</td></tr>`);
   }
 
   // Security
   if (classification.security_flag) {
-    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#dc2626;">⚠ Security</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#dc2626;line-height:1.4;word-break:break-word;">${classification.security_notes}</td></tr>`);
+    rows.push(`<tr style="background:#3b1018;"><td style="padding:8px 12px;font-weight:700;width:130px;${border}font-size:13px;vertical-align:top;color:#f87171;">⚠ Security</td><td style="padding:8px 12px;${border}font-size:14px;color:#fca5a5;line-height:1.5;word-break:break-word;">${classification.security_notes}</td></tr>`);
   }
 
   // Escalation
   if (michaelResult.escalation_needed) {
-    rows.push(`<tr><td style="padding:4px 8px;font-weight:700;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#d97706;">⬆ Escalation</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#d97706;line-height:1.4;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
   }
 
-  // Root Cause — highlighted section
-  rows.push(`<tr style="background:#fefce8;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#854d0e;">🔍 Root Cause</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#713f12;line-height:1.4;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
+  // Root Cause — amber tinted dark background
+  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
 
-  // Tech Notes — highlighted section
-  rows.push(`<tr style="background:#eff6ff;"><td style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;color:#1d4ed8;">📋 Tech Notes</td><td style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.4;word-break:break-word;">${michaelResult.internal_notes}</td></tr>`);
+  // Tech Notes — blue tinted dark background, parsed into numbered list
+  const formattedNotes = formatTechNotes(michaelResult.internal_notes);
+  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
   // Specialist findings
   const specialists = Object.entries(findings).filter(([name]) => name !== "ryan_howard");
   if (specialists.length > 0) {
-    rows.push(`<tr style="background:#f1f5f9;"><td colspan="2" style="padding:4px 8px;font-size:9px;font-weight:600;color:#64748b;border-bottom:1px solid #e5e7eb;text-transform:uppercase;letter-spacing:0.5px;">Specialist Findings</td></tr>`);
-    for (const [name, finding] of specialists) {
+    rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:8px 12px;font-size:12px;font-weight:600;color:#94a3b8;${border}text-transform:uppercase;letter-spacing:0.5px;">Specialist Findings</td></tr>`);
+    for (let i = 0; i < specialists.length; i++) {
+      const [name, finding] = specialists[i];
       const label = AGENT_LABELS[name] ?? name;
-      rows.push(`<tr><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;font-weight:600;color:#64748b;width:110px;vertical-align:top;">${label}</td><td style="padding:3px 8px;border-bottom:1px solid #f1f5f9;font-size:9px;color:#475569;line-height:1.3;word-break:break-word;">${finding.summary}</td></tr>`);
+      const bg = i % 2 === 0 ? "#252830" : "#1E2028";
+      rows.push(`<tr style="background:${bg};"><td style="padding:6px 12px;${border}font-size:12px;font-weight:600;color:#818cf8;width:130px;vertical-align:top;">${label}</td><td style="padding:6px 12px;${border}font-size:13px;color:#cbd5e1;line-height:1.4;word-break:break-word;">${finding.summary}</td></tr>`);
     }
   }
 
@@ -491,23 +587,21 @@ function buildHaloNote(
   const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
 
   if (huduLinks.length > 0 || relevantPasswords.length > 0) {
-    const td1ql = 'style="padding:4px 8px;font-weight:600;width:110px;border-bottom:1px solid #e5e7eb;font-size:10px;vertical-align:top;white-space:nowrap;color:#15803d;"';
-    const td2ql = 'style="padding:4px 8px;border-bottom:1px solid #e5e7eb;font-size:10px;color:#1e293b;line-height:1.6;word-break:break-word;"';
     const linkItems = huduLinks
-      .map((l) => `<a href="${l.url}" style="color:#2563eb;text-decoration:none;">${l.label}</a>`)
+      .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;">${l.label}</a>`)
       .join(" · ");
     const pwItems = relevantPasswords.map((p) => p.name).join(", ");
     const content = [
       linkItems,
-      pwItems ? `<br/><span style="color:#64748b;font-size:9px;">Credentials: ${pwItems}</span>` : "",
+      pwItems ? `<br/><span style="color:#94a3b8;font-size:11px;">Credentials: ${pwItems}</span>` : "",
     ]
       .filter(Boolean)
       .join("");
-    rows.push(`<tr style="background:#f0fdf4;"><td ${td1ql}>📎 Quick Links</td><td ${td2ql}>${content}</td></tr>`);
+    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
 
   // Footer
-  rows.push(`<tr><td colspan="2" style="padding:3px 8px;color:#94a3b8;font-size:8px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
+  rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
 
-  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:620px;border-collapse:collapse;font-size:10px;color:#334155;margin:0;padding:0;border:1px solid #e5e7eb;">${rows.join("")}</table>`;
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:13px;color:#e2e8f0;margin:0;padding:0;border:1px solid #3a3f4b;background:#1E2028;border-radius:8px;overflow:hidden;">${rows.join("")}</table>`;
 }

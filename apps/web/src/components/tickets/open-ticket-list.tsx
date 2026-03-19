@@ -7,13 +7,13 @@ interface TicketRow {
   readonly halo_id: number;
   readonly summary: string;
   readonly client_name: string | null;
-  readonly halo_status: string | null;
-  readonly halo_team: string | null;
-  readonly halo_agent: string | null;
-  readonly original_priority: number | null;
-  readonly last_retriage_at: string | null;
-  readonly last_customer_reply_at: string | null;
-  readonly last_tech_action_at: string | null;
+  readonly halo_status?: string | null;
+  readonly halo_team?: string | null;
+  readonly halo_agent?: string | null;
+  readonly original_priority?: number | null;
+  readonly last_retriage_at?: string | null;
+  readonly last_customer_reply_at?: string | null;
+  readonly last_tech_action_at?: string | null;
   readonly created_at: string;
   readonly triage_results: ReadonlyArray<{
     readonly urgency_score: number;
