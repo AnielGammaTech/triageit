@@ -142,6 +142,26 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
       "Queries Spanning Backup for Office 365 to check tenant backup status, user protection, error codes, and recovery points. Correlates ticket details with real backup data.",
   },
   {
+    name: "darryl_philbin",
+    character: "Darryl Philbin",
+    role: "m365",
+    specialty: "Microsoft 365 & CIPP",
+    integration: "cipp",
+    model: "haiku",
+    description:
+      "Queries CIPP for Microsoft 365 tenant data: user mailbox status, MFA enrollment, license assignments, device compliance, and security defaults.",
+  },
+  {
+    name: "creed_bratton",
+    character: "Creed Bratton",
+    role: "network_infra",
+    specialty: "UniFi Network Infrastructure",
+    integration: "unifi",
+    model: "haiku",
+    description:
+      "Queries UniFi Network Controller for site health, AP status, client connectivity, switch ports, and network topology.",
+  },
+  {
     name: "erin_hannon",
     character: "Erin Hannon",
     role: "alert_specialist",
@@ -167,4 +187,6 @@ export const PHASE_3_AGENTS = [
   "kevin_malone",
   "meredith_palmer",
   "kelly_kapoor",
+  "darryl_philbin",
+  "creed_bratton",
 ] as const;

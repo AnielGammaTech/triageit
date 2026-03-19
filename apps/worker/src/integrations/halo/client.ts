@@ -126,6 +126,19 @@ export class HaloClient {
     ]);
   }
 
+  async updateTicketCustomField(
+    ticketId: number,
+    fieldName: string,
+    value: string,
+  ): Promise<void> {
+    await this.request("POST", "/tickets", [
+      {
+        id: ticketId,
+        customfields: [{ name: fieldName, value }],
+      },
+    ]);
+  }
+
   // ── Asset / Printer Methods ──────────────────────────────────────────
 
   async getAssets(params?: {

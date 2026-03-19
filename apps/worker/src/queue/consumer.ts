@@ -2,6 +2,7 @@ import { Worker, type Job } from "bullmq";
 import { getRedisConnectionOptions } from "./connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runTriage } from "../agents/manager/michael-scott.js";
+import { syncTicketStatusFromHalo } from "./status-sync.js";
 import type { TriageJobData } from "./producer.js";
 
 const QUEUE_NAME = "triage";
@@ -36,6 +37,9 @@ export function startTriageWorker(): Worker<TriageJobData> {
           .from("tickets")
           .update({ status: "triaged", updated_at: new Date().toISOString() })
           .eq("id", job.data.ticketId);
+
+        // Sync the latest Halo status (e.g. "Waiting on Tech") after triage
+        await syncTicketStatusFromHalo(supabase, job.data.ticketId, job.data.haloId);
 
         return { success: true, triageResultId: result.id };
       } catch (error) {

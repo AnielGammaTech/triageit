@@ -118,10 +118,33 @@ Respond with ONLY valid JSON:
       response.content[0].type === "text" ? response.content[0].text : "{}";
     const result = parseLlmJson<Record<string, unknown>>(text);
 
+    // Programmatically build Hudu links from raw data to ensure they're always included
+    const programmaticLinks = buildHuduLinks(huduData);
+    const llmLinks = (result.hudu_links as Array<{ label: string; url: string }>) ?? [];
+
+    // Merge: programmatic links first, then any unique LLM-generated ones
+    const existingUrls = new Set(programmaticLinks.map(l => l.url));
+    const mergedLinks = [
+      ...programmaticLinks,
+      ...llmLinks.filter(l => l.url && !existingUrls.has(l.url)),
+    ];
+
+    // Also ensure relevant_passwords from raw data are included
+    const programmaticPasswords = buildHuduPasswords(huduData);
+    const llmPasswords = (result.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+    const existingPwNames = new Set(programmaticPasswords.map(p => p.name));
+    const mergedPasswords = [
+      ...programmaticPasswords,
+      ...llmPasswords.filter(p => p.name && !existingPwNames.has(p.name)),
+    ];
+
     return {
-      summary:
-        (result.documentation_notes as string) ?? "No documentation found",
-      data: result,
+      summary: (result.documentation_notes as string) ?? "No documentation found",
+      data: {
+        ...result,
+        hudu_links: mergedLinks,
+        relevant_passwords: mergedPasswords,
+      },
       confidence: (result.confidence as number) ?? 0.5,
     };
   }
@@ -390,6 +413,40 @@ Respond with ONLY valid JSON:
 
     return sections.join("\n");
   }
+}
+
+// ── Hudu Link & Password Builders ───────────────────────────────────────
+
+function buildHuduLinks(huduData: HuduData): ReadonlyArray<{ readonly label: string; readonly url: string }> {
+  const links: Array<{ readonly label: string; readonly url: string }> = [];
+
+  for (const article of huduData.articles) {
+    if (article.url) {
+      links.push({ label: `KB: ${article.name}`, url: article.url });
+    }
+  }
+
+  for (const asset of huduData.assets) {
+    if (asset.url) {
+      links.push({ label: `Asset: ${asset.name}`, url: asset.url });
+    }
+  }
+
+  for (const pw of huduData.passwords) {
+    if (pw.url) {
+      links.push({ label: `Credential: ${pw.name}`, url: pw.url });
+    }
+  }
+
+  return links;
+}
+
+function buildHuduPasswords(huduData: HuduData): ReadonlyArray<{ readonly name: string; readonly type: string; readonly note: string }> {
+  return huduData.passwords.map(pw => ({
+    name: pw.name,
+    type: pw.password_type ?? "unknown",
+    note: pw.description ?? "",
+  }));
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────

@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Upsert into our tickets table
+    // Upsert into our tickets table — include Halo status for live tracking
     return await upsertTicket(supabase, {
       halo_id: haloTicket.id,
       summary: haloTicket.summary ?? "No subject",
@@ -158,6 +158,10 @@ export async function POST(request: NextRequest) {
       user_name: haloTicket.user_name ?? null,
       user_email: haloTicket.user_emailaddress ?? null,
       original_priority: haloTicket.priority_id ?? null,
+      halo_status: (haloTicket.statusname ?? haloTicket.status_name ?? null) as string | null,
+      halo_status_id: haloTicket.status_id ?? null,
+      halo_agent: (haloTicket.agent_name ?? null) as string | null,
+      halo_team: (haloTicket.team ?? null) as string | null,
       raw_data: haloTicket,
     });
   } catch (error) {
@@ -234,6 +238,10 @@ interface TicketInsertData {
   readonly user_name: string | null;
   readonly user_email: string | null;
   readonly original_priority: number | null;
+  readonly halo_status?: string | null;
+  readonly halo_status_id?: number | null;
+  readonly halo_agent?: string | null;
+  readonly halo_team?: string | null;
   readonly raw_data: unknown;
 }
 
@@ -258,6 +266,10 @@ async function upsertTicket(
         user_name: data.user_name,
         user_email: data.user_email,
         original_priority: data.original_priority,
+        halo_status: data.halo_status ?? undefined,
+        halo_status_id: data.halo_status_id ?? undefined,
+        halo_agent: data.halo_agent ?? undefined,
+        halo_team: data.halo_team ?? undefined,
         raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
       })
@@ -285,6 +297,10 @@ async function upsertTicket(
       user_name: data.user_name,
       user_email: data.user_email,
       original_priority: data.original_priority,
+      halo_status: data.halo_status ?? null,
+      halo_status_id: data.halo_status_id ?? null,
+      halo_agent: data.halo_agent ?? null,
+      halo_team: data.halo_team ?? null,
       status: "pending",
       raw_data: data.raw_data,
     })

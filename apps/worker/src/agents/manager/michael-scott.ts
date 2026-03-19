@@ -15,6 +15,12 @@ import {
   isAlertTicket,
   summarizeAlert,
 } from "../workers/erin-hannon.js";
+import { findSimilarTickets, storeTicketEmbedding } from "../similar-tickets.js";
+import { detectDuplicates } from "../duplicate-detector.js";
+import { selectManagerModel } from "../model-router.js";
+import { generateCustomerResponse } from "../workers/pam-beesly.js";
+import type { SimilarTicket } from "../similar-tickets.js";
+import type { DuplicateCandidate } from "../duplicate-detector.js";
 // AgentResult used internally by specialist agents via registry
 
 // ── System Prompt ────────────────────────────────────────────────────
@@ -77,7 +83,7 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_agent": "<specific technician if known, null otherwise>",
   "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
   "internal_notes": "<comprehensive internal notes with: root cause analysis, evidence from specialists, CONCRETE step-by-step troubleshooting plan (every step must say exactly what to do, where to go, what to click), tools to use with URLs where applicable, and any gotchas>",
-  "customer_response": "<a professional, empathetic response to send to the customer acknowledging their issue, explaining next steps, and setting expectations. Write as if you are the MSP support team. Keep it concise but helpful. null if not applicable (e.g. alerts, internal tickets)>",
+  "customer_response": "<brief initial acknowledgment for the customer, or null if Pam Beesly will handle the detailed response>",
   "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
   "adjustments": "<any adjustments to Ryan's classification, null if none>",
   "escalation_needed": <true/false>,
@@ -461,6 +467,50 @@ export async function runTriage(
     };
   }
 
+  // ── Step 2b: Check for duplicates and similar tickets ────────────
+  let similarTickets: ReadonlyArray<SimilarTicket> = [];
+  let duplicates: ReadonlyArray<DuplicateCandidate> = [];
+
+  try {
+    [similarTickets, duplicates] = await Promise.all([
+      findSimilarTickets(supabase, {
+        currentTicketId: ticket.id,
+        summary: context.summary,
+        details: context.details,
+        clientName: context.clientName,
+        maxResults: 3,
+      }),
+      detectDuplicates(supabase, {
+        currentTicketId: ticket.id,
+        summary: context.summary,
+        details: context.details,
+        clientName: context.clientName,
+      }),
+    ]);
+
+    if (duplicates.length > 0) {
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `⚠ Potential duplicate(s) detected: ${duplicates.map((d) => `#${d.haloId} (${(d.similarity * 100).toFixed(0)}% match)`).join(", ")}`,
+      );
+    }
+
+    if (similarTickets.length > 0) {
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `Found ${similarTickets.length} similar past ticket(s): ${similarTickets.map((t) => `#${t.haloId} (${(t.similarity * 100).toFixed(0)}%)`).join(", ")}`,
+      );
+    }
+  } catch (error) {
+    console.warn("[MICHAEL] Similar/duplicate detection failed (non-fatal):", error);
+  }
+
   // ── Step 3: Michael analyzes classification & picks specialists ────
 
   const specialistNames = await getAgentsForClassification(
@@ -599,6 +649,29 @@ export async function runTriage(
         ]
       : []),
     specialistSections,
+    // Similar tickets context
+    ...(similarTickets.length > 0
+      ? [
+          "",
+          "## Similar Past Tickets",
+          ...similarTickets.map((t) =>
+            `- **#${t.haloId}:** ${t.summary} (${(t.similarity * 100).toFixed(0)}% similar, status: ${t.status}${t.clientName ? `, client: ${t.clientName}` : ""})`
+          ),
+          "",
+        ]
+      : []),
+    // Duplicate warnings
+    ...(duplicates.length > 0
+      ? [
+          "",
+          "## ⚠ POTENTIAL DUPLICATES",
+          ...duplicates.map((d) =>
+            `- **#${d.haloId}:** ${d.summary} (${(d.similarity * 100).toFixed(0)}% match, status: ${d.status})`
+          ),
+          "Consider merging these tickets if they are the same issue.",
+          "",
+        ]
+      : []),
   ]
     .filter(Boolean)
     .join("\n");
@@ -626,9 +699,19 @@ export async function runTriage(
     }
   }
 
+  // Smart model routing — use Haiku for simple tickets, Sonnet for complex
+  const routingDecision = selectManagerModel(classification, successfulSpecialists.length);
+  await logThinking(
+    supabase,
+    ticket.id,
+    "michael_scott",
+    "manager",
+    `Model routing: ${routingDecision.model.includes("haiku") ? "Haiku (efficient)" : "Sonnet (thorough)"} — ${routingDecision.reason}`,
+  );
+
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
+    model: routingDecision.model,
+    max_tokens: routingDecision.maxTokens,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: messageContent }],
   });
@@ -669,6 +752,7 @@ export async function runTriage(
         const compactNote = buildCompactRetrieageNote(
           classification,
           michaelResult,
+          findings,
           processingTime,
         );
         await halo.addInternalNote(ticket.halo_id, compactNote);
@@ -686,6 +770,8 @@ export async function runTriage(
           michaelResult,
           findings,
           processingTime,
+          similarTickets,
+          duplicates,
         );
         await halo.addInternalNote(ticket.halo_id, internalNote);
       } catch (error) {
@@ -696,18 +782,84 @@ export async function runTriage(
       }
     }
 
-    // ── Customer Response Recommendation — second private comment ────
-    if (michaelResult.customer_response) {
-      try {
+    // ── Customer Response — Pam Beesly drafts the response ──────────
+    try {
+      const pamResult = await generateCustomerResponse(
+        context,
+        classification,
+        findings,
+        michaelResult,
+        similarTickets,
+      );
+
+      if (pamResult.customer_response) {
         const customerResponseNote = buildCustomerResponseNote(
-          michaelResult.customer_response,
+          pamResult.customer_response,
         );
         await halo.addInternalNote(ticket.halo_id, customerResponseNote);
+
+        // If there are documentation gaps, post a separate note
+        if (pamResult.missing_info.length > 0) {
+          const gapNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+            `<tr><td style="padding:8px 12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:white;font-size:13px;font-weight:700;">📝 Documentation Gap — Update Hudu After Resolution</td></tr>` +
+            `<tr style="background:#332b1a;"><td style="padding:10px 14px;font-size:13px;color:#fde68a;line-height:1.6;">` +
+            `<strong>Missing from Hudu:</strong><ul style="margin:6px 0;padding-left:20px;">` +
+            pamResult.missing_info.map((info) => `<li>${info}</li>`).join("") +
+            `</ul></td></tr>` +
+            `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · Pam Beesly · Documentation Gap Alert</td></tr>` +
+            `</table>`;
+          await halo.addInternalNote(ticket.halo_id, gapNote);
+        }
+      }
+
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `Pam Beesly drafted customer response (tone: ${pamResult.tone}). Docs referenced: ${pamResult.documentation_used.length}. Gaps found: ${pamResult.missing_info.length}.`,
+      );
+    } catch (error) {
+      console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
+      // Fallback to Michael's response if Pam fails
+      if (michaelResult.customer_response) {
+        try {
+          const fallbackNote = buildCustomerResponseNote(michaelResult.customer_response);
+          await halo.addInternalNote(ticket.halo_id, fallbackNote);
+        } catch (fallbackError) {
+          console.error(`[MICHAEL] Fallback response also failed:`, fallbackError);
+        }
+      }
+    }
+
+    // ── Auto-tag: Write classification to Halo custom field ──────────
+    try {
+      await halo.updateTicketCustomField(ticket.halo_id, "CFTriageClassification", `${classification.classification.type}/${classification.classification.subtype}`);
+      await halo.updateTicketCustomField(ticket.halo_id, "CFTriageUrgency", String(classification.urgency_score));
+    } catch (error) {
+      // Custom field may not exist — not fatal
+      console.warn(`[MICHAEL] Auto-tag failed for #${ticket.halo_id} (custom fields may not be configured):`, error);
+    }
+
+    // ── Priority Recommendation — RECOMMEND only, don't SET ──────────
+    if (classification.recommended_priority !== ticket.original_priority && ticket.original_priority) {
+      const currentP = ticket.original_priority;
+      const recommendedP = classification.recommended_priority;
+      const direction = recommendedP < currentP ? "⬆ Upgrade" : "⬇ Downgrade";
+      const dirColor = recommendedP < currentP ? "#f59e0b" : "#4ade80";
+
+      const priorityNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:6px;overflow:hidden;">` +
+        `<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:12px;font-weight:600;">${direction} Priority Recommendation</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Current</td><td style="padding:6px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid #3a3f4b;">P${currentP}</td></tr>` +
+        `<tr style="background:#1E2028;"><td style="padding:6px 12px;width:100px;font-size:12px;color:${dirColor};font-weight:600;border-bottom:1px solid #3a3f4b;">Recommended</td><td style="padding:6px 12px;font-size:13px;color:${dirColor};font-weight:700;border-bottom:1px solid #3a3f4b;">P${recommendedP}</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Reason</td><td style="padding:6px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #3a3f4b;">${classification.urgency_reasoning}</td></tr>` +
+        `<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · Priority Recommendation Only · Not Auto-Applied</td></tr>` +
+        `</table>`;
+
+      try {
+        await halo.addInternalNote(ticket.halo_id, priorityNote);
       } catch (error) {
-        console.error(
-          `[MICHAEL] Failed to write customer response note for #${ticket.halo_id}:`,
-          error,
-        );
+        console.error(`[MICHAEL] Failed to write priority recommendation:`, error);
       }
     }
   }
@@ -916,6 +1068,20 @@ export async function runTriage(
     duration_ms: processingTime,
   });
 
+  // ── Post-triage: Store ticket embedding for future similarity searches ──
+  try {
+    await storeTicketEmbedding(supabase, {
+      ticketId: ticket.id,
+      haloId: ticket.halo_id,
+      summary: context.summary,
+      details: context.details,
+      classification: classType,
+      clientName: context.clientName,
+    });
+  } catch (error) {
+    console.warn("[MICHAEL] Failed to store ticket embedding (non-fatal):", error);
+  }
+
   // ── Return triage output ───────────────────────────────────────────
 
   const triageId = crypto.randomUUID();
@@ -993,6 +1159,8 @@ function buildHaloNote(
   },
   findings: Record<string, AgentFinding>,
   processingTime: number,
+  similarTickets?: ReadonlyArray<SimilarTicket>,
+  duplicates?: ReadonlyArray<DuplicateCandidate>,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -1070,6 +1238,22 @@ function buildHaloNote(
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
 
+  // Similar tickets
+  if (similarTickets && similarTickets.length > 0) {
+    const similarItems = similarTickets
+      .map((t) => `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% similar${t.clientName ? `, ${t.clientName}` : ""})</span>`)
+      .join("<br/>");
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.6;word-break:break-word;">${similarItems}</td></tr>`);
+  }
+
+  // Duplicate warnings
+  if (duplicates && duplicates.length > 0) {
+    const dupItems = duplicates
+      .map((d) => `<strong style="color:#fbbf24;">#${d.haloId}</strong> ${d.summary} <span style="color:#64748b;font-size:11px;">(${(d.similarity * 100).toFixed(0)}% match)</span>`)
+      .join("<br/>");
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}<br/><span style="font-size:11px;color:#94a3b8;">Consider merging if same issue.</span></td></tr>`);
+  }
+
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
 
@@ -1093,6 +1277,7 @@ function buildCompactRetrieageNote(
     escalation_needed: boolean;
     escalation_reason: string | null;
   },
+  findings: Record<string, AgentFinding>,
   processingTime: number,
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
@@ -1112,6 +1297,26 @@ function buildCompactRetrieageNote(
   // Only include notes if they contain actionable info
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:6px 12px;font-weight:600;width:100px;${border}font-size:12px;color:#60a5fa;">Notes</td><td style="padding:6px 12px;${border}font-size:12px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
+
+  // Quick Links — Hudu links from Dwight (also in retriage)
+  const dwightData = findings.dwight_schrute?.data;
+  const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
+  const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+
+  if (huduLinks.length > 0 || relevantPasswords.length > 0) {
+    const linkItems = huduLinks
+      .slice(0, 5) // Compact — only top 5 links
+      .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;font-size:11px;">${l.label}</a>`)
+      .join(" · ");
+    const pwItems = relevantPasswords.slice(0, 5).map((p) => p.name).join(", ");
+    const content = [
+      linkItems,
+      pwItems ? `<br/><span style="color:#94a3b8;font-size:10px;">Credentials: ${pwItems}</span>` : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    rows.push(`<tr style="background:#162216;"><td style="padding:6px 12px;font-weight:600;width:100px;${border}font-size:11px;color:#4ade80;">📎 Links</td><td style="padding:6px 12px;${border}font-size:12px;color:#bbf7d0;line-height:1.4;word-break:break-word;">${content}</td></tr>`);
+  }
 
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage</td></tr>`);
