@@ -131,8 +131,21 @@ export async function runTriage(
         who: a.who ?? null,
         outcome: a.outcome ?? null,
         date: a.datecreated ?? null,
+        isInternal: a.hiddenfromuser,
       }));
-      context = { ...context, actions: formattedActions };
+
+      // Determine assigned tech: use the Halo ticket's agent info
+      // Tech actions are internal notes (hiddenfromuser=true) or outcomes
+      // that aren't from the customer (email_from, note_from_customer)
+      const CUSTOMER_OUTCOMES = ["email_from", "note_from_customer", "customer_reply"];
+      const techActionUsers = rawActions
+        .filter((a) => a.who && !CUSTOMER_OUTCOMES.includes(a.outcome) && a.hiddenfromuser)
+        .map((a) => a.who!);
+      const assignedTechName = techActionUsers.length > 0
+        ? techActionUsers[techActionUsers.length - 1]
+        : null;
+
+      context = { ...context, actions: formattedActions, assignedTechName };
       await logThinking(
         supabase,
         ticket.id,
@@ -381,14 +394,16 @@ export async function runTriage(
       ? `**⚠ SECURITY FLAG:** ${classification.security_notes}`
       : "",
     "",
+    context.assignedTechName ? `**Assigned Tech:** ${context.assignedTechName}` : "",
     ...(context.actions && context.actions.length > 0
       ? [
           "## Ticket History / Comments",
+          `_Customer: ${context.userName ?? "Unknown"} | Tech: ${context.assignedTechName ?? "Unknown"}_`,
           ...context.actions.map((a) => {
             const who = a.who ?? "Unknown";
             const when = a.date ?? "unknown date";
-            const outcome = a.outcome ? ` [${a.outcome}]` : "";
-            return `- **${who}** (${when})${outcome}: ${a.note}`;
+            const visibility = a.isInternal ? "[INTERNAL]" : "[VISIBLE]";
+            return `- ${visibility} **${who}** (${when}): ${a.note}`;
           }),
           "",
         ]
@@ -448,41 +463,46 @@ export async function runTriage(
       const halo = new HaloClient(haloConfig);
       const feedbackClient = new Anthropic();
 
-      // Find the assigned tech from ticket actions
-      const techActions = context.actions.filter(
-        (a) => a.who && a.outcome !== "email_from" && a.outcome !== "note_from_customer",
-      );
-      const assignedTech = techActions.length > 0 ? techActions[techActions.length - 1].who : null;
+      const assignedTech = context.assignedTechName ?? null;
 
       const feedbackPrompt = [
-        `You are a senior IT service delivery manager reviewing how a technician handled a support ticket.`,
-        `Review the ticket conversation and provide brief, constructive feedback for the assigned technician.`,
+        `You are a senior IT service delivery manager reviewing how a TECHNICIAN handled a support ticket.`,
+        ``,
+        `## IMPORTANT: Identity Clarification`,
+        `- **CUSTOMER (the person who submitted the ticket):** ${context.userName ?? context.clientName ?? "Unknown"}`,
+        `- **CLIENT COMPANY:** ${context.clientName ?? "Unknown"}`,
+        `- **ASSIGNED TECHNICIAN (the person you are reviewing):** ${assignedTech ?? "Unknown Tech"}`,
+        ``,
+        `You are reviewing the TECHNICIAN's performance, NOT the customer's. The customer is the one who reported the issue.`,
+        `Actions marked [INTERNAL NOTE] are private tech notes not visible to the customer.`,
+        `Actions marked [CUSTOMER-VISIBLE] are messages exchanged with the customer.`,
         ``,
         `## Ticket #${context.haloId}: ${context.summary}`,
-        `**Client:** ${context.clientName ?? "Unknown"}`,
-        `**Assigned Tech:** ${assignedTech ?? "Unassigned"}`,
         `**Classification:** ${classification.classification.type} / ${classification.classification.subtype}`,
         `**Urgency:** ${classification.urgency_score}/5`,
         ``,
-        `## Conversation History`,
+        `## Full Conversation History`,
         ...context.actions.map((a) => {
           const who = a.who ?? "Unknown";
           const when = a.date ?? "";
-          return `- **${who}** (${when}): ${a.note}`;
+          const visibility = a.isInternal ? "[INTERNAL NOTE]" : "[CUSTOMER-VISIBLE]";
+          return `- ${visibility} **${who}** (${when}): ${a.note}`;
         }),
         ``,
         `## Your Task`,
-        `Evaluate the technician's communication quality and responsiveness. Be direct, supportive, and specific.`,
+        `Evaluate the TECHNICIAN (${assignedTech ?? "the assigned tech"})'s performance — NOT the customer's.`,
+        `Review their communication quality, responsiveness, documentation, and technical approach.`,
+        `Reference the technician by name in your feedback. NEVER review or critique the customer.`,
         ``,
         `Respond with ONLY valid JSON:`,
         `{`,
         `  "rating": "<great | good | needs_improvement | poor>",`,
         `  "communication_score": "<1-5, where 5 = excellent>",`,
         `  "response_time_assessment": "<fast, adequate, slow, no_response>",`,
-        `  "strengths": "<what they did well, null if nothing notable>",`,
-        `  "improvement_areas": "<specific areas to improve, null if none>",`,
-        `  "suggestions": ["<actionable suggestion 1>", "<suggestion 2>"],`,
-        `  "summary": "<1-2 sentence overall assessment>"`,
+        `  "strengths": "<what the TECH did well, null if nothing notable>",`,
+        `  "improvement_areas": "<specific areas the TECH should improve, null if none>",`,
+        `  "suggestions": ["<actionable suggestion for the TECH>"],`,
+        `  "summary": "<1-2 sentence assessment of the TECH's handling>"`,
         `}`,
       ].join("\n");
 

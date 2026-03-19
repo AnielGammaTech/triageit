@@ -93,7 +93,7 @@ export function TicketTabs({ newTickets, openTickets }: TicketTabsProps) {
           onSelectTicket={(id) => router.push(`/tickets?id=${id}`)}
         />
       ) : (
-        <OpenTicketList tickets={openTickets} />
+        <OpenTicketList tickets={openTickets} onSelectTicket={(id) => router.push(`/tickets?id=${id}`)} />
       )}
     </div>
   );
