@@ -179,6 +179,85 @@ export class TeamsClient {
     await this.sendCard(card);
   }
 
+  async sendTriageSummary(triage: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly classification: string;
+    readonly urgencyScore: number;
+    readonly recommendedPriority: number;
+    readonly recommendedTeam: string;
+    readonly rootCause: string;
+    readonly securityFlag: boolean;
+    readonly escalationNeeded: boolean;
+    readonly processingTimeMs: number;
+    readonly agentCount: number;
+  }): Promise<void> {
+    const urgencyColor = triage.urgencyScore >= 4 ? "Attention" : triage.urgencyScore >= 3 ? "Warning" : "Default";
+    const securityBadge = triage.securityFlag ? " | SECURITY" : "";
+    const escalationBadge = triage.escalationNeeded ? " | ESCALATION" : "";
+
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                text: `TriageIt — New Triage Complete`,
+                weight: "Bolder",
+                size: "Large",
+              },
+              {
+                type: "TextBlock",
+                text: `**#${triage.haloId}** — ${triage.summary}`,
+                wrap: true,
+                weight: "Bolder",
+                size: "Medium",
+              },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Client", value: triage.clientName ?? "Unknown" },
+                  { title: "Classification", value: triage.classification },
+                  { title: "Urgency", value: `${triage.urgencyScore}/5` },
+                  { title: "Priority", value: `P${triage.recommendedPriority}` },
+                  { title: "Team", value: triage.recommendedTeam },
+                  { title: "Agents", value: `${triage.agentCount} specialists` },
+                  { title: "Time", value: `${(triage.processingTimeMs / 1000).toFixed(1)}s` },
+                ],
+              },
+              {
+                type: "TextBlock",
+                text: `**Root Cause:** ${triage.rootCause}`,
+                wrap: true,
+                color: urgencyColor,
+              },
+              ...(triage.securityFlag || triage.escalationNeeded
+                ? [
+                    {
+                      type: "TextBlock",
+                      text: `**FLAGS:**${securityBadge}${escalationBadge}`,
+                      color: "Attention" as const,
+                      weight: "Bolder" as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
   async sendImmediateAlert(ticket: ReTriageTicket, reason: string): Promise<void> {
     const card = {
       type: "message",

@@ -47,6 +47,8 @@ export default function TicketsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlyArray<string>>([]);
   const [deleting, setDeleting] = useState(false);
+  const [triaging, setTriaging] = useState(false);
+  const [triageProgress, setTriageProgress] = useState({ current: 0, total: 0 });
   const [activeTab, setActiveTab] = useState<"new" | "open">("new");
 
   const loadTickets = useCallback(async () => {
@@ -92,6 +94,41 @@ export default function TicketsPage() {
     } finally {
       setDeleting(false);
     }
+  }
+
+  async function handleTriageSelected() {
+    const ids = selectedIds.length > 0 ? [...selectedIds] : newTickets.map((t) => t.id);
+    if (ids.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Triage ${ids.length} ticket(s)? This will run AI analysis on each ticket.`,
+    );
+    if (!confirmed) return;
+
+    setTriaging(true);
+    setTriageProgress({ current: 0, total: ids.length });
+
+    for (let i = 0; i < ids.length; i++) {
+      setTriageProgress({ current: i + 1, total: ids.length });
+      try {
+        await fetch("/api/triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticket_id: ids[i] }),
+        });
+        // Small delay to avoid overwhelming the worker queue
+        if (i < ids.length - 1) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      } catch {
+        // Continue with remaining tickets even if one fails
+      }
+    }
+
+    setTriaging(false);
+    setSelectedIds([]);
+    setTriageProgress({ current: 0, total: 0 });
+    await loadTickets();
   }
 
   function handleToggleSelect(ticketId: string) {
@@ -161,6 +198,19 @@ export default function TicketsPage() {
               </span>
             </button>
           </div>
+          {activeTab === "new" && (
+            <button
+              onClick={handleTriageSelected}
+              disabled={triaging}
+              className="rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20 disabled:opacity-50"
+            >
+              {triaging
+                ? `Triaging ${triageProgress.current}/${triageProgress.total}...`
+                : selectedIds.length > 0
+                  ? `Triage ${selectedIds.length} Selected`
+                  : "Triage All"}
+            </button>
+          )}
           {activeTab === "new" && selectedIds.length > 0 && (
             <button
               onClick={handleDelete}

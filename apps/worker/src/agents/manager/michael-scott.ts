@@ -5,7 +5,8 @@ import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
-import type { HaloConfig } from "@triageit/shared";
+import type { HaloConfig, TeamsConfig } from "@triageit/shared";
+import { TeamsClient } from "../../integrations/teams/client.js";
 import {
   createAgent,
   getAgentsForClassification,
@@ -53,6 +54,19 @@ async function getHaloConfig(
     .single();
 
   return data ? (data.config as HaloConfig) : null;
+}
+
+async function getTeamsConfig(
+  supabase: SupabaseClient,
+): Promise<TeamsConfig | null> {
+  const { data } = await supabase
+    .from("integrations")
+    .select("config")
+    .eq("service", "teams")
+    .eq("is_active", true)
+    .single();
+
+  return data ? (data.config as TeamsConfig) : null;
 }
 
 function buildTriageContext(ticket: Ticket): TriageContext {
@@ -427,7 +441,135 @@ export async function runTriage(
     }
   }
 
-  // ── Step 7: Final thinking + completed log ─────────────────────────
+  // ── Step 7: Employee feedback — private coaching note ──────────────
+
+  if (haloConfig && context.actions && context.actions.length > 0) {
+    try {
+      const halo = new HaloClient(haloConfig);
+      const feedbackClient = new Anthropic();
+
+      // Find the assigned tech from ticket actions
+      const techActions = context.actions.filter(
+        (a) => a.who && a.outcome !== "email_from" && a.outcome !== "note_from_customer",
+      );
+      const assignedTech = techActions.length > 0 ? techActions[techActions.length - 1].who : null;
+
+      const feedbackPrompt = [
+        `You are a senior IT service delivery manager reviewing how a technician handled a support ticket.`,
+        `Review the ticket conversation and provide brief, constructive feedback for the assigned technician.`,
+        ``,
+        `## Ticket #${context.haloId}: ${context.summary}`,
+        `**Client:** ${context.clientName ?? "Unknown"}`,
+        `**Assigned Tech:** ${assignedTech ?? "Unassigned"}`,
+        `**Classification:** ${classification.classification.type} / ${classification.classification.subtype}`,
+        `**Urgency:** ${classification.urgency_score}/5`,
+        ``,
+        `## Conversation History`,
+        ...context.actions.map((a) => {
+          const who = a.who ?? "Unknown";
+          const when = a.date ?? "";
+          return `- **${who}** (${when}): ${a.note}`;
+        }),
+        ``,
+        `## Your Task`,
+        `Evaluate the technician's communication quality and responsiveness. Be direct, supportive, and specific.`,
+        ``,
+        `Respond with ONLY valid JSON:`,
+        `{`,
+        `  "rating": "<great | good | needs_improvement | poor>",`,
+        `  "communication_score": "<1-5, where 5 = excellent>",`,
+        `  "response_time_assessment": "<fast, adequate, slow, no_response>",`,
+        `  "strengths": "<what they did well, null if nothing notable>",`,
+        `  "improvement_areas": "<specific areas to improve, null if none>",`,
+        `  "suggestions": ["<actionable suggestion 1>", "<suggestion 2>"],`,
+        `  "summary": "<1-2 sentence overall assessment>"`,
+        `}`,
+      ].join("\n");
+
+      const feedbackResponse = await feedbackClient.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        messages: [{ role: "user", content: feedbackPrompt }],
+      });
+
+      const feedbackText = feedbackResponse.content[0].type === "text" ? feedbackResponse.content[0].text : "";
+      const feedback = parseLlmJson<{
+        rating: string;
+        communication_score: number;
+        response_time_assessment: string;
+        strengths: string | null;
+        improvement_areas: string | null;
+        suggestions: string[];
+        summary: string;
+      }>(feedbackText);
+
+      // Build the private coaching note
+      const ratingColor = feedback.rating === "great" ? "#4ade80" : feedback.rating === "good" ? "#60a5fa" : feedback.rating === "needs_improvement" ? "#fbbf24" : "#f87171";
+      const ratingEmoji = feedback.rating === "great" ? "🌟" : feedback.rating === "good" ? "👍" : feedback.rating === "needs_improvement" ? "📋" : "⚠️";
+      const commScoreBar = "█".repeat(feedback.communication_score) + "░".repeat(5 - feedback.communication_score);
+
+      const suggestionsHtml = feedback.suggestions.length > 0
+        ? `<ol style="margin:4px 0;padding-left:20px;">${feedback.suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("")}</ol>`
+        : "No specific suggestions.";
+
+      const coachingNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+        `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:14px;font-weight:700;">${ratingEmoji} Tech Performance Review — TriageIt AI</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Rating</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${ratingColor};font-weight:700;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</td></tr>` +
+        `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Communication</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-family:monospace;">${commScoreBar} ${feedback.communication_score}/5</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Response Time</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${feedback.response_time_assessment}</td></tr>` +
+        (feedback.strengths ? `<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Strengths</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bbf7d0;">${feedback.strengths}</td></tr>` : "") +
+        (feedback.improvement_areas ? `<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fbbf24;">Improve</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fde68a;">${feedback.improvement_areas}</td></tr>` : "") +
+        `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">Suggestions</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bfdbfe;">${suggestionsHtml}</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Summary</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-weight:500;">${feedback.summary}</td></tr>` +
+        `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · Employee Feedback · Private Note</td></tr>` +
+        `</table>`;
+
+      await halo.addInternalNote(ticket.halo_id, coachingNote);
+
+      await logThinking(
+        supabase,
+        ticket.id,
+        "michael_scott",
+        "manager",
+        `Employee feedback: ${feedback.rating} (${feedback.communication_score}/5 communication). ${feedback.summary}`,
+      );
+    } catch (error) {
+      console.error(
+        `[MICHAEL] Failed to generate employee feedback for ticket #${ticket.halo_id}:`,
+        error,
+      );
+    }
+  }
+
+  // ── Step 8: Send triage summary to Teams ─────────────────────────
+
+  try {
+    const teamsConfig = await getTeamsConfig(supabase);
+    if (teamsConfig) {
+      const teams = new TeamsClient(teamsConfig);
+      await teams.sendTriageSummary({
+        haloId: ticket.halo_id,
+        summary: context.summary,
+        clientName: context.clientName,
+        classification: `${classification.classification.type} / ${classification.classification.subtype}`,
+        urgencyScore: classification.urgency_score,
+        recommendedPriority: classification.recommended_priority,
+        recommendedTeam: michaelResult.recommended_team,
+        rootCause: michaelResult.root_cause_hypothesis,
+        securityFlag: classification.security_flag,
+        escalationNeeded: michaelResult.escalation_needed,
+        processingTimeMs: processingTime,
+        agentCount: Object.keys(findings).length,
+      });
+    }
+  } catch (error) {
+    console.error(
+      `[MICHAEL] Failed to send Teams notification for ticket #${ticket.halo_id}:`,
+      error,
+    );
+  }
+
+  // ── Step 9: Final thinking + completed log ─────────────────────────
 
   await logThinking(
     supabase,
