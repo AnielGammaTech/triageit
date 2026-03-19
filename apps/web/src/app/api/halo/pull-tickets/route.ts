@@ -48,7 +48,7 @@ const HALO_STATUS_MAP: Record<number, string> = {
   27: "Cancelled",
   29: "In Progress",
   30: "Waiting on Customer",
-  31: "Resolved",
+  // 31 is instance-specific — rely on statusname from API instead
   32: "New",
 };
 
@@ -112,7 +112,7 @@ export async function POST() {
 
     while (true) {
       const ticketsResponse = await fetch(
-        `${config.base_url}/api/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true`,
+        `${config.base_url}/api/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
