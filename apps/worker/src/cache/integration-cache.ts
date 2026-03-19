@@ -24,7 +24,7 @@ function getRedis(): Redis {
       lazyConnect: true,
     });
 
-    redisInstance.on("error", (err) => {
+    redisInstance.on("error", (err: Error) => {
       console.warn("[CACHE] Redis error (cache degraded, not fatal):", err.message);
     });
   }

@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.49.0",
     "@triageit/shared": "*",
     "bullmq": "^5.34.0",
+    "ioredis": "^5.10.0",
     "fastify": "^5.2.0",
     "node-cron": "^4.2.1"
   },
