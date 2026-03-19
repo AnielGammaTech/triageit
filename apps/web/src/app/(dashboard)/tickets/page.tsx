@@ -49,8 +49,11 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "resolved") ?? "open";
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved">(initialTab);
+  const filterParam = searchParams.get("filter"); // "stale" | "unassigned" | null
+  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale") ?? "open";
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale">(
+    filterParam === "stale" ? "stale" : initialTab,
+  );
   const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -201,9 +204,14 @@ export default function TicketsPage() {
   };
 
   // Apply tech filter from query params (e.g. from Analytics page)
-  const filteredTickets = techFilter
+  const baseFiltered = techFilter
     ? tickets.filter((t) => t.halo_agent === techFilter)
     : tickets;
+
+  // Apply unassigned filter
+  const filteredTickets = filterParam === "unassigned"
+    ? baseFiltered.filter((t) => !t.halo_agent)
+    : baseFiltered;
 
   // Incoming: tickets that just arrived and haven't been triaged yet
   const incomingTickets = filteredTickets.filter(
@@ -228,6 +236,15 @@ export default function TicketsPage() {
   const needsReviewTickets = filteredTickets.filter(
     (t) => t.status === "needs_review" && !isResolved(t),
   );
+
+  // Stale: open tickets with no tech activity for 3+ days
+  const staleTickets = filteredTickets.filter((t) => {
+    if (isResolved(t)) return false;
+    if (t.status === "pending" || t.status === "triaging") return false;
+    const lastAction = t.last_tech_action_at ?? t.created_at;
+    const hoursSince = (Date.now() - new Date(lastAction).getTime()) / (1000 * 60 * 60);
+    return hoursSince > 72;
+  });
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
@@ -264,6 +281,20 @@ export default function TicketsPage() {
           <button
             onClick={() => router.push("/tickets")}
             className="text-xs text-indigo-400 hover:text-indigo-300 underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+      {/* Unassigned filter banner */}
+      {filterParam === "unassigned" && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2">
+          <span className="text-sm text-amber-300">
+            Showing <strong>unassigned</strong> tickets only
+          </span>
+          <button
+            onClick={() => router.push("/tickets?tab=open")}
+            className="text-xs text-amber-400 hover:text-amber-300 underline"
           >
             Clear filter
           </button>
@@ -384,6 +415,15 @@ export default function TicketsPage() {
           hideZero={true}
         />
         <TabButton
+          active={activeTab === "stale"}
+          onClick={() => setActiveTab("stale")}
+          label="Stale"
+          count={staleTickets.length}
+          badgeClass="bg-orange-500/20 text-orange-400"
+          pulse={false}
+          hideZero={true}
+        />
+        <TabButton
           active={activeTab === "resolved"}
           onClick={() => setActiveTab("resolved")}
           label="Resolved"
@@ -405,9 +445,11 @@ export default function TicketsPage() {
                 ? `${needsReviewTickets.length} need review`
                 : activeTab === "alerts"
                   ? `${alertTickets.length} alerts`
-                  : activeTab === "resolved"
-                    ? `${resolvedTickets.length} resolved`
-                    : `${openTickets.length} open`}
+                  : activeTab === "stale"
+                    ? `${staleTickets.length} stale`
+                    : activeTab === "resolved"
+                      ? `${resolvedTickets.length} resolved`
+                      : `${openTickets.length} open`}
         </span>
       </div>
 
@@ -461,6 +503,21 @@ export default function TicketsPage() {
           </div>
         ) : (
           <OpenTicketList tickets={alertTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+        )
+      ) : activeTab === "stale" ? (
+        staleTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">
+              No stale tickets. All open tickets have had tech activity within the last 3 days.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-2.5 text-sm text-orange-300">
+              These tickets have had no tech activity for 3+ days and may need follow-up.
+            </div>
+            <OpenTicketList tickets={staleTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+          </div>
         )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (

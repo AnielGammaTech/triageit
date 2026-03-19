@@ -29,12 +29,14 @@ function StatCard({
   subtitle,
   accent = "white",
   href,
+  subtitleHref,
 }: {
   readonly label: string;
   readonly value: string | number;
   readonly subtitle?: string;
   readonly accent?: string;
   readonly href?: string;
+  readonly subtitleHref?: string;
 }) {
   const router = useRouter();
   const clickable = !!href && Number(value) > 0;
@@ -49,7 +51,18 @@ function StatCard({
     >
       <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{label}</p>
       <p className={cn("mt-1 text-2xl font-bold", `text-${accent}`)}>{value}</p>
-      {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
+      {subtitle && (
+        subtitleHref ? (
+          <p
+            className="mt-0.5 text-xs text-indigo-400 hover:text-indigo-300 cursor-pointer underline decoration-indigo-400/30"
+            onClick={(e) => { e.stopPropagation(); router.push(subtitleHref); }}
+          >
+            {subtitle}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>
+        )
+      )}
     </div>
   );
 }
@@ -202,6 +215,7 @@ export function PerformanceDashboard({
           subtitle={`${teamOverview.unassignedTickets} unassigned`}
           accent="amber-400"
           href="/tickets?tab=open"
+          subtitleHref={teamOverview.unassignedTickets > 0 ? "/tickets?tab=open&filter=unassigned" : undefined}
         />
         <StatCard
           label="Needs Review"
@@ -215,7 +229,7 @@ export function PerformanceDashboard({
           value={teamOverview.totalStale}
           subtitle="No tech activity"
           accent="orange-400"
-          href="/tickets?tab=open"
+          href="/tickets?tab=stale"
         />
         <StatCard
           label="Avg Response"
