@@ -13,6 +13,7 @@ import { IntegrationConfig } from "@/components/admin/integration-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
 import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
+import { CronJobsSection } from "@/components/admin/cron-jobs-config";
 
 type ActiveView =
   | { type: "menu" }
@@ -50,6 +51,11 @@ const ICONS: Record<string, React.ReactNode> = {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" />
       <path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
+    </svg>
+  ),
+  "cron-jobs": (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
     </svg>
   ),
 };
@@ -282,6 +288,8 @@ export default function AdminlandPage() {
           <AgentConfigSection />
         ) : activeView.id === "triage-rules" ? (
           <TriageRulesSection />
+        ) : activeView.id === "cron-jobs" ? (
+          <CronJobsSection />
         ) : (
           <div
             className="rounded-xl border border-white/10 p-8 text-center"

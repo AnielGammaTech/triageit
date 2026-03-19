@@ -74,6 +74,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconBg: "bg-cyan-500/10",
         iconColor: "text-cyan-400",
       },
+      {
+        id: "cron-jobs",
+        label: "Cron Jobs",
+        desc: "Scheduled tasks, SLA scans, and retriage cycles",
+        iconBg: "bg-rose-500/10",
+        iconColor: "text-rose-400",
+      },
     ],
   },
 ];

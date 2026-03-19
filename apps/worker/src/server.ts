@@ -6,6 +6,8 @@ import {
   startCronScheduler,
   stopCronScheduler,
   triggerDailyRetriage,
+  reloadCronScheduler,
+  triggerCronJob,
 } from "./cron/scheduler.js";
 import {
   isUpdateRequest,
@@ -81,6 +83,40 @@ server.post<{ Body: Record<string, never> }>(
         status: "completed",
         ...result,
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Trigger a specific cron job by ID
+server.post<{ Body: { job_id: string } }>(
+  "/cron/trigger",
+  async (request, reply) => {
+    const { job_id } = request.body;
+
+    if (!job_id) {
+      return reply.status(400).send({ error: "job_id is required" });
+    }
+
+    try {
+      const result = await triggerCronJob(job_id);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Reload cron scheduler after config changes
+server.post<{ Body: Record<string, never> }>(
+  "/cron/reload",
+  async (_request, reply) => {
+    try {
+      await reloadCronScheduler();
+      return { status: "reloaded" };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
@@ -209,7 +245,7 @@ async function start() {
   console.log("[WORKER] Triage worker started, waiting for jobs...");
 
   // Start the cron scheduler for daily re-triage
-  startCronScheduler();
+  await startCronScheduler();
 
   // Start Fastify
   await server.listen({ port, host });
