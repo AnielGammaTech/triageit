@@ -81,6 +81,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconBg: "bg-rose-500/10",
         iconColor: "text-rose-400",
       },
+      {
+        id: "diagnostics",
+        label: "System Diagnostics",
+        desc: "Test API keys, integrations, and connections",
+        iconBg: "bg-sky-500/10",
+        iconColor: "text-sky-400",
+      },
     ],
   },
 ];

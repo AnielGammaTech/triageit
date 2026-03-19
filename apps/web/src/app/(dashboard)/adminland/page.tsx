@@ -14,6 +14,7 @@ import { AgentConfigSection } from "@/components/admin/agent-config";
 import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
 import { CronJobsSection } from "@/components/admin/cron-jobs-config";
+import { DiagnosticsSection } from "@/components/admin/diagnostics-section";
 
 type ActiveView =
   | { type: "menu" }
@@ -56,6 +57,11 @@ const ICONS: Record<string, React.ReactNode> = {
   "cron-jobs": (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+    </svg>
+  ),
+  diagnostics: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
     </svg>
   ),
 };
@@ -290,6 +296,8 @@ export default function AdminlandPage() {
           <TriageRulesSection />
         ) : activeView.id === "cron-jobs" ? (
           <CronJobsSection />
+        ) : activeView.id === "diagnostics" ? (
+          <DiagnosticsSection />
         ) : (
           <div
             className="rounded-xl border border-white/10 p-8 text-center"
