@@ -230,7 +230,7 @@ Respond with ONLY valid JSON:
         );
       }
 
-      // 2. Fallback: search by name
+      // 2. Fallback: search by name across all Datto sites
       const sites = await datto.getSites();
       const lower = clientName.toLowerCase();
 
@@ -240,12 +240,29 @@ Respond with ONLY valid JSON:
       );
       if (exact) return exact;
 
-      // Partial match — strip common suffixes like LLC, Inc, Corp
+      // Normalize: strip suffixes, punctuation, extra whitespace
       const normalize = (name: string) =>
-        name.toLowerCase().replace(/[,.]|\b(llc|inc|corp|ltd|co)\b/gi, "").trim();
+        name
+          .toLowerCase()
+          .replace(/[,.\-_'"()]/g, " ")
+          .replace(/\b(llc|inc|incorporated|corp|corporation|ltd|limited|co|company|the|group|services|solutions|enterprises|lp|pllc|pc|pa)\b/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
 
       const normalizedClient = normalize(clientName);
 
+      // Try normalized exact match
+      const normalizedExact = sites.find(
+        (s) => normalize(s.name) === normalizedClient,
+      );
+      if (normalizedExact) {
+        console.log(
+          `[ANDY] Matched Datto site (normalized): "${normalizedExact.name}" (ID: ${normalizedExact.id}) for "${clientName}"`,
+        );
+        return normalizedExact;
+      }
+
+      // Try substring match
       const partial = sites.find((s) => {
         const normalizedSite = normalize(s.name);
         return (
@@ -256,11 +273,41 @@ Respond with ONLY valid JSON:
 
       if (partial) {
         console.log(
-          `[ANDY] Matched Datto site by name: "${partial.name}" (ID: ${partial.id}) for "${clientName}"`,
+          `[ANDY] Matched Datto site (partial): "${partial.name}" (ID: ${partial.id}) for "${clientName}"`,
         );
+        return partial;
       }
 
-      return partial ?? null;
+      // Try word-level overlap (e.g. "WRIGHT CAPITAL INC" → "Wright Capital")
+      const clientWords = normalizedClient.split(" ").filter((w) => w.length > 2);
+      if (clientWords.length > 0) {
+        let bestMatch: DattoSite | null = null;
+        let bestScore = 0;
+
+        for (const site of sites) {
+          const siteNorm = normalize(site.name);
+          const siteWords = siteNorm.split(" ").filter((w) => w.length > 2);
+          const overlap = clientWords.filter((w) => siteWords.includes(w)).length;
+          const score = overlap / Math.max(clientWords.length, siteWords.length);
+
+          if (overlap >= 2 && score > bestScore) {
+            bestScore = score;
+            bestMatch = site;
+          }
+        }
+
+        if (bestMatch && bestScore >= 0.5) {
+          console.log(
+            `[ANDY] Matched Datto site (word overlap ${Math.round(bestScore * 100)}%): "${bestMatch.name}" (ID: ${bestMatch.id}) for "${clientName}"`,
+          );
+          return bestMatch;
+        }
+      }
+
+      console.log(
+        `[ANDY] No Datto site match found for "${clientName}" across ${sites.length} sites`,
+      );
+      return null;
     } catch (error) {
       console.error("[ANDY] Failed to search Datto sites:", error);
       return null;
