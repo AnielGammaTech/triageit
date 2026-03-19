@@ -458,7 +458,45 @@ export async function runTriage(
 
   // ── Step 7: Employee feedback — private coaching note ──────────────
 
-  if (haloConfig && context.actions && context.actions.length > 0) {
+  // Eligibility checks: only review tech performance when meaningful data exists
+  const ticketAgeMs = Date.now() - new Date(ticket.created_at).getTime();
+  const ticketAgeHours = ticketAgeMs / (1000 * 60 * 60);
+  const actions = context.actions ?? [];
+
+  // Separate customer vs tech actions for gap analysis
+  const customerActions = actions.filter((a) => !a.isInternal);
+  const techActions = actions.filter((a) => a.isInternal);
+
+  // Find the longest gap between a customer reply and the next tech action
+  const maxResponseGapHours = (() => {
+    let maxGap = 0;
+    for (const custAction of customerActions) {
+      if (!custAction.date) continue;
+      const custTime = new Date(custAction.date).getTime();
+      // Find the earliest tech action AFTER this customer action
+      const nextTech = techActions
+        .filter((t) => t.date && new Date(t.date).getTime() > custTime)
+        .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
+      if (nextTech?.date) {
+        const gapMs = new Date(nextTech.date).getTime() - custTime;
+        maxGap = Math.max(maxGap, gapMs / (1000 * 60 * 60));
+      } else {
+        // Tech never responded after this customer action — measure gap to now
+        const gapMs = Date.now() - custTime;
+        maxGap = Math.max(maxGap, gapMs / (1000 * 60 * 60));
+      }
+    }
+    return maxGap;
+  })();
+
+  const shouldReviewTech =
+    haloConfig &&
+    actions.length > 0 &&
+    ticketAgeHours >= 1 &&                     // Ticket must be at least 1 hour old
+    customerActions.length > 0 &&              // Customer must have engaged (not just initial submission)
+    classification.urgency_score >= 2;          // Skip notification/billing tickets
+
+  if (shouldReviewTech) {
     try {
       const halo = new HaloClient(haloConfig);
       const feedbackClient = new Anthropic();
@@ -477,12 +515,21 @@ export async function runTriage(
         `Actions marked [INTERNAL NOTE] are private tech notes not visible to the customer.`,
         `Actions marked [CUSTOMER-VISIBLE] are messages exchanged with the customer.`,
         ``,
-        `## Ticket #${context.haloId}: ${context.summary}`,
-        `**Classification:** ${classification.classification.type} / ${classification.classification.subtype}`,
-        `**Urgency:** ${classification.urgency_score}/5`,
+        `## Ticket Context`,
+        `- **Ticket #${context.haloId}:** ${context.summary}`,
+        `- **Classification:** ${classification.classification.type} / ${classification.classification.subtype}`,
+        `- **Urgency:** ${classification.urgency_score}/5`,
+        `- **Ticket Age:** ${ticketAgeHours.toFixed(1)} hours`,
+        `- **Customer actions:** ${customerActions.length} | **Tech actions:** ${techActions.length}`,
+        `- **Longest response gap (customer → tech):** ${maxResponseGapHours.toFixed(1)} hours`,
+        ``,
+        `## Response Time Standards`,
+        `- Gaps over 24 hours without any customer contact are UNACCEPTABLE and should be flagged.`,
+        `- For high-urgency tickets (3+), gaps over 4 hours should be noted.`,
+        `- Consider the ticket age when evaluating: a tech who just received the ticket hasn't had time to respond yet.`,
         ``,
         `## Full Conversation History`,
-        ...context.actions.map((a) => {
+        ...actions.map((a) => {
           const who = a.who ?? "Unknown";
           const when = a.date ?? "";
           const visibility = a.isInternal ? "[INTERNAL NOTE]" : "[CUSTOMER-VISIBLE]";
@@ -492,6 +539,7 @@ export async function runTriage(
         `## Your Task`,
         `Evaluate the TECHNICIAN (${assignedTech ?? "the assigned tech"})'s performance — NOT the customer's.`,
         `Review their communication quality, responsiveness, documentation, and technical approach.`,
+        `Use the actual timestamps and response gaps to assess responsiveness — do NOT guess.`,
         `Reference the technician by name in your feedback. NEVER review or critique the customer.`,
         ``,
         `Respond with ONLY valid JSON:`,
@@ -499,6 +547,7 @@ export async function runTriage(
         `  "rating": "<great | good | needs_improvement | poor>",`,
         `  "communication_score": "<1-5, where 5 = excellent>",`,
         `  "response_time_assessment": "<fast, adequate, slow, no_response>",`,
+        `  "max_response_gap_hours": "<number, longest gap between customer msg and tech reply>",`,
         `  "strengths": "<what the TECH did well, null if nothing notable>",`,
         `  "improvement_areas": "<specific areas the TECH should improve, null if none>",`,
         `  "suggestions": ["<actionable suggestion for the TECH>"],`,
@@ -517,6 +566,7 @@ export async function runTriage(
         rating: string;
         communication_score: number;
         response_time_assessment: string;
+        max_response_gap_hours: number;
         strengths: string | null;
         improvement_areas: string | null;
         suggestions: string[];
@@ -527,6 +577,7 @@ export async function runTriage(
       const ratingColor = feedback.rating === "great" ? "#4ade80" : feedback.rating === "good" ? "#60a5fa" : feedback.rating === "needs_improvement" ? "#fbbf24" : "#f87171";
       const ratingEmoji = feedback.rating === "great" ? "🌟" : feedback.rating === "good" ? "👍" : feedback.rating === "needs_improvement" ? "📋" : "⚠️";
       const commScoreBar = "█".repeat(feedback.communication_score) + "░".repeat(5 - feedback.communication_score);
+      const gapWarning = maxResponseGapHours >= 24 ? " ⚠️ >24h gap" : "";
 
       const suggestionsHtml = feedback.suggestions.length > 0
         ? `<ol style="margin:4px 0;padding-left:20px;">${feedback.suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("")}</ol>`
@@ -536,7 +587,8 @@ export async function runTriage(
         `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:14px;font-weight:700;">${ratingEmoji} Tech Performance Review — TriageIt AI</td></tr>` +
         `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Rating</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${ratingColor};font-weight:700;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</td></tr>` +
         `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Communication</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-family:monospace;">${commScoreBar} ${feedback.communication_score}/5</td></tr>` +
-        `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Response Time</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${feedback.response_time_assessment}</td></tr>` +
+        `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Response Time</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${feedback.response_time_assessment}${gapWarning}</td></tr>` +
+        `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Max Gap</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${maxResponseGapHours >= 24 ? "#f87171" : maxResponseGapHours >= 4 ? "#fbbf24" : "#4ade80"};">${maxResponseGapHours.toFixed(1)}h (ticket age: ${ticketAgeHours.toFixed(1)}h)</td></tr>` +
         (feedback.strengths ? `<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Strengths</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bbf7d0;">${feedback.strengths}</td></tr>` : "") +
         (feedback.improvement_areas ? `<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fbbf24;">Improve</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fde68a;">${feedback.improvement_areas}</td></tr>` : "") +
         `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">Suggestions</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bfdbfe;">${suggestionsHtml}</td></tr>` +

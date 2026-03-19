@@ -66,11 +66,11 @@ async function runDailyRetriage(): Promise<void> {
 
 /**
  * Start the cron scheduler.
- * Default schedule: daily at 6 AM (0 6 * * *).
+ * Default schedule: every 3 hours.
  * Override with RETRIAGE_CRON env var for custom schedules.
  */
 export function startCronScheduler(): void {
-  const schedule = process.env.RETRIAGE_CRON ?? "0 6 * * *";
+  const schedule = process.env.RETRIAGE_CRON ?? "0 */3 * * *";
 
   if (!cron.validate(schedule)) {
     console.error(`[CRON] Invalid cron expression: "${schedule}" — scheduler not started`);

@@ -8,27 +8,59 @@ interface HaloTicket {
   readonly client_id?: number;
   readonly client_name?: string;
   readonly user_name?: string;
+  readonly user_emailaddress?: string;
   readonly agent_id?: number;
+  readonly agent_name?: string;
   readonly team?: string;
+  readonly team_name?: string;
   readonly status_id: number;
   readonly status?: string;
+  readonly statusname?: string;
+  readonly status_name?: string;
   readonly priority_id?: number;
   readonly datecreated: string;
+  readonly dateoccurred?: string;
+  readonly lastactiondate?: string;
+  readonly last_action_date?: string;
+  readonly lastcustomeractiondate?: string;
+  readonly responsetargetmet?: boolean;
+  readonly fixtargetmet?: boolean;
+  readonly sla_status?: string;
+  readonly [key: string]: unknown;
 }
+
+// Human-readable status name lookup for common Halo status IDs
+const HALO_STATUS_MAP: Record<number, string> = {
+  1: "New",
+  2: "In Progress",
+  3: "Waiting on Customer",
+  4: "Customer Reply",
+  5: "Scheduled",
+  6: "On Hold",
+  7: "Pending Vendor",
+  8: "Waiting on Tech",
+  9: "Closed",
+  10: "Resolved",
+  23: "In Progress",
+  24: "Resolved Remotely",
+  25: "Waiting on Parts",
+  26: "Resolved Onsite",
+  27: "Cancelled",
+  29: "In Progress",
+  30: "Waiting on Customer",
+  31: "Customer Reply",
+  32: "New",
+};
 
 /**
  * POST /api/halo/pull-tickets
  *
  * Pulls all open tickets directly from Halo PSA and upserts them into the
- * local tickets table. This does NOT require the worker — it calls Halo from
- * the web app and writes to Supabase with the service role key.
- *
- * Returns { pulled: number, created: number, updated: number }.
+ * local tickets table. Returns { pulled, created, updated }.
  */
 export async function POST() {
   const serviceClient = await createServiceClient();
 
-  // Get Halo config from integrations table
   const { data: integration } = await serviceClient
     .from("integrations")
     .select("config, is_active")
@@ -50,7 +82,6 @@ export async function POST() {
   };
 
   try {
-    // Authenticate with Halo
     const tokenUrl = await discoverTokenEndpoint(config.base_url, config.tenant);
     const tokenResponse = await fetch(tokenUrl, {
       method: "POST",
@@ -136,7 +167,6 @@ export async function POST() {
 
     const existingHaloIds = new Set((existingTickets ?? []).map((t) => t.halo_id));
 
-    // Split into new vs existing
     const newTickets = allTickets.filter((t) => !existingHaloIds.has(t.id));
     const existingIds = allTickets.filter((t) => existingHaloIds.has(t.id));
 
@@ -153,13 +183,16 @@ export async function POST() {
         client_name: ticket.client_name ?? null,
         client_id: ticket.client_id ?? null,
         user_name: ticket.user_name ?? null,
+        user_email: ticket.user_emailaddress ?? null,
         original_priority: ticket.priority_id ?? null,
         status: "triaged" as const,
-        halo_status: ticket.status ?? `status_${ticket.status_id}`,
+        halo_status: resolveStatusName(ticket),
         halo_status_id: ticket.status_id,
-        halo_team: ticket.team ?? null,
-        halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
+        halo_team: ticket.team_name ?? ticket.team ?? null,
+        halo_agent: ticket.agent_name ?? (ticket.agent_id ? String(ticket.agent_id) : null),
         last_retriage_at: now,
+        last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
+        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         updated_at: now,
       }));
 
@@ -174,18 +207,20 @@ export async function POST() {
       }
     }
 
-    // Batch update existing tickets (only tracking fields, not status)
+    // Batch update existing tickets
     for (const ticket of existingIds) {
       const { error: updateError } = await serviceClient
         .from("tickets")
         .update({
           summary: ticket.summary,
           client_name: ticket.client_name ?? null,
-          halo_status: ticket.status ?? `status_${ticket.status_id}`,
+          halo_status: resolveStatusName(ticket),
           halo_status_id: ticket.status_id,
-          halo_team: ticket.team ?? null,
-          halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
+          halo_team: ticket.team_name ?? ticket.team ?? null,
+          halo_agent: ticket.agent_name ?? (ticket.agent_id ? String(ticket.agent_id) : null),
           last_retriage_at: now,
+          last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
+          last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
           updated_at: now,
         })
         .eq("halo_id", ticket.id);
@@ -214,6 +249,26 @@ export async function POST() {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/**
+ * Resolve the human-readable status name from Halo ticket data.
+ * Halo uses different field names depending on the endpoint/version.
+ */
+function resolveStatusName(ticket: HaloTicket): string {
+  // Try the various status name fields Halo returns
+  const name =
+    ticket.statusname ??
+    ticket.status_name ??
+    ticket.status ??
+    null;
+
+  if (name && typeof name === "string" && !name.startsWith("status_")) {
+    return name;
+  }
+
+  // Fall back to our status ID map
+  return HALO_STATUS_MAP[ticket.status_id] ?? `Status ${ticket.status_id}`;
 }
 
 async function discoverTokenEndpoint(
