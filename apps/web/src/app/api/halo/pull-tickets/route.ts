@@ -109,6 +109,7 @@ export async function POST() {
     const allTickets: HaloTicket[] = [];
     const pageSize = 100;
     let page = 1;
+    let totalRecordCount = 0;
 
     while (true) {
       const ticketsResponse = await fetch(
@@ -136,9 +137,28 @@ export async function POST() {
       const tickets = data.tickets ?? [];
       allTickets.push(...tickets);
 
+      // Track total from Halo's own count
+      if (data.record_count && data.record_count > totalRecordCount) {
+        totalRecordCount = data.record_count;
+      }
+
+      console.log(
+        `[HALO SYNC] Page ${page}: got ${tickets.length} tickets (total so far: ${allTickets.length}, Halo says: ${data.record_count ?? "unknown"})`,
+      );
+
       if (tickets.length < pageSize) break;
       page++;
+
+      // Safety: cap at 20 pages (2000 tickets) to avoid infinite loops
+      if (page > 20) {
+        console.warn("[HALO SYNC] Hit 20-page cap, stopping pagination");
+        break;
+      }
     }
+
+    console.log(
+      `[HALO SYNC] Done: fetched ${allTickets.length} tickets across ${page} pages (Halo record_count: ${totalRecordCount})`,
+    );
 
     if (allTickets.length === 0) {
       return NextResponse.json({
@@ -302,6 +322,8 @@ export async function POST() {
 
     return NextResponse.json({
       pulled: allTickets.length,
+      halo_total: totalRecordCount || allTickets.length,
+      pages_fetched: page,
       created,
       updated,
       closed: closedCount,
