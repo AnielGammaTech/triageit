@@ -94,8 +94,7 @@ export function OpenTicketList({ tickets }: OpenTicketListProps) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
         <p className="text-[var(--muted-foreground)]">
-          No open tickets found. Run a daily re-triage scan to populate this view,
-          or configure the cron scheduler.
+          No open tickets found. Click &quot;Pull Open Tickets&quot; to fetch all open tickets from Halo.
         </p>
       </div>
     );
