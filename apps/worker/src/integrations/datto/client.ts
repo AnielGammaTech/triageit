@@ -3,6 +3,9 @@ import type { DattoConfig } from "@triageit/shared";
 /**
  * DattoClient — Queries Datto RMM for device monitoring data.
  *
+ * Uses OAuth2 token flow: POST credentials to /auth/oauth/token,
+ * then use Bearer token for all subsequent API calls.
+ *
  * Used by Andy Bernard to pull real device status, alerts,
  * patch compliance, and software inventory.
  */
@@ -10,11 +13,51 @@ export class DattoClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly apiSecret: string;
+  private cachedToken: { token: string; expiresAt: number } | null = null;
 
   constructor(config: DattoConfig) {
     this.baseUrl = config.api_url.replace(/\/$/, "");
     this.apiKey = config.api_key;
     this.apiSecret = config.api_secret;
+  }
+
+  private async getAccessToken(): Promise<string> {
+    // Return cached token if still valid (with 60s buffer)
+    if (this.cachedToken && Date.now() < this.cachedToken.expiresAt - 60_000) {
+      return this.cachedToken.token;
+    }
+
+    const credentials = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString("base64");
+
+    const tokenResponse = await fetch(`${this.baseUrl}/auth/oauth/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "password",
+        username: this.apiKey,
+        password: this.apiSecret,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const text = await tokenResponse.text();
+      throw new Error(`Datto RMM auth failed (${tokenResponse.status}): ${text}`);
+    }
+
+    const data = (await tokenResponse.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+
+    this.cachedToken = {
+      token: data.access_token,
+      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+    };
+
+    return data.access_token;
   }
 
   private async request<T>(path: string, params?: Record<string, string>): Promise<T> {
@@ -25,11 +68,11 @@ export class DattoClient {
       }
     }
 
-    const credentials = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString("base64");
+    const token = await this.getAccessToken();
 
     const response = await fetch(url.toString(), {
       headers: {
-        Authorization: `Basic ${credentials}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
     });

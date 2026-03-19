@@ -48,7 +48,7 @@ const HALO_STATUS_MAP: Record<number, string> = {
   27: "Cancelled",
   29: "In Progress",
   30: "Waiting on Customer",
-  31: "Customer Reply",
+  31: "Resolved",
   32: "New",
 };
 

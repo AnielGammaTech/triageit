@@ -191,8 +191,9 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
          "Not configured"}
       </div>
 
-      {/* Tabs — hide mapping tab for services that don't need it */}
-      {!["teams", "ai-provider"].includes(item.service) && (
+      {/* Tabs — hide mapping tab for services that don't need it.
+          Halo is the source of truth so it doesn't need customer mapping. */}
+      {!["teams", "ai-provider", "halo"].includes(item.service) && (
         <div className="flex gap-1 border-b border-white/10">
           <button
             onClick={() => setActiveTab("config")}

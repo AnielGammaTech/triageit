@@ -145,11 +145,29 @@ async function fetchHuduCustomers(
 async function fetchDattoCustomers(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // Datto RMM uses Basic Auth with api_key:api_secret
+  // Datto RMM uses OAuth2: get token first, then use Bearer token
+  const baseUrl = config.api_url.replace(/\/$/, "");
   const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
-  const res = await fetch(`${config.api_url}/api/v2/account/sites`, {
+
+  const tokenRes = await fetch(`${baseUrl}/auth/oauth/token`, {
+    method: "POST",
     headers: {
       Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "password",
+      username: config.api_key,
+      password: config.api_secret,
+    }),
+  });
+
+  if (!tokenRes.ok) throw new Error(`Datto RMM auth failed: ${tokenRes.status}`);
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+
+  const res = await fetch(`${baseUrl}/api/v2/account/sites`, {
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
       "Content-Type": "application/json",
     },
   });

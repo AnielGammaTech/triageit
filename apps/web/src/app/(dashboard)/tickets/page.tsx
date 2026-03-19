@@ -49,7 +49,7 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"incoming" | "open">("open");
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "resolved">("open");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const hasPulled = useRef(false);
@@ -117,8 +117,11 @@ export default function TicketsPage() {
   const openTickets = tickets.filter((t) => {
     if (isResolved(t)) return false;
     if (t.status === "pending" || t.status === "triaging") return false;
-    return !!t.last_retriage_at;
+    return true;
   });
+
+  // Resolved: tickets whose Halo status is resolved/closed/cancelled
+  const resolvedTickets = tickets.filter((t) => isResolved(t));
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
@@ -178,6 +181,20 @@ export default function TicketsPage() {
                 {openTickets.length}
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab("resolved")}
+              className={cn(
+                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
+                activeTab === "resolved"
+                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
+              )}
+            >
+              Resolved
+              <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">
+                {resolvedTickets.length}
+              </span>
+            </button>
           </div>
 
           {/* Sync button */}
@@ -209,7 +226,9 @@ export default function TicketsPage() {
                 ? incomingTickets.length > 0
                   ? `${incomingTickets.length} awaiting triage`
                   : "All caught up"
-                : `${openTickets.length} open`}
+                : activeTab === "resolved"
+                  ? `${resolvedTickets.length} resolved`
+                  : `${openTickets.length} open`}
           </p>
         </div>
       </div>
@@ -239,6 +258,16 @@ export default function TicketsPage() {
           </div>
         ) : (
           <IncomingTicketList tickets={incomingTickets} onSelectTicket={handleSelectTicket} />
+        )
+      ) : activeTab === "resolved" ? (
+        resolvedTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">
+              No resolved tickets found.
+            </p>
+          </div>
+        ) : (
+          <OpenTicketList tickets={resolvedTickets} onSelectTicket={handleSelectTicket} />
         )
       ) : (
         <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} />

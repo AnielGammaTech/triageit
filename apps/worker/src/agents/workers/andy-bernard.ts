@@ -137,6 +137,33 @@ Respond with ONLY valid JSON:
     if (!clientName) return null;
 
     try {
+      // 1. Check integration_mappings first (admin-approved mappings)
+      const { data: mapping } = await this.supabase
+        .from("integration_mappings")
+        .select("external_id, external_name")
+        .eq("service", "datto")
+        .eq("customer_name", clientName)
+        .single();
+
+      if (mapping) {
+        const siteId = Number(mapping.external_id);
+        if (!isNaN(siteId)) {
+          try {
+            const site = await datto.getSite(siteId);
+            if (site) {
+              await this.logThinking(
+                "",
+                `Found Datto site via mapping: "${mapping.external_name}" (ID: ${siteId}) for Halo customer "${clientName}"`,
+              );
+              return site;
+            }
+          } catch {
+            // Mapping exists but site fetch failed — fall through to name search
+          }
+        }
+      }
+
+      // 2. Fallback: search by name
       const sites = await datto.getSites();
       const lower = clientName.toLowerCase();
 
