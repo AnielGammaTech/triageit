@@ -295,8 +295,9 @@ async function fetchHuduDirect(config: Record<string, string>) {
 }
 
 async function fetchDattoDirect(config: Record<string, string>) {
+  const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
   const res = await fetch(`${config.api_url}/api/v2/account/sites`, {
-    headers: { Authorization: `Bearer ${config.api_key}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/json" },
   });
   if (!res.ok) throw new Error(`Datto error: ${res.status}`);
   const data = (await res.json()) as { sites?: Array<{ id: number; name: string }> };

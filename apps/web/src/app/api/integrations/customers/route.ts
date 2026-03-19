@@ -145,10 +145,11 @@ async function fetchHuduCustomers(
 async function fetchDattoCustomers(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // Datto RMM uses sites as the customer concept
+  // Datto RMM uses Basic Auth with api_key:api_secret
+  const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
   const res = await fetch(`${config.api_url}/api/v2/account/sites`, {
     headers: {
-      Authorization: `Bearer ${config.api_key}`,
+      Authorization: `Basic ${credentials}`,
       "Content-Type": "application/json",
     },
   });
