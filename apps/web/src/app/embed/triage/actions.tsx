@@ -7,19 +7,18 @@ import { useState, useCallback, type ReactNode } from "react";
 function CopyButton({
   text,
   label,
+  icon,
 }: {
   readonly text: string;
   readonly label: string;
+  readonly icon: string;
 }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for iframes without clipboard permission
       const textarea = document.createElement("textarea");
       textarea.value = text;
       textarea.style.position = "fixed";
@@ -28,9 +27,9 @@ function CopyButton({
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
   return (
@@ -40,30 +39,35 @@ function CopyButton({
         display: "inline-flex",
         alignItems: "center",
         gap: "6px",
-        padding: "6px 12px",
-        fontSize: "12px",
+        padding: "7px 14px",
+        fontSize: "11px",
         fontWeight: 600,
-        color: copied ? "#10b981" : "#d4d4d8",
-        backgroundColor: copied ? "rgba(16, 185, 129, 0.1)" : "#18181b",
-        border: `1px solid ${copied ? "rgba(16, 185, 129, 0.3)" : "#27272a"}`,
-        borderRadius: "6px",
+        fontFamily: "inherit",
+        color: copied ? "#34d399" : "#a1a1aa",
+        backgroundColor: copied ? "rgba(52, 211, 153, 0.08)" : "rgba(255,255,255,0.03)",
+        border: `1px solid ${copied ? "rgba(52, 211, 153, 0.25)" : "rgba(255,255,255,0.06)"}`,
+        borderRadius: "8px",
         cursor: "pointer",
-        transition: "all 0.15s ease",
+        transition: "all 0.2s ease",
         whiteSpace: "nowrap" as const,
+        letterSpacing: "0.01em",
       }}
       onMouseEnter={(e) => {
         if (!copied) {
-          e.currentTarget.style.backgroundColor = "#27272a";
-          e.currentTarget.style.borderColor = "#3f3f46";
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+          e.currentTarget.style.color = "#d4d4d8";
         }
       }}
       onMouseLeave={(e) => {
         if (!copied) {
-          e.currentTarget.style.backgroundColor = "#18181b";
-          e.currentTarget.style.borderColor = "#27272a";
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+          e.currentTarget.style.color = "#a1a1aa";
         }
       }}
     >
+      <span style={{ fontSize: "13px" }}>{copied ? "\u2713" : icon}</span>
       {copied ? "Copied!" : label}
     </button>
   );
@@ -89,7 +93,6 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
 
       if (response.ok) {
         setState("done");
-        // Reload page after a brief pause to show success
         setTimeout(() => window.location.reload(), 1500);
       } else {
         setState("error");
@@ -101,19 +104,14 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
     }
   }, [ticketId, state]);
 
-  const labelMap = {
-    idle: "Re-Triage",
-    loading: "Triaging...",
-    done: "Triggered!",
-    error: "Failed",
+  const config = {
+    idle: { label: "Re-Triage", bg: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "#fff" },
+    loading: { label: "Triaging...", bg: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "#fff" },
+    done: { label: "Queued!", bg: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" },
+    error: { label: "Failed", bg: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff" },
   } as const;
 
-  const colorMap = {
-    idle: "#6366f1",
-    loading: "#6366f1",
-    done: "#10b981",
-    error: "#ef4444",
-  } as const;
+  const c = config[state];
 
   return (
     <button
@@ -123,26 +121,31 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
         display: "inline-flex",
         alignItems: "center",
         gap: "6px",
-        padding: "6px 12px",
-        fontSize: "12px",
-        fontWeight: 600,
-        color: "#fff",
-        backgroundColor: colorMap[state],
+        padding: "7px 16px",
+        fontSize: "11px",
+        fontWeight: 700,
+        fontFamily: "inherit",
+        color: c.color,
+        background: c.bg,
         border: "none",
-        borderRadius: "6px",
+        borderRadius: "8px",
         cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
-        transition: "all 0.15s ease",
-        opacity: state === "loading" ? 0.7 : 1,
+        transition: "all 0.2s ease",
+        opacity: state === "loading" ? 0.8 : 1,
         whiteSpace: "nowrap" as const,
+        letterSpacing: "0.02em",
+        boxShadow: state === "idle" ? "0 1px 4px rgba(99, 102, 241, 0.3)" : "none",
       }}
       onMouseEnter={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "#4f46e5";
+          e.currentTarget.style.boxShadow = "0 2px 8px rgba(99, 102, 241, 0.45)";
+          e.currentTarget.style.transform = "translateY(-1px)";
         }
       }}
       onMouseLeave={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "#6366f1";
+          e.currentTarget.style.boxShadow = "0 1px 4px rgba(99, 102, 241, 0.3)";
+          e.currentTarget.style.transform = "translateY(0)";
         }
       }}
     >
@@ -150,8 +153,8 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
         <span
           style={{
             display: "inline-block",
-            width: "12px",
-            height: "12px",
+            width: "11px",
+            height: "11px",
             border: "2px solid rgba(255,255,255,0.3)",
             borderTopColor: "#fff",
             borderRadius: "50%",
@@ -159,7 +162,7 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
           }}
         />
       )}
-      {labelMap[state]}
+      {c.label}
     </button>
   );
 }
@@ -176,19 +179,12 @@ export function QuickActions({
   readonly internalNotes: string | null;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: "8px",
-        flexWrap: "wrap" as const,
-        alignItems: "center",
-      }}
-    >
+    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const, alignItems: "center" }}>
       {suggestedResponse && (
-        <CopyButton text={suggestedResponse} label="Copy Response" />
+        <CopyButton text={suggestedResponse} label="Copy Response" icon="\u2709" />
       )}
       {internalNotes && (
-        <CopyButton text={internalNotes} label="Copy Notes" />
+        <CopyButton text={internalNotes} label="Copy Notes" icon="\u270E" />
       )}
       <ReTriageButton ticketId={ticketId} />
     </div>
@@ -215,12 +211,13 @@ export function CollapsibleSection({
   return (
     <div
       style={{
-        backgroundColor: "#111113",
-        border: "1px solid #1e1e22",
+        backgroundColor: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.05)",
         borderLeft: `3px solid ${accent}`,
-        borderRadius: "8px",
+        borderRadius: "10px",
         marginBottom: "10px",
         overflow: "hidden",
+        backdropFilter: "blur(8px)",
       }}
     >
       <button
@@ -230,20 +227,28 @@ export function CollapsibleSection({
           alignItems: "center",
           gap: "8px",
           width: "100%",
-          padding: "10px 14px",
+          padding: "11px 16px",
           backgroundColor: "transparent",
           border: "none",
           cursor: "pointer",
           textAlign: "left" as const,
+          fontFamily: "inherit",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.02)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
         <span
           style={{
-            fontSize: "10px",
-            color: "#71717a",
-            transition: "transform 0.15s ease",
+            fontSize: "9px",
+            color: accent,
+            transition: "transform 0.2s ease",
             transform: open ? "rotate(90deg)" : "rotate(0deg)",
             display: "inline-block",
+            opacity: 0.7,
           }}
         >
           &#9654;
@@ -254,7 +259,7 @@ export function CollapsibleSection({
             fontWeight: 700,
             color: "#a1a1aa",
             textTransform: "uppercase" as const,
-            letterSpacing: "0.05em",
+            letterSpacing: "0.06em",
             flex: 1,
           }}
         >
@@ -265,11 +270,11 @@ export function CollapsibleSection({
             style={{
               fontSize: "10px",
               fontWeight: 600,
-              padding: "1px 6px",
-              borderRadius: "4px",
-              backgroundColor: "rgba(99, 102, 241, 0.15)",
-              color: "#818cf8",
-              border: "1px solid rgba(99, 102, 241, 0.2)",
+              padding: "2px 8px",
+              borderRadius: "10px",
+              backgroundColor: `${accent}15`,
+              color: accent,
+              border: `1px solid ${accent}25`,
             }}
           >
             {badge}
@@ -277,13 +282,13 @@ export function CollapsibleSection({
         )}
       </button>
       {open && (
-        <div style={{ padding: "0 14px 12px 14px" }}>{children}</div>
+        <div style={{ padding: "0 16px 14px 16px" }}>{children}</div>
       )}
     </div>
   );
 }
 
-// ── Spinner keyframes (injected once) ───────────────────────────────────
+// ── Spinner keyframes ───────────────────────────────────────────────────
 
 export function SpinnerStyles() {
   return (
@@ -293,6 +298,15 @@ export function SpinnerStyles() {
           @keyframes spin {
             to { transform: rotate(360deg); }
           }
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          * { box-sizing: border-box; }
+          body { margin: 0; }
+          ::-webkit-scrollbar { width: 6px; }
+          ::-webkit-scrollbar-track { background: transparent; }
+          ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
         `,
       }}
     />
