@@ -1185,20 +1185,28 @@ function stripHtmlActions(html: string): string {
 
 // ── Halo Note Builder ────────────────────────────────────────────────
 
-function formatTechNotes(notes: string): string {
+function formatTechNotes(notes: unknown): string {
+  // Handle non-string inputs (LLM sometimes returns array or null)
+  if (!notes) return "No notes available.";
+  const text = Array.isArray(notes)
+    ? notes.map((n) => (typeof n === "string" ? n : JSON.stringify(n))).join("\n")
+    : typeof notes === "string"
+      ? notes
+      : JSON.stringify(notes);
+
   // Split on numbered patterns like "1)", "1.", "(1)", or "STEP 1:" etc.
-  const numbered = notes.split(/(?:^|\s)(?:\d+[\).\-:]|\(\d+\))\s*/g).filter(Boolean);
+  const numbered = text.split(/(?:^|\s)(?:\d+[\).\-:]|\(\d+\))\s*/g).filter(Boolean);
   if (numbered.length > 1) {
     const items = numbered.map((item) => `<li style="margin-bottom:6px;">${item.trim()}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
   // Split on sentence-ending patterns (". UPPERCASE" or ". Action:")
-  const sentences = notes.split(/(?<=\.)\s+(?=[A-Z])/).filter(Boolean);
+  const sentences = text.split(/(?<=\.)\s+(?=[A-Z])/).filter(Boolean);
   if (sentences.length > 2) {
     const items = sentences.map((s) => `<li style="margin-bottom:6px;">${s.trim()}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
-  return notes;
+  return text;
 }
 
 function buildHaloNote(
