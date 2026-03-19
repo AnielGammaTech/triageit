@@ -139,6 +139,9 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadTicket = useCallback(async () => {
@@ -190,6 +193,39 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
       setRetriaging(false);
     }
   }, [ticketId, retriaging]);
+
+  const handleSummarize = useCallback(async () => {
+    if (summarizing || !ticket) return;
+    setSummarizing(true);
+    setSummary(null);
+
+    try {
+      const response = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: ticket.halo_id }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          summary: string;
+          actionCount: number;
+          appointmentCount?: number;
+        };
+        setSummary(data.summary);
+        setSummaryMeta({
+          actions: data.actionCount,
+          appointments: data.appointmentCount ?? 0,
+        });
+      } else {
+        setSummary("Failed to generate summary. Please try again.");
+      }
+    } catch {
+      setSummary("Failed to generate summary. Please try again.");
+    } finally {
+      setSummarizing(false);
+    }
+  }, [ticket, summarizing]);
 
   // Initial load + real-time subscriptions
   useEffect(() => {
@@ -330,28 +366,53 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
           </div>
           <p className="mt-1 text-sm text-white/70">{ticket.summary}</p>
         </div>
-        <button
-          onClick={handleRetriage}
-          disabled={retriaging || isTriaging}
-          className={cn(
-            "shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-            retriaging || isTriaging
-              ? "cursor-not-allowed bg-white/5 text-white/20"
-              : "bg-[#6366f1]/10 text-[#6366f1] hover:bg-[#6366f1]/20",
-          )}
-        >
-          {retriaging ? (
-            <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/60" />
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-              <path d="M16 21h5v-5" />
-            </svg>
-          )}
-          {retriaging ? "Re-triaging..." : "Re-triage"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={handleSummarize}
+            disabled={summarizing}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              summarizing
+                ? "cursor-not-allowed bg-white/5 text-white/20"
+                : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20",
+            )}
+          >
+            {summarizing ? (
+              <div className="h-3 w-3 animate-spin rounded-full border border-amber-400/30 border-t-amber-400" />
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6" />
+                <path d="M16 13H8" />
+                <path d="M16 17H8" />
+                <path d="M10 9H8" />
+              </svg>
+            )}
+            {summarizing ? "Summarizing..." : "SummarizeIT"}
+          </button>
+          <button
+            onClick={handleRetriage}
+            disabled={retriaging || isTriaging}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              retriaging || isTriaging
+                ? "cursor-not-allowed bg-white/5 text-white/20"
+                : "bg-[#6366f1]/10 text-[#6366f1] hover:bg-[#6366f1]/20",
+            )}
+          >
+            {retriaging ? (
+              <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/60" />
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M16 21h5v-5" />
+              </svg>
+            )}
+            {retriaging ? "Re-triaging..." : "Re-triage"}
+          </button>
+        </div>
       </div>
 
       {/* Info cards row */}
@@ -364,6 +425,33 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
         />
         <InfoCard label="Created" value={timeAgo(ticket.created_at)} />
       </div>
+
+      {/* SummarizeIT result */}
+      {(summary || summarizing) && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-amber-400">SummarizeIT</h3>
+              <span className="text-[10px] text-amber-400/40">Tech Activity Summary</span>
+            </div>
+            {summaryMeta && (
+              <span className="text-[10px] text-amber-400/40">
+                {summaryMeta.actions} actions · {summaryMeta.appointments} appointments
+              </span>
+            )}
+          </div>
+          {summarizing ? (
+            <div className="flex items-center gap-2 py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-400/20 border-t-amber-400" />
+              <span className="text-sm text-amber-400/60">Reading private notes & appointments...</span>
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-white/70">
+              {summary}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Triage summary card */}
       {triage && (
