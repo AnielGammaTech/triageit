@@ -192,6 +192,23 @@ export abstract class BaseAgent {
   }
 
   /**
+   * Build a text section with image descriptions from the ticket context.
+   * Call this in specialist agents to include visual content in text-only messages.
+   */
+  protected formatImageDescriptions(context: TriageContext): string {
+    if (!context.imageDescriptions) return "";
+    return [
+      "",
+      "---",
+      "## Screenshots & Images from Ticket",
+      "The following text was extracted from images/screenshots attached to this ticket:",
+      "",
+      context.imageDescriptions,
+      "---",
+    ].join("\n");
+  }
+
+  /**
    * Log a thinking step — visible in real-time in the UI.
    * Use this to show the agent's reasoning as it works.
    */

@@ -34,6 +34,7 @@ export interface TriageContext {
     readonly isInternal: boolean;
   }>;
   readonly images?: ReadonlyArray<TicketImageContext>;
+  readonly imageDescriptions?: string;
 }
 
 export interface TriageOutput {

@@ -228,6 +228,43 @@ export async function runTriage(
         "manager",
         `Fetched ${formattedActions.length} action(s)/comment(s) and ${imageContexts.length} image(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
       );
+
+      // ── Vision Pre-Processing: Describe images for specialist agents ──
+      // Specialists only see text — so we use Haiku vision to describe any
+      // screenshots/images BEFORE dispatching to specialists.
+      if (imageContexts.length > 0) {
+        try {
+          const descriptions = await describeTicketImages(
+            imageContexts,
+            context.summary,
+          );
+          if (descriptions) {
+            // Enrich the details field so ALL specialist agents automatically
+            // see the image content without any per-agent changes.
+            const enrichedDetails = [
+              context.details ?? "",
+              "",
+              "--- SCREENSHOTS / IMAGES ATTACHED TO THIS TICKET ---",
+              descriptions,
+              "--- END SCREENSHOTS ---",
+            ].join("\n").trim();
+            context = {
+              ...context,
+              details: enrichedDetails,
+              imageDescriptions: descriptions,
+            };
+            await logThinking(
+              supabase,
+              ticket.id,
+              "michael_scott",
+              "manager",
+              `Described ${imageContexts.length} image(s) for specialist agents: ${descriptions.substring(0, 200)}...`,
+            );
+          }
+        } catch (err) {
+          console.warn(`[MICHAEL] Image description failed for #${ticket.halo_id}:`, err);
+        }
+      }
     } catch (err) {
       console.warn(`[MICHAEL] Could not fetch Halo actions for ticket #${ticket.halo_id}:`, err);
     }
@@ -1351,3 +1388,55 @@ function buildCompactRetrieageNote(
 
 // Customer response is now only displayed in the TriageIT embed tab
 // (no longer posted as a separate Halo note to reduce clutter).
+
+// ── Vision Pre-Processor ──────────────────────────────────────────────
+// Uses Haiku to describe ticket screenshots/images so specialist agents
+// (who only see text) can understand visual content like error messages,
+// NDR bounce-backs, diagnostic screenshots, etc.
+
+async function describeTicketImages(
+  images: ReadonlyArray<{
+    readonly filename: string;
+    readonly mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    readonly base64Data: string;
+    readonly who: string | null;
+  }>,
+  ticketSummary: string,
+): Promise<string | null> {
+  if (images.length === 0) return null;
+
+  const client = new Anthropic();
+
+  const content: Anthropic.MessageCreateParams["messages"][0]["content"] = [
+    {
+      type: "text",
+      text: `This ticket is about: "${ticketSummary}"\n\nDescribe each image below in detail. Extract ALL text, error messages, codes, domain names, email addresses, IP addresses, status indicators, and any other technical details visible. This information will be used by specialist agents to diagnose the issue.\n\nFor each image, format as:\n**Image: [filename]**\n[detailed description with all extracted text]\n`,
+    },
+  ];
+
+  for (const img of images) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: img.mediaType,
+        data: img.base64Data,
+      },
+    });
+    content.push({
+      type: "text",
+      text: `Filename: ${img.filename}${img.who ? ` (uploaded by ${img.who})` : ""}`,
+    });
+  }
+
+  const response = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1024,
+    messages: [{ role: "user", content }],
+  });
+
+  const description =
+    response.content[0].type === "text" ? response.content[0].text : null;
+
+  return description;
+}
