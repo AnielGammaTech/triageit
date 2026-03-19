@@ -38,6 +38,8 @@ interface TicketRow {
   }>;
 }
 
+const RESOLVED_STATUSES = ["closed", "resolved", "cancelled", "completed", "resolved remotely", "resolved onsite", "resolved - awaiting confirmation"];
+
 export default function TicketsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -97,11 +99,13 @@ export default function TicketsPage() {
   }
 
   async function handleTriageSelected() {
-    const ids = selectedIds.length > 0 ? [...selectedIds] : newTickets.map((t) => t.id);
+    const activeTickets = activeTab === "new" ? newTickets : openTickets;
+    const ids = selectedIds.length > 0 ? [...selectedIds] : activeTickets.map((t) => t.id);
     if (ids.length === 0) return;
 
+    const action = activeTab === "open" ? "Re-triage" : "Triage";
     const confirmed = window.confirm(
-      `Triage ${ids.length} ticket(s)? This will run AI analysis on each ticket.`,
+      `${action} ${ids.length} ticket(s)? This will run AI analysis on each ticket.`,
     );
     if (!confirmed) return;
 
@@ -159,8 +163,9 @@ export default function TicketsPage() {
   }
 
   // Split tickets into new (triaged recently) and open (all with halo_status or older)
-  const newTickets = tickets.filter((t) => t.status === "triaged" || t.status === "pending");
-  const openTickets = tickets.filter((t) => t.halo_status && t.halo_status !== "New");
+  const isResolved = (t: TicketRow) => t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
+  const newTickets = tickets.filter((t) => (t.status === "triaged" || t.status === "pending") && !isResolved(t));
+  const openTickets = tickets.filter((t) => t.halo_status && t.halo_status !== "New" && !isResolved(t));
 
   return (
     <div className="space-y-4">
@@ -198,19 +203,19 @@ export default function TicketsPage() {
               </span>
             </button>
           </div>
-          {activeTab === "new" && (
-            <button
-              onClick={handleTriageSelected}
-              disabled={triaging}
-              className="rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20 disabled:opacity-50"
-            >
-              {triaging
-                ? `Triaging ${triageProgress.current}/${triageProgress.total}...`
-                : selectedIds.length > 0
-                  ? `Triage ${selectedIds.length} Selected`
+          <button
+            onClick={handleTriageSelected}
+            disabled={triaging}
+            className="rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20 disabled:opacity-50"
+          >
+            {triaging
+              ? `Triaging ${triageProgress.current}/${triageProgress.total}...`
+              : selectedIds.length > 0
+                ? `${activeTab === "open" ? "Re-triage" : "Triage"} ${selectedIds.length} Selected`
+                : activeTab === "open"
+                  ? "Re-triage All Open"
                   : "Triage All"}
-            </button>
-          )}
+          </button>
           {activeTab === "new" && selectedIds.length > 0 && (
             <button
               onClick={handleDelete}
