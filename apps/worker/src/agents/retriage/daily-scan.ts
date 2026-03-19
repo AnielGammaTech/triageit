@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloTicket, HaloAction, HaloConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
+import { isAlertTicket } from "../workers/erin-hannon.js";
 
 
 interface ReTriageResult {
@@ -264,6 +265,47 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           console.log(`[RETRIAGE] Detected update request in ticket #${ticket.id}`);
         } catch (err) {
           console.error(`[RETRIAGE] Failed to handle update request for #${ticket.id}:`, err);
+        }
+      }
+
+      // Skip alert tickets — they were triaged cheaply and don't need re-review
+      const isAlert = isAlertTicket(
+        ticket.summary,
+        ticket.details ?? null,
+        "",  // no classification type available here
+        "",
+      );
+      if (isAlert) {
+        // Still upsert tracking data so we have fresh status info
+        await upsertTicketFromHalo(supabase, ticket, actions);
+        continue;
+      }
+
+      // Also skip if this ticket was previously triaged via alert/notification fast path
+      const { data: localTicket } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("halo_id", ticket.id)
+        .maybeSingle();
+
+      if (localTicket) {
+        const { data: existingTriage } = await supabase
+          .from("triage_results")
+          .select("internal_notes")
+          .eq("ticket_id", localTicket.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingTriage?.internal_notes) {
+          const notes = existingTriage.internal_notes as string;
+          if (
+            notes.startsWith("Alert:") ||
+            notes === "Notification/transactional ticket — no action required."
+          ) {
+            await upsertTicketFromHalo(supabase, ticket, actions);
+            continue;
+          }
         }
       }
 
