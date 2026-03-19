@@ -44,6 +44,14 @@ const PRIORITY_LABELS: Record<number, string> = {
   5: "Minimal",
 };
 
+const PRIORITY_COLORS: Record<number, string> = {
+  1: "text-red-400 font-bold",
+  2: "text-orange-400 font-semibold",
+  3: "text-yellow-400 font-medium",
+  4: "text-green-400 font-medium",
+  5: "text-gray-400 font-normal",
+};
+
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString("en-US", {
     month: "short",
@@ -178,10 +186,10 @@ export function TicketList({
                   onClick={() => onSelectTicket(ticket.id)}
                 >
                   {triage ? (
-                    <span className="font-medium">
+                    <span className={PRIORITY_COLORS[triage.recommended_priority] ?? "font-medium"}>
                       {PRIORITY_LABELS[triage.recommended_priority] ??
                         `P${triage.recommended_priority}`}
-                      <span className="ml-1 text-xs text-[var(--muted-foreground)]">
+                      <span className="ml-1 text-xs opacity-50">
                         ({triage.urgency_score}/5)
                       </span>
                     </span>
