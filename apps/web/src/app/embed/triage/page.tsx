@@ -197,6 +197,7 @@ export default async function EmbedTriagePage({
       <div style={s.actionsRow}>
         <QuickActions
           ticketId={ticket.id}
+          haloId={ticket.halo_id}
           suggestedResponse={latest.suggested_response}
           internalNotes={latest.internal_notes}
         />

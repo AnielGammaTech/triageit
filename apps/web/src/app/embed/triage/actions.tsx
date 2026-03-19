@@ -167,14 +167,149 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
   );
 }
 
+// ── SummarizeIT Button ──────────────────────────────────────────────────
+
+function SummarizeITButton({ haloId }: { readonly haloId: number }) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [summary, setSummary] = useState<string | null>(null);
+
+  const handleSummarize = useCallback(async () => {
+    if (state === "loading") return;
+    setState("loading");
+    setSummary(null);
+
+    try {
+      const response = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as { summary: string };
+        setSummary(data.summary);
+        setState("done");
+      } else {
+        setState("error");
+        setTimeout(() => setState("idle"), 3000);
+      }
+    } catch {
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
+    }
+  }, [haloId, state]);
+
+  return (
+    <>
+      <button
+        onClick={handleSummarize}
+        disabled={state === "loading"}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "7px 14px",
+          fontSize: "11px",
+          fontWeight: 700,
+          fontFamily: "inherit",
+          color: state === "done" ? "#fbbf24" : state === "error" ? "#f87171" : "#fbbf24",
+          background: state === "loading"
+            ? "rgba(251, 191, 36, 0.08)"
+            : "linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(251, 191, 36, 0.05))",
+          border: "1px solid rgba(251, 191, 36, 0.2)",
+          borderRadius: "8px",
+          cursor: state === "loading" ? "not-allowed" : "pointer",
+          transition: "all 0.2s ease",
+          opacity: state === "loading" ? 0.8 : 1,
+          whiteSpace: "nowrap" as const,
+          letterSpacing: "0.01em",
+        }}
+        onMouseEnter={(e) => {
+          if (state === "idle" || state === "done") {
+            e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.35)";
+            e.currentTarget.style.transform = "translateY(-1px)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (state === "idle" || state === "done") {
+            e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.2)";
+            e.currentTarget.style.transform = "translateY(0)";
+          }
+        }}
+      >
+        {state === "loading" && (
+          <span
+            style={{
+              display: "inline-block",
+              width: "11px",
+              height: "11px",
+              border: "2px solid rgba(251, 191, 36, 0.3)",
+              borderTopColor: "#fbbf24",
+              borderRadius: "50%",
+              animation: "spin 0.6s linear infinite",
+            }}
+          />
+        )}
+        {state === "error"
+          ? "Failed"
+          : state === "loading"
+            ? "Summarizing..."
+            : "SummarizeIT"}
+      </button>
+
+      {summary && (
+        <div
+          style={{
+            width: "100%",
+            marginTop: "10px",
+            padding: "14px 16px",
+            background: "linear-gradient(135deg, rgba(251, 191, 36, 0.06), rgba(251, 191, 36, 0.02))",
+            border: "1px solid rgba(251, 191, 36, 0.15)",
+            borderRadius: "10px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              marginBottom: "8px",
+            }}
+          >
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#fbbf24" }}>
+              SummarizeIT
+            </span>
+            <span style={{ fontSize: "10px", color: "rgba(251, 191, 36, 0.4)" }}>
+              Tech Activity Summary
+            </span>
+          </div>
+          <p
+            style={{
+              color: "#d4d4d8",
+              margin: 0,
+              whiteSpace: "pre-wrap" as const,
+              fontSize: "12px",
+              lineHeight: 1.7,
+            }}
+          >
+            {summary}
+          </p>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Quick Action Bar ────────────────────────────────────────────────────
 
 export function QuickActions({
   ticketId,
+  haloId,
   suggestedResponse,
   internalNotes,
 }: {
   readonly ticketId: string;
+  readonly haloId: number;
   readonly suggestedResponse: string | null;
   readonly internalNotes: string | null;
 }) {
@@ -186,6 +321,7 @@ export function QuickActions({
       {internalNotes && (
         <CopyButton text={internalNotes} label="Copy Notes" icon="\u270E" />
       )}
+      <SummarizeITButton haloId={haloId} />
       <ReTriageButton ticketId={ticketId} />
     </div>
   );
