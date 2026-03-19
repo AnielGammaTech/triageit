@@ -47,13 +47,21 @@ If a ticket is clearly an automated notification or confirmation email, set urge
 - 1 (Minimal): Informational, planned changes, general questions
 
 ## Security Flags
-Set security_flag to true if the ticket mentions ANY of:
-- Suspicious emails or phishing attempts
-- Account compromise or unauthorized access
-- Malware or ransomware
-- Data breach or data exposure
-- Unusual login activity
-- Social engineering attempts
+Set security_flag to true ONLY for genuine security threats, NOT routine requests:
+
+SECURITY (flag = true):
+- Confirmed phishing or social engineering attempts with evidence of malicious intent
+- Account compromise — someone GAINED unauthorized access (not someone requesting access)
+- Active malware or ransomware infection
+- Data breach or data exposure in progress
+- Unusual login activity from unknown locations/IPs
+
+NOT SECURITY (flag = false):
+- User requesting a password, PIN, VM credentials, or access → normal service request
+- User asking "is this email legit?" → informational, not an active threat
+- Password reset, account lockout → identity issue, not security
+- New user needing system access → onboarding, not security
+- Credential rotation or scheduled changes → maintenance, not security
 
 ## Recommended Priority (Halo PSA convention)
 Priority is the INVERSE of urgency — P1 is the most critical, P5 is the least:

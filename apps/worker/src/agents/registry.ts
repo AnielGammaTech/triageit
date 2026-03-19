@@ -134,7 +134,7 @@ export async function getAgentsForClassification(
     endpoint: ["andy_bernard", "dwight_schrute"],
     cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez"],
     backup: ["meredith_palmer", "oscar_martinez"],
-    security: ["angela_martin", "jim_halpert"],
+    security: ["angela_martin", "jim_halpert", "phyllis_vance"],
     identity: ["jim_halpert"],
     application: ["dwight_schrute", "andy_bernard"],
     infrastructure: ["andy_bernard", "stanley_hudson"],
