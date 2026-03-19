@@ -148,7 +148,7 @@ export function TicketList({
                   #{ticket.halo_id}
                 </td>
                 <td
-                  className="max-w-xs truncate px-4 py-3"
+                  className="max-w-xl truncate px-4 py-3"
                   onClick={() => onSelectTicket(ticket.id)}
                 >
                   {ticket.summary}
