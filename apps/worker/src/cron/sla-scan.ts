@@ -7,14 +7,16 @@ interface SlaScanResult {
   readonly totalChecked: number;
   readonly breachesFound: number;
   readonly triageEnqueued: number;
-  readonly skippedRecentlyTriaged: number;
+  readonly skippedCurrentlyTriaging: number;
   readonly errors: ReadonlyArray<string>;
 }
 
 /**
  * Scan all open tickets in Halo for SLA breaches.
- * For each breached ticket, enqueue a triage job if it hasn't been
- * triaged in the last 3 hours (cooldown to prevent flooding).
+ * For each breached ticket, enqueue a triage job.
+ *
+ * Cooldown: based on the most recent triage_results entry for the ticket,
+ * NOT on updated_at (which gets refreshed by every Halo sync).
  *
  * This runs:
  * 1. On worker startup (retroactive catch-up)
@@ -38,7 +40,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       totalChecked: 0,
       breachesFound: 0,
       triageEnqueued: 0,
-      skippedRecentlyTriaged: 0,
+      skippedCurrentlyTriaging: 0,
       errors: [],
     };
   }
@@ -47,15 +49,8 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   const halo = new HaloClient(haloConfig);
 
   // Fetch all open tickets with SLA info
-  let allOpenTickets: ReadonlyArray<{
-    readonly id: number;
-    readonly summary: string;
-    readonly fixtargetmet?: boolean;
-    readonly responsetargetmet?: boolean;
-    readonly fixbydate?: string;
-    readonly agent_name?: string;
-    readonly [key: string]: unknown;
-  }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let allOpenTickets: ReadonlyArray<Record<string, any>>;
 
   try {
     const rawTickets = await halo.getOpenTickets();
@@ -67,15 +62,32 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       totalChecked: 0,
       breachesFound: 0,
       triageEnqueued: 0,
-      skippedRecentlyTriaged: 0,
+      skippedCurrentlyTriaging: 0,
       errors: [`Failed to fetch tickets: ${msg}`],
     };
   }
 
-  // Filter to only SLA-breaching tickets (fix target missed)
+  // Log first ticket's SLA fields for debugging
+  if (allOpenTickets.length > 0) {
+    const sample = allOpenTickets[0];
+    console.log("[SLA SCAN] Sample ticket SLA fields:", JSON.stringify({
+      id: sample.id,
+      fixtargetmet: sample.fixtargetmet,
+      responsetargetmet: sample.responsetargetmet,
+      fixbydate: sample.fixbydate,
+      respondbydate: sample.respondbydate,
+      sla_timer_text: sample.sla_timer_text,
+      sla: sample.sla,
+      sladetails: sample.sladetails,
+    }));
+  }
+
+  // Filter to only SLA-breaching tickets
+  // Check both top-level and nested SLA data
   const breachers = allOpenTickets.filter((t) => {
-    const fixBreached = t.fixtargetmet === false;
-    const responseBreached = t.responsetargetmet === false;
+    const slaSource = t.sla ?? t.sladetails ?? t;
+    const fixBreached = slaSource.fixtargetmet === false || t.fixtargetmet === false;
+    const responseBreached = slaSource.responsetargetmet === false || t.responsetargetmet === false;
     return fixBreached || responseBreached;
   });
 
@@ -87,7 +99,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       totalChecked: allOpenTickets.length,
       breachesFound: 0,
       triageEnqueued: 0,
-      skippedRecentlyTriaged: 0,
+      skippedCurrentlyTriaging: 0,
       errors: [],
     };
   }
@@ -96,23 +108,42 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     `[SLA SCAN] Found ${breachers.length} SLA-breaching tickets out of ${allOpenTickets.length} open`,
   );
 
-  // Look up which breaching tickets exist locally and their last triage time
-  const breacherHaloIds = breachers.map((t) => t.id);
+  // Look up which breaching tickets exist locally
+  const breacherHaloIds = breachers.map((t) => t.id as number);
   const { data: localTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, summary, status, updated_at")
+    .select("id, halo_id, summary, status")
     .in("halo_id", breacherHaloIds);
 
   const localTicketMap = new Map(
     (localTickets ?? []).map((t) => [t.halo_id, t]),
   );
 
+  // Get actual last triage time from triage_results (NOT updated_at)
+  const localIds = (localTickets ?? []).map((t) => t.id);
+  const { data: recentTriageResults } = localIds.length > 0
+    ? await supabase
+        .from("triage_results")
+        .select("ticket_id, created_at")
+        .in("ticket_id", localIds)
+        .order("created_at", { ascending: false })
+    : { data: [] };
+
+  // Build a map of ticket_id → most recent triage time
+  const lastTriageMap = new Map<string, number>();
+  for (const result of recentTriageResults ?? []) {
+    if (!lastTriageMap.has(result.ticket_id)) {
+      lastTriageMap.set(result.ticket_id, new Date(result.created_at).getTime());
+    }
+  }
+
   const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1000;
   let triageEnqueued = 0;
-  let skippedRecentlyTriaged = 0;
+  let skippedCurrentlyTriaging = 0;
 
   for (const breacher of breachers) {
-    const local = localTicketMap.get(breacher.id);
+    const haloId = breacher.id as number;
+    const local = localTicketMap.get(haloId);
 
     // If ticket doesn't exist locally yet, create it first
     if (!local) {
@@ -120,8 +151,8 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
         const { data: created } = await supabase
           .from("tickets")
           .insert({
-            halo_id: breacher.id,
-            summary: breacher.summary,
+            halo_id: haloId,
+            summary: breacher.summary as string,
             status: "pending" as const,
             updated_at: new Date().toISOString(),
           })
@@ -135,55 +166,64 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             summary: created.summary,
           });
           console.log(
-            `[SLA SCAN] Created + enqueued SLA-breaching ticket #${breacher.id} (job: ${jobId})`,
+            `[SLA SCAN] Created + enqueued SLA-breaching ticket #${haloId} (job: ${jobId})`,
           );
           triageEnqueued++;
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`Failed to create ticket #${breacher.id}: ${msg}`);
+        errors.push(`Failed to create ticket #${haloId}: ${msg}`);
       }
       continue;
     }
 
-    // Skip if recently triaged (within 3 hours)
-    const wasRecentlyUpdated = local.updated_at
-      ? new Date(local.updated_at).getTime() > threeHoursAgo
-      : false;
-    const isCurrentlyTriaging =
-      local.status === "triaging" || local.status === "pending";
-
-    if (wasRecentlyUpdated || isCurrentlyTriaging) {
-      skippedRecentlyTriaged++;
+    // Skip if currently being triaged
+    if (local.status === "triaging" || local.status === "pending") {
+      skippedCurrentlyTriaging++;
       continue;
     }
 
-    // Enqueue triage for this breaching ticket
+    // Cooldown: skip only if there's an ACTUAL triage result within the last 3 hours
+    const lastTriageTime = lastTriageMap.get(local.id);
+    if (lastTriageTime && lastTriageTime > threeHoursAgo) {
+      console.log(
+        `[SLA SCAN] Ticket #${haloId} was triaged ${Math.round((Date.now() - lastTriageTime) / 60000)}min ago — skipping`,
+      );
+      skippedCurrentlyTriaging++;
+      continue;
+    }
+
+    // Mark as pending and enqueue triage
     try {
+      await supabase
+        .from("tickets")
+        .update({ status: "pending" as const })
+        .eq("id", local.id);
+
       const jobId = await enqueueTriageJob({
         ticketId: local.id,
         haloId: local.halo_id,
         summary: local.summary,
       });
       console.log(
-        `[SLA SCAN] Enqueued SLA-breaching ticket #${breacher.id} for triage (job: ${jobId})`,
+        `[SLA SCAN] Enqueued SLA-breaching ticket #${haloId} for triage (job: ${jobId})`,
       );
       triageEnqueued++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`Failed to enqueue ticket #${breacher.id}: ${msg}`);
+      errors.push(`Failed to enqueue ticket #${haloId}: ${msg}`);
     }
   }
 
   console.log(
-    `[SLA SCAN] Done: ${breachers.length} breaches, ${triageEnqueued} enqueued, ${skippedRecentlyTriaged} skipped (recently triaged)`,
+    `[SLA SCAN] Done: ${breachers.length} breaches, ${triageEnqueued} enqueued, ${skippedCurrentlyTriaging} skipped`,
   );
 
   return {
     totalChecked: allOpenTickets.length,
     breachesFound: breachers.length,
     triageEnqueued,
-    skippedRecentlyTriaged,
+    skippedCurrentlyTriaging,
     errors,
   };
 }

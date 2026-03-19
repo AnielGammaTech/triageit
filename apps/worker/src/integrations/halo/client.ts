@@ -113,7 +113,7 @@ export class HaloClient {
   async getTicketWithSLA(ticketId: number): Promise<HaloTicket & { sla_timer_text?: string }> {
     return this.request<HaloTicket & { sla_timer_text?: string }>(
       "GET",
-      `/tickets/${ticketId}?includeslainfo=true`,
+      `/tickets/${ticketId}?includeslainfo=true&includedetails=true&includecolumns=true`,
     );
   }
 

@@ -211,7 +211,7 @@ export async function POST() {
         user_name: ticket.user_name ?? null,
         user_email: ticket.user_emailaddress ?? null,
         original_priority: ticket.priority_id ?? null,
-        status: "triaged" as const,
+        status: "pending" as const,
         halo_status: resolveStatusName(ticket),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
@@ -230,6 +230,23 @@ export async function POST() {
         errors.push(`Insert failed: ${insertError.message}`);
       } else {
         created = count ?? newTickets.length;
+
+        // Trigger triage for newly created tickets via the worker
+        const workerUrl = process.env.WORKER_URL ?? process.env.NEXT_PUBLIC_WORKER_URL;
+        if (workerUrl) {
+          for (const ticket of newTickets) {
+            try {
+              await fetch(`${workerUrl}/triage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ halo_id: ticket.id }),
+              });
+              console.log(`[HALO SYNC] Enqueued new ticket #${ticket.id} for triage`);
+            } catch (err) {
+              console.error(`[HALO SYNC] Failed to enqueue ticket #${ticket.id}:`, err);
+            }
+          }
+        }
       }
     }
 
@@ -263,6 +280,52 @@ export async function POST() {
         { error: `All DB operations failed: ${errors[0]}` },
         { status: 500 },
       );
+    }
+
+    // ── Fix tickets incorrectly marked as "triaged" without triage results ──
+    // These tickets were synced before the status bug was fixed.
+    let resetToPending = 0;
+    {
+      // Find tickets marked "triaged" that have zero triage_results rows
+      const { data: markedTriaged } = await serviceClient
+        .from("tickets")
+        .select("id, halo_id, triage_results(id)")
+        .eq("status", "triaged");
+
+      const falsyTriaged = (markedTriaged ?? []).filter(
+        (t) => !t.triage_results || t.triage_results.length === 0,
+      );
+
+      if (falsyTriaged.length > 0) {
+        const resetIds = falsyTriaged.map((t) => t.id);
+        const { error: resetError } = await serviceClient
+          .from("tickets")
+          .update({ status: "pending" as const, updated_at: now })
+          .in("id", resetIds);
+
+        if (!resetError) {
+          resetToPending = falsyTriaged.length;
+          console.log(
+            `[HALO SYNC] Reset ${resetToPending} tickets from "triaged" to "pending" (no triage results found)`,
+          );
+
+          // Trigger triage for these reset tickets
+          const workerUrl = process.env.WORKER_URL ?? process.env.NEXT_PUBLIC_WORKER_URL;
+          if (workerUrl) {
+            for (const ticket of falsyTriaged) {
+              try {
+                await fetch(`${workerUrl}/triage`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ halo_id: ticket.halo_id }),
+                });
+              } catch {
+                // Non-critical — worker startup scan will catch these
+              }
+            }
+          }
+        }
+      }
     }
 
     // ── Detect tickets closed in Halo ────────────────────────────────
@@ -389,6 +452,7 @@ export async function POST() {
       created,
       updated,
       closed: closedCount,
+      reset_to_pending: resetToPending,
       sla_breaching: slaBreachers.length,
       sla_auto_triaged: slaTriaged,
       errors: errors.length > 0 ? errors : undefined,

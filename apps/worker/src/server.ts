@@ -125,12 +125,41 @@ server.post<{
 );
 
 /**
- * On startup, scan for any tickets stuck in "pending" status.
- * These are tickets that came in while the worker was down.
+ * On startup, fix tickets incorrectly marked as "triaged" without actual
+ * triage results (caused by the pull-tickets status bug), then process
+ * all tickets stuck in "pending" status.
  */
 async function processPendingTickets(): Promise<void> {
   const supabase = createSupabaseClient();
 
+  // ── Step 1: Reset falsely-triaged tickets ──
+  // These were inserted with status "triaged" by the old pull-tickets bug
+  try {
+    const { data: markedTriaged } = await supabase
+      .from("tickets")
+      .select("id, halo_id, summary, triage_results(id)")
+      .eq("status", "triaged");
+
+    const falsyTriaged = (markedTriaged ?? []).filter(
+      (t) => !t.triage_results || t.triage_results.length === 0,
+    );
+
+    if (falsyTriaged.length > 0) {
+      const resetIds = falsyTriaged.map((t) => t.id);
+      await supabase
+        .from("tickets")
+        .update({ status: "pending" as const })
+        .in("id", resetIds);
+
+      console.log(
+        `[WORKER] Reset ${falsyTriaged.length} tickets from "triaged" to "pending" (no triage results found)`,
+      );
+    }
+  } catch (err) {
+    console.error("[WORKER] Failed to reset falsely-triaged tickets:", err);
+  }
+
+  // ── Step 2: Process all pending tickets ──
   const { data: pendingTickets, error } = await supabase
     .from("tickets")
     .select("id, halo_id, summary")

@@ -224,10 +224,28 @@ export async function runTriage(
 
       try {
         const ticketWithSla = await haloEarly.getTicketWithSLA(ticket.halo_id);
-        slaFixTargetMet = (ticketWithSla as unknown as { fixtargetmet?: boolean }).fixtargetmet;
-        slaResponseTargetMet = (ticketWithSla as unknown as { responsetargetmet?: boolean }).responsetargetmet;
-        slaFixByDate = (ticketWithSla as unknown as { fixbydate?: string }).fixbydate ?? null;
-        slaTimerText = ticketWithSla.sla_timer_text ?? null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = ticketWithSla as any;
+
+        // Log raw SLA fields for debugging
+        console.log(`[MICHAEL] SLA raw fields for #${ticket.halo_id}:`, JSON.stringify({
+          fixtargetmet: raw.fixtargetmet,
+          responsetargetmet: raw.responsetargetmet,
+          fixbydate: raw.fixbydate,
+          respondbydate: raw.respondbydate,
+          sla_timer_text: raw.sla_timer_text,
+          sla_id: raw.sla_id,
+          // Check for nested SLA object (some Halo versions nest it)
+          sla: raw.sla,
+          sladetails: raw.sladetails,
+        }));
+
+        // Halo may return SLA data at top level or nested
+        const slaSource = raw.sla ?? raw.sladetails ?? raw;
+        slaFixTargetMet = slaSource.fixtargetmet;
+        slaResponseTargetMet = slaSource.responsetargetmet;
+        slaFixByDate = slaSource.fixbydate ?? raw.fixbydate ?? null;
+        slaTimerText = slaSource.sla_timer_text ?? raw.sla_timer_text ?? null;
         slaBreached = slaFixTargetMet === false || slaResponseTargetMet === false;
       } catch (err) {
         console.warn(`[MICHAEL] Could not fetch SLA info for #${ticket.halo_id}:`, err);
