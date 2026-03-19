@@ -190,7 +190,7 @@ export function TicketList({
                       {PRIORITY_LABELS[triage.recommended_priority] ??
                         `P${triage.recommended_priority}`}
                       <span className="ml-1 text-xs opacity-50">
-                        ({triage.urgency_score}/5)
+                        (U:{triage.urgency_score}/5)
                       </span>
                     </span>
                   ) : (

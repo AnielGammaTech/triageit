@@ -293,6 +293,18 @@ export class TeamsClient {
                 wrap: true,
                 weight: "Bolder",
               },
+              ...(ticket.flags.includes("customer_update_request") || ticket.flags.includes("customer_waiting")
+                ? [
+                    {
+                      type: "TextBlock",
+                      text: "Management and superiors have been notified. A private note has been posted to the assigned technician in Halo.",
+                      wrap: true,
+                      color: "Warning" as const,
+                      size: "Small" as const,
+                      spacing: "Small" as const,
+                    },
+                  ]
+                : []),
             ],
           },
         },
