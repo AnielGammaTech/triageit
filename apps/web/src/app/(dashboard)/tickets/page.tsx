@@ -123,9 +123,10 @@ export default function TicketsPage() {
         }
 
         const pullResult = await pullResponse.json();
+        const errInfo = pullResult.errors?.length ? ` (${pullResult.errors.length} errors)` : "";
         setScanMessage({
-          type: "success",
-          text: `Pulled ${pullResult.pulled} open tickets from Halo (${pullResult.created} new, ${pullResult.updated} updated)`,
+          type: pullResult.errors?.length ? "error" : "success",
+          text: `Pulled ${pullResult.pulled} tickets from Halo — ${pullResult.created} new, ${pullResult.updated} updated${errInfo}`,
         });
       } catch (err) {
         setScanMessage({ type: "error", text: `Failed to pull tickets: ${(err as Error).message}` });

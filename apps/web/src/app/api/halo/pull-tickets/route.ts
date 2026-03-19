@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
 interface HaloTicket {
@@ -27,10 +26,10 @@ interface HaloTicket {
  * Returns { pulled: number, created: number, updated: number }.
  */
 export async function POST() {
-  const supabase = await createClient();
+  const serviceClient = await createServiceClient();
 
   // Get Halo config from integrations table
-  const { data: integration } = await supabase
+  const { data: integration } = await serviceClient
     .from("integrations")
     .select("config, is_active")
     .eq("service", "halo")
@@ -119,64 +118,97 @@ export async function POST() {
       });
     }
 
-    // Use service client to write to DB (anon key may not have insert permissions)
-    const serviceClient = await createServiceClient();
     const now = new Date().toISOString();
 
-    // Get all existing halo_ids in one query
+    // Find which tickets already exist locally
     const haloIds = allTickets.map((t) => t.id);
-    const { data: existingTickets } = await serviceClient
+    const { data: existingTickets, error: lookupError } = await serviceClient
       .from("tickets")
       .select("id, halo_id")
       .in("halo_id", haloIds);
 
-    const existingMap = new Map(
-      (existingTickets ?? []).map((t) => [t.halo_id, t.id]),
-    );
+    if (lookupError) {
+      return NextResponse.json(
+        { error: `DB lookup failed: ${lookupError.message}` },
+        { status: 500 },
+      );
+    }
+
+    const existingHaloIds = new Set((existingTickets ?? []).map((t) => t.halo_id));
+
+    // Split into new vs existing
+    const newTickets = allTickets.filter((t) => !existingHaloIds.has(t.id));
+    const existingIds = allTickets.filter((t) => existingHaloIds.has(t.id));
 
     let created = 0;
     let updated = 0;
+    const errors: string[] = [];
 
-    // Process in batches
-    for (const ticket of allTickets) {
-      const statusName = ticket.status ?? `status_${ticket.status_id}`;
-      const trackingData = {
-        halo_status: statusName,
+    // Batch insert new tickets
+    if (newTickets.length > 0) {
+      const insertRows = newTickets.map((ticket) => ({
+        halo_id: ticket.id,
+        summary: ticket.summary,
+        details: ticket.details ?? null,
+        client_name: ticket.client_name ?? null,
+        client_id: ticket.client_id ?? null,
+        user_name: ticket.user_name ?? null,
+        original_priority: ticket.priority_id ?? null,
+        status: "triaged" as const,
+        halo_status: ticket.status ?? `status_${ticket.status_id}`,
         halo_status_id: ticket.status_id,
         halo_team: ticket.team ?? null,
         halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
         last_retriage_at: now,
         updated_at: now,
-      };
+      }));
 
-      const existingId = existingMap.get(ticket.id);
+      const { error: insertError, count } = await serviceClient
+        .from("tickets")
+        .insert(insertRows, { count: "exact" });
 
-      if (existingId) {
-        await serviceClient
-          .from("tickets")
-          .update(trackingData)
-          .eq("id", existingId);
-        updated++;
+      if (insertError) {
+        errors.push(`Insert failed: ${insertError.message}`);
       } else {
-        await serviceClient.from("tickets").insert({
-          halo_id: ticket.id,
-          summary: ticket.summary,
-          details: ticket.details ?? null,
-          client_name: ticket.client_name ?? null,
-          client_id: ticket.client_id ?? null,
-          user_name: ticket.user_name ?? null,
-          original_priority: ticket.priority_id ?? null,
-          status: "triaged" as const,
-          ...trackingData,
-        });
-        created++;
+        created = count ?? newTickets.length;
       }
+    }
+
+    // Batch update existing tickets (only tracking fields, not status)
+    for (const ticket of existingIds) {
+      const { error: updateError } = await serviceClient
+        .from("tickets")
+        .update({
+          summary: ticket.summary,
+          client_name: ticket.client_name ?? null,
+          halo_status: ticket.status ?? `status_${ticket.status_id}`,
+          halo_status_id: ticket.status_id,
+          halo_team: ticket.team ?? null,
+          halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
+          last_retriage_at: now,
+          updated_at: now,
+        })
+        .eq("halo_id", ticket.id);
+
+      if (updateError) {
+        errors.push(`Update #${ticket.id}: ${updateError.message}`);
+      } else {
+        updated++;
+      }
+    }
+
+    if (errors.length > 0 && created === 0 && updated === 0) {
+      return NextResponse.json(
+        { error: `All DB operations failed: ${errors[0]}` },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({
       pulled: allTickets.length,
       created,
       updated,
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
