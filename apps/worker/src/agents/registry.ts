@@ -17,6 +17,9 @@ import { KellyKapoorAgent } from "./workers/kelly-kapoor.js";
  *
  * Each agent gets its own MemoryManager and SkillLoader,
  * sharing the same Supabase client for database access.
+ *
+ * Integration-gated agents (jim_halpert, andy_bernard, etc.) only run
+ * when their integration is active AND has a mapping for the ticket's customer.
  */
 
 type AgentConstructor = new (
@@ -35,6 +38,19 @@ const AGENT_IMPLEMENTATIONS: Record<string, AgentConstructor> = {
   angela_martin: AngelaMartin,
   meredith_palmer: MeredithPalmerAgent,
   kelly_kapoor: KellyKapoorAgent,
+};
+
+/**
+ * Agents that require a specific integration to be active AND
+ * have a customer mapping for the ticket's client.
+ */
+const AGENT_REQUIRED_INTEGRATION: Record<string, string> = {
+  jim_halpert: "jumpcloud",
+  andy_bernard: "datto",
+  kelly_kapoor: "threecx",
+  meredith_palmer: "spanning",
+  stanley_hudson: "vultr",
+  phyllis_vance: "mxtoolbox",
 };
 
 /**
@@ -64,11 +80,49 @@ export function getAvailableAgents(): ReadonlyArray<AgentDefinition> {
 }
 
 /**
- * Get agents relevant to a specific ticket classification type.
+ * Check if an integration is active and has a customer mapping
+ * for the given client name.
  */
-export function getAgentsForClassification(
+async function isIntegrationMappedForCustomer(
+  supabase: SupabaseClient,
+  service: string,
+  customerName: string | null,
+): Promise<boolean> {
+  // Check if the integration is even active
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("id, is_active")
+    .eq("service", service)
+    .eq("is_active", true)
+    .single();
+
+  if (!integration) return false;
+
+  // If no customer name, integration is active but we can't check mapping
+  // Let the agent try anyway (it will handle missing data gracefully)
+  if (!customerName) return true;
+
+  // Check if a customer mapping exists for this client
+  const { data: mapping } = await supabase
+    .from("integration_mappings")
+    .select("id")
+    .eq("integration_id", integration.id)
+    .eq("customer_name", customerName)
+    .limit(1)
+    .maybeSingle();
+
+  return !!mapping;
+}
+
+/**
+ * Get agents relevant to a specific ticket classification type,
+ * filtered by which integrations are active and mapped for the customer.
+ */
+export async function getAgentsForClassification(
   classificationType: string,
-): ReadonlyArray<string> {
+  supabase: SupabaseClient,
+  customerName: string | null,
+): Promise<ReadonlyArray<string>> {
   const mapping: Record<string, ReadonlyArray<string>> = {
     voip: ["kelly_kapoor"],
     telephony: ["kelly_kapoor"],
@@ -87,5 +141,34 @@ export function getAgentsForClassification(
     other: ["dwight_schrute"],
   };
 
-  return mapping[classificationType] ?? ["dwight_schrute"];
+  const candidates = mapping[classificationType] ?? ["dwight_schrute"];
+
+  // Filter integration-gated agents by active integration + customer mapping
+  const eligibilityChecks = await Promise.all(
+    candidates.map(async (agentName) => {
+      const requiredService = AGENT_REQUIRED_INTEGRATION[agentName];
+      if (!requiredService) {
+        // Agent doesn't require a specific integration (dwight, angela)
+        return { agentName, eligible: true };
+      }
+      const eligible = await isIntegrationMappedForCustomer(
+        supabase,
+        requiredService,
+        customerName,
+      );
+      if (!eligible) {
+        console.log(
+          `[REGISTRY] Skipping ${agentName} — ${requiredService} not active or not mapped for "${customerName}"`,
+        );
+      }
+      return { agentName, eligible };
+    }),
+  );
+
+  const eligible = eligibilityChecks
+    .filter((c) => c.eligible)
+    .map((c) => c.agentName);
+
+  // Always have at least dwight_schrute as fallback
+  return eligible.length > 0 ? eligible : ["dwight_schrute"];
 }

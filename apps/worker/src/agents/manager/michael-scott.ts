@@ -277,7 +277,11 @@ export async function runTriage(
   // ── Step 3: Michael analyzes classification & picks specialists ────
 
   const classType = classification.classification.type;
-  const specialistNames = getAgentsForClassification(classType);
+  const specialistNames = await getAgentsForClassification(
+    classType,
+    supabase,
+    ticket.client_name,
+  );
 
   // Always include Angela Martin for security assessment
   const allSpecialists = classification.security_flag
