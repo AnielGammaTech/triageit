@@ -22,7 +22,8 @@ export type ServiceType =
   | "twilio"
   | "ai-provider"
   | "teams"
-  | "cipp";
+  | "cipp"
+  | "automapper";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
@@ -104,6 +105,11 @@ export interface CippConfig {
   readonly tenant_id: string;
 }
 
+export interface AutoMapperConfig {
+  readonly match_threshold: string;
+  readonly auto_approve: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
@@ -118,6 +124,7 @@ export type IntegrationConfig =
   | GenericApiUrlKeyConfig
   | TeamsConfig
   | CippConfig
+  | AutoMapperConfig
   | Record<string, string>;
 
 export interface IntegrationConfigField {

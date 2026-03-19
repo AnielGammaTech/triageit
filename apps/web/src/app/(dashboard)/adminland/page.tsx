@@ -10,6 +10,7 @@ import {
   type IntegrationItem,
 } from "@/components/admin/adminland-constants";
 import { IntegrationConfig } from "@/components/admin/integration-config";
+import { AutoMapperConfig } from "@/components/admin/automapper-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
 
 type ActiveView =
@@ -171,10 +172,17 @@ export default function AdminlandPage() {
           className="rounded-xl border border-white/10 p-6"
           style={{ backgroundColor: "#1a0f35" }}
         >
-          <IntegrationConfig
-            item={activeView.item}
-            onBack={() => navigateTo({ type: "integrations" })}
-          />
+          {activeView.item.service === "automapper" ? (
+            <AutoMapperConfig
+              item={activeView.item}
+              onBack={() => navigateTo({ type: "integrations" })}
+            />
+          ) : (
+            <IntegrationConfig
+              item={activeView.item}
+              onBack={() => navigateTo({ type: "integrations" })}
+            />
+          )}
         </div>
       </div>
     );

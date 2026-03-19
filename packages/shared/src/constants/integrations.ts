@@ -534,4 +534,30 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
       },
     ],
   },
+  {
+    service: "automapper",
+    display_name: "AutoMapper",
+    description:
+      "Automatically map customer names across integrations. Matches customers from Halo, Hudu, Datto, JumpCloud, and other connected services using fuzzy name matching.",
+    fields: [
+      {
+        key: "match_threshold",
+        label: "Match Threshold (%)",
+        type: "text",
+        placeholder: "85",
+        required: false,
+      },
+      {
+        key: "auto_approve",
+        label: "Auto-Approve Exact Matches",
+        type: "select",
+        placeholder: "Auto-approve when names match exactly",
+        required: false,
+        options: [
+          { value: "true", label: "Yes — auto-approve exact matches" },
+          { value: "false", label: "No — require manual approval" },
+        ],
+      },
+    ],
+  },
 ] as const;
