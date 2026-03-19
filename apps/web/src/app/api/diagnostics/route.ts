@@ -212,25 +212,25 @@ async function testHuduConnection(config: Record<string, string>): Promise<TestR
 
 async function testDattoConnection(config: Record<string, string>): Promise<TestResult> {
   const start = Date.now();
-  const baseUrl = config.base_url?.replace(/\/+$/, "");
+  const apiUrl = (config.api_url ?? config.base_url)?.replace(/\/+$/, "");
   const apiKey = config.api_key;
-  const secretKey = config.secret_key;
-  if (!baseUrl || !apiKey || !secretKey) {
+  const apiSecret = config.api_secret ?? config.secret_key;
+  if (!apiUrl || !apiKey || !apiSecret) {
     return {
       service: "datto",
       label: "Datto RMM",
       status: "skipped",
-      message: "Missing base_url, api_key, or secret_key.",
+      message: "Missing api_url, api_key, or api_secret.",
       latency_ms: null,
     };
   }
 
   try {
-    const authRes = await fetch(`${baseUrl}/auth/oauth/token`, {
+    const authRes = await fetch(`${apiUrl}/auth/oauth/token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `Basic ${btoa(`${apiKey}:${secretKey}`)}`,
+        Authorization: `Basic ${btoa(`${apiKey}:${apiSecret}`)}`,
       },
       body: "grant_type=client_credentials",
     });
@@ -351,6 +351,24 @@ async function testSupabase(): Promise<TestResult> {
   }
 }
 
+async function testGenericIntegration(
+  service: string,
+  label: string,
+  config: Record<string, string> | undefined,
+  testFn: (cfg: Record<string, string>) => Promise<TestResult>,
+): Promise<TestResult> {
+  if (!config || Object.values(config).every((v) => !v)) {
+    return {
+      service,
+      label,
+      status: "skipped",
+      message: "Not configured. Go to Integrations to set it up.",
+      latency_ms: null,
+    };
+  }
+  return testFn(config);
+}
+
 export async function POST(request: Request) {
   try {
     const { services } = (await request.json()) as { services?: string[] };
@@ -409,9 +427,22 @@ export async function POST(request: Request) {
     }
 
     // Integrations
-    if (shouldTest("halo")) allTests.push(testHaloConnection(configMap.halo ?? {}));
-    if (shouldTest("hudu")) allTests.push(testHuduConnection(configMap.hudu ?? {}));
-    if (shouldTest("datto")) allTests.push(testDattoConnection(configMap.datto ?? {}));
+    // Integrations — test all configured services
+    const integrationTests: ReadonlyArray<{
+      id: string;
+      label: string;
+      test: (cfg: Record<string, string>) => Promise<TestResult>;
+    }> = [
+      { id: "halo", label: "Halo PSA", test: testHaloConnection },
+      { id: "hudu", label: "Hudu", test: testHuduConnection },
+      { id: "datto", label: "Datto RMM", test: testDattoConnection },
+    ];
+
+    for (const it of integrationTests) {
+      if (shouldTest(it.id)) {
+        allTests.push(testGenericIntegration(it.id, it.label, configMap[it.id], it.test));
+      }
+    }
 
     const results = await Promise.all(allTests);
 
