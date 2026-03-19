@@ -82,7 +82,7 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_team": "<team name: Network, Security, Endpoint, Cloud, Identity, Email, Application, General>",
   "recommended_agent": "<specific technician if known, null otherwise>",
   "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
-  "internal_notes": "<comprehensive internal notes with: root cause analysis, evidence from specialists, CONCRETE step-by-step troubleshooting plan (every step must say exactly what to do, where to go, what to click), tools to use with URLs where applicable, and any gotchas>",
+  "internal_notes": "<CONCISE tech notes — MAX 5 bullet points. Each bullet is ONE actionable step the tech should take. Include specific tools/URLs. No fluff, no explanations of what each step does — just tell the tech what to do. Example: 'Check MX records for domain.com via mxtoolbox.com' NOT 'The first step would be to verify the MX records...' >",
   "customer_response": "<brief initial acknowledgment for the customer, or null if Pam Beesly will handle the detailed response>",
   "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
   "adjustments": "<any adjustments to Ryan's classification, null if none>",
@@ -345,10 +345,10 @@ export async function runTriage(
     if (fastHaloConfig) {
       const halo = new HaloClient(fastHaloConfig);
       try {
-        const fastNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+        const fastNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
           `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">fast path · ${(fastProcessingTime / 1000).toFixed(1)}s</span></td></tr>` +
-          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Classification</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${classification.classification.type} / ${classification.classification.subtype}</strong></td></tr>` +
-          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Result</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bbf7d0;">Notification / transactional — no action required. P${classification.recommended_priority} priority.</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Classification</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${classification.classification.type} / ${classification.classification.subtype}</strong></td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Result</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bbf7d0;">Notification / transactional — no action required. P${classification.recommended_priority} priority.</td></tr>` +
           `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · fast path · ${(fastProcessingTime / 1000).toFixed(1)}s</td></tr>` +
           `</table>`;
         await halo.addInternalNote(ticket.halo_id, fastNote);
@@ -467,18 +467,18 @@ export async function runTriage(
           : "";
 
         const similarSection = alertSimilarRow
-          ? `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#c7d2fe;line-height:1.8;">${alertSimilarRow}<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">Check these tickets — a previous solution may apply here.</span></td></tr>`
+          ? `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#c7d2fe;line-height:1.8;">${alertSimilarRow}<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">Check these tickets — a previous solution may apply here.</span></td></tr>`
           : "";
 
         const alertNote =
-          `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+          `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
           `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</span></td></tr>` +
-          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Source</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${alertResult.alert_source}</strong> ${actionBadge}</td></tr>` +
-          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Alert Type</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.alert_type}</td></tr>` +
-          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Affected</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.affected_resource}</td></tr>` +
-          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:${severityColor};">${severityEmoji} Severity</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${severityColor};font-weight:700;">${alertResult.severity.toUpperCase()}</td></tr>` +
-          `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${alertResult.suggested_action}</td></tr>` +
-          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">What is this</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Source</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${alertResult.alert_source}</strong> ${actionBadge}</td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Alert Type</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.alert_type}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Affected</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.affected_resource}</td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:${severityColor};">${severityEmoji} Severity</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${severityColor};font-weight:700;">${alertResult.severity.toUpperCase()}</td></tr>` +
+          `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${alertResult.suggested_action}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">What is this</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
           similarSection +
           `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</td></tr>` +
           `</table>`;
@@ -862,7 +862,7 @@ export async function runTriage(
 
         // If there are documentation gaps, post a separate note
         if (pamResult.missing_info.length > 0) {
-          const gapNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+          const gapNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
             `<tr><td style="padding:8px 12px;background:linear-gradient(135deg,#d97706,#f59e0b);color:white;font-size:13px;font-weight:700;">📝 Documentation Gap — Update Hudu After Resolution</td></tr>` +
             `<tr style="background:#332b1a;"><td style="padding:10px 14px;font-size:13px;color:#fde68a;line-height:1.6;">` +
             `<strong>Missing from Hudu:</strong><ul style="margin:6px 0;padding-left:20px;">` +
@@ -903,7 +903,7 @@ export async function runTriage(
       const direction = recommendedP < currentP ? "⬆ Upgrade" : "⬇ Downgrade";
       const dirColor = recommendedP < currentP ? "#f59e0b" : "#4ade80";
 
-      const priorityNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:6px;overflow:hidden;">` +
+      const priorityNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:6px;overflow:hidden;">` +
         `<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:12px;font-weight:600;">${direction} Priority Recommendation</td></tr>` +
         `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Current</td><td style="padding:6px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid #3a3f4b;">P${currentP}</td></tr>` +
         `<tr style="background:#1E2028;"><td style="padding:6px 12px;width:100px;font-size:12px;color:${dirColor};font-weight:600;border-bottom:1px solid #3a3f4b;">Recommended</td><td style="padding:6px 12px;font-size:13px;color:${dirColor};font-weight:700;border-bottom:1px solid #3a3f4b;">P${recommendedP}</td></tr>` +
@@ -1046,7 +1046,7 @@ export async function runTriage(
         ? `<ol style="margin:4px 0;padding-left:20px;">${feedback.suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("")}</ol>`
         : "No specific suggestions.";
 
-      const coachingNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+      const coachingNote = `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
         `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:14px;font-weight:700;">${ratingEmoji} Tech Performance Review — TriageIt AI</td></tr>` +
         `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Rating</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${ratingColor};font-weight:700;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</td></tr>` +
         `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Communication</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-family:monospace;">${commScoreBar} ${feedback.communication_score}/5</td></tr>` +
@@ -1220,7 +1220,7 @@ function buildHaloNote(
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
   const border = "border-bottom:1px solid #3a3f4b;";
-  const td1 = `style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;white-space:nowrap;color:#94a3b8;"`;
+  const td1 = `style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;white-space:nowrap;color:#94a3b8;"`;
   const td2 = `style="padding:8px 12px;${border}font-size:14px;color:#e2e8f0;line-height:1.5;word-break:break-word;"`;
 
   const rows: string[] = [];
@@ -1232,13 +1232,13 @@ function buildHaloNote(
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
   // Urgency
-  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#f59e0b;">Urgency</td><td ${td2}><strong style="color:#f59e0b;">${classification.urgency_score}/5</strong></td></tr>`);
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#f59e0b;">Urgency</td><td ${td2}><strong style="color:#f59e0b;">${classification.urgency_score}/5</strong></td></tr>`);
   if (classification.urgency_reasoning) {
-    rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:130px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
+    rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
   }
 
   // Priority + Team
-  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#22d3ee;">Priority</td><td ${td2}><strong style="color:#22d3ee;">P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#22d3ee;">Priority</td><td ${td2}><strong style="color:#22d3ee;">P${classification.recommended_priority}</strong> → ${michaelResult.recommended_team}</td></tr>`);
 
   // Entities
   if (classification.entities.length > 0) {
@@ -1247,20 +1247,20 @@ function buildHaloNote(
 
   // Security
   if (classification.security_flag) {
-    rows.push(`<tr style="background:#3b1018;"><td style="padding:8px 12px;font-weight:700;width:130px;${border}font-size:13px;vertical-align:top;color:#f87171;">⚠ Security</td><td style="padding:8px 12px;${border}font-size:14px;color:#fca5a5;line-height:1.5;word-break:break-word;">${classification.security_notes}</td></tr>`);
+    rows.push(`<tr style="background:#3b1018;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#f87171;">⚠ Security</td><td style="padding:8px 12px;${border}font-size:14px;color:#fca5a5;line-height:1.5;word-break:break-word;">${classification.security_notes}</td></tr>`);
   }
 
   // Escalation
   if (michaelResult.escalation_needed) {
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
   }
 
   // Root Cause — amber tinted dark background
-  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
+  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
 
   // Tech Notes — blue tinted dark background, parsed into numbered list
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
-  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
+  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
   // Specialist findings
   const specialists = Object.entries(findings).filter(([name]) => name !== "ryan_howard");
@@ -1270,7 +1270,11 @@ function buildHaloNote(
       const [name, finding] = specialists[i];
       const label = AGENT_LABELS[name] ?? name;
       const bg = i % 2 === 0 ? "#252830" : "#1E2028";
-      rows.push(`<tr style="background:${bg};"><td style="padding:6px 12px;${border}font-size:12px;font-weight:600;color:#818cf8;width:130px;vertical-align:top;">${label}</td><td style="padding:6px 12px;${border}font-size:13px;color:#cbd5e1;line-height:1.4;word-break:break-word;">${finding.summary}</td></tr>`);
+      // Truncate long findings to keep the note compact
+      const truncatedSummary = finding.summary.length > 300
+        ? finding.summary.substring(0, 297) + "..."
+        : finding.summary;
+      rows.push(`<tr style="background:${bg};"><td style="padding:6px 12px;${border}font-size:12px;font-weight:600;color:#818cf8;width:100px;vertical-align:top;">${label}</td><td style="padding:6px 12px;${border}font-size:13px;color:#cbd5e1;line-height:1.4;word-break:break-word;">${truncatedSummary}</td></tr>`);
     }
   }
 
@@ -1290,7 +1294,7 @@ function buildHaloNote(
     ]
       .filter(Boolean)
       .join("");
-    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
+    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
 
   // Similar tickets — actionable suggestions
@@ -1305,7 +1309,7 @@ function buildHaloNote(
     const hint = hasResolved
       ? `<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">💡 Check the resolved ticket(s) above — a previous fix may apply to this issue.</span>`
       : `<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">These tickets have similar context — cross-reference for patterns or related issues.</span>`;
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.8;word-break:break-word;">${similarItems}${hint}</td></tr>`);
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.8;word-break:break-word;">${similarItems}${hint}</td></tr>`);
   }
 
   // Duplicate warnings
@@ -1313,13 +1317,13 @@ function buildHaloNote(
     const dupItems = duplicates
       .map((d) => `<strong style="color:#fbbf24;">#${d.haloId}</strong> ${d.summary} <span style="color:#64748b;font-size:11px;">(${(d.similarity * 100).toFixed(0)}% match)</span>`)
       .join("<br/>");
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}<br/><span style="font-size:11px;color:#94a3b8;">Consider merging if same issue.</span></td></tr>`);
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}<br/><span style="font-size:11px;color:#94a3b8;">Consider merging if same issue.</span></td></tr>`);
   }
 
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
 
-  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:13px;color:#e2e8f0;margin:0;padding:0;border:1px solid #3a3f4b;background:#1E2028;border-radius:8px;overflow:hidden;">${rows.join("")}</table>`;
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;font-size:13px;color:#e2e8f0;margin:0;padding:0;border:1px solid #3a3f4b;background:#1E2028;border-radius:8px;overflow:hidden;">${rows.join("")}</table>`;
 }
 
 // ── Compact Retriage Note ─────────────────────────────────────────────
@@ -1383,7 +1387,7 @@ function buildCompactRetrieageNote(
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage</td></tr>`);
 
-  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
 }
 
 // Customer response is now only displayed in the TriageIT embed tab
