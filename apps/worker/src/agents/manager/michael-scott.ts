@@ -215,18 +215,41 @@ export async function runTriage(
         who: img.who,
       }));
 
+      // ── Fetch SLA info ──────────────────────────────────────────────
+      let slaBreached = false;
+      let slaFixTargetMet: boolean | undefined;
+      let slaResponseTargetMet: boolean | undefined;
+      let slaFixByDate: string | null = null;
+      let slaTimerText: string | null = null;
+
+      try {
+        const ticketWithSla = await haloEarly.getTicketWithSLA(ticket.halo_id);
+        slaFixTargetMet = (ticketWithSla as unknown as { fixtargetmet?: boolean }).fixtargetmet;
+        slaResponseTargetMet = (ticketWithSla as unknown as { responsetargetmet?: boolean }).responsetargetmet;
+        slaFixByDate = (ticketWithSla as unknown as { fixbydate?: string }).fixbydate ?? null;
+        slaTimerText = ticketWithSla.sla_timer_text ?? null;
+        slaBreached = slaFixTargetMet === false || slaResponseTargetMet === false;
+      } catch (err) {
+        console.warn(`[MICHAEL] Could not fetch SLA info for #${ticket.halo_id}:`, err);
+      }
+
       context = {
         ...context,
         actions: formattedActions,
         assignedTechName,
         images: imageContexts.length > 0 ? imageContexts : undefined,
+        slaBreached,
+        slaFixTargetMet: slaFixTargetMet ?? undefined,
+        slaResponseTargetMet: slaResponseTargetMet ?? undefined,
+        slaFixByDate,
+        slaTimerText,
       };
       await logThinking(
         supabase,
         ticket.id,
         "michael_scott",
         "manager",
-        `Fetched ${formattedActions.length} action(s)/comment(s) and ${imageContexts.length} image(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
+        `Fetched ${formattedActions.length} action(s)/comment(s) and ${imageContexts.length} image(s) from Halo for ticket #${ticket.halo_id}.${slaBreached ? ` ⚠ SLA BREACHED (fix target met: ${slaFixTargetMet}, response target met: ${slaResponseTargetMet})` : ""} These will be included in the triage context.`,
       );
 
       // ── Vision Pre-Processing: Describe images for specialist agents ──
@@ -334,7 +357,8 @@ export async function runTriage(
   if (
     isNotification &&
     classification.urgency_score <= 2 &&
-    !classification.security_flag
+    !classification.security_flag &&
+    !context.slaBreached
   ) {
     const fastProcessingTime = Date.now() - startTime;
 
@@ -402,7 +426,7 @@ export async function runTriage(
     classification.classification.subtype ?? "",
   );
 
-  if (isAlert && !classification.security_flag) {
+  if (isAlert && !classification.security_flag && !context.slaBreached) {
     const alertStart = Date.now();
 
     await logThinking(
@@ -705,6 +729,21 @@ export async function runTriage(
       : "",
     "",
     context.assignedTechName ? `**Assigned Tech:** ${context.assignedTechName}` : "",
+    ...(context.slaBreached
+      ? [
+          "",
+          "## 🚨 SLA BREACH ALERT",
+          `**Resolution SLA breached:** ${context.slaFixTargetMet === false ? "YES — Fix target MISSED" : "No"}`,
+          `**Response SLA breached:** ${context.slaResponseTargetMet === false ? "YES — Response target MISSED" : "No"}`,
+          context.slaFixByDate ? `**Fix-by date:** ${context.slaFixByDate}` : "",
+          context.slaTimerText ? `**SLA Timer:** ${context.slaTimerText}` : "",
+          `The customer was promised a resolution time that has already passed. This is a critical SLA failure.`,
+          context.assignedTechName
+            ? `**${context.assignedTechName}** must address this SLA breach IMMEDIATELY — update the customer and either resolve the ticket or adjust the SLA target to the correct new date.`
+            : `The assigned technician must address this SLA breach IMMEDIATELY.`,
+          "",
+        ]
+      : []),
     ...(context.actions && context.actions.length > 0
       ? [
           "## Ticket History / Comments",
@@ -816,6 +855,18 @@ export async function runTriage(
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
 
+    // Build SLA info for note rendering
+    const slaInfo = context.slaBreached
+      ? {
+          breached: true,
+          fixTargetMet: context.slaFixTargetMet,
+          responseTargetMet: context.slaResponseTargetMet,
+          fixByDate: context.slaFixByDate,
+          timerText: context.slaTimerText,
+          assignedTech: context.assignedTechName,
+        }
+      : undefined;
+
     // On retriage, post a compact review — not the full triage table
     if (isRetriage) {
       try {
@@ -824,6 +875,7 @@ export async function runTriage(
           michaelResult,
           findings,
           processingTime,
+          slaInfo,
         );
         await halo.addInternalNote(ticket.halo_id, compactNote);
       } catch (error) {
@@ -842,6 +894,7 @@ export async function runTriage(
           processingTime,
           similarTickets,
           duplicates,
+          slaInfo,
         );
         await halo.addInternalNote(ticket.halo_id, internalNote);
       } catch (error) {
@@ -1230,6 +1283,14 @@ function buildHaloNote(
   processingTime: number,
   similarTickets?: ReadonlyArray<SimilarTicket>,
   duplicates?: ReadonlyArray<DuplicateCandidate>,
+  slaInfo?: {
+    readonly breached: boolean;
+    readonly fixTargetMet?: boolean;
+    readonly responseTargetMet?: boolean;
+    readonly fixByDate?: string | null;
+    readonly timerText?: string | null;
+    readonly assignedTech?: string | null;
+  },
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -1241,6 +1302,14 @@ function buildHaloNote(
 
   // Header — gradient
   rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+
+  // SLA Breach — red alert banner, placed first for maximum visibility
+  if (slaInfo?.breached) {
+    const techName = slaInfo.assignedTech ?? "Assigned technician";
+    const fixBy = slaInfo.fixByDate ? ` — Fix-by: ${new Date(slaInfo.fixByDate).toLocaleString()}` : "";
+    const timer = slaInfo.timerText ? ` (${slaInfo.timerText})` : "";
+    rows.push(`<tr style="background:#7f1d1d;"><td colspan="2" style="padding:10px 14px;font-size:14px;color:#fecaca;line-height:1.6;${border}"><strong style="color:#f87171;font-size:15px;">🚨 SLA BREACH — IMMEDIATE ACTION REQUIRED</strong><br/><strong>${techName}</strong>: The resolution SLA on this ticket has been breached${fixBy}${timer}. You must address this <strong>immediately</strong> — either resolve the issue and update the customer, or adjust the SLA target to the correct new completion date. Do not leave this ticket without an updated timeline.</td></tr>`);
+  }
 
   // Classification
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
@@ -1359,12 +1428,28 @@ function buildCompactRetrieageNote(
   },
   findings: Record<string, AgentFinding>,
   processingTime: number,
+  slaInfo?: {
+    readonly breached: boolean;
+    readonly fixTargetMet?: boolean;
+    readonly responseTargetMet?: boolean;
+    readonly fixByDate?: string | null;
+    readonly timerText?: string | null;
+    readonly assignedTech?: string | null;
+  },
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const rows: string[] = [];
 
   // Compact header
   rows.push(`<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:13px;font-weight:600;">📋 Retriage Check — TriageIt<span style="float:right;font-weight:400;font-size:10px;opacity:0.8;">${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+
+  // SLA Breach — red alert banner
+  if (slaInfo?.breached) {
+    const techName = slaInfo.assignedTech ?? "Assigned technician";
+    const fixBy = slaInfo.fixByDate ? ` — Fix-by: ${new Date(slaInfo.fixByDate).toLocaleString()}` : "";
+    const timer = slaInfo.timerText ? ` (${slaInfo.timerText})` : "";
+    rows.push(`<tr style="background:#7f1d1d;"><td colspan="2" style="padding:8px 12px;font-size:13px;color:#fecaca;line-height:1.5;${border}"><strong style="color:#f87171;">🚨 SLA BREACHED</strong> — <strong>${techName}</strong>: Fix SLA immediately${fixBy}${timer}. Resolve the issue or update the SLA target date now.</td></tr>`);
+  }
 
   // Status line
   rows.push(`<tr style="background:#252830;"><td style="padding:6px 12px;font-weight:600;width:100px;${border}font-size:12px;color:#94a3b8;">Status</td><td style="padding:6px 12px;${border}font-size:13px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · P${classification.recommended_priority} · ${michaelResult.recommended_team}</td></tr>`);

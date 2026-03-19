@@ -35,6 +35,11 @@ export interface TriageContext {
   }>;
   readonly images?: ReadonlyArray<TicketImageContext>;
   readonly imageDescriptions?: string;
+  readonly slaBreached?: boolean;
+  readonly slaFixTargetMet?: boolean;
+  readonly slaResponseTargetMet?: boolean;
+  readonly slaFixByDate?: string | null;
+  readonly slaTimerText?: string | null;
 }
 
 export interface TriageOutput {
