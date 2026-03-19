@@ -13,6 +13,7 @@ interface ReTriageResult {
   readonly clientName: string | null;
   readonly status: string;
   readonly flags: ReadonlyArray<string>;
+  readonly positives: ReadonlyArray<string>;
   readonly recommendation: string;
   readonly daysOpen: number;
   readonly lastActivity: string | null;
@@ -31,7 +32,9 @@ interface DailyScanResult {
 
 const RETRIAGE_PROMPT = `You are a ticket status reviewer for an MSP help desk. Analyze this open ticket and its action history.
 
-Your job is to identify:
+Your job is to identify BOTH problems AND good practices:
+
+**Problems to flag:**
 1. Is this ticket stale? (no activity in a while)
 2. Is there a communication gap? (customer replied but tech hasn't responded, or vice versa)
 3. Is this ticket at SLA risk?
@@ -40,11 +43,20 @@ Your job is to identify:
 6. Is the tech making real progress or just touching the ticket without advancing it?
 7. For long-running tickets (7+ days): is the tech blocked, waiting on something, or just not prioritizing?
 
+**Positive behaviors to recognize:**
+1. Fast response times (tech responding within 1-2 hours of customer replies)
+2. Consistent engagement (regular updates and follow-ups)
+3. Good documentation (internal notes documenting steps taken, next steps)
+4. Active customer communication (keeping customer informed)
+5. Proactive work (scheduling follow-ups, setting reminders)
+6. Thorough troubleshooting (systematic approach, multiple steps tried)
+
 Respond with ONLY valid JSON:
 {
-  "flags": ["list of flags: wot_overdue, customer_waiting, sla_risk, stale, unassigned, needs_escalation, no_tech_notes, low_progress, high_priority_aging, no_documentation"],
+  "flags": ["list of problem flags: wot_overdue, customer_waiting, sla_risk, stale, unassigned, needs_escalation, no_tech_notes, low_progress, high_priority_aging, no_documentation"],
+  "positives": ["list of positive flags: fast_response, consistent_engagement, well_documented, good_communication, proactive_followup, thorough_troubleshooting"],
   "severity": "critical|warning|info",
-  "recommendation": "Brief actionable recommendation — MAX 2 sentences"
+  "recommendation": "Brief actionable recommendation — MAX 2 sentences. If things are going well, acknowledge it."
 }`;
 
 function getStatusName(ticket: HaloTicket): string {
@@ -90,6 +102,15 @@ function getLastTechAction(actions: ReadonlyArray<HaloAction>): string | null {
   );
   return sorted[0]?.datecreated ?? null;
 }
+
+const POSITIVE_LABELS: Record<string, string> = {
+  fast_response: "Fast response times",
+  consistent_engagement: "Consistent engagement",
+  well_documented: "Well documented",
+  good_communication: "Good customer communication",
+  proactive_followup: "Proactive follow-up",
+  thorough_troubleshooting: "Thorough troubleshooting",
+};
 
 // Quick rule-based check before using AI (saves tokens)
 function quickRuleCheck(
@@ -171,7 +192,77 @@ function quickRuleCheck(
     severity = "critical";
   }
 
-  if (flags.length === 0) return null;
+  // ── Positive pattern detection ──────────────────────────────────────
+  const positives: string[] = [];
+
+  // Fast response — tech replied within 2 hours of customer replies
+  const customerReplies = actions.filter(
+    (a) => !a.hiddenfromuser && a.who && !a.who.toLowerCase().includes("triageit"),
+  );
+  if (customerReplies.length > 0 && techNotes.length > 0) {
+    let fastResponses = 0;
+    for (const cr of customerReplies) {
+      const crTime = new Date(cr.datecreated ?? "").getTime();
+      // Find the next tech action after this customer reply
+      const nextTechAction = techNotes.find(
+        (t) => new Date(t.datecreated ?? "").getTime() > crTime,
+      );
+      if (nextTechAction) {
+        const responseHours =
+          (new Date(nextTechAction.datecreated ?? "").getTime() - crTime) / (1000 * 60 * 60);
+        if (responseHours <= 2) fastResponses++;
+      }
+    }
+    if (fastResponses > 0 && fastResponses >= customerReplies.length * 0.5) {
+      positives.push("fast_response");
+    }
+  }
+
+  // Consistent engagement — tech has 3+ actions spread across multiple days
+  if (techNotes.length >= 3) {
+    const techDays = new Set(
+      techNotes.map((t) => new Date(t.datecreated ?? "").toISOString().slice(0, 10)),
+    );
+    if (techDays.size >= 2) {
+      positives.push("consistent_engagement");
+    }
+  }
+
+  // Well documented — tech has internal notes with substantive content
+  const substantiveNotes = techNotes.filter(
+    (t) => t.note && t.note.length > 50,
+  );
+  if (substantiveNotes.length >= 2) {
+    positives.push("well_documented");
+  }
+
+  // Good communication — tech has customer-visible replies
+  const techVisibleReplies = actions.filter(
+    (a) => !a.hiddenfromuser && a.who && a.hiddenfromuser === false &&
+      techNotes.some((t) => t.who === a.who),
+  );
+  if (techVisibleReplies.length >= 2) {
+    positives.push("good_communication");
+  }
+
+  // Nothing to report — no flags and no notable positives
+  if (flags.length === 0 && positives.length === 0) return null;
+
+  // If only positives and no problems, still return for the note
+  if (flags.length === 0 && positives.length > 0) {
+    return {
+      haloId: ticket.id,
+      summary: ticket.summary,
+      clientName: ticket.client_name ?? null,
+      status,
+      flags: [],
+      positives,
+      recommendation: `Good work on this ticket — ${positives.map((p) => POSITIVE_LABELS[p] ?? p).join(", ")}.`,
+      daysOpen,
+      lastActivity,
+      severity: "info",
+    };
+  }
 
   const recommendations: string[] = [];
   if (flags.includes("wot_overdue"))
@@ -191,12 +282,18 @@ function quickRuleCheck(
   if (flags.includes("sla_breached"))
     recommendations.push("SLA BREACHED — customer was promised a response/resolution time that has passed. Immediate action required.");
 
+  // Acknowledge positives even when there are issues
+  if (positives.length > 0) {
+    recommendations.push(`Note: ${positives.map((p) => POSITIVE_LABELS[p] ?? p).join(", ")}.`);
+  }
+
   return {
     haloId: ticket.id,
     summary: ticket.summary,
     clientName: ticket.client_name ?? null,
     status,
     flags,
+    positives,
     recommendation: recommendations.join(" "),
     daysOpen,
     lastActivity,
@@ -276,19 +373,40 @@ async function postReTriageNote(
   };
 
   const style = severityColors[result.severity] ?? severityColors.info;
+
   const flagBadges = result.flags
     .map((f) => `<span style="background:#374151;color:#d1d5db;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;">${f}</span>`)
     .join("");
 
-  const note = [
+  const positiveBadges = result.positives
+    .map((p) => `<span style="background:#064e3b;color:#6ee7b7;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;">✓ ${POSITIVE_LABELS[p] ?? p}</span>`)
+    .join("");
+
+  const rows: string[] = [
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">`,
     `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
     `<tr style="background:${style.bg};"><td colspan="2" style="padding:10px 14px;font-size:14px;color:${style.text};line-height:1.6;border-bottom:1px solid #3a3f4b;"><strong style="font-size:15px;">${style.label}</strong> — ${result.recommendation}</td></tr>`,
     `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Status</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${result.status} · Open ${result.daysOpen} days</td></tr>`,
-    `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Flags</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${flagBadges}</td></tr>`,
+  ];
+
+  if (flagBadges) {
+    rows.push(
+      `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#f87171;">Issues</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${flagBadges}</td></tr>`,
+    );
+  }
+
+  if (positiveBadges) {
+    rows.push(
+      `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Good</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${positiveBadges}</td></tr>`,
+    );
+  }
+
+  rows.push(
     `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · daily re-triage scan</td></tr>`,
     `</table>`,
-  ].join("");
+  );
+
+  const note = rows.join("");
 
   try {
     await halo.addInternalNote(haloId, note);
@@ -448,6 +566,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         response.content[0].type === "text" ? response.content[0].text : "{}";
       const parsed = parseLlmJson<{
         flags: string[];
+        positives?: string[];
         severity: "critical" | "warning" | "info";
         recommendation: string;
       }>(text);
@@ -458,6 +577,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         clientName: ticket.client_name ?? null,
         status,
         flags: parsed.flags,
+        positives: parsed.positives ?? [],
         recommendation: parsed.recommendation,
         daysOpen,
         lastActivity,
@@ -481,7 +601,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           recommended_priority: parsed.severity === "critical" ? 1 : parsed.severity === "warning" ? 3 : 5,
           recommended_team: ticket.team ?? "General",
           security_flag: false,
-          findings: { daily_scan: { flags: parsed.flags, recommendation: parsed.recommendation } },
+          findings: { daily_scan: { flags: parsed.flags, positives: parsed.positives ?? [], recommendation: parsed.recommendation } },
           internal_notes: parsed.recommendation,
           processing_time_ms: Date.now() - startTime,
           model_tokens_used: { manager: 0, workers: { daily_scan: tokensUsed } },
