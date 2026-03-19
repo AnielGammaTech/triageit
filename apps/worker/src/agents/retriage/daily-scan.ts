@@ -4,6 +4,7 @@ import type { HaloTicket, HaloAction, HaloConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";
+import { parseLlmJson } from "../parse-json.js";
 
 
 interface ReTriageResult {
@@ -317,7 +318,18 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         else info.push(ruleResult);
 
         // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
-        await upsertTicketFromHalo(supabase, ticket, actions);
+        const ruleTicketId = await upsertTicketFromHalo(supabase, ticket, actions);
+
+        // Flag critical/warning for manager review
+        if (ruleTicketId && (ruleResult.severity === "critical" || ruleResult.severity === "warning")) {
+          await supabase
+            .from("tickets")
+            .update({
+              status: "needs_review",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", ruleTicketId);
+        }
 
         continue;
       }
@@ -356,11 +368,11 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
       const text =
         response.content[0].type === "text" ? response.content[0].text : "{}";
-      const parsed = JSON.parse(text) as {
+      const parsed = parseLlmJson<{
         flags: string[];
         severity: "critical" | "warning" | "info";
         recommendation: string;
-      };
+      }>(text);
 
       const result: ReTriageResult = {
         haloId: ticket.id,
@@ -397,6 +409,17 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           model_tokens_used: { manager: 0, workers: { daily_scan: tokensUsed } },
           triage_type: "retriage",
         });
+
+        // Flag critical/warning re-triaged tickets for manager review
+        if (parsed.severity === "critical" || parsed.severity === "warning") {
+          await supabase
+            .from("tickets")
+            .update({
+              status: "needs_review",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", localTicketId);
+        }
       }
     } catch (err) {
       console.error(`[RETRIAGE] Error scanning ticket #${ticket.id}:`, err);

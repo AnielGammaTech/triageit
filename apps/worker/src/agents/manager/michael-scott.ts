@@ -370,15 +370,27 @@ export async function runTriage(
       `Alert detected (${classification.classification.type}/${classification.classification.subtype}). Routing to Erin Hannon for cheap alert summary — skipping specialist agents.`,
     );
 
-    await supabase.from("agent_logs").insert({
-      ticket_id: ticket.id,
-      agent_name: "erin_hannon",
-      agent_role: "alert_specialist",
-      status: "started",
-      input_summary: `Summarizing alert: ${ticket.summary}`,
-    });
+    // Search for similar tickets in parallel with alert summary (both cheap)
+    const [alertResult, alertSimilarTickets] = await Promise.all([
+      (async () => {
+        await supabase.from("agent_logs").insert({
+          ticket_id: ticket.id,
+          agent_name: "erin_hannon",
+          agent_role: "alert_specialist",
+          status: "started",
+          input_summary: `Summarizing alert: ${ticket.summary}`,
+        });
+        return summarizeAlert(context);
+      })(),
+      findSimilarTickets(supabase, {
+        currentTicketId: ticket.id,
+        summary: context.summary,
+        details: context.details,
+        clientName: context.clientName,
+        maxResults: 3,
+      }).catch(() => [] as ReadonlyArray<SimilarTicket>),
+    ]);
 
-    const alertResult = await summarizeAlert(context);
     const alertProcessingTime = Date.now() - startTime;
 
     await supabase.from("agent_logs").insert({
@@ -407,6 +419,20 @@ export async function runTriage(
           ? `<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">ACTION NEEDED</span>`
           : `<span style="background:#059669;color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">INFO ONLY</span>`;
 
+        // Build similar tickets row for alert note
+        const alertSimilarRow = alertSimilarTickets.length > 0
+          ? alertSimilarTickets
+              .map((t) => {
+                const resolved = t.resolvedAt ? ` — <strong style="color:#4ade80;">RESOLVED</strong>` : "";
+                return `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary}${resolved} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% match${t.clientName ? `, ${t.clientName}` : ""})</span>`;
+              })
+              .join("<br/>")
+          : "";
+
+        const similarSection = alertSimilarRow
+          ? `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#c7d2fe;line-height:1.8;">${alertSimilarRow}<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">Check these tickets — a previous solution may apply here.</span></td></tr>`
+          : "";
+
         const alertNote =
           `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
           `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</span></td></tr>` +
@@ -415,7 +441,8 @@ export async function runTriage(
           `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Affected</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.affected_resource}</td></tr>` +
           `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:${severityColor};">${severityEmoji} Severity</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${severityColor};font-weight:700;">${alertResult.severity.toUpperCase()}</td></tr>` +
           `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${alertResult.suggested_action}</td></tr>` +
-          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Summary</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">What is this</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
+          similarSection +
           `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</td></tr>` +
           `</table>`;
 
@@ -1238,12 +1265,19 @@ function buildHaloNote(
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
 
-  // Similar tickets
+  // Similar tickets — actionable suggestions
   if (similarTickets && similarTickets.length > 0) {
     const similarItems = similarTickets
-      .map((t) => `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% similar${t.clientName ? `, ${t.clientName}` : ""})</span>`)
+      .map((t) => {
+        const resolved = t.resolvedAt ? ` — <strong style="color:#4ade80;">RESOLVED</strong>` : "";
+        return `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary}${resolved} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% match${t.clientName ? `, ${t.clientName}` : ""})</span>`;
+      })
       .join("<br/>");
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.6;word-break:break-word;">${similarItems}</td></tr>`);
+    const hasResolved = similarTickets.some((t) => t.resolvedAt);
+    const hint = hasResolved
+      ? `<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">💡 Check the resolved ticket(s) above — a previous fix may apply to this issue.</span>`
+      : `<br/><span style="font-size:11px;color:#94a3b8;font-style:italic;">These tickets have similar context — cross-reference for patterns or related issues.</span>`;
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.8;word-break:break-word;">${similarItems}${hint}</td></tr>`);
   }
 
   // Duplicate warnings

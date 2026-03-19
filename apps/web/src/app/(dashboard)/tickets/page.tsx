@@ -49,7 +49,7 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "alerts" | "resolved">("open");
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved">("open");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
@@ -161,12 +161,17 @@ export default function TicketsPage() {
     return isAlert(t);
   });
 
-  // Open: non-resolved, non-alert tickets
+  // Open: non-resolved, non-alert, non-needs_review tickets
   const openTickets = tickets.filter((t) => {
     if (isResolved(t)) return false;
-    if (t.status === "pending" || t.status === "triaging") return false;
+    if (t.status === "pending" || t.status === "triaging" || t.status === "needs_review") return false;
     return !isAlert(t);
   });
+
+  // Needs Review: re-triaged tickets flagged for manager attention
+  const needsReviewTickets = tickets.filter(
+    (t) => t.status === "needs_review" && !isResolved(t),
+  );
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = tickets.filter((t) => isResolved(t));
@@ -230,6 +235,22 @@ export default function TicketsPage() {
               </span>
             </button>
             <button
+              onClick={() => setActiveTab("needs_review")}
+              className={cn(
+                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
+                activeTab === "needs_review"
+                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
+              )}
+            >
+              Needs Review
+              {needsReviewTickets.length > 0 && (
+                <span className="ml-2 rounded-full bg-rose-500/20 px-2 py-0.5 text-xs text-rose-400 animate-pulse">
+                  {needsReviewTickets.length}
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab("alerts")}
               className={cn(
                 "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
@@ -290,11 +311,13 @@ export default function TicketsPage() {
                 ? incomingTickets.length > 0
                   ? `${incomingTickets.length} awaiting triage`
                   : "All caught up"
-                : activeTab === "alerts"
-                  ? `${alertTickets.length} alerts`
-                  : activeTab === "resolved"
-                    ? `${resolvedTickets.length} resolved`
-                    : `${openTickets.length} open`}
+                : activeTab === "needs_review"
+                  ? `${needsReviewTickets.length} need review`
+                  : activeTab === "alerts"
+                    ? `${alertTickets.length} alerts`
+                    : activeTab === "resolved"
+                      ? `${resolvedTickets.length} resolved`
+                      : `${openTickets.length} open`}
           </p>
         </div>
       </div>
@@ -315,7 +338,22 @@ export default function TicketsPage() {
         </div>
       )}
 
-      {activeTab === "incoming" ? (
+      {activeTab === "needs_review" ? (
+        needsReviewTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">
+              No tickets need review right now. Re-triaged tickets flagged as critical or warning will appear here.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-sm text-rose-300">
+              These tickets were flagged during re-triage — they may need tech follow-up or escalation.
+            </div>
+            <OpenTicketList tickets={needsReviewTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+          </div>
+        )
+      ) : activeTab === "incoming" ? (
         incomingTickets.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
             <p className="text-[var(--muted-foreground)]">

@@ -58,6 +58,7 @@ export type TicketStatus =
   | "triaging"
   | "triaged"
   | "approved"
+  | "needs_review"
   | "error";
 
 export interface Ticket {
