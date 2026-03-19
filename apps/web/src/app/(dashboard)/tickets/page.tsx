@@ -188,18 +188,14 @@ export default function TicketsPage() {
     );
   }
 
-  // Split tickets into new (webhook-ingested with initial triage) and open (all non-resolved)
+  // New Tickets: webhook-ingested tickets with initial triage (not yet retriage-scanned)
+  // Open Tickets: tickets that have been retriage-scanned (live Halo data: assigned techs, real status, etc.)
   const isResolved = (t: TicketRow) => t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
   const newTickets = tickets.filter((t) => (t.status === "triaged" || t.status === "pending") && !isResolved(t));
-  // Open tab: all tickets that have been through retriage (have halo_status set and not "New"),
-  // OR triaged tickets that haven't been retriage-scanned yet but are still open
   const openTickets = tickets.filter((t) => {
     if (isResolved(t)) return false;
-    // Has retriage data — show in open tab
-    if (t.halo_status && t.halo_status !== "New") return true;
-    // Triaged but no retriage data yet — still counts as open
-    if (t.status === "triaged" && !t.last_retriage_at) return true;
-    return false;
+    // Only show tickets that have been through a retriage scan (have live Halo data)
+    return !!t.last_retriage_at;
   });
 
   return (
@@ -244,7 +240,9 @@ export default function TicketsPage() {
             className="rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20 disabled:opacity-50"
           >
             {triaging
-              ? `Triaging ${triageProgress.current}/${triageProgress.total}...`
+              ? triageProgress.total > 0
+                ? `Triaging ${triageProgress.current}/${triageProgress.total}...`
+                : "Scanning Halo tickets..."
               : selectedIds.length > 0
                 ? `${activeTab === "open" ? "Re-triage" : "Triage"} ${selectedIds.length} Selected`
                 : activeTab === "open"
