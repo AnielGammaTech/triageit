@@ -100,10 +100,10 @@ export default function TicketsPage() {
   }
 
   async function handleTriageSelected() {
-    // On the Open tab with no selection, trigger the full daily retriage scan
+    // On the Open tab with no selection, pull all open tickets from Halo
     if (activeTab === "open" && selectedIds.length === 0) {
       const confirmed = window.confirm(
-        "Run a full re-triage scan on all open Halo tickets? This pulls tickets from Halo, checks rules, and uses AI for non-obvious issues.",
+        "Pull all open tickets from Halo? This fetches every open ticket assigned to techs and shows them here for audit.",
       );
       if (!confirmed) return;
 
@@ -112,19 +112,23 @@ export default function TicketsPage() {
       setScanMessage(null);
 
       try {
-        const response = await fetch("/api/retriage", { method: "POST" });
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-          setScanMessage({ type: "error", text: body.error ?? `Worker returned ${response.status}` });
-        } else {
-          const result = await response.json();
-          setScanMessage({
-            type: "success",
-            text: `Scan complete — ${result.totalOpen ?? 0} open tickets found, ${result.critical ?? 0} critical, ${result.warnings ?? 0} warnings`,
-          });
+        // Step 1: Pull tickets directly from Halo (no worker needed)
+        const pullResponse = await fetch("/api/halo/pull-tickets", { method: "POST" });
+        if (!pullResponse.ok) {
+          const body = await pullResponse.json().catch(() => ({ error: `HTTP ${pullResponse.status}` }));
+          setScanMessage({ type: "error", text: body.error ?? `Pull failed: ${pullResponse.status}` });
+          setTriaging(false);
+          await loadTickets();
+          return;
         }
+
+        const pullResult = await pullResponse.json();
+        setScanMessage({
+          type: "success",
+          text: `Pulled ${pullResult.pulled} open tickets from Halo (${pullResult.created} new, ${pullResult.updated} updated)`,
+        });
       } catch (err) {
-        setScanMessage({ type: "error", text: `Could not reach worker: ${(err as Error).message}` });
+        setScanMessage({ type: "error", text: `Failed to pull tickets: ${(err as Error).message}` });
       }
 
       setTriaging(false);
@@ -254,7 +258,7 @@ export default function TicketsPage() {
               : selectedIds.length > 0
                 ? `${activeTab === "open" ? "Re-triage" : "Triage"} ${selectedIds.length} Selected`
                 : activeTab === "open"
-                  ? "Re-triage All Open"
+                  ? "Pull Open Tickets"
                   : "Triage All"}
           </button>
           {activeTab === "new" && selectedIds.length > 0 && (
