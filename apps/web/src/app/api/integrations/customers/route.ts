@@ -378,41 +378,50 @@ async function fetchUnitrendsCustomers(
 
   const tokenData = (await tokenRes.json()) as { access_token: string };
 
-  // Fetch organizations (customers) from the public API
-  const res = await fetch(
-    "https://public-api.backup.net/v1/organizations?pageSize=500",
-    {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        Accept: "application/json",
-      },
-    },
-  );
+  // Try multiple endpoint paths — Unitrends MSP public API path is not well documented
+  const apiPaths = [
+    "https://public-api.backup.net/organizations",
+    "https://public-api.backup.net/api/organizations",
+    "https://public-api.backup.net/api/v1/organizations",
+    "https://public-api.backup.net/v1/organizations",
+  ];
 
-  if (!res.ok) throw new Error(`Unitrends API error: ${res.status}`);
-
-  const data = (await res.json()) as {
-    items?: ReadonlyArray<{
-      id: string | number;
-      name: string;
-      isActive?: boolean;
-      status?: string;
-    }>;
-    data?: ReadonlyArray<{
-      id: string | number;
-      name: string;
-      isActive?: boolean;
-      status?: string;
-    }>;
+  const headers = {
+    Authorization: `Bearer ${tokenData.access_token}`,
+    Accept: "application/json",
   };
 
-  const items = data.items ?? data.data ?? [];
+  for (const apiPath of apiPaths) {
+    const res = await fetch(`${apiPath}?pageSize=500`, { headers });
 
-  return items.map((o) => ({
-    id: o.id,
-    name: o.name,
-    is_active: o.isActive !== false,
-  }));
+    if (res.status === 404) {
+      continue;
+    }
+
+    if (!res.ok) {
+      throw new Error(`Unitrends API error (${res.status}) at ${apiPath}`);
+    }
+
+    // Parse flexible response shape — could be array or wrapped
+    const raw = (await res.json()) as unknown;
+    const items: ReadonlyArray<Record<string, unknown>> =
+      Array.isArray(raw)
+        ? (raw as ReadonlyArray<Record<string, unknown>>)
+        : ((raw as Record<string, unknown>).items ??
+           (raw as Record<string, unknown>).data ??
+           (raw as Record<string, unknown>).organizations ??
+           []) as ReadonlyArray<Record<string, unknown>>;
+
+    return items.map((o) => ({
+      id: (o.id ?? o.organizationId ?? "") as string | number,
+      name: (o.name ?? o.organizationName ?? "Unknown") as string,
+      is_active: o.isActive !== false,
+    }));
+  }
+
+  throw new Error(
+    `Unitrends: Auth succeeded but organizations endpoint not found. Tried: ${apiPaths.join(", ")}. The Unitrends MSP public API structure may have changed.`,
+  );
 }
 
 // ── Fetcher registry ─────────────────────────────────────────────────
