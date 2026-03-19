@@ -11,7 +11,15 @@
  */
 export function parseLlmJson<T>(text: string): T {
   const extracted = extractJson(text);
-  return JSON.parse(extracted) as T;
+
+  // First try: raw parse
+  try {
+    return JSON.parse(extracted) as T;
+  } catch {
+    // Second try: fix trailing commas (common LLM mistake)
+    const cleaned = fixTrailingCommas(extracted);
+    return JSON.parse(cleaned) as T;
+  }
 }
 
 function extractJson(text: string): string {
@@ -59,4 +67,17 @@ function extractJson(text: string): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Remove trailing commas before closing brackets/braces — a common LLM mistake.
+ *
+ * Handles:
+ *   ["a", "b",]  →  ["a", "b"]
+ *   { "k": "v", } →  { "k": "v" }
+ *   Nested trailing commas at any depth
+ */
+function fixTrailingCommas(json: string): string {
+  // Remove commas followed by optional whitespace/newlines then ] or }
+  return json.replace(/,\s*([\]}])/g, "$1");
 }
