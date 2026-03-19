@@ -424,6 +424,98 @@ async function fetchUnitrendsCustomers(
   );
 }
 
+async function fetchCoveCustomers(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // N-able Cove Data Protection — JSON-RPC API at api.backup.management
+  const apiUrl = "https://api.backup.management/jsonapi";
+
+  // Step 1: Login to get visa token
+  const loginRes = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "Login",
+      params: {
+        partner: config.partner_name,
+        username: config.api_username,
+        password: config.api_token,
+      },
+      id: "1",
+    }),
+  });
+
+  if (!loginRes.ok) {
+    throw new Error(`Cove API login failed (${loginRes.status})`);
+  }
+
+  const loginData = (await loginRes.json()) as {
+    visa?: string;
+    result?: {
+      visa?: string;
+      result?: { PartnerId?: number };
+    };
+    error?: { message?: string };
+  };
+
+  const visa = loginData.visa ?? loginData.result?.visa;
+  if (!visa) {
+    const errMsg = loginData.error?.message ?? "No visa returned";
+    throw new Error(`Cove login failed: ${errMsg}`);
+  }
+
+  const partnerId = loginData.result?.result?.PartnerId;
+  if (!partnerId) {
+    throw new Error("Cove login succeeded but no PartnerId returned");
+  }
+
+  // Step 2: EnumeratePartners to list customers
+  const enumRes = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "EnumeratePartners",
+      visa,
+      params: {
+        parentPartnerId: partnerId,
+        fields: [0, 1, 3, 8],
+        fetchRecursively: true,
+      },
+      id: "2",
+    }),
+  });
+
+  if (!enumRes.ok) {
+    throw new Error(`Cove EnumeratePartners failed (${enumRes.status})`);
+  }
+
+  const enumData = (await enumRes.json()) as {
+    result?: {
+      result?: ReadonlyArray<{
+        Id: number;
+        Name: string;
+        State?: number;
+        Level?: number;
+      }>;
+    };
+    error?: { message?: string };
+  };
+
+  if (enumData.error) {
+    throw new Error(`Cove API error: ${enumData.error.message}`);
+  }
+
+  const partners = enumData.result?.result ?? [];
+
+  return partners.map((p) => ({
+    id: p.Id,
+    name: p.Name,
+    is_active: p.State !== 0,
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
@@ -435,6 +527,7 @@ const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   pax8: fetchPax8Customers,
   vultr: fetchVultrInstances,
   unitrends: fetchUnitrendsCustomers,
+  cove: fetchCoveCustomers,
 };
 
 // ── Halo helpers ─────────────────────────────────────────────────────
