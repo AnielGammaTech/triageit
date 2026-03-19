@@ -145,14 +145,15 @@ async function fetchHuduCustomers(
 async function fetchDattoCustomers(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // Datto RMM uses OAuth2: POST credentials to get Bearer token
+  // Datto RMM OAuth2: POST to /auth/oauth/token with public-client:public as Basic Auth
+  // and API key/secret as username/password (grant_type=password)
   const baseUrl = config.api_url.replace(/\/$/, "");
-  const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
+  const basicAuth = Buffer.from("public-client:public").toString("base64");
 
   const tokenRes = await fetch(`${baseUrl}/auth/oauth/token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${credentials}`,
+      Authorization: `Basic ${basicAuth}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams({
@@ -167,7 +168,7 @@ async function fetchDattoCustomers(
     const isHtml = text.trimStart().startsWith("<");
     throw new Error(
       isHtml
-        ? `Datto RMM auth failed (${tokenRes.status}). Check your API URL — it should be your regional API endpoint (e.g. https://pinotage-api.centrastage.net)`
+        ? `Datto RMM auth failed (${tokenRes.status}). Your API URL should be your regional endpoint (e.g. https://pinotage-api.centrastage.net)`
         : `Datto RMM auth failed (${tokenRes.status}): ${text.substring(0, 200)}`,
     );
   }
@@ -175,7 +176,7 @@ async function fetchDattoCustomers(
   const contentType = tokenRes.headers.get("content-type") ?? "";
   if (!contentType.includes("json")) {
     throw new Error(
-      `Datto RMM returned unexpected content-type: ${contentType}. Check your API URL — it should be your regional API endpoint (e.g. https://pinotage-api.centrastage.net)`,
+      `Datto RMM auth returned unexpected content-type: ${contentType}. Your API URL should be your regional endpoint (e.g. https://pinotage-api.centrastage.net)`,
     );
   }
 
@@ -353,6 +354,67 @@ async function fetchVultrInstances(
   }));
 }
 
+async function fetchUnitrendsCustomers(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // Unitrends MSP (Kaseya) — OAuth2 client_credentials via login.backup.net
+  const basicAuth = Buffer.from(`${config.client_id}:${config.client_secret}`).toString("base64");
+
+  const tokenRes = await fetch("https://login.backup.net/connect/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicAuth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    throw new Error(`Unitrends auth failed (${tokenRes.status}): ${text.substring(0, 200)}`);
+  }
+
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+
+  // Fetch organizations (customers) from the public API
+  const res = await fetch(
+    "https://public-api.backup.net/v1/organizations?pageSize=500",
+    {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        Accept: "application/json",
+      },
+    },
+  );
+
+  if (!res.ok) throw new Error(`Unitrends API error: ${res.status}`);
+
+  const data = (await res.json()) as {
+    items?: ReadonlyArray<{
+      id: string | number;
+      name: string;
+      isActive?: boolean;
+      status?: string;
+    }>;
+    data?: ReadonlyArray<{
+      id: string | number;
+      name: string;
+      isActive?: boolean;
+      status?: string;
+    }>;
+  };
+
+  const items = data.items ?? data.data ?? [];
+
+  return items.map((o) => ({
+    id: o.id,
+    name: o.name,
+    is_active: o.isActive !== false,
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
@@ -363,6 +425,7 @@ const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   unifi: fetchUnifiSites,
   pax8: fetchPax8Customers,
   vultr: fetchVultrInstances,
+  unitrends: fetchUnitrendsCustomers,
 };
 
 // ── Halo helpers ─────────────────────────────────────────────────────

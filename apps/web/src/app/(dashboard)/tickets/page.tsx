@@ -49,7 +49,7 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<ReadonlyArray<TicketRow>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "resolved">("open");
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "alerts" | "resolved">("open");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
@@ -126,16 +126,46 @@ export default function TicketsPage() {
   const isResolved = (t: TicketRow) =>
     t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
 
+  const isAlert = (t: TicketRow): boolean => {
+    // Check triage notes for "Alert:" prefix (written by Erin Hannon)
+    const latestTriage = t.triage_results[0];
+    if (latestTriage?.internal_notes?.startsWith("Alert:")) return true;
+
+    // Check classification subtype
+    const subtype = latestTriage?.classification?.subtype?.toLowerCase() ?? "";
+    if (["alert", "notification", "monitoring"].includes(subtype)) return true;
+
+    // Check summary patterns for common alert sources
+    const summary = t.summary.toLowerCase();
+    const alertKeywords = [
+      "spanning backup", "backup for office 365",
+      "3cx", "ip blocked", "ip block",
+      "datto alert", "datto rmm",
+      "monitoring alert", "system alert",
+      "backup fail", "backup error", "backup warning",
+      "device offline", "agent offline",
+      "threshold exceeded", "certificate expir",
+    ];
+    return alertKeywords.some((kw) => summary.includes(kw));
+  };
+
   // Incoming: tickets that just arrived and haven't been triaged yet
   const incomingTickets = tickets.filter(
     (t) => t.status === "pending" || t.status === "triaging",
   );
 
-  // Open: ALL non-resolved tickets that have been synced from Halo (have halo data)
+  // Alerts: automated alert tickets (non-resolved)
+  const alertTickets = tickets.filter((t) => {
+    if (isResolved(t)) return false;
+    if (t.status === "pending" || t.status === "triaging") return false;
+    return isAlert(t);
+  });
+
+  // Open: non-resolved, non-alert tickets
   const openTickets = tickets.filter((t) => {
     if (isResolved(t)) return false;
     if (t.status === "pending" || t.status === "triaging") return false;
-    return true;
+    return !isAlert(t);
   });
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
@@ -200,6 +230,22 @@ export default function TicketsPage() {
               </span>
             </button>
             <button
+              onClick={() => setActiveTab("alerts")}
+              className={cn(
+                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
+                activeTab === "alerts"
+                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
+              )}
+            >
+              Alerts
+              {alertTickets.length > 0 && (
+                <span className="ml-2 rounded-full bg-orange-500/20 px-2 py-0.5 text-xs text-orange-400">
+                  {alertTickets.length}
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab("resolved")}
               className={cn(
                 "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
@@ -244,9 +290,11 @@ export default function TicketsPage() {
                 ? incomingTickets.length > 0
                   ? `${incomingTickets.length} awaiting triage`
                   : "All caught up"
-                : activeTab === "resolved"
-                  ? `${resolvedTickets.length} resolved`
-                  : `${openTickets.length} open`}
+                : activeTab === "alerts"
+                  ? `${alertTickets.length} alerts`
+                  : activeTab === "resolved"
+                    ? `${resolvedTickets.length} resolved`
+                    : `${openTickets.length} open`}
           </p>
         </div>
       </div>
@@ -276,6 +324,16 @@ export default function TicketsPage() {
           </div>
         ) : (
           <IncomingTicketList tickets={incomingTickets} onSelectTicket={handleSelectTicket} />
+        )
+      ) : activeTab === "alerts" ? (
+        alertTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">
+              No alert tickets. Automated alerts from Spanning, 3CX, Datto, etc. will appear here.
+            </p>
+          </div>
+        ) : (
+          <OpenTicketList tickets={alertTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
         )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (
