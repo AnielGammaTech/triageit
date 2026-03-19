@@ -53,6 +53,8 @@ export default function TicketsPage() {
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
+  const [haloIdInput, setHaloIdInput] = useState("");
+  const [triagingHaloId, setTriagingHaloId] = useState(false);
   const hasPulled = useRef(false);
 
   const loadTickets = useCallback(async () => {
@@ -112,6 +114,50 @@ export default function TicketsPage() {
     setPulling(false);
     await loadTickets();
   }, [loadTickets]);
+
+  // Triage a ticket by Halo ID (pulls from Halo if not local)
+  const triageByHaloId = useCallback(async () => {
+    const haloId = parseInt(haloIdInput.replace("#", "").trim(), 10);
+    if (isNaN(haloId) || haloId <= 0) {
+      setStatusMessage({ type: "error", text: "Enter a valid Halo ticket number" });
+      return;
+    }
+
+    setTriagingHaloId(true);
+    setStatusMessage(null);
+
+    try {
+      const res = await fetch("/api/triage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok) {
+        setStatusMessage({
+          type: "success",
+          text: `Triage triggered for Halo #${haloId}. It will appear in tickets shortly.`,
+        });
+        setHaloIdInput("");
+        // Reload tickets after a short delay to show the new ticket
+        setTimeout(() => loadTickets(), 2000);
+      } else {
+        setStatusMessage({
+          type: "error",
+          text: result.error ?? `Failed to triage #${haloId}`,
+        });
+      }
+    } catch (err) {
+      setStatusMessage({
+        type: "error",
+        text: `Failed to triage: ${(err as Error).message}`,
+      });
+    } finally {
+      setTriagingHaloId(false);
+    }
+  }, [haloIdInput, loadTickets]);
 
   // On mount: load DB tickets, then auto-pull from Halo once
   useEffect(() => {
@@ -279,6 +325,34 @@ export default function TicketsPage() {
               <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">
                 {resolvedTickets.length}
               </span>
+            </button>
+          </div>
+
+          {/* Triage by Halo # */}
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              placeholder="Halo #"
+              value={haloIdInput}
+              onChange={(e) => setHaloIdInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") triageByHaloId();
+              }}
+              className="w-20 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white placeholder:text-white/30 focus:border-[#6366f1]/50 focus:outline-none"
+            />
+            <button
+              onClick={triageByHaloId}
+              disabled={triagingHaloId || !haloIdInput.trim()}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+            >
+              {triagingHaloId ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-amber-400/30 border-t-amber-400" />
+                  Triaging...
+                </span>
+              ) : (
+                "Triage"
+              )}
             </button>
           </div>
 
