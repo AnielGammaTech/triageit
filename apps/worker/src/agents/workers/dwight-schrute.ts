@@ -120,13 +120,15 @@ Respond with ONLY valid JSON:
 
     // Programmatically build Hudu links from raw data to ensure they're always included
     const programmaticLinks = buildHuduLinks(huduData);
+    const adminLinks = buildAdminPortalLinks(context.summary, context.details);
     const llmLinks = (result.hudu_links as Array<{ label: string; url: string }>) ?? [];
 
-    // Merge: programmatic links first, then any unique LLM-generated ones
+    // Merge: programmatic links first, admin portals, then any unique LLM-generated ones
     const existingUrls = new Set(programmaticLinks.map(l => l.url));
     const mergedLinks = [
       ...programmaticLinks,
-      ...llmLinks.filter(l => l.url && !existingUrls.has(l.url)),
+      ...adminLinks.filter(l => !existingUrls.has(l.url)),
+      ...llmLinks.filter(l => l.url && !existingUrls.has(l.url) && !adminLinks.some(al => al.url === l.url)),
     ];
 
     // Also ensure relevant_passwords from raw data are included
@@ -381,11 +383,11 @@ Respond with ONLY valid JSON:
       if (huduData.passwords.length > 0) {
         sections.push("");
         sections.push(
-          `### Credentials (${huduData.passwords.length} found — names only)`,
+          `### Credentials (${huduData.passwords.length} found — links only, never expose values)`,
         );
         for (const pw of huduData.passwords) {
           sections.push(
-            `- **${pw.name}** (Type: ${pw.password_type ?? "N/A"}, Username: ${pw.username ?? "N/A"}) (URL: ${pw.url ?? "N/A"})`,
+            `- **${pw.name}** (Type: ${pw.password_type ?? "N/A"}) ${pw.url ? `[View in Hudu](${pw.url})` : ""}`,
           );
           if (pw.description) sections.push(`  Note: ${pw.description}`);
         }
@@ -447,6 +449,72 @@ function buildHuduPasswords(huduData: HuduData): ReadonlyArray<{ readonly name: 
     type: pw.password_type ?? "unknown",
     note: pw.description ?? "",
   }));
+}
+
+/**
+ * Generate relevant admin portal quick links based on ticket content.
+ * These are universal tools techs use — always include the relevant ones.
+ */
+function buildAdminPortalLinks(
+  summary: string,
+  details: string | null,
+): ReadonlyArray<{ readonly label: string; readonly url: string }> {
+  const text = `${summary} ${details ?? ""}`.toLowerCase();
+  const links: Array<{ readonly label: string; readonly url: string }> = [];
+
+  // Microsoft 365 / Email / Identity
+  if (
+    text.includes("email") || text.includes("mail") || text.includes("outlook") ||
+    text.includes("exchange") || text.includes("365") || text.includes("office") ||
+    text.includes("teams") || text.includes("sharepoint") || text.includes("onedrive") ||
+    text.includes("mfa") || text.includes("password") || text.includes("account") ||
+    text.includes("user") || text.includes("license") || text.includes("entra") ||
+    text.includes("azure ad") || text.includes("active directory") ||
+    text.includes("ndr") || text.includes("bounce") || text.includes("delivery")
+  ) {
+    links.push({ label: "M365 Admin", url: "https://admin.microsoft.com" });
+    links.push({ label: "Entra ID", url: "https://entra.microsoft.com" });
+    links.push({ label: "Exchange Admin", url: "https://admin.exchange.microsoft.com" });
+  }
+
+  // DNS / Email delivery
+  if (
+    text.includes("dns") || text.includes("domain") || text.includes("mx") ||
+    text.includes("spf") || text.includes("dkim") || text.includes("dmarc") ||
+    text.includes("email") || text.includes("delivery") || text.includes("bounce") ||
+    text.includes("ndr") || text.includes("relay") || text.includes("mimecast") ||
+    text.includes("spam") || text.includes("blacklist")
+  ) {
+    links.push({ label: "MX Toolbox", url: "https://mxtoolbox.com/SuperTool.aspx" });
+  }
+
+  // Azure / Cloud
+  if (
+    text.includes("azure") || text.includes("vm") || text.includes("cloud") ||
+    text.includes("intune") || text.includes("endpoint") || text.includes("autopilot")
+  ) {
+    links.push({ label: "Azure Portal", url: "https://portal.azure.com" });
+    links.push({ label: "Intune", url: "https://intune.microsoft.com" });
+  }
+
+  // Security
+  if (
+    text.includes("security") || text.includes("threat") || text.includes("defender") ||
+    text.includes("phish") || text.includes("malware") || text.includes("virus") ||
+    text.includes("breach") || text.includes("compromise")
+  ) {
+    links.push({ label: "Security Portal", url: "https://security.microsoft.com" });
+  }
+
+  // Networking
+  if (
+    text.includes("vpn") || text.includes("firewall") || text.includes("network") ||
+    text.includes("wifi") || text.includes("switch") || text.includes("router")
+  ) {
+    links.push({ label: "WhatIsMyIP", url: "https://www.whatismyip.com" });
+  }
+
+  return links;
 }
 
 // ── Utilities ───────────────────────────────────────────────────────────
