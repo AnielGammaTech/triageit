@@ -217,14 +217,6 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
     category: "Email & DNS",
     items: [
       {
-        id: "mxtoolbox",
-        label: "MX Toolbox",
-        desc: "MX, SPF, DKIM, DMARC, blacklist diagnostics",
-        service: "mxtoolbox",
-        iconBg: "bg-orange-500/10",
-        iconColor: "text-orange-400",
-      },
-      {
         id: "dmarc",
         label: "DMARC Report",
         desc: "Domain DMARC compliance monitoring",

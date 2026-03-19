@@ -76,10 +76,10 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
     character: "Phyllis Vance",
     role: "dns_email",
     specialty: "Email & DNS Diagnostics",
-    integration: "mxtoolbox",
+    integration: null,
     model: "haiku",
     description:
-      "Runs MX Toolbox diagnostics for email-related tickets: MX records, SPF, DKIM, DMARC validation, blacklist checks, and SMTP connectivity tests.",
+      "Runs DNS diagnostics and WHOIS lookups for email-related tickets: MX records, SPF, DKIM, DMARC validation, domain registration, and expiry checks. Uses free Google DNS API and RDAP — no API key needed.",
   },
   {
     name: "angela_martin",
@@ -94,12 +94,12 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {
     name: "oscar_martinez",
     character: "Oscar Martinez",
-    role: "reporting",
-    specialty: "Financial & SLA Reporting",
-    integration: null,
+    role: "backup_recovery",
+    specialty: "Cove, Unitrends & Backup Recovery",
+    integration: "cove",
     model: "haiku",
     description:
-      "Tracks SLA compliance, calculates cost metrics, and provides reporting data for triage accuracy and processing performance.",
+      "Queries Cove Data Protection (N-able) for device backup status, last backup times, errors, and protection coverage. Provides deep expertise on Cove, Unitrends, and general backup/recovery procedures.",
   },
   {
     name: "kevin_malone",

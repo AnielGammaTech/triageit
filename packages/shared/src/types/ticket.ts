@@ -39,6 +39,18 @@ export interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly attachments?: ReadonlyArray<HaloAttachment>;
+}
+
+export interface HaloAttachment {
+  readonly id: number;
+  readonly filename: string;
+  readonly type?: string;
+  readonly isimage?: boolean;
+  readonly ticket_id?: number;
+  readonly action_id?: number;
+  readonly url?: string;
+  readonly [key: string]: unknown;
 }
 
 export type TicketStatus =

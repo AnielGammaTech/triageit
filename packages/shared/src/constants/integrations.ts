@@ -273,21 +273,6 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     ],
   },
   {
-    service: "mxtoolbox",
-    display_name: "MX Toolbox",
-    description:
-      "Email & DNS diagnostics. Provides MX, SPF, DKIM, DMARC checks, blacklist monitoring, and SMTP tests.",
-    fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "password",
-        placeholder: "Your MX Toolbox API Key",
-        required: true,
-      },
-    ],
-  },
-  {
     service: "dmarc",
     display_name: "DMARC Report",
     description:

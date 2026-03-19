@@ -10,6 +10,13 @@ export interface ClassificationResult {
   readonly security_notes: string | null;
 }
 
+export interface TicketImageContext {
+  readonly filename: string;
+  readonly mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  readonly base64Data: string;
+  readonly who: string | null;
+}
+
 export interface TriageContext {
   readonly ticketId: string;
   readonly haloId: number;
@@ -26,6 +33,7 @@ export interface TriageContext {
     readonly date: string | null;
     readonly isInternal: boolean;
   }>;
+  readonly images?: ReadonlyArray<TicketImageContext>;
 }
 
 export interface TriageOutput {

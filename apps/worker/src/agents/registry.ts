@@ -11,6 +11,7 @@ import { PhyllisVanceAgent } from "./workers/phyllis-vance.js";
 import { AngelaMartin } from "./workers/angela-martin.js";
 import { MeredithPalmerAgent } from "./workers/meredith-palmer.js";
 import { KellyKapoorAgent } from "./workers/kelly-kapoor.js";
+import { OscarMartinezAgent } from "./workers/oscar-martinez.js";
 
 /**
  * Agent Registry — maps agent names to their implementations.
@@ -38,6 +39,7 @@ const AGENT_IMPLEMENTATIONS: Record<string, AgentConstructor> = {
   angela_martin: AngelaMartin,
   meredith_palmer: MeredithPalmerAgent,
   kelly_kapoor: KellyKapoorAgent,
+  oscar_martinez: OscarMartinezAgent,
 };
 
 /**
@@ -50,7 +52,7 @@ const AGENT_REQUIRED_INTEGRATION: Record<string, string> = {
   kelly_kapoor: "threecx",
   meredith_palmer: "spanning",
   stanley_hudson: "vultr",
-  phyllis_vance: "mxtoolbox",
+  oscar_martinez: "cove",
 };
 
 /**
@@ -130,11 +132,11 @@ export async function getAgentsForClassification(
     network: ["andy_bernard", "stanley_hudson"],
     email: ["phyllis_vance", "dwight_schrute"],
     endpoint: ["andy_bernard", "dwight_schrute"],
-    cloud: ["stanley_hudson", "meredith_palmer"],
-    backup: ["meredith_palmer"],
+    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez"],
+    backup: ["meredith_palmer", "oscar_martinez"],
     security: ["angela_martin", "jim_halpert"],
     identity: ["jim_halpert"],
-    application: ["dwight_schrute"],
+    application: ["dwight_schrute", "andy_bernard"],
     infrastructure: ["andy_bernard", "stanley_hudson"],
     onboarding: ["jim_halpert", "dwight_schrute"],
     billing: ["dwight_schrute"],

@@ -240,35 +240,68 @@ async function fetchJumpCloudCustomers(
 async function fetchUnifiSites(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // UniFi Site Manager API — list all sites
-  const res = await fetch("https://api.ui.com/ea/sites", {
-    headers: {
-      "x-api-key": config.api_key,
-      Accept: "application/json",
-    },
-  });
+  const headers = {
+    "x-api-key": config.api_key,
+    Accept: "application/json",
+  };
 
-  if (!res.ok) throw new Error(`UniFi API error: ${res.status}`);
+  // Fetch sites and hosts in parallel — hosts have the meaningful console names
+  const [sitesRes, hostsRes] = await Promise.all([
+    fetch("https://api.ui.com/ea/sites", { headers }),
+    fetch("https://api.ui.com/ea/hosts", { headers }),
+  ]);
 
-  const data = (await res.json()) as {
+  if (!sitesRes.ok) throw new Error(`UniFi Sites API error: ${sitesRes.status}`);
+
+  const sitesData = (await sitesRes.json()) as {
     data?: ReadonlyArray<{
       hostId?: string;
       siteId?: string;
-      _id?: string;
-      meta?: {
-        name?: string;
-        desc?: string;
-      };
-      name?: string;
-      desc?: string;
+      meta?: { name?: string; desc?: string };
     }>;
   };
 
-  return (data.data ?? []).map((s) => ({
-    id: s.hostId ?? s.siteId ?? s._id ?? "",
-    name: s.meta?.desc || s.meta?.name || s.desc || s.name || "Unnamed Site",
-    is_active: true,
-  }));
+  // Build host name lookup: hostId → console name
+  const hostNames = new Map<string, string>();
+  if (hostsRes.ok) {
+    const hostsData = (await hostsRes.json()) as {
+      data?: ReadonlyArray<{
+        id?: string;
+        reportedState?: {
+          name?: string;
+          hostname?: string;
+        };
+        userData?: {
+          name?: string;
+        };
+        ipAddress?: string;
+      }>;
+    };
+
+    for (const host of hostsData.data ?? []) {
+      if (host.id) {
+        const name =
+          host.reportedState?.name ||
+          host.userData?.name ||
+          host.reportedState?.hostname ||
+          null;
+        if (name) hostNames.set(host.id, name);
+      }
+    }
+  }
+
+  // Join: use host console name, fall back to site meta.desc, then hostId
+  return (sitesData.data ?? []).map((s) => {
+    const hostId = s.hostId ?? "";
+    const hostName = hostNames.get(hostId);
+    const siteName = s.meta?.desc !== "Default" ? s.meta?.desc : null;
+
+    return {
+      id: hostId || s.siteId || "",
+      name: hostName || siteName || s.meta?.name || `Site ${hostId.substring(0, 8)}`,
+      is_active: true,
+    };
+  });
 }
 
 async function fetchPax8Customers(

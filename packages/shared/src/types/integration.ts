@@ -12,7 +12,6 @@ export type ServiceType =
   | "cove"
   | "pax8"
   | "vultr"
-  | "mxtoolbox"
   | "dmarc"
   | "threecx"
   | "spanning"
@@ -62,10 +61,6 @@ export interface VultrConfig {
   readonly api_key: string;
 }
 
-export interface MxToolboxConfig {
-  readonly api_key: string;
-}
-
 export interface SpanningConfig {
   readonly api_key: string;
   readonly region: string;
@@ -99,6 +94,12 @@ export interface TeamsConfig {
   readonly channel_name?: string;
 }
 
+export interface CoveConfig {
+  readonly partner_name: string;
+  readonly api_username: string;
+  readonly api_token: string;
+}
+
 export interface CippConfig {
   readonly base_url: string;
   readonly client_id: string;
@@ -113,13 +114,13 @@ export type IntegrationConfig =
   | DattoConfig
   | UnifiConfig
   | VultrConfig
-  | MxToolboxConfig
   | SpanningConfig
   | ThreeCxConfig
   | TwilioConfig
   | GenericApiKeyConfig
   | GenericApiUrlKeyConfig
   | TeamsConfig
+  | CoveConfig
   | CippConfig
   | Record<string, string>;
 

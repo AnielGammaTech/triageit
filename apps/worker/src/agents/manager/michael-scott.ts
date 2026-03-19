@@ -39,6 +39,7 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_agent": "<specific technician if known, null otherwise>",
   "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
   "internal_notes": "<comprehensive internal notes: include root cause analysis, all evidence from specialists, step-by-step troubleshooting plan, what to check first, what tools to use, and any gotchas>",
+  "customer_response": "<a professional, empathetic response to send to the customer acknowledging their issue, explaining next steps, and setting expectations. Write as if you are the MSP support team. Keep it concise but helpful. null if not applicable (e.g. alerts, internal tickets)>",
   "suggested_response": "<brief client-facing acknowledgment, null if not needed>",
   "adjustments": "<any adjustments to Ryan's classification, null if none>",
   "escalation_needed": <true/false>,
@@ -113,6 +114,7 @@ const AGENT_LABELS: Record<string, string> = {
   meredith_palmer: "Meredith Palmer (Backup/Recovery)",
   kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
   erin_hannon: "Erin Hannon (Alert Specialist)",
+  oscar_martinez: "Oscar Martinez (Backup/Cove)",
 };
 
 // ── Main Triage Pipeline ─────────────────────────────────────────────
@@ -131,7 +133,13 @@ export async function runTriage(
     try {
       const haloEarly = new HaloClient(haloConfigEarly);
       const rawActions = await haloEarly.getTicketActions(ticket.halo_id);
-      const formattedActions = rawActions.map((a) => ({
+      // Filter out TriageIt's own messages — we only care about tech and customer actions
+      const filteredActions = rawActions.filter((a) => {
+        const note = (a.note ?? "").toLowerCase();
+        return !note.includes("triageit") && !note.includes("ai triage") && !note.includes("triagetit ai");
+      });
+
+      const formattedActions = filteredActions.map((a) => ({
         note: stripHtmlActions(a.note),
         who: a.who ?? null,
         outcome: a.outcome ?? null,
@@ -150,13 +158,31 @@ export async function runTriage(
         ? techActionUsers[techActionUsers.length - 1]
         : null;
 
-      context = { ...context, actions: formattedActions, assignedTechName };
+      // Fetch images from ticket attachments and inline images
+      const [attachmentImages, inlineImages] = await Promise.all([
+        haloEarly.getTicketImages(ticket.halo_id, rawActions),
+        haloEarly.extractInlineImages(rawActions),
+      ]);
+      const allImages = [...attachmentImages, ...inlineImages].slice(0, 5);
+      const imageContexts = allImages.map((img) => ({
+        filename: img.filename,
+        mediaType: img.mediaType,
+        base64Data: img.base64Data,
+        who: img.who,
+      }));
+
+      context = {
+        ...context,
+        actions: formattedActions,
+        assignedTechName,
+        images: imageContexts.length > 0 ? imageContexts : undefined,
+      };
       await logThinking(
         supabase,
         ticket.id,
         "michael_scott",
         "manager",
-        `Fetched ${formattedActions.length} action(s)/comment(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
+        `Fetched ${formattedActions.length} action(s)/comment(s) and ${imageContexts.length} image(s) from Halo for ticket #${ticket.halo_id}. These will be included in the triage context.`,
       );
     } catch (err) {
       console.warn(`[MICHAEL] Could not fetch Halo actions for ticket #${ticket.halo_id}:`, err);
@@ -539,11 +565,34 @@ export async function runTriage(
     .filter(Boolean)
     .join("\n");
 
+  // Build multi-modal content: text + images (if any)
+  const messageContent: Anthropic.MessageCreateParams["messages"][0]["content"] = [
+    { type: "text", text: michaelMessage },
+  ];
+
+  // Append ticket images for vision analysis
+  if (context.images && context.images.length > 0) {
+    for (const img of context.images) {
+      messageContent.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: img.mediaType,
+          data: img.base64Data,
+        },
+      });
+      messageContent.push({
+        type: "text",
+        text: `[Screenshot: ${img.filename}${img.who ? ` from ${img.who}` : ""}]`,
+      });
+    }
+  }
+
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: michaelMessage }],
+    messages: [{ role: "user", content: messageContent }],
   });
 
   const text =
@@ -553,6 +602,7 @@ export async function runTriage(
     recommended_agent: string | null;
     root_cause_hypothesis: string;
     internal_notes: string;
+    customer_response: string | null;
     suggested_response: string | null;
     adjustments: string | null;
     escalation_needed: boolean;
@@ -561,24 +611,66 @@ export async function runTriage(
 
   const processingTime = Date.now() - startTime;
 
-  // ── Step 6: Write comprehensive note to Halo ───────────────────────
+  // ── Detect retriage vs first triage ────────────────────────────────
+  const { data: existingTriages } = await supabase
+    .from("triage_results")
+    .select("id")
+    .eq("ticket_id", ticket.id)
+    .limit(1);
+  const isRetriage = (existingTriages?.length ?? 0) > 0;
+
+  // ── Step 6: Write note to Halo ─────────────────────────────────────
 
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig) {
     const halo = new HaloClient(haloConfig);
-    try {
-      const internalNote = buildHaloNote(
-        classification,
-        michaelResult,
-        findings,
-        processingTime,
-      );
-      await halo.addInternalNote(ticket.halo_id, internalNote);
-    } catch (error) {
-      console.error(
-        `[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`,
-        error,
-      );
+
+    // On retriage, post a compact review — not the full triage table
+    if (isRetriage) {
+      try {
+        const compactNote = buildCompactRetrieageNote(
+          classification,
+          michaelResult,
+          processingTime,
+        );
+        await halo.addInternalNote(ticket.halo_id, compactNote);
+      } catch (error) {
+        console.error(
+          `[MICHAEL] Failed to write retriage note for #${ticket.halo_id}:`,
+          error,
+        );
+      }
+    } else {
+      // First triage — full comprehensive note
+      try {
+        const internalNote = buildHaloNote(
+          classification,
+          michaelResult,
+          findings,
+          processingTime,
+        );
+        await halo.addInternalNote(ticket.halo_id, internalNote);
+      } catch (error) {
+        console.error(
+          `[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`,
+          error,
+        );
+      }
+    }
+
+    // ── Customer Response Recommendation — second private comment ────
+    if (michaelResult.customer_response) {
+      try {
+        const customerResponseNote = buildCustomerResponseNote(
+          michaelResult.customer_response,
+        );
+        await halo.addInternalNote(ticket.halo_id, customerResponseNote);
+      } catch (error) {
+        console.error(
+          `[MICHAEL] Failed to write customer response note for #${ticket.halo_id}:`,
+          error,
+        );
+      }
     }
   }
 
@@ -944,4 +1036,58 @@ function buildHaloNote(
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
 
   return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:13px;color:#e2e8f0;margin:0;padding:0;border:1px solid #3a3f4b;background:#1E2028;border-radius:8px;overflow:hidden;">${rows.join("")}</table>`;
+}
+
+// ── Compact Retriage Note ─────────────────────────────────────────────
+// On retriage, only post a small review note — NOT the full triage table.
+// Focus on changes, tech performance flags, and any new findings.
+
+function buildCompactRetrieageNote(
+  classification: {
+    classification: { type: string; subtype: string; confidence: number };
+    urgency_score: number;
+    recommended_priority: number;
+  },
+  michaelResult: {
+    recommended_team: string;
+    root_cause_hypothesis: string;
+    internal_notes: string;
+    escalation_needed: boolean;
+    escalation_reason: string | null;
+  },
+  processingTime: number,
+): string {
+  const border = "border-bottom:1px solid #3a3f4b;";
+  const rows: string[] = [];
+
+  // Compact header
+  rows.push(`<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:13px;font-weight:600;">📋 Retriage Check — TriageIt<span style="float:right;font-weight:400;font-size:10px;opacity:0.8;">${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+
+  // Status line
+  rows.push(`<tr style="background:#252830;"><td style="padding:6px 12px;font-weight:600;width:100px;${border}font-size:12px;color:#94a3b8;">Status</td><td style="padding:6px 12px;${border}font-size:13px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · P${classification.recommended_priority} · ${michaelResult.recommended_team}</td></tr>`);
+
+  // Escalation flag if needed
+  if (michaelResult.escalation_needed) {
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:6px 12px;font-weight:700;width:100px;${border}font-size:12px;color:#fbbf24;">⬆ Escalate</td><td style="padding:6px 12px;${border}font-size:13px;color:#fcd34d;">${michaelResult.escalation_reason}</td></tr>`);
+  }
+
+  // Only include notes if they contain actionable info
+  const formattedNotes = formatTechNotes(michaelResult.internal_notes);
+  rows.push(`<tr style="background:#1a2332;"><td style="padding:6px 12px;font-weight:600;width:100px;${border}font-size:12px;color:#60a5fa;">Notes</td><td style="padding:6px 12px;${border}font-size:12px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
+
+  // Footer
+  rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage</td></tr>`);
+
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
+}
+
+// ── Customer Response Recommendation ──────────────────────────────────
+// Posted as a SECOND private comment with a suggested customer-facing response.
+
+function buildCustomerResponseNote(customerResponse: string): string {
+  return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+    `<tr><td style="padding:10px 12px;background:linear-gradient(135deg,#0891b2,#06b6d4);color:white;font-size:14px;font-weight:700;">💬 Suggested Customer Response — TriageIt</td></tr>` +
+    `<tr style="background:#0c1a26;"><td style="padding:12px 16px;font-size:14px;color:#e2e8f0;line-height:1.6;word-break:break-word;white-space:pre-wrap;">${customerResponse}</td></tr>` +
+    `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · Copy and customize before sending to customer</td></tr>` +
+    `</table>`;
 }

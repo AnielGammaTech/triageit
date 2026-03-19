@@ -62,6 +62,50 @@ export class KellyKapoorAgent extends BaseAgent {
     return `## Your Mission
 You are the VoIP & telephony specialist. You have REAL data from 3CX and/or Twilio.
 Analyze the phone system data to diagnose the reported issue accurately.
+Your audience is IT technicians — be specific, technical, and actionable.
+
+## Vendor Resources
+- 3CX Documentation: https://www.3cx.com/docs/
+- 3CX Admin Manual: https://www.3cx.com/docs/manual/
+- 3CX SIP Trunk Guide: https://www.3cx.com/docs/manual/sip-trunk-configuration/
+- 3CX Firewall Checker: https://www.3cx.com/docs/manual/firewall-check/
+- 3CX Status Page: https://status.3cx.com/
+- Twilio Status Page: https://status.twilio.com/
+- Twilio SIP Trunking Docs: https://www.twilio.com/docs/sip-trunking
+- Twilio Error & Warning Dictionary: https://www.twilio.com/docs/api/errors
+- FlowRoute Status: https://status.flowroute.com/
+- FlowRoute Support: https://support.flowroute.com/
+
+## Common Fixes
+### Trunk Registration Failure
+1. Verify SIP trunk credentials (username, password, auth ID) match provider settings
+2. Check provider IP whitelist — ensure 3CX public IP is authorized
+3. Verify DNS resolution: \`nslookup <provider-host>\` from the 3CX server
+4. Check firewall: SIP uses UDP/TCP 5060 (or 5061 for TLS), RTP uses UDP 9000-10999
+5. Run 3CX Firewall Checker: 3CX Admin > Dashboard > Firewall Check
+6. Review trunk options: re-register interval, keep-alive, outbound proxy settings
+7. Check provider portal for account suspension or billing issues
+
+### No Audio / One-Way Audio
+1. Check NAT/STUN settings in 3CX: Admin > Network > STUN
+2. Verify RTP port range (9000-10999) is open on firewall for UDP
+3. Check if SIP ALG is enabled on the router — DISABLE IT (common cause)
+4. Verify codec negotiation: ensure both sides support the same codec (G.711, G.729)
+5. Check for double-NAT scenarios — 3CX needs a single public IP or proper STUN config
+6. Ref: https://www.3cx.com/docs/manual/one-way-audio/
+
+### DID Not Routing / 404 Errors
+1. Verify DID is assigned in 3CX: Admin > Inbound Rules > check DID number
+2. Confirm DID is active with the provider (check provider portal)
+3. Check if number was ported — verify with losing/gaining carrier
+4. Ensure trunk associated with the DID is registered
+5. Check inbound rule destination (ring group, extension, IVR)
+
+### SIP Troubleshooting Flowchart
+1. Can the device register? YES -> Check call routing. NO -> Check credentials, firewall, DNS
+2. Can outbound calls connect? YES -> Check inbound. NO -> Check trunk, outbound rules, provider
+3. Is there audio? YES -> Check quality (jitter, packet loss). NO -> Check NAT, STUN, SIP ALG, codecs
+4. Is call quality poor? -> Check QoS settings, bandwidth, jitter buffer, switch to G.711
 
 ## CRITICAL: Scope Assessment
 DO NOT assume a system-wide outage unless ALL evidence points to it. You MUST assess the SCOPE of the issue:
@@ -127,7 +171,8 @@ Respond with ONLY valid JSON:
   "immediate_actions": ["<what to do RIGHT NOW>"],
   "is_provider_issue": <true/false>,
   "provider_action": "<action to take with the provider, null if not applicable>",
-  "voip_notes": "<comprehensive VoIP assessment with all findings>",
+  "kb_references": ["<relevant vendor KB/doc URLs for this specific issue>"],
+  "voip_notes": "<comprehensive VoIP assessment with all findings — include relevant KB links>",
   "confidence": <0.0-1.0>
 }`;
   }
