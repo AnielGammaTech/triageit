@@ -1,10 +1,10 @@
+import cron from "node-cron";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
 
-let cronInterval: ReturnType<typeof setInterval> | null = null;
-let lastRunDate: string | null = null;
+let cronTask: ReturnType<typeof cron.schedule> | null = null;
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
   const supabase = createSupabaseClient();
@@ -19,15 +19,7 @@ async function getTeamsConfig(): Promise<TeamsConfig | null> {
 }
 
 async function runDailyRetriage(): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
-
-  // Skip if already ran today
-  if (lastRunDate === today) {
-    return;
-  }
-
-  console.log(`[CRON] Starting daily re-triage scan for ${today}`);
-  lastRunDate = today;
+  console.log(`[CRON] Starting daily re-triage scan`);
 
   const supabase = createSupabaseClient();
 
@@ -45,7 +37,6 @@ async function runDailyRetriage(): Promise<void> {
     if (teamsConfig) {
       const teams = new TeamsClient(teamsConfig);
 
-      // Send daily summary
       await teams.sendDailySummary({
         totalOpen: result.totalOpen,
         scanned: result.scanned,
@@ -70,34 +61,39 @@ async function runDailyRetriage(): Promise<void> {
     }
   } catch (err) {
     console.error("[CRON] Daily re-triage failed:", err);
-    // Reset lastRunDate so it can retry
-    lastRunDate = null;
   }
 }
 
+/**
+ * Start the cron scheduler.
+ * Default schedule: daily at 6 AM (0 6 * * *).
+ * Override with RETRIAGE_CRON env var for custom schedules.
+ */
 export function startCronScheduler(): void {
-  // Check every 15 minutes if it's time to run the daily scan
-  // The actual scan only runs once per day (6 AM local)
-  cronInterval = setInterval(async () => {
-    const hour = new Date().getHours();
+  const schedule = process.env.RETRIAGE_CRON ?? "0 6 * * *";
 
-    // Run at 6 AM
-    if (hour === 6) {
-      await runDailyRetriage();
-    }
-  }, 15 * 60 * 1000); // Check every 15 minutes
+  if (!cron.validate(schedule)) {
+    console.error(`[CRON] Invalid cron expression: "${schedule}" — scheduler not started`);
+    return;
+  }
 
-  console.log("[CRON] Scheduler started — daily re-triage at 6 AM");
+  cronTask = cron.schedule(schedule, () => {
+    runDailyRetriage().catch((err) =>
+      console.error("[CRON] Unhandled error in daily retriage:", err),
+    );
+  });
+
+  console.log(`[CRON] Scheduler started — retriage schedule: "${schedule}"`);
 }
 
 export function stopCronScheduler(): void {
-  if (cronInterval) {
-    clearInterval(cronInterval);
-    cronInterval = null;
+  if (cronTask) {
+    cronTask.stop();
+    cronTask = null;
   }
 }
 
-// Manual trigger for testing
+// Manual trigger (from the /retriage endpoint)
 export async function triggerDailyRetriage(): Promise<{
   totalOpen: number;
   critical: number;

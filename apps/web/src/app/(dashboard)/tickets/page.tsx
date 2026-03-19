@@ -52,6 +52,7 @@ export default function TicketsPage() {
   const [triaging, setTriaging] = useState(false);
   const [triageProgress, setTriageProgress] = useState({ current: 0, total: 0 });
   const [activeTab, setActiveTab] = useState<"new" | "open">("new");
+  const [scanMessage, setScanMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const loadTickets = useCallback(async () => {
     setLoading(true);
@@ -108,15 +109,22 @@ export default function TicketsPage() {
 
       setTriaging(true);
       setTriageProgress({ current: 0, total: 0 });
+      setScanMessage(null);
 
       try {
         const response = await fetch("/api/retriage", { method: "POST" });
         if (!response.ok) {
-          const text = await response.text();
-          console.error("Re-triage failed:", text);
+          const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+          setScanMessage({ type: "error", text: body.error ?? `Worker returned ${response.status}` });
+        } else {
+          const result = await response.json();
+          setScanMessage({
+            type: "success",
+            text: `Scan complete — ${result.totalOpen ?? 0} open tickets found, ${result.critical ?? 0} critical, ${result.warnings ?? 0} warnings`,
+          });
         }
-      } catch {
-        // Non-fatal
+      } catch (err) {
+        setScanMessage({ type: "error", text: `Could not reach worker: ${(err as Error).message}` });
       }
 
       setTriaging(false);
@@ -287,6 +295,20 @@ export default function TicketsPage() {
           </p>
         </div>
       </div>
+
+      {scanMessage && (
+        <div
+          className={cn(
+            "rounded-lg border px-4 py-3 text-sm flex items-center justify-between",
+            scanMessage.type === "error"
+              ? "border-red-500/30 bg-red-500/10 text-red-400"
+              : "border-green-500/30 bg-green-500/10 text-green-400",
+          )}
+        >
+          <span>{scanMessage.text}</span>
+          <button onClick={() => setScanMessage(null)} className="ml-4 text-xs opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
 
       {activeTab === "new" ? (
         <TicketList
