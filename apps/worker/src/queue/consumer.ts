@@ -16,7 +16,11 @@ export function startTriageWorker(): Worker<TriageJobData> {
 
       await supabase
         .from("tickets")
-        .update({ status: "triaging", updated_at: new Date().toISOString() })
+        .update({
+          status: "triaging",
+          error_message: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", job.data.ticketId);
 
       const { data: ticket } = await supabase
@@ -44,9 +48,16 @@ export function startTriageWorker(): Worker<TriageJobData> {
 
         return { success: true, triageResultId: result.id };
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+
         await supabase
           .from("tickets")
-          .update({ status: "error", updated_at: new Date().toISOString() })
+          .update({
+            status: "error",
+            error_message: errorMessage,
+            updated_at: new Date().toISOString(),
+          })
           .eq("id", job.data.ticketId);
 
         throw error;

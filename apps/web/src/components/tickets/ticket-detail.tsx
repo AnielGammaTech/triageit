@@ -48,6 +48,7 @@ interface TicketData {
   readonly user_email: string | null;
   readonly original_priority: number | null;
   readonly status: TicketStatus;
+  readonly error_message: string | null;
   readonly raw_data: Record<string, unknown> | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -426,6 +427,75 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
         <InfoCard label="Created" value={timeAgo(ticket.created_at)} />
       </div>
 
+      {/* Error banner */}
+      {ticket.status === "error" && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/[0.05] p-5">
+          <div className="mb-2 flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <h3 className="text-sm font-semibold text-red-400">Triage Failed</h3>
+          </div>
+          {ticket.error_message ? (
+            <div className="mt-2 rounded-lg bg-red-500/10 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-red-400/60 mb-1">Error Message</p>
+              <p className="font-mono text-xs text-red-300/80 whitespace-pre-wrap break-all">{ticket.error_message}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-red-300/60">
+              An error occurred during triage. No error details were captured. Try re-triaging the ticket.
+            </p>
+          )}
+          {(() => {
+            const errorLogs = agentLogs.filter((l) => l.status === "error");
+            if (errorLogs.length === 0) return null;
+            return (
+              <div className="mt-3 space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-red-400/60">Agent Errors</p>
+                {errorLogs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-2 rounded-lg bg-red-500/10 px-3 py-2">
+                    <div className={cn("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
+                      {(AGENT_NAMES[log.agent_name] ?? log.agent_name).split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-red-300">
+                        {AGENT_NAMES[log.agent_name] ?? log.agent_name}
+                        <span className="ml-2 text-red-400/40">{AGENT_ROLES[log.agent_name] ?? log.agent_role}</span>
+                      </p>
+                      {log.error_message && (
+                        <p className="mt-0.5 font-mono text-[11px] text-red-300/70 break-all">{log.error_message}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className="mt-4">
+            <button
+              onClick={handleRetriage}
+              disabled={retriaging || isTriaging}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                retriaging || isTriaging
+                  ? "cursor-not-allowed bg-white/5 text-white/20"
+                  : "bg-red-500/10 text-red-400 hover:bg-red-500/20",
+              )}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M16 21h5v-5" />
+              </svg>
+              {retriaging ? "Re-triaging..." : "Retry Triage"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* SummarizeIT result */}
       {(summary || summarizing) && (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
@@ -609,7 +679,7 @@ export function TicketDetail({ ticketId, onBack }: TicketDetailProps) {
             </div>
           )}
 
-          {!ticket.details && !triage?.internal_notes && (
+          {!ticket.details && !triage?.internal_notes && ticket.status !== "error" && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
               <p className="text-sm text-white/40">
                 {ticket.status === "pending"
