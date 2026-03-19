@@ -239,10 +239,69 @@ export async function POST() {
       );
     }
 
+    // ── Detect tickets closed in Halo ────────────────────────────────
+    // Any local ticket NOT in the Halo open list and NOT already resolved
+    // was closed/resolved in Halo since our last sync.
+    let closedCount = 0;
+    const openHaloIds = new Set(allTickets.map((t) => t.id));
+
+    const { data: localNonResolved } = await serviceClient
+      .from("tickets")
+      .select("id, halo_id, halo_status")
+      .not("halo_status", "is", null);
+
+    if (localNonResolved) {
+      const resolvedStatuses = [
+        "closed", "resolved", "cancelled", "completed",
+        "resolved remotely", "resolved onsite",
+        "resolved - awaiting confirmation",
+      ];
+
+      const staleTickets = localNonResolved.filter((t) => {
+        const statusLower = (t.halo_status ?? "").toLowerCase();
+        const alreadyResolved = resolvedStatuses.some((s) => statusLower.includes(s));
+        return !alreadyResolved && !openHaloIds.has(t.halo_id);
+      });
+
+      // Batch-fetch current status from Halo for these stale tickets
+      for (const stale of staleTickets) {
+        try {
+          const res = await fetch(
+            `${config.base_url}/api/tickets/${stale.halo_id}?includecolumns=true`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+            },
+          );
+
+          if (res.ok) {
+            const ticketData = (await res.json()) as HaloTicket;
+            const freshStatus = resolveStatusName(ticketData);
+
+            await serviceClient
+              .from("tickets")
+              .update({
+                halo_status: freshStatus,
+                halo_status_id: ticketData.status_id,
+                updated_at: now,
+              })
+              .eq("id", stale.id);
+
+            closedCount++;
+          }
+        } catch {
+          // Non-critical — skip if individual fetch fails
+        }
+      }
+    }
+
     return NextResponse.json({
       pulled: allTickets.length,
       created,
       updated,
+      closed: closedCount,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {

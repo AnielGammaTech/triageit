@@ -83,9 +83,10 @@ export default function TicketsPage() {
       } else {
         const result = await res.json();
         const errInfo = result.errors?.length ? ` (${result.errors.length} errors)` : "";
+        const closedInfo = result.closed ? `, ${result.closed} closed` : "";
         setStatusMessage({
           type: result.errors?.length ? "error" : "success",
-          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${errInfo}`,
+          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${errInfo}`,
         });
       }
     } catch (err) {
