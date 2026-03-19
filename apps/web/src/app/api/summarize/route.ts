@@ -19,21 +19,22 @@ interface HaloAction {
   readonly datecreated?: string;
 }
 
-const SUMMARIZE_PROMPT = `You are an MSP operations analyst. Given a ticket's private/internal notes and appointment history, write a concise summary of what happened on this ticket from the tech's perspective.
+const SUMMARIZE_PROMPT = `You are an MSP operations analyst. Given a ticket's private/internal tech notes and appointment history, write a concise summary of what the technician did on this ticket.
 
 Focus on:
 - What the tech actually did (actions taken, troubleshooting steps, solutions applied)
 - Key timeline events (when they responded, scheduled, followed up)
 - Any appointments or site visits scheduled
-- Current state / what's pending
-- Communication with the customer (if visible)
+- Current state / what's still pending
+- How responsive the tech was (gaps between actions)
 
 Rules:
 - Be concise — 3-8 bullet points max
 - Use plain language, no jargon
 - Include approximate dates/times when available
-- If the tech hasn't done much, say so honestly
-- Skip any notes from "TriageIt" or automated systems — focus on human tech activity
+- If the tech hasn't done much, say so honestly — e.g. "No tech activity recorded yet"
+- Skip any notes from "TriageIt" or automated systems — focus only on human tech activity
+- Do NOT include customer emails or customer replies — this is strictly about tech work
 - If there are scheduled appointments, mention them
 
 Output format: Return plain text with bullet points (use • character). No JSON, no markdown headers.`;
@@ -180,22 +181,20 @@ export async function POST(request: Request) {
       fetchHaloAppointments(config, body.halo_id),
     ]);
 
-    // Filter to only private/internal notes, excluding TriageIt automated notes
+    // Filter to ONLY private/internal tech notes — no customer emails
     const techActions = allActions
       .filter((a) => {
-        // Include private notes (hiddenfromuser = true)
-        if (a.hiddenfromuser) {
-          // Exclude TriageIt automated notes
-          const who = (a.who ?? "").toLowerCase();
-          if (who.includes("triageit") || who.includes("triage it")) return false;
+        // Only include private/internal notes (hiddenfromuser = true)
+        if (!a.hiddenfromuser) return false;
 
-          // Exclude notes that look like TriageIt output
-          const noteText = stripHtml(a.note);
-          if (noteText.startsWith("🔍 TriageIt") || noteText.startsWith("TriageIt Analysis")) return false;
+        // Exclude TriageIt automated notes
+        const who = (a.who ?? "").toLowerCase();
+        if (who.includes("triageit") || who.includes("triage it")) return false;
 
-          return true;
-        }
-        // Also include customer-visible notes to understand full context
+        // Exclude notes that look like TriageIt output
+        const noteText = stripHtml(a.note);
+        if (noteText.startsWith("🔍 TriageIt") || noteText.startsWith("TriageIt Analysis")) return false;
+
         return true;
       })
       .sort(
@@ -221,9 +220,8 @@ export async function POST(request: Request) {
             minute: "2-digit",
           })
         : "Unknown date";
-      const visibility = a.hiddenfromuser ? "(private)" : "(customer-visible)";
       const noteText = stripHtml(a.note).substring(0, 500);
-      return `[${date}] ${a.who ?? "Unknown"} ${visibility}: ${noteText}`;
+      return `[${date}] ${a.who ?? "Unknown"} (private note): ${noteText}`;
     });
 
     const appointmentLines = appointments.map((a) => {
