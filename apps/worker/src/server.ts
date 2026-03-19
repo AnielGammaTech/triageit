@@ -11,6 +11,7 @@ import {
   isUpdateRequest,
   handleUpdateRequest,
 } from "./agents/retriage/update-request.js";
+import { scanForSlaBreaches } from "./cron/sla-scan.js";
 
 const server = Fastify({ logger: true });
 
@@ -50,6 +51,23 @@ server.post<{ Body: { ticket_id?: string; halo_id?: number } }>(
     });
 
     return { status: "queued", job_id: jobId };
+  },
+);
+
+// Manual SLA breach scan
+server.post<{ Body: Record<string, never> }>(
+  "/sla-scan",
+  async (_request, reply) => {
+    try {
+      const result = await scanForSlaBreaches();
+      return {
+        status: "completed",
+        ...result,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
   },
 );
 
@@ -170,6 +188,11 @@ async function start() {
 
   // Process any tickets stuck in pending (missed while worker was down)
   await processPendingTickets();
+
+  // Retroactive SLA scan — catch any breaching tickets on startup
+  scanForSlaBreaches().catch((err) => {
+    console.error("[WORKER] Startup SLA scan failed:", err);
+  });
 
   // Graceful shutdown
   const shutdown = async () => {

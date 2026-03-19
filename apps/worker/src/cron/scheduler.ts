@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
+import { scanForSlaBreaches } from "./sla-scan.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
 
@@ -78,9 +79,17 @@ export function startCronScheduler(): void {
   }
 
   cronTask = cron.schedule(schedule, () => {
-    runDailyRetriage().catch((err) =>
-      console.error("[CRON] Unhandled error in daily retriage:", err),
-    );
+    // Run both the daily retriage scan and SLA breach scan in parallel
+    Promise.all([
+      runDailyRetriage().catch((err) =>
+        console.error("[CRON] Unhandled error in daily retriage:", err),
+      ),
+      scanForSlaBreaches().catch((err) =>
+        console.error("[CRON] Unhandled error in SLA scan:", err),
+      ),
+    ]).catch(() => {
+      // Individual errors already logged above
+    });
   });
 
   console.log(`[CRON] Scheduler started — retriage schedule: "${schedule}"`);
