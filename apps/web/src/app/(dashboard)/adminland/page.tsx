@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/adminland-constants";
 import { IntegrationConfig } from "@/components/admin/integration-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
+import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 
 type ActiveView =
   | { type: "menu" }
@@ -276,6 +277,8 @@ export default function AdminlandPage() {
         </div>
         {activeView.id === "agent-config" ? (
           <AgentConfigSection />
+        ) : activeView.id === "triage-rules" ? (
+          <TriageRulesSection />
         ) : (
           <div
             className="rounded-xl border border-white/10 p-8 text-center"

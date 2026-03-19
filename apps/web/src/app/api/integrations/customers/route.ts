@@ -270,6 +270,89 @@ async function fetchUnifiSites(
   }));
 }
 
+async function fetchPax8Customers(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // Pax8 OAuth2 — client_credentials grant
+  const tokenRes = await fetch("https://login.pax8.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      audience: "https://api.pax8.com",
+      grant_type: "client_credentials",
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    throw new Error(`Pax8 auth failed (${tokenRes.status}): ${text.substring(0, 200)}`);
+  }
+
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+
+  // Fetch companies (paginated — pull up to 500)
+  const res = await fetch(
+    "https://api.pax8.com/v1/companies?size=200&sort=name&sortDirection=asc",
+    {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  if (!res.ok) throw new Error(`Pax8 API error: ${res.status}`);
+
+  const data = (await res.json()) as {
+    content?: ReadonlyArray<{
+      id: string;
+      name: string;
+      status?: string;
+    }>;
+  };
+
+  return (data.content ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    is_active: c.status !== "Inactive",
+  }));
+}
+
+async function fetchVultrInstances(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // Vultr API v2 — list all instances (servers) using API key Bearer auth
+  const res = await fetch(
+    "https://api.vultr.com/v2/instances?per_page=500",
+    {
+      headers: {
+        Authorization: `Bearer ${config.api_key}`,
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  if (!res.ok) throw new Error(`Vultr API error: ${res.status}`);
+
+  const data = (await res.json()) as {
+    instances?: ReadonlyArray<{
+      id: string;
+      label: string;
+      hostname?: string;
+      status?: string;
+      power_status?: string;
+    }>;
+  };
+
+  return (data.instances ?? []).map((i) => ({
+    id: i.id,
+    name: i.label || i.hostname || i.id,
+    is_active: i.power_status === "running",
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
@@ -278,6 +361,8 @@ const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   datto: fetchDattoCustomers,
   jumpcloud: fetchJumpCloudCustomers,
   unifi: fetchUnifiSites,
+  pax8: fetchPax8Customers,
+  vultr: fetchVultrInstances,
 };
 
 // ── Halo helpers ─────────────────────────────────────────────────────

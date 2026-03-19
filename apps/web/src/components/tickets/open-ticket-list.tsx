@@ -32,6 +32,7 @@ interface TicketRow {
 interface OpenTicketListProps {
   readonly tickets: ReadonlyArray<TicketRow>;
   readonly onSelectTicket: (id: string) => void;
+  readonly haloBaseUrl?: string | null;
 }
 
 // ── Status styles — fuzzy match on common Halo status names ─────────
@@ -126,7 +127,7 @@ const FLAG_STYLES: Record<string, string> = {
   info: "bg-white/5 text-white/30",
 };
 
-export function OpenTicketList({ tickets, onSelectTicket }: OpenTicketListProps) {
+export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTicketListProps) {
   if (tickets.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -180,8 +181,26 @@ export function OpenTicketList({ tickets, onSelectTicket }: OpenTicketListProps)
                     : "hover:bg-[var(--accent)]",
                 )}
               >
-                <td className="px-3 py-2 font-mono text-xs text-[#6366f1]">
-                  {ticket.halo_id}
+                <td className="px-3 py-2 font-mono text-xs">
+                  {haloBaseUrl ? (
+                    <a
+                      href={`${haloBaseUrl}/tickets?id=${ticket.halo_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-[#6366f1] hover:text-[#818cf8] transition-colors"
+                      title="Open in Halo"
+                    >
+                      {ticket.halo_id}
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </a>
+                  ) : (
+                    <span className="text-[#6366f1]">{ticket.halo_id}</span>
+                  )}
                 </td>
                 <td className="max-w-sm truncate px-3 py-2">
                   {ticket.summary}

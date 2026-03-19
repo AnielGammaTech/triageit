@@ -52,6 +52,7 @@ export default function TicketsPage() {
   const [activeTab, setActiveTab] = useState<"incoming" | "open" | "resolved">("open");
   const [pulling, setPulling] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
   const hasPulled = useRef(false);
 
   const loadTickets = useCallback(async () => {
@@ -69,7 +70,23 @@ export default function TicketsPage() {
       setError(null);
     }
     setLoading(false);
-  }, []);
+
+    // Load Halo base URL for ticket links
+    if (!haloBaseUrl) {
+      const { data: haloConfig } = await supabase
+        .from("integrations")
+        .select("config")
+        .eq("service", "halo")
+        .single();
+
+      if (haloConfig?.config) {
+        const cfg = haloConfig.config as { base_url?: string };
+        if (cfg.base_url) {
+          setHaloBaseUrl(cfg.base_url.replace(/\/$/, ""));
+        }
+      }
+    }
+  }, [haloBaseUrl]);
 
   // Pull open tickets from Halo
   const pullFromHalo = useCallback(async () => {
@@ -268,10 +285,10 @@ export default function TicketsPage() {
             </p>
           </div>
         ) : (
-          <OpenTicketList tickets={resolvedTickets} onSelectTicket={handleSelectTicket} />
+          <OpenTicketList tickets={resolvedTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
         )
       ) : (
-        <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} />
+        <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
       )}
     </div>
   );

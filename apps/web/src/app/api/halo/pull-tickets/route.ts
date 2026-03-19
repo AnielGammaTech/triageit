@@ -149,6 +149,9 @@ export async function POST() {
       });
     }
 
+    // Build agent name lookup from Halo agents list
+    const agentNameMap = await fetchAgentNameMap(config.base_url, token);
+
     const now = new Date().toISOString();
 
     // Find which tickets already exist locally
@@ -189,7 +192,7 @@ export async function POST() {
         halo_status: resolveStatusName(ticket),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
-        halo_agent: ticket.agent_name ?? (ticket.agent_id ? String(ticket.agent_id) : null),
+        halo_agent: resolveAgentName(ticket, agentNameMap),
         last_retriage_at: now,
         last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
@@ -217,7 +220,7 @@ export async function POST() {
           halo_status: resolveStatusName(ticket),
           halo_status_id: ticket.status_id,
           halo_team: ticket.team_name ?? ticket.team ?? null,
-          halo_agent: ticket.agent_name ?? (ticket.agent_id ? String(ticket.agent_id) : null),
+          halo_agent: resolveAgentName(ticket, agentNameMap),
           last_retriage_at: now,
           last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
           last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
@@ -328,6 +331,58 @@ function resolveStatusName(ticket: HaloTicket): string {
 
   // Fall back to our status ID map
   return HALO_STATUS_MAP[ticket.status_id] ?? `Status ${ticket.status_id}`;
+}
+
+/**
+ * Resolve agent name from ticket data, using the agent name map as fallback.
+ */
+function resolveAgentName(
+  ticket: HaloTicket,
+  agentNameMap: ReadonlyMap<number, string>,
+): string | null {
+  // Prefer agent_name from the API if present
+  if (ticket.agent_name && typeof ticket.agent_name === "string") {
+    return ticket.agent_name;
+  }
+  // Look up by agent_id in our cached agents list
+  if (ticket.agent_id) {
+    return agentNameMap.get(ticket.agent_id) ?? null;
+  }
+  return null;
+}
+
+/**
+ * Fetch all Halo agents and build an id→name lookup map.
+ */
+async function fetchAgentNameMap(
+  baseUrl: string,
+  token: string,
+): Promise<ReadonlyMap<number, string>> {
+  const map = new Map<number, string>();
+  try {
+    const res = await fetch(
+      `${baseUrl}/api/agent?count=500&includeenabled=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (res.ok) {
+      const data = (await res.json()) as ReadonlyArray<{
+        id: number;
+        name: string;
+      }>;
+      for (const agent of data) {
+        map.set(agent.id, agent.name);
+      }
+    }
+  } catch {
+    // Non-critical — agent names will just be missing
+  }
+  return map;
 }
 
 async function discoverTokenEndpoint(
