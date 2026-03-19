@@ -136,7 +136,7 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     service: "unifi",
     display_name: "UniFi Network",
     description:
-      "Network infrastructure. Sync firewalls, switches, access points, and client devices.",
+      "UniFi Site Manager API. Query network devices, alerts, site health, and client activity.",
     fields: [
       {
         key: "controller_url",
@@ -275,51 +275,6 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
         label: "Client Secret",
         type: "password",
         placeholder: "Your Pax8 Client Secret",
-        required: true,
-      },
-    ],
-  },
-  {
-    service: "darkweb",
-    display_name: "Dark Web ID",
-    description:
-      "Dark web monitoring. Detects compromised credentials and personal data on the dark web.",
-    fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "password",
-        placeholder: "Your Dark Web ID API Key",
-        required: true,
-      },
-    ],
-  },
-  {
-    service: "bullphish",
-    display_name: "BullPhish ID",
-    description:
-      "Phishing simulation & security awareness training. Track campaign results and user susceptibility.",
-    fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "password",
-        placeholder: "Your BullPhish ID API Key",
-        required: true,
-      },
-    ],
-  },
-  {
-    service: "inky",
-    display_name: "Inky",
-    description:
-      "Email protection platform. Provides phishing detection, impersonation alerts, and email threat reports.",
-    fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        type: "password",
-        placeholder: "Your Inky API Key",
         required: true,
       },
     ],
@@ -531,32 +486,6 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
         type: "text",
         placeholder: "Your Azure AD Tenant ID",
         required: true,
-      },
-    ],
-  },
-  {
-    service: "automapper",
-    display_name: "AutoMapper",
-    description:
-      "Automatically map customer names across integrations. Matches customers from Halo, Hudu, Datto, JumpCloud, and other connected services using fuzzy name matching.",
-    fields: [
-      {
-        key: "match_threshold",
-        label: "Match Threshold (%)",
-        type: "text",
-        placeholder: "85",
-        required: false,
-      },
-      {
-        key: "auto_approve",
-        label: "Auto-Approve Exact Matches",
-        type: "select",
-        placeholder: "Auto-approve when names match exactly",
-        required: false,
-        options: [
-          { value: "true", label: "Yes — auto-approve exact matches" },
-          { value: "false", label: "No — require manual approval" },
-        ],
       },
     ],
   },

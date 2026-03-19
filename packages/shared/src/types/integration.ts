@@ -11,9 +11,6 @@ export type ServiceType =
   | "unitrends"
   | "cove"
   | "pax8"
-  | "darkweb"
-  | "bullphish"
-  | "inky"
   | "vultr"
   | "mxtoolbox"
   | "dmarc"
@@ -22,8 +19,7 @@ export type ServiceType =
   | "twilio"
   | "ai-provider"
   | "teams"
-  | "cipp"
-  | "automapper";
+  | "cipp";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
@@ -105,11 +101,6 @@ export interface CippConfig {
   readonly tenant_id: string;
 }
 
-export interface AutoMapperConfig {
-  readonly match_threshold: string;
-  readonly auto_approve: string;
-}
-
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
@@ -124,7 +115,6 @@ export type IntegrationConfig =
   | GenericApiUrlKeyConfig
   | TeamsConfig
   | CippConfig
-  | AutoMapperConfig
   | Record<string, string>;
 
 export interface IntegrationConfigField {
