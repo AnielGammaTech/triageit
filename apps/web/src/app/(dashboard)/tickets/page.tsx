@@ -61,7 +61,7 @@ export default function TicketsPage() {
       .from("tickets")
       .select("*, triage_results(*)")
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(500);
 
     if (dbError) {
       setError(dbError.message);
@@ -323,7 +323,7 @@ export default function TicketsPage() {
           onToggleSelect={handleToggleSelect}
         />
       ) : (
-        <OpenTicketList tickets={openTickets} />
+        <OpenTicketList tickets={openTickets} onSelectTicket={(id) => router.push(`/tickets?id=${id}`)} />
       )}
     </div>
   );

@@ -31,6 +31,7 @@ interface TicketRow {
 
 interface OpenTicketListProps {
   readonly tickets: ReadonlyArray<TicketRow>;
+  readonly onSelectTicket: (id: string) => void;
 }
 
 const HALO_STATUS_STYLES: Record<string, string> = {
@@ -89,7 +90,7 @@ function getFlags(ticket: TicketRow): string[] {
   return flags;
 }
 
-export function OpenTicketList({ tickets }: OpenTicketListProps) {
+export function OpenTicketList({ tickets, onSelectTicket }: OpenTicketListProps) {
   if (tickets.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -144,6 +145,7 @@ export function OpenTicketList({ tickets }: OpenTicketListProps) {
             return (
               <tr
                 key={ticket.id}
+                onClick={() => onSelectTicket(ticket.id)}
                 className={cn(
                   "border-b border-[var(--border)] transition-colors cursor-pointer",
                   flags.length > 0 && flags.some((f) => f.includes("24hrs"))
