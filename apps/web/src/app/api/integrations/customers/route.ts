@@ -145,7 +145,7 @@ async function fetchHuduCustomers(
 async function fetchDattoCustomers(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // Datto RMM uses OAuth2: get token first, then use Bearer token
+  // Datto RMM uses OAuth2: POST credentials to get Bearer token
   const baseUrl = config.api_url.replace(/\/$/, "");
   const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
 
@@ -162,7 +162,23 @@ async function fetchDattoCustomers(
     }),
   });
 
-  if (!tokenRes.ok) throw new Error(`Datto RMM auth failed: ${tokenRes.status}`);
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    const isHtml = text.trimStart().startsWith("<");
+    throw new Error(
+      isHtml
+        ? `Datto RMM auth failed (${tokenRes.status}). Check your API URL — it should be your regional API endpoint (e.g. https://pinotage-api.centrastage.net)`
+        : `Datto RMM auth failed (${tokenRes.status}): ${text.substring(0, 200)}`,
+    );
+  }
+
+  const contentType = tokenRes.headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) {
+    throw new Error(
+      `Datto RMM returned unexpected content-type: ${contentType}. Check your API URL — it should be your regional API endpoint (e.g. https://pinotage-api.centrastage.net)`,
+    );
+  }
+
   const tokenData = (await tokenRes.json()) as { access_token: string };
 
   const res = await fetch(`${baseUrl}/api/v2/account/sites`, {
@@ -235,16 +251,21 @@ async function fetchUnifiSites(
 
   const data = (await res.json()) as {
     data?: ReadonlyArray<{
-      _id: string;
+      hostId?: string;
+      siteId?: string;
+      _id?: string;
+      meta?: {
+        name?: string;
+        desc?: string;
+      };
+      name?: string;
       desc?: string;
-      name: string;
-      role?: string;
     }>;
   };
 
   return (data.data ?? []).map((s) => ({
-    id: s._id,
-    name: s.desc ?? s.name,
+    id: s.hostId ?? s.siteId ?? s._id ?? "",
+    name: s.meta?.desc || s.meta?.name || s.desc || s.name || "Unnamed Site",
     is_active: true,
   }));
 }

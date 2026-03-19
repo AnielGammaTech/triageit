@@ -143,12 +143,16 @@ export default function AdminlandPage() {
     setActiveView(view);
   }
 
+  // Services that don't need customer mapping — always show "Connected" not "X mapped"
+  const NO_MAPPING_SERVICES = new Set(["halo", "teams", "ai-provider"]);
+
   function getIntegrationStatus(service: string): "connected" | "mapped" | "not_configured" {
     const isConnected = connectedServices.has(service);
+    if (!isConnected) return "not_configured";
+    if (NO_MAPPING_SERVICES.has(service)) return "connected";
     const mapCount = mappingCounts[service] ?? 0;
-    if (isConnected && mapCount > 0) return "mapped";
-    if (isConnected) return "connected";
-    return "not_configured";
+    if (mapCount > 0) return "mapped";
+    return "connected";
   }
 
   // ── Integration drill-in view ──────────────────────────────────────
