@@ -24,6 +24,7 @@ export type {
   HuduConfig,
   JumpCloudConfig,
   DattoConfig,
+  UnifiConfig,
   VultrConfig,
   MxToolboxConfig,
   SpanningConfig,

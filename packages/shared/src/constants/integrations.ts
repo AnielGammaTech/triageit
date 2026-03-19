@@ -136,27 +136,13 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     service: "unifi",
     display_name: "UniFi Network",
     description:
-      "UniFi Site Manager API. Query network devices, alerts, site health, and client activity.",
+      "UniFi Site Manager API. Query network devices, alerts, site health, and client activity across all your sites.",
     fields: [
       {
-        key: "controller_url",
-        label: "Controller URL",
-        type: "url",
-        placeholder: "https://unifi.your-domain.com",
-        required: true,
-      },
-      {
-        key: "username",
-        label: "Username",
-        type: "text",
-        placeholder: "UniFi controller username",
-        required: true,
-      },
-      {
-        key: "password",
-        label: "Password",
+        key: "api_key",
+        label: "API Key",
         type: "password",
-        placeholder: "UniFi controller password",
+        placeholder: "Create at unifi.ui.com → Settings → API Keys",
         required: true,
       },
     ],

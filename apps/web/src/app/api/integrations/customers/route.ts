@@ -216,6 +216,35 @@ async function fetchJumpCloudCustomers(
   }));
 }
 
+async function fetchUnifiSites(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // UniFi Site Manager API — list all sites
+  const res = await fetch("https://api.ui.com/ea/sites", {
+    headers: {
+      "x-api-key": config.api_key,
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) throw new Error(`UniFi API error: ${res.status}`);
+
+  const data = (await res.json()) as {
+    data?: ReadonlyArray<{
+      _id: string;
+      desc?: string;
+      name: string;
+      role?: string;
+    }>;
+  };
+
+  return (data.data ?? []).map((s) => ({
+    id: s._id,
+    name: s.desc ?? s.name,
+    is_active: true,
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
@@ -223,6 +252,7 @@ const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   hudu: fetchHuduCustomers,
   datto: fetchDattoCustomers,
   jumpcloud: fetchJumpCloudCustomers,
+  unifi: fetchUnifiSites,
 };
 
 // ── Halo helpers ─────────────────────────────────────────────────────

@@ -80,6 +80,10 @@ export interface TwilioConfig {
   readonly auth_token: string;
 }
 
+export interface UnifiConfig {
+  readonly api_key: string;
+}
+
 export interface GenericApiKeyConfig {
   readonly api_key: string;
 }
@@ -106,6 +110,7 @@ export type IntegrationConfig =
   | HuduConfig
   | JumpCloudConfig
   | DattoConfig
+  | UnifiConfig
   | VultrConfig
   | MxToolboxConfig
   | SpanningConfig
