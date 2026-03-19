@@ -68,7 +68,7 @@ export default function TicketsPage() {
       .from("tickets")
       .select("*, triage_results(*)")
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(2000);
 
     if (dbError) {
       setError(dbError.message);

@@ -108,59 +108,39 @@ export async function POST() {
     const tokenData = (await tokenResponse.json()) as { access_token: string };
     const token = tokenData.access_token;
 
-    // Paginate through all open tickets
+    // ── Pull ALL open tickets from Halo (paginated) ──
     const allTickets: HaloTicket[] = [];
-    const pageSize = 100;
-    let page = 1;
     let totalRecordCount = 0;
 
-    while (true) {
-      const ticketsResponse = await fetch(
-        `${config.base_url}/api/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      if (!ticketsResponse.ok) {
-        const text = await ticketsResponse.text();
-        return NextResponse.json(
-          { error: `Failed to fetch tickets from Halo: ${text}` },
-          { status: 502 },
-        );
-      }
-
-      const data = (await ticketsResponse.json()) as {
-        tickets?: HaloTicket[];
-        record_count?: number;
-      };
-      const tickets = data.tickets ?? [];
-      allTickets.push(...tickets);
-
-      // Track total from Halo's own count
-      if (data.record_count && data.record_count > totalRecordCount) {
-        totalRecordCount = data.record_count;
-      }
-
-      console.log(
-        `[HALO SYNC] Page ${page}: got ${tickets.length} tickets (total so far: ${allTickets.length}, Halo says: ${data.record_count ?? "unknown"})`,
-      );
-
-      if (tickets.length < pageSize) break;
-      page++;
-
-      // Safety: cap at 20 pages (2000 tickets) to avoid infinite loops
-      if (page > 20) {
-        console.warn("[HALO SYNC] Hit 20-page cap, stopping pagination");
-        break;
-      }
-    }
+    const openResult = await fetchHaloTicketsPaginated(config.base_url, token, "open_only=true");
+    allTickets.push(...openResult.tickets);
+    totalRecordCount = openResult.totalCount;
 
     console.log(
-      `[HALO SYNC] Done: fetched ${allTickets.length} tickets across ${page} pages (Halo record_count: ${totalRecordCount})`,
+      `[HALO SYNC] Open tickets: ${openResult.tickets.length} across ${openResult.pages} pages (Halo record_count: ${totalRecordCount})`,
+    );
+
+    // ── Also pull recently closed/resolved tickets (last 30 days) ──
+    // so the Resolved tab stays up-to-date
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    const closedResult = await fetchHaloTicketsPaginated(
+      config.base_url,
+      token,
+      `open_only=false&dateoccurred_start=${thirtyDaysAgo}`,
+    );
+
+    // Only add tickets we didn't already get from the open pull
+    const openIds = new Set(allTickets.map((t) => t.id));
+    const newClosed = closedResult.tickets.filter((t) => !openIds.has(t.id));
+    allTickets.push(...newClosed);
+
+    console.log(
+      `[HALO SYNC] Recently closed: ${newClosed.length} new (${closedResult.tickets.length} total in last 30 days)`,
+    );
+    console.log(
+      `[HALO SYNC] Total unique tickets to sync: ${allTickets.length}`,
     );
 
     if (allTickets.length === 0) {
@@ -332,7 +312,8 @@ export async function POST() {
     // Any local ticket NOT in the Halo open list and NOT already resolved
     // was closed/resolved in Halo since our last sync.
     let closedCount = 0;
-    const openHaloIds = new Set(allTickets.map((t) => t.id));
+    // Use only the open tickets set (not recently closed) for this check
+    const openHaloIds = new Set(openResult.tickets.map((t) => t.id));
 
     const { data: localNonResolved } = await serviceClient
       .from("tickets")
@@ -447,8 +428,9 @@ export async function POST() {
 
     return NextResponse.json({
       pulled: allTickets.length,
+      open_count: openResult.tickets.length,
+      closed_synced: newClosed.length,
       halo_total: totalRecordCount || allTickets.length,
-      pages_fetched: page,
       created,
       updated,
       closed: closedCount,
@@ -461,6 +443,61 @@ export async function POST() {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/**
+ * Paginate through Halo tickets with the given query filter.
+ * Returns all fetched tickets, total count from Halo, and pages fetched.
+ */
+async function fetchHaloTicketsPaginated(
+  baseUrl: string,
+  token: string,
+  queryFilter: string,
+): Promise<{ tickets: HaloTicket[]; totalCount: number; pages: number }> {
+  const tickets: HaloTicket[] = [];
+  const pageSize = 100;
+  let page = 1;
+  let totalCount = 0;
+
+  while (true) {
+    const res = await fetch(
+      `${baseUrl}/api/tickets?page_size=${pageSize}&page_no=${page}&${queryFilter}&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[HALO SYNC] Failed to fetch page ${page} (${queryFilter}): ${text}`);
+      break;
+    }
+
+    const data = (await res.json()) as {
+      tickets?: HaloTicket[];
+      record_count?: number;
+    };
+    const batch = data.tickets ?? [];
+    tickets.push(...batch);
+
+    if (data.record_count && data.record_count > totalCount) {
+      totalCount = data.record_count;
+    }
+
+    if (batch.length < pageSize) break;
+    page++;
+
+    // Safety cap: 50 pages = 5000 tickets per query
+    if (page > 50) {
+      console.warn(`[HALO SYNC] Hit 50-page cap for query: ${queryFilter}`);
+      break;
+    }
+  }
+
+  return { tickets, totalCount, pages: page };
 }
 
 /**
