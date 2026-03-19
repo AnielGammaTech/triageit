@@ -164,6 +164,63 @@ function quickRuleCheck(
   };
 }
 
+/**
+ * Ensure a local ticket record exists for a Halo ticket, then update
+ * its tracking columns with live Halo data. Creates the record if the
+ * ticket was opened directly in Halo (not via our webhook).
+ */
+async function upsertTicketFromHalo(
+  supabase: SupabaseClient,
+  ticket: HaloTicket,
+  actions: ReadonlyArray<HaloAction>,
+): Promise<string> {
+  const now = new Date().toISOString();
+  const trackingData = {
+    halo_status: getStatusName(ticket),
+    halo_status_id: ticket.status_id,
+    halo_team: ticket.team ?? null,
+    halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
+    last_retriage_at: now,
+    last_customer_reply_at: getLastCustomerReply(actions),
+    last_tech_action_at: getLastTechAction(actions),
+    updated_at: now,
+  };
+
+  // Check if we already have this ticket locally
+  const { data: existing } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("halo_id", ticket.id)
+    .single();
+
+  if (existing) {
+    await supabase
+      .from("tickets")
+      .update(trackingData)
+      .eq("id", existing.id);
+    return existing.id;
+  }
+
+  // Create a local record for this Halo ticket
+  const { data: inserted } = await supabase
+    .from("tickets")
+    .insert({
+      halo_id: ticket.id,
+      summary: ticket.summary,
+      details: ticket.details ?? null,
+      client_name: ticket.client_name ?? null,
+      client_id: ticket.client_id ?? null,
+      user_name: ticket.user_name ?? null,
+      original_priority: ticket.priority_id ?? null,
+      status: "triaged" as const,
+      ...trackingData,
+    })
+    .select("id")
+    .single();
+
+  return inserted?.id ?? "";
+}
+
 export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanResult> {
   const startTime = Date.now();
   let tokensUsed = 0;
@@ -217,20 +274,8 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         else if (ruleResult.severity === "warning") warnings.push(ruleResult);
         else info.push(ruleResult);
 
-        // Update ticket tracking in Supabase
-        await supabase
-          .from("tickets")
-          .update({
-            halo_status: getStatusName(ticket),
-            halo_status_id: ticket.status_id,
-            halo_team: ticket.team ?? null,
-            halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
-            last_retriage_at: new Date().toISOString(),
-            last_customer_reply_at: getLastCustomerReply(actions),
-            last_tech_action_at: getLastTechAction(actions),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("halo_id", ticket.id);
+        // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
+        await upsertTicketFromHalo(supabase, ticket, actions);
 
         continue;
       }
@@ -291,32 +336,13 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       else if (parsed.severity === "warning") warnings.push(result);
       else info.push(result);
 
-      // Update ticket tracking
-      await supabase
-        .from("tickets")
-        .update({
-          halo_status: status,
-          halo_status_id: ticket.status_id,
-          halo_team: ticket.team ?? null,
-          halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
-          last_retriage_at: new Date().toISOString(),
-          last_customer_reply_at: getLastCustomerReply(actions),
-          last_tech_action_at: getLastTechAction(actions),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("halo_id", ticket.id);
+      // Upsert ticket tracking (creates record if ticket only exists in Halo)
+      const localTicketId = await upsertTicketFromHalo(supabase, ticket, actions);
 
-      // Insert re-triage result (only if we have a local ticket record)
-      const { data: localTicket } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("halo_id", ticket.id)
-        .single();
-
-      if (localTicket) {
+      if (localTicketId) {
         await supabase.from("triage_results").insert({
           id: crypto.randomUUID(),
-          ticket_id: localTicket.id,
+          ticket_id: localTicketId,
           classification: { type: "retriage", subtype: parsed.severity },
           urgency_score: parsed.severity === "critical" ? 5 : parsed.severity === "warning" ? 3 : 1,
           urgency_reasoning: parsed.recommendation,
