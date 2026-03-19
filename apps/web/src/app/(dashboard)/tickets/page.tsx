@@ -248,110 +248,35 @@ export default function TicketsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Header row: title + actions */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Tickets</h2>
-        <div className="flex items-center gap-3">
-          {/* Tab switcher */}
-          <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
-            <button
-              onClick={() => setActiveTab("incoming")}
-              className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors",
-                activeTab === "incoming"
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
-              )}
-            >
-              Incoming
-              {incomingTickets.length > 0 && (
-                <span className="ml-2 rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400 animate-pulse">
-                  {incomingTickets.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("open")}
-              className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
-                activeTab === "open"
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
-              )}
-            >
-              Open Tickets
-              <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-400">
-                {openTickets.length}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab("needs_review")}
-              className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
-                activeTab === "needs_review"
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
-              )}
-            >
-              Needs Review
-              {needsReviewTickets.length > 0 && (
-                <span className="ml-2 rounded-full bg-rose-500/20 px-2 py-0.5 text-xs text-rose-400 animate-pulse">
-                  {needsReviewTickets.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("alerts")}
-              className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
-                activeTab === "alerts"
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
-              )}
-            >
-              Alerts
-              {alertTickets.length > 0 && (
-                <span className="ml-2 rounded-full bg-orange-500/20 px-2 py-0.5 text-xs text-orange-400">
-                  {alertTickets.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab("resolved")}
-              className={cn(
-                "px-4 py-2 text-sm font-medium transition-colors border-l border-[var(--border)]",
-                activeTab === "resolved"
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--accent)]/50",
-              )}
-            >
-              Resolved
-              <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">
-                {resolvedTickets.length}
-              </span>
-            </button>
-          </div>
-
+        <div className="flex items-center gap-2">
           {/* Triage by Halo # */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center rounded-lg border border-white/[0.06] bg-white/[0.02]">
             <input
               type="text"
               placeholder="Halo #"
               value={haloIdInput}
               onChange={(e) => setHaloIdInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") triageByHaloId();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  triageByHaloId();
+                }
               }}
-              className="w-20 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white placeholder:text-white/30 focus:border-[#6366f1]/50 focus:outline-none"
+              className="w-[72px] bg-transparent px-3 py-1.5 text-xs text-white placeholder:text-white/25 focus:outline-none"
             />
             <button
-              onClick={triageByHaloId}
+              type="button"
+              onClick={(e) => { e.preventDefault(); triageByHaloId(); }}
               disabled={triagingHaloId || !haloIdInput.trim()}
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+              className="border-l border-white/[0.06] px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/10 disabled:text-white/20 disabled:hover:bg-transparent"
             >
               {triagingHaloId ? (
                 <span className="flex items-center gap-1.5">
                   <span className="h-3 w-3 animate-spin rounded-full border border-amber-400/30 border-t-amber-400" />
-                  Triaging...
+                  Triaging
                 </span>
               ) : (
                 "Triage"
@@ -359,44 +284,109 @@ export default function TicketsPage() {
             </button>
           </div>
 
+          <div className="h-5 w-px bg-white/[0.06]" />
+
           {/* Sync button */}
           <button
-            onClick={pullFromHalo}
+            type="button"
+            onClick={(e) => { e.preventDefault(); pullFromHalo(); }}
             disabled={pulling}
-            className="rounded-lg border border-[#6366f1]/30 bg-[#6366f1]/10 px-3 py-1.5 text-xs font-medium text-[#6366f1] transition-colors hover:bg-[#6366f1]/20 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:text-white/30"
           >
             {pulling ? (
-              <span className="flex items-center gap-1.5">
-                <span className="h-3 w-3 animate-spin rounded-full border border-[#6366f1]/30 border-t-[#6366f1]" />
-                Syncing...
-              </span>
+              <>
+                <span className="h-3 w-3 animate-spin rounded-full border border-indigo-400/30 border-t-indigo-400" />
+                Syncing
+              </>
             ) : (
-              "Sync from Halo"
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                  <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.56a.75.75 0 0 1-1.5 0V9.446a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.025-.274Z" clipRule="evenodd" />
+                </svg>
+                Sync
+              </>
             )}
           </button>
 
+          {/* Refresh */}
           <button
-            onClick={loadTickets}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white"
+            type="button"
+            onClick={(e) => { e.preventDefault(); loadTickets(); }}
+            className="rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/5 hover:text-white/60"
+            title="Refresh tickets"
           >
-            Refresh
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+              <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1Z" clipRule="evenodd" />
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466Z" />
+            </svg>
           </button>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            {error
-              ? "Unable to load tickets"
-              : activeTab === "incoming"
-                ? incomingTickets.length > 0
-                  ? `${incomingTickets.length} awaiting triage`
-                  : "All caught up"
-                : activeTab === "needs_review"
-                  ? `${needsReviewTickets.length} need review`
-                  : activeTab === "alerts"
-                    ? `${alertTickets.length} alerts`
-                    : activeTab === "resolved"
-                      ? `${resolvedTickets.length} resolved`
-                      : `${openTickets.length} open`}
-          </p>
         </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex items-center gap-1">
+        <TabButton
+          active={activeTab === "incoming"}
+          onClick={() => setActiveTab("incoming")}
+          label="Incoming"
+          count={incomingTickets.length}
+          badgeClass="bg-red-500/20 text-red-400"
+          pulse={true}
+          hideZero={true}
+        />
+        <TabButton
+          active={activeTab === "open"}
+          onClick={() => setActiveTab("open")}
+          label="Open"
+          count={openTickets.length}
+          badgeClass="bg-amber-500/20 text-amber-400"
+          pulse={false}
+          hideZero={false}
+        />
+        <TabButton
+          active={activeTab === "needs_review"}
+          onClick={() => setActiveTab("needs_review")}
+          label="Review"
+          count={needsReviewTickets.length}
+          badgeClass="bg-rose-500/20 text-rose-400"
+          pulse={true}
+          hideZero={true}
+        />
+        <TabButton
+          active={activeTab === "alerts"}
+          onClick={() => setActiveTab("alerts")}
+          label="Alerts"
+          count={alertTickets.length}
+          badgeClass="bg-orange-500/20 text-orange-400"
+          pulse={false}
+          hideZero={true}
+        />
+        <TabButton
+          active={activeTab === "resolved"}
+          onClick={() => setActiveTab("resolved")}
+          label="Resolved"
+          count={resolvedTickets.length}
+          badgeClass="bg-emerald-500/20 text-emerald-400"
+          pulse={false}
+          hideZero={false}
+        />
+
+        {/* Ticket count */}
+        <span className="ml-auto text-xs text-white/25 tabular-nums">
+          {error
+            ? "Unable to load"
+            : activeTab === "incoming"
+              ? incomingTickets.length > 0
+                ? `${incomingTickets.length} awaiting triage`
+                : "All caught up"
+              : activeTab === "needs_review"
+                ? `${needsReviewTickets.length} need review`
+                : activeTab === "alerts"
+                  ? `${alertTickets.length} alerts`
+                  : activeTab === "resolved"
+                    ? `${resolvedTickets.length} resolved`
+                    : `${openTickets.length} open`}
+        </span>
       </div>
 
       {statusMessage && (
@@ -533,4 +523,51 @@ function timeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+// ── Tab Button ──────────────────────────────────────────────────────
+
+function TabButton({
+  active,
+  onClick,
+  label,
+  count,
+  badgeClass,
+  pulse,
+  hideZero,
+}: {
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly label: string;
+  readonly count: number;
+  readonly badgeClass: string;
+  readonly pulse: boolean;
+  readonly hideZero: boolean;
+}) {
+  const showBadge = !hideZero || count > 0;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); onClick(); }}
+      className={cn(
+        "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+        active
+          ? "bg-white/[0.08] text-white shadow-sm"
+          : "text-white/40 hover:text-white/70 hover:bg-white/[0.03]",
+      )}
+    >
+      <span className="flex items-center gap-1.5">
+        {label}
+        {showBadge && (
+          <span className={cn(
+            "min-w-[18px] rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums text-center",
+            active ? badgeClass : "bg-white/[0.06] text-white/30",
+            pulse && count > 0 && "animate-pulse",
+          )}>
+            {count}
+          </span>
+        )}
+      </span>
+    </button>
+  );
 }
