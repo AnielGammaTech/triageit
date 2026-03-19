@@ -99,6 +99,32 @@ export default function TicketsPage() {
   }
 
   async function handleTriageSelected() {
+    // On the Open tab with no selection, trigger the full daily retriage scan
+    if (activeTab === "open" && selectedIds.length === 0) {
+      const confirmed = window.confirm(
+        "Run a full re-triage scan on all open Halo tickets? This pulls tickets from Halo, checks rules, and uses AI for non-obvious issues.",
+      );
+      if (!confirmed) return;
+
+      setTriaging(true);
+      setTriageProgress({ current: 0, total: 0 });
+
+      try {
+        const response = await fetch("/api/retriage", { method: "POST" });
+        if (!response.ok) {
+          const text = await response.text();
+          console.error("Re-triage failed:", text);
+        }
+      } catch {
+        // Non-fatal
+      }
+
+      setTriaging(false);
+      setTriageProgress({ current: 0, total: 0 });
+      await loadTickets();
+      return;
+    }
+
     const activeTickets = activeTab === "new" ? newTickets : openTickets;
     const ids = selectedIds.length > 0 ? [...selectedIds] : activeTickets.map((t) => t.id);
     if (ids.length === 0) return;
@@ -162,10 +188,19 @@ export default function TicketsPage() {
     );
   }
 
-  // Split tickets into new (triaged recently) and open (all with halo_status or older)
+  // Split tickets into new (webhook-ingested with initial triage) and open (all non-resolved)
   const isResolved = (t: TicketRow) => t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
   const newTickets = tickets.filter((t) => (t.status === "triaged" || t.status === "pending") && !isResolved(t));
-  const openTickets = tickets.filter((t) => t.halo_status && t.halo_status !== "New" && !isResolved(t));
+  // Open tab: all tickets that have been through retriage (have halo_status set and not "New"),
+  // OR triaged tickets that haven't been retriage-scanned yet but are still open
+  const openTickets = tickets.filter((t) => {
+    if (isResolved(t)) return false;
+    // Has retriage data — show in open tab
+    if (t.halo_status && t.halo_status !== "New") return true;
+    // Triaged but no retriage data yet — still counts as open
+    if (t.status === "triaged" && !t.last_retriage_at) return true;
+    return false;
+  });
 
   return (
     <div className="space-y-4">
