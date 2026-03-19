@@ -146,10 +146,9 @@ export function OpenTicketList({ tickets, onSelectTicket }: OpenTicketListProps)
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Summary</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Client</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Status</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Agent</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Pri</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Activity</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Flags</th>
+            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Assigned To</th>
           </tr>
         </thead>
         <tbody>
@@ -195,29 +194,19 @@ export function OpenTicketList({ tickets, onSelectTicket }: OpenTicketListProps)
                     {ticket.halo_status ?? "Unknown"}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                  {ticket.halo_agent ?? <span className="text-yellow-400/40">—</span>}
-                </td>
                 <td className={cn("px-3 py-2 text-xs font-medium", PRIORITY_COLORS[ticket.original_priority ?? 0] ?? "text-[var(--muted-foreground)]")}>
                   {ticket.original_priority ? `P${ticket.original_priority}` : "—"}
                 </td>
                 <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
                   {activityLabel}
                 </td>
-                <td className="px-3 py-2">
-                  {flags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {flags.map((flag) => (
-                        <span
-                          key={flag.label}
-                          className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES[flag.severity])}
-                        >
-                          {flag.label}
-                        </span>
-                      ))}
-                    </div>
+                <td className="px-3 py-2 text-xs">
+                  {ticket.halo_agent ? (
+                    <span className="text-[var(--muted-foreground)]">{ticket.halo_agent}</span>
                   ) : (
-                    <span className="text-[10px] text-green-500/30">✓</span>
+                    <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES.warning)}>
+                      Unassigned
+                    </span>
                   )}
                 </td>
               </tr>
