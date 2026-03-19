@@ -252,13 +252,49 @@ async function upsertTicketFromHalo(
       client_id: ticket.client_id ?? null,
       user_name: ticket.user_name ?? null,
       original_priority: ticket.priority_id ?? null,
-      status: "triaged" as const,
+      status: "pending" as const,
       ...trackingData,
     })
     .select("id")
     .single();
 
   return inserted?.id ?? "";
+}
+
+/**
+ * Build and post a retriage note to Halo so the tech sees the AI analysis.
+ */
+async function postReTriageNote(
+  halo: HaloClient,
+  haloId: number,
+  result: ReTriageResult,
+): Promise<void> {
+  const severityColors: Record<string, { bg: string; text: string; label: string }> = {
+    critical: { bg: "#7f1d1d", text: "#fecaca", label: "🚨 CRITICAL" },
+    warning: { bg: "#78350f", text: "#fef3c7", label: "⚠️ WARNING" },
+    info: { bg: "#1e3a5f", text: "#bfdbfe", label: "ℹ️ INFO" },
+  };
+
+  const style = severityColors[result.severity] ?? severityColors.info;
+  const flagBadges = result.flags
+    .map((f) => `<span style="background:#374151;color:#d1d5db;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;">${f}</span>`)
+    .join("");
+
+  const note = [
+    `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">`,
+    `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
+    `<tr style="background:${style.bg};"><td colspan="2" style="padding:10px 14px;font-size:14px;color:${style.text};line-height:1.6;border-bottom:1px solid #3a3f4b;"><strong style="font-size:15px;">${style.label}</strong> — ${result.recommendation}</td></tr>`,
+    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Status</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${result.status} · Open ${result.daysOpen} days</td></tr>`,
+    `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Flags</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${flagBadges}</td></tr>`,
+    `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · daily re-triage scan</td></tr>`,
+    `</table>`,
+  ].join("");
+
+  try {
+    await halo.addInternalNote(haloId, note);
+  } catch (err) {
+    console.error(`[RETRIAGE] Failed to post note to Halo for #${haloId}:`, err);
+  }
 }
 
 export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanResult> {
@@ -358,15 +394,19 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
         const ruleTicketId = await upsertTicketFromHalo(supabase, ticket, actions);
 
-        // Flag critical/warning for manager review
-        if (ruleTicketId && (ruleResult.severity === "critical" || ruleResult.severity === "warning")) {
-          await supabase
-            .from("tickets")
-            .update({
-              status: "needs_review",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", ruleTicketId);
+        // Post note to Halo and flag for manager review
+        if (ruleResult.severity === "critical" || ruleResult.severity === "warning") {
+          await postReTriageNote(halo, ticket.id, ruleResult);
+
+          if (ruleTicketId) {
+            await supabase
+              .from("tickets")
+              .update({
+                status: "needs_review",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", ruleTicketId);
+          }
         }
 
         continue;
@@ -448,8 +488,10 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           triage_type: "retriage",
         });
 
-        // Flag critical/warning re-triaged tickets for manager review
+        // Post note to Halo and flag for manager review
         if (parsed.severity === "critical" || parsed.severity === "warning") {
+          await postReTriageNote(halo, ticket.id, result);
+
           await supabase
             .from("tickets")
             .update({
