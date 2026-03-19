@@ -49,6 +49,7 @@ export interface HuduConfig {
 
 export interface JumpCloudConfig {
   readonly api_key: string;
+  readonly provider_id: string;
 }
 
 export interface DattoConfig {

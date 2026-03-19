@@ -114,7 +114,18 @@ Respond with ONLY valid JSON:
     const config = await this.getJumpCloudConfig();
     if (!config) return emptyResult;
 
-    const jc = new JumpCloudClient(config);
+    // Look up the org ID from integration_mappings for this customer
+    const orgId = await this.getOrgIdForCustomer(context.clientName);
+    const jc = orgId
+      ? new JumpCloudClient(config, orgId)
+      : new JumpCloudClient(config);
+
+    if (orgId) {
+      await this.logThinking(
+        context.ticketId,
+        `Using JumpCloud org "${orgId}" for customer "${context.clientName}"`,
+      );
+    }
 
     // Search for the user
     const matchingUsers = await this.findUsers(jc, context.userName);
@@ -205,6 +216,29 @@ Respond with ONLY valid JSON:
       .single();
 
     return data ? (data.config as JumpCloudConfig) : null;
+  }
+
+  private async getOrgIdForCustomer(
+    customerName: string | null,
+  ): Promise<string | null> {
+    if (!customerName) return null;
+
+    try {
+      const { data: mapping } = await this.supabase
+        .from("integration_mappings")
+        .select("external_id")
+        .eq("service", "jumpcloud")
+        .eq("customer_name", customerName)
+        .single();
+
+      return mapping?.external_id ?? null;
+    } catch (error) {
+      console.error(
+        "[JIM] Failed to look up JumpCloud org for customer:",
+        error,
+      );
+      return null;
+    }
   }
 
   // ── Message Builder ─────────────────────────────────────────────────

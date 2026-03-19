@@ -3,6 +3,9 @@ import type { JumpCloudConfig } from "@triageit/shared";
 /**
  * JumpCloudClient — Queries JumpCloud for identity & access data.
  *
+ * Supports MTP (Multi-Tenant Provider) mode: uses `x-org-id` header
+ * to scope API calls to a specific managed organization.
+ *
  * Used by Jim Halpert to pull real user accounts, MFA status,
  * device associations, group memberships, and system info.
  */
@@ -10,9 +13,22 @@ export class JumpCloudClient {
   private static readonly BASE_URL = "https://console.jumpcloud.com/api";
   private static readonly V2_URL = "https://console.jumpcloud.com/api/v2";
   private readonly apiKey: string;
+  private readonly providerId: string;
+  private readonly orgId: string | null;
 
-  constructor(config: JumpCloudConfig) {
+  constructor(config: JumpCloudConfig, orgId?: string) {
     this.apiKey = config.api_key;
+    this.providerId = config.provider_id;
+    this.orgId = orgId ?? null;
+  }
+
+  /** Create a new client scoped to a specific organization */
+  withOrgId(orgId: string): JumpCloudClient {
+    const config: JumpCloudConfig = {
+      api_key: this.apiKey,
+      provider_id: this.providerId,
+    };
+    return new JumpCloudClient(config, orgId);
   }
 
   private async request<T>(
@@ -27,13 +43,18 @@ export class JumpCloudClient {
       }
     }
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-    });
+    const headers: Record<string, string> = {
+      "x-api-key": this.apiKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+
+    // MTP: scope to specific org
+    if (this.orgId) {
+      headers["x-org-id"] = this.orgId;
+    }
+
+    const response = await fetch(url.toString(), { headers });
 
     if (!response.ok) {
       const text = await response.text();
@@ -43,6 +64,17 @@ export class JumpCloudClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  // ── Organizations (MTP) ─────────────────────────────────────────────
+
+  async getOrganizations(): Promise<ReadonlyArray<JumpCloudOrganization>> {
+    const result = await this.request<{
+      results?: JumpCloudOrganization[];
+    }>(JumpCloudClient.BASE_URL, "/organizations", {
+      limit: "200",
+    });
+    return result.results ?? [];
   }
 
   // ── Users ─────────────────────────────────────────────────────────
@@ -131,6 +163,14 @@ export class JumpCloudClient {
 }
 
 // ── JumpCloud Types ───────────────────────────────────────────────────
+
+export interface JumpCloudOrganization {
+  readonly _id?: string;
+  readonly id?: string;
+  readonly displayName?: string;
+  readonly logoUrl?: string;
+  readonly [key: string]: unknown;
+}
 
 export interface JumpCloudUser {
   readonly _id?: string;

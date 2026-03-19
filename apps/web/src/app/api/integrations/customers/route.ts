@@ -192,13 +192,17 @@ async function fetchDattoCustomers(
 async function fetchJumpCloudCustomers(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  // JumpCloud MSP uses organizations
-  const res = await fetch("https://console.jumpcloud.com/api/organizations", {
-    headers: {
-      "x-api-key": config.api_key,
-      "Content-Type": "application/json",
+  // JumpCloud MTP — list managed organizations under the provider
+  const res = await fetch(
+    "https://console.jumpcloud.com/api/organizations?limit=200",
+    {
+      headers: {
+        "x-api-key": config.api_key,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
     },
-  });
+  );
 
   if (!res.ok) throw new Error(`JumpCloud API error: ${res.status}`);
 

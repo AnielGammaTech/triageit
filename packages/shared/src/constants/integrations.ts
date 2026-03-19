@@ -181,13 +181,20 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     service: "jumpcloud",
     display_name: "JumpCloud",
     description:
-      "Directory & IAM platform. Provides user identity, MFA status, device associations, and group policies.",
+      "Directory & IAM platform (MTP). Provides user identity, MFA status, device associations, and group policies across all managed organizations.",
     fields: [
       {
         key: "api_key",
-        label: "API Key",
+        label: "Provider API Key",
         type: "password",
-        placeholder: "Your JumpCloud API Key",
+        placeholder: "Your JumpCloud MTP provider API key",
+        required: true,
+      },
+      {
+        key: "provider_id",
+        label: "Provider ID",
+        type: "text",
+        placeholder: "Your JumpCloud MTP Provider ID",
         required: true,
       },
     ],
