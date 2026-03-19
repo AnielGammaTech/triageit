@@ -7,8 +7,8 @@ ALTER TABLE integrations ADD CONSTRAINT integrations_service_check
   CHECK (service IN (
     'halo', 'hudu', 'jumpcloud', 'datto', 'datto-edr', 'rocketcyber',
     'unifi', 'vpentest', 'saas-alerts', 'unitrends', 'cove', 'pax8',
-    'darkweb', 'bullphish', 'inky', 'vultr', 'mxtoolbox', 'dmarc',
-    'threecx', 'ai-provider'
+    'vultr', 'mxtoolbox', 'dmarc', 'threecx', 'twilio', 'spanning',
+    'ai-provider', 'teams', 'cipp'
   ));
 
 -- Update integration_mappings service CHECK
@@ -17,8 +17,8 @@ ALTER TABLE integration_mappings ADD CONSTRAINT integration_mappings_service_che
   CHECK (service IN (
     'halo', 'hudu', 'jumpcloud', 'datto', 'datto-edr', 'rocketcyber',
     'unifi', 'vpentest', 'saas-alerts', 'unitrends', 'cove', 'pax8',
-    'darkweb', 'bullphish', 'inky', 'vultr', 'mxtoolbox', 'dmarc',
-    'threecx', 'ai-provider'
+    'vultr', 'mxtoolbox', 'dmarc', 'threecx', 'twilio', 'spanning',
+    'ai-provider', 'teams', 'cipp'
   ));
 
 -- ═══════════════════════════════════════════════════════════════════════

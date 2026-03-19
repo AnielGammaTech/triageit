@@ -138,7 +138,7 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
       {
         id: "unifi",
         label: "UniFi Network",
-        desc: "Sync firewalls and network devices",
+        desc: "UniFi Site Manager API for network devices and alerts",
         service: "unifi",
         iconBg: "bg-sky-500/10",
         iconColor: "text-sky-400",
@@ -214,35 +214,6 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
     ],
   },
   {
-    category: "Security Awareness",
-    items: [
-      {
-        id: "darkweb",
-        label: "Dark Web ID",
-        desc: "Monitor dark web compromises",
-        service: "darkweb",
-        iconBg: "bg-red-500/10",
-        iconColor: "text-red-400",
-      },
-      {
-        id: "bullphish",
-        label: "BullPhish ID",
-        desc: "Phishing simulation reports",
-        service: "bullphish",
-        iconBg: "bg-orange-500/10",
-        iconColor: "text-orange-400",
-      },
-      {
-        id: "inky",
-        label: "Inky",
-        desc: "Email protection reports",
-        service: "inky",
-        iconBg: "bg-blue-500/10",
-        iconColor: "text-blue-400",
-      },
-    ],
-  },
-  {
     category: "Email & DNS",
     items: [
       {
@@ -307,19 +278,6 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
         service: "teams",
         iconBg: "bg-indigo-500/10",
         iconColor: "text-indigo-400",
-      },
-    ],
-  },
-  {
-    category: "Customer Mapping",
-    items: [
-      {
-        id: "automapper",
-        label: "AutoMapper",
-        desc: "Auto-map customers across integrations by name",
-        service: "automapper",
-        iconBg: "bg-fuchsia-500/10",
-        iconColor: "text-fuchsia-400",
       },
     ],
   },

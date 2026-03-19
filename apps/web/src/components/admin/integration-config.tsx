@@ -191,36 +191,38 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
          "Not configured"}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-white/10">
-        <button
-          onClick={() => setActiveTab("config")}
-          className={cn(
-            "px-4 py-2 text-sm font-medium transition-colors",
-            activeTab === "config"
-              ? "border-b-2 border-[#6366f1] text-white"
-              : "text-white/50 hover:text-white",
-          )}
-        >
-          Configuration
-        </button>
-        <button
-          onClick={() => setActiveTab("mappings")}
-          className={cn(
-            "px-4 py-2 text-sm font-medium transition-colors",
-            activeTab === "mappings"
-              ? "border-b-2 border-[#6366f1] text-white"
-              : "text-white/50 hover:text-white",
-          )}
-        >
-          Customer Mapping
-          {mappings.length > 0 && (
-            <span className="ml-2 rounded-full bg-[#6366f1]/20 px-2 py-0.5 text-xs text-[#6366f1]">
-              {mappings.length}
-            </span>
-          )}
-        </button>
-      </div>
+      {/* Tabs — hide mapping tab for services that don't need it */}
+      {!["teams", "ai-provider"].includes(item.service) && (
+        <div className="flex gap-1 border-b border-white/10">
+          <button
+            onClick={() => setActiveTab("config")}
+            className={cn(
+              "px-4 py-2 text-sm font-medium transition-colors",
+              activeTab === "config"
+                ? "border-b-2 border-[#6366f1] text-white"
+                : "text-white/50 hover:text-white",
+            )}
+          >
+            Configuration
+          </button>
+          <button
+            onClick={() => setActiveTab("mappings")}
+            className={cn(
+              "px-4 py-2 text-sm font-medium transition-colors",
+              activeTab === "mappings"
+                ? "border-b-2 border-[#6366f1] text-white"
+                : "text-white/50 hover:text-white",
+            )}
+          >
+            Customer Mapping
+            {mappings.length > 0 && (
+              <span className="ml-2 rounded-full bg-[#6366f1]/20 px-2 py-0.5 text-xs text-[#6366f1]">
+                {mappings.length}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Config tab */}
       {activeTab === "config" && (
@@ -312,6 +314,83 @@ interface CustomerMappingTabProps {
   readonly onDeleteMapping: (mappingId: string) => void;
 }
 
+interface AutoMapSuggestion {
+  readonly externalId: string;
+  readonly externalName: string;
+  readonly haloId: string;
+  readonly haloName: string;
+  readonly confidence: number;
+  readonly matchType: "exact" | "normalized" | "fuzzy";
+}
+
+function normalize(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0) as number[]);
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function findBestHaloMatch(
+  extName: string,
+  haloCusts: ReadonlyArray<ExternalCustomer>,
+): AutoMapSuggestion | null {
+  const extLower = extName.toLowerCase().trim();
+  const extNorm = normalize(extName);
+
+  for (const hc of haloCusts) {
+    if (hc.name.toLowerCase().trim() === extLower) {
+      return { externalId: "", externalName: extName, haloId: String(hc.id), haloName: hc.name, confidence: 100, matchType: "exact" };
+    }
+  }
+  for (const hc of haloCusts) {
+    if (normalize(hc.name) === extNorm && extNorm.length > 2) {
+      return { externalId: "", externalName: extName, haloId: String(hc.id), haloName: hc.name, confidence: 95, matchType: "normalized" };
+    }
+  }
+
+  let bestScore = 0;
+  let bestCustomer: ExternalCustomer | null = null;
+  for (const hc of haloCusts) {
+    const hcNorm = normalize(hc.name);
+    if (!hcNorm || !extNorm) continue;
+    if (hcNorm.includes(extNorm) || extNorm.includes(hcNorm)) {
+      const lenRatio = Math.min(hcNorm.length, extNorm.length) / Math.max(hcNorm.length, extNorm.length);
+      const score = 70 + lenRatio * 20;
+      if (score > bestScore) { bestScore = score; bestCustomer = hc; }
+      continue;
+    }
+    const maxLen = Math.max(hcNorm.length, extNorm.length);
+    if (maxLen === 0) continue;
+    const dist = levenshtein(hcNorm, extNorm);
+    const similarity = ((maxLen - dist) / maxLen) * 100;
+    if (similarity > bestScore) { bestScore = similarity; bestCustomer = hc; }
+  }
+  if (bestCustomer && bestScore >= 70) {
+    return { externalId: "", externalName: extName, haloId: String(bestCustomer.id), haloName: bestCustomer.name, confidence: Math.round(bestScore), matchType: "fuzzy" };
+  }
+  return null;
+}
+
 function CustomerMappingTab({
   service,
   integrationId,
@@ -330,6 +409,9 @@ function CustomerMappingTab({
     externalName: string;
   } | null>(null);
   const [haloSearch, setHaloSearch] = useState("");
+  const [autoMapSuggestions, setAutoMapSuggestions] = useState<ReadonlyArray<AutoMapSuggestion>>([]);
+  const [autoMapSelected, setAutoMapSelected] = useState<Set<string>>(new Set());
+  const [showAutoMap, setShowAutoMap] = useState(false);
 
   const isHaloService = service === "halo";
   const serviceLabel = service.charAt(0).toUpperCase() + service.slice(1);
@@ -585,17 +667,158 @@ function CustomerMappingTab({
               </span>
             )}
           </h4>
-          <button
-            onClick={() => {
-              loadExternalCustomers();
-              if (!isHaloService) loadHaloCustomers();
-            }}
-            disabled={loading}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
-          >
-            {loading ? "Loading..." : "Refresh"}
-          </button>
+          <div className="flex gap-2">
+            {!isHaloService && unmappedCustomers.length > 0 && haloCustomers.length > 0 && (
+              <button
+                onClick={() => {
+                  const suggestions: AutoMapSuggestion[] = [];
+                  for (const ext of unmappedCustomers) {
+                    const match = findBestHaloMatch(ext.name, haloCustomers);
+                    if (match) {
+                      suggestions.push({ ...match, externalId: String(ext.id) });
+                    }
+                  }
+                  setAutoMapSuggestions(suggestions);
+                  const autoSelect = new Set<string>();
+                  for (const s of suggestions) {
+                    if (s.matchType === "exact" || s.matchType === "normalized") {
+                      autoSelect.add(s.externalId);
+                    }
+                  }
+                  setAutoMapSelected(autoSelect);
+                  setShowAutoMap(true);
+                }}
+                className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-medium text-fuchsia-400 transition-colors hover:bg-fuchsia-500/20"
+              >
+                Auto-Map
+              </button>
+            )}
+            <button
+              onClick={() => {
+                loadExternalCustomers();
+                if (!isHaloService) loadHaloCustomers();
+              }}
+              disabled={loading}
+              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
+            >
+              {loading ? "Loading..." : "Refresh"}
+            </button>
+          </div>
         </div>
+
+        {/* AutoMapper suggestions panel */}
+        {showAutoMap && autoMapSuggestions.length > 0 && (
+          <div className="mb-4 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-white">
+                  AutoMapper — {autoMapSuggestions.length} matches found
+                </p>
+                <p className="text-xs text-white/40">
+                  {autoMapSelected.size} selected · exact and normalized matches are pre-selected
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setAutoMapSelected(new Set(autoMapSuggestions.map((s) => s.externalId)));
+                  }}
+                  className="rounded-lg border border-white/10 px-2 py-1 text-xs text-white/50 hover:bg-white/5"
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setAutoMapSelected(new Set())}
+                  className="rounded-lg border border-white/10 px-2 py-1 text-xs text-white/50 hover:bg-white/5"
+                >
+                  None
+                </button>
+                <button
+                  onClick={() => {
+                    for (const s of autoMapSuggestions) {
+                      if (autoMapSelected.has(s.externalId)) {
+                        onAddMapping(s.externalId, s.externalName, s.haloName, s.haloId);
+                      }
+                    }
+                    setShowAutoMap(false);
+                    setAutoMapSuggestions([]);
+                    setAutoMapSelected(new Set());
+                  }}
+                  disabled={autoMapSelected.size === 0}
+                  className="rounded-lg bg-fuchsia-500/20 px-3 py-1 text-xs font-medium text-fuchsia-400 transition-colors hover:bg-fuchsia-500/30 disabled:opacity-50"
+                >
+                  Approve {autoMapSelected.size}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAutoMap(false);
+                    setAutoMapSuggestions([]);
+                    setAutoMapSelected(new Set());
+                  }}
+                  className="rounded-lg border border-white/10 px-2 py-1 text-xs text-white/50 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-1.5">
+              {autoMapSuggestions.map((s) => {
+                const isSelected = autoMapSelected.has(s.externalId);
+                const matchColor = s.matchType === "exact" ? "bg-emerald-500/20 text-emerald-400"
+                  : s.matchType === "normalized" ? "bg-blue-500/20 text-blue-400"
+                  : "bg-amber-500/20 text-amber-400";
+                return (
+                  <div
+                    key={s.externalId}
+                    onClick={() => {
+                      setAutoMapSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s.externalId)) next.delete(s.externalId);
+                        else next.add(s.externalId);
+                        return next;
+                      });
+                    }}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors",
+                      isSelected ? "bg-fuchsia-500/10" : "hover:bg-white/5",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-white/30"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-white">{s.externalName}</p>
+                    </div>
+                    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", matchColor)}>
+                      {s.confidence}% {s.matchType}
+                    </span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-white/20">
+                      <path d="M8 12h8" /><path d="m12 8 4 4-4 4" />
+                    </svg>
+                    <div className="min-w-0 flex-1 text-right">
+                      <p className="text-sm text-white/70">{s.haloName}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {showAutoMap && autoMapSuggestions.length === 0 && (
+          <div className="mb-4 rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-4 text-center">
+            <p className="text-sm text-white/50">No auto-matches found. Map customers manually below.</p>
+            <button
+              onClick={() => setShowAutoMap(false)}
+              className="mt-2 text-xs text-white/40 hover:text-white"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {fetchError && (
           <p className="mb-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">
