@@ -141,6 +141,16 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
     description:
       "Queries Spanning Backup for Office 365 to check tenant backup status, user protection, error codes, and recovery points. Correlates ticket details with real backup data.",
   },
+  {
+    name: "erin_hannon",
+    character: "Erin Hannon",
+    role: "alert_specialist",
+    specialty: "Alert Triage & Quick Summary",
+    integration: null,
+    model: "haiku",
+    description:
+      "The Receptionist. Handles automated alert tickets (Spanning, 3CX, Datto, monitoring alerts) cheaply and quickly. Produces a concise summary without deploying expensive specialist agents.",
+  },
 ] as const;
 
 export const PHASE_1_AGENTS = ["michael_scott", "ryan_howard"] as const;

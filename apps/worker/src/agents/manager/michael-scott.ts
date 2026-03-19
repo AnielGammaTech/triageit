@@ -11,6 +11,10 @@ import {
   createAgent,
   getAgentsForClassification,
 } from "../registry.js";
+import {
+  isAlertTicket,
+  summarizeAlert,
+} from "../workers/erin-hannon.js";
 // AgentResult used internally by specialist agents via registry
 
 // ── System Prompt ────────────────────────────────────────────────────
@@ -108,6 +112,7 @@ const AGENT_LABELS: Record<string, string> = {
   angela_martin: "Angela Martin (Security)",
   meredith_palmer: "Meredith Palmer (Backup/Recovery)",
   kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
+  erin_hannon: "Erin Hannon (Alert Specialist)",
 };
 
 // ── Main Triage Pipeline ─────────────────────────────────────────────
@@ -274,9 +279,126 @@ export async function runTriage(
     };
   }
 
-  // ── Step 3: Michael analyzes classification & picks specialists ────
+  // ── Alert fast path: cheap Haiku summary for automated alerts ──────
 
   const classType = classification.classification.type;
+  const isAlert = isAlertTicket(
+    ticket.summary,
+    ticket.details,
+    classType,
+    classification.classification.subtype ?? "",
+  );
+
+  if (isAlert && !classification.security_flag) {
+    const alertStart = Date.now();
+
+    await logThinking(
+      supabase,
+      ticket.id,
+      "michael_scott",
+      "manager",
+      `Alert detected (${classification.classification.type}/${classification.classification.subtype}). Routing to Erin Hannon for cheap alert summary — skipping specialist agents.`,
+    );
+
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "erin_hannon",
+      agent_role: "alert_specialist",
+      status: "started",
+      input_summary: `Summarizing alert: ${ticket.summary}`,
+    });
+
+    const alertResult = await summarizeAlert(context);
+    const alertProcessingTime = Date.now() - startTime;
+
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "erin_hannon",
+      agent_role: "alert_specialist",
+      status: "completed",
+      output_summary: alertResult.summary,
+      duration_ms: Date.now() - alertStart,
+    });
+
+    // Write alert summary note to Halo
+    const alertHaloConfig = await getHaloConfig(supabase);
+    if (alertHaloConfig) {
+      const halo = new HaloClient(alertHaloConfig);
+      try {
+        const severityColor =
+          alertResult.severity === "critical" ? "#f87171"
+            : alertResult.severity === "warning" ? "#fbbf24"
+            : "#4ade80";
+        const severityEmoji =
+          alertResult.severity === "critical" ? "🔴"
+            : alertResult.severity === "warning" ? "🟡"
+            : "🟢";
+        const actionBadge = alertResult.actionable
+          ? `<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">ACTION NEEDED</span>`
+          : `<span style="background:#059669;color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">INFO ONLY</span>`;
+
+        const alertNote =
+          `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
+          `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</span></td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Source</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${alertResult.alert_source}</strong> ${actionBadge}</td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Alert Type</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.alert_type}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Affected</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.affected_resource}</td></tr>` +
+          `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:${severityColor};">${severityEmoji} Severity</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${severityColor};font-weight:700;">${alertResult.severity.toUpperCase()}</td></tr>` +
+          `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${alertResult.suggested_action}</td></tr>` +
+          `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:130px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Summary</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
+          `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · alert path · ${(alertProcessingTime / 1000).toFixed(1)}s</td></tr>` +
+          `</table>`;
+
+        await halo.addInternalNote(ticket.halo_id, alertNote);
+      } catch (error) {
+        console.error(`[MICHAEL] Alert path: Failed to write Halo note for #${ticket.halo_id}:`, error);
+      }
+    }
+
+    await supabase.from("agent_logs").insert({
+      ticket_id: ticket.id,
+      agent_name: "michael_scott",
+      agent_role: "manager",
+      status: "completed",
+      output_summary: `Alert path: ${alertResult.alert_source} — ${alertResult.alert_type} (${alertResult.severity})`,
+      duration_ms: alertProcessingTime,
+    });
+
+    const triageId = crypto.randomUUID();
+    return {
+      id: triageId,
+      ticket_id: ticket.id,
+      classification: classification.classification,
+      urgency_score: classification.urgency_score,
+      urgency_reasoning: classification.urgency_reasoning,
+      recommended_priority: classification.recommended_priority,
+      recommended_team: alertResult.alert_source,
+      recommended_agent: null,
+      security_flag: false,
+      security_notes: null,
+      findings: {
+        ryan_howard: {
+          agent_name: "ryan_howard",
+          summary: `Classified as ${classification.classification.type}/${classification.classification.subtype}`,
+          data: classification as unknown as Record<string, unknown>,
+          confidence: classification.classification.confidence,
+        },
+        erin_hannon: {
+          agent_name: "erin_hannon",
+          summary: alertResult.summary,
+          data: alertResult as unknown as Record<string, unknown>,
+          confidence: 0.9,
+        },
+      },
+      suggested_response: null,
+      internal_notes: `Alert: ${alertResult.summary}. Action: ${alertResult.suggested_action}`,
+      processing_time_ms: alertProcessingTime,
+      model_tokens_used: { manager: 0, workers: { erin_hannon: 0 } },
+    };
+  }
+
+  // ── Step 3: Michael analyzes classification & picks specialists ────
+
   const specialistNames = await getAgentsForClassification(
     classType,
     supabase,
