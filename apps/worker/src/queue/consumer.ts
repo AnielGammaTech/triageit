@@ -34,13 +34,24 @@ export function startTriageWorker(): Worker<TriageJobData> {
       }
 
       try {
+        // Check if this is a retriage (existing results before this run)
+        const { count: priorTriageCount } = await supabase
+          .from("triage_results")
+          .select("id", { count: "exact", head: true })
+          .eq("ticket_id", job.data.ticketId);
+
         const result = await runTriage(ticket, supabase);
 
         await supabase.from("triage_results").insert(result);
 
+        const finalStatus = (priorTriageCount ?? 0) > 0 ? "re-triaged" : "triaged";
         await supabase
           .from("tickets")
-          .update({ status: "triaged", updated_at: new Date().toISOString() })
+          .update({
+            status: finalStatus,
+            last_retriage_at: finalStatus === "re-triaged" ? new Date().toISOString() : undefined,
+            updated_at: new Date().toISOString(),
+          })
           .eq("id", job.data.ticketId);
 
         // Sync the latest Halo status (e.g. "Waiting on Tech") after triage

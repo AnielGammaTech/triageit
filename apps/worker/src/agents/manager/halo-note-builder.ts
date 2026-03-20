@@ -93,6 +93,7 @@ export function buildHaloNote(
   duplicates?: ReadonlyArray<DuplicateCandidate>,
   slaInfo?: SlaInfo,
   branding?: BrandingConfig,
+  originalPriority?: number | null,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -192,6 +193,13 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}<br/><span style="font-size:11px;color:#94a3b8;">Consider merging if same issue.</span></td></tr>`);
   }
 
+  // Priority Recommendation — inline instead of separate note
+  if (originalPriority && classification.recommended_priority !== originalPriority) {
+    const direction = classification.recommended_priority < originalPriority ? "⬆ Upgrade" : "⬇ Downgrade";
+    const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
+    rows.push(`<tr style="background:linear-gradient(135deg,${classification.recommended_priority < originalPriority ? "#3b2508" : "#162216"},#1E2028);"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:${dirColor};">${direction}</td><td style="padding:8px 12px;${border}font-size:13px;color:#e2e8f0;">Current: <strong>P${originalPriority}</strong> → Recommended: <strong style="color:${dirColor};">P${classification.recommended_priority}</strong><br/><span style="font-size:11px;color:#94a3b8;">Priority Recommendation Only · Not Auto-Applied</span></td></tr>`);
+  }
+
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · ${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</td></tr>`);
 
@@ -216,6 +224,7 @@ export function buildCompactRetriageNote(
   findings: Record<string, AgentFinding>,
   processingTime: number,
   slaInfo?: SlaInfo,
+  originalPriority?: number | null,
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const rows: string[] = [];
@@ -255,6 +264,13 @@ export function buildCompactRetriageNote(
 
   if (specialistEntries.length > 0) {
     rows.push(`<tr style="background:#1E2028;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#a78bfa;vertical-align:top;">DD</td><td style="padding:5px 12px;${border}font-size:11px;color:#c4b5fd;line-height:1.6;word-break:break-word;">${specialistEntries.join("<br/>")}</td></tr>`);
+  }
+
+  // Priority Recommendation — inline
+  if (originalPriority && classification.recommended_priority !== originalPriority) {
+    const direction = classification.recommended_priority < originalPriority ? "⬆" : "⬇";
+    const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
+    rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:${dirColor};">${direction} Pri</td><td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">P${originalPriority} → <strong style="color:${dirColor};">P${classification.recommended_priority}</strong> <span style="color:#64748b;font-size:10px;">· Not Auto-Applied</span></td></tr>`);
   }
 
   // Footer

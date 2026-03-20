@@ -209,6 +209,7 @@ export async function POST() {
         halo_agent: resolveAgentName(ticket, agentNameMap),
         last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+        created_at: ticket.datecreated ?? now,
         updated_at: now,
       }));
 

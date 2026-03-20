@@ -66,6 +66,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
   pending: { bg: "bg-yellow-500/10", text: "text-yellow-400" },
   triaging: { bg: "bg-blue-500/10", text: "text-blue-400" },
   triaged: { bg: "bg-emerald-500/10", text: "text-emerald-400" },
+  "re-triaged": { bg: "bg-violet-500/10", text: "text-violet-400" },
   approved: { bg: "bg-green-500/10", text: "text-green-400" },
   error: { bg: "bg-red-500/10", text: "text-red-400" },
 };
@@ -186,9 +187,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       });
 
       if (response.ok) {
-        // Clear local state for fresh triage
-        setTriage(null);
-        setAgentLogs([]);
+        // Switch to agents tab and enable live polling — keep existing logs visible
         setActiveTab("agents");
         setIsLive(true);
       }

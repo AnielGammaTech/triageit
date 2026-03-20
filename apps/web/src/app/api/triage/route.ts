@@ -176,18 +176,8 @@ export async function POST(request: NextRequest) {
     ticketId = ticket.id;
   }
 
-  // Clear old triage data so the UI starts fresh
-  await supabase
-    .from("triage_results")
-    .delete()
-    .eq("ticket_id", ticketId);
-
-  await supabase
-    .from("agent_logs")
-    .delete()
-    .eq("ticket_id", ticketId);
-
-  // Reset status to pending so worker picks it up fresh
+  // Keep old triage data (agent_logs, triage_results) so Agent Thinking tab
+  // shows history and isRetriage detection works. Just reset status.
   await supabase
     .from("tickets")
     .update({ status: "pending", updated_at: new Date().toISOString() })

@@ -23,7 +23,6 @@ import {
   AGENT_LABELS,
   buildHaloNote,
   buildCompactRetriageNote,
-  buildPriorityRecommendationNote,
   buildDocumentationGapNote,
   type BrandingConfig,
 } from "./halo-note-builder.js";
@@ -493,8 +492,13 @@ export async function runTriage(
   // ── Step 7: Employee feedback — private coaching note ──────────────
 
   if (haloConfig) {
+    // Use Halo's original creation date, not the local DB import timestamp
+    const haloCreatedAt =
+      (ticket.raw_data as Record<string, unknown> | null)?.datecreated as string | undefined
+      ?? (ticket.raw_data as Record<string, unknown> | null)?.dateCreated as string | undefined
+      ?? ticket.created_at;
     const eligibility = checkReviewEligibility(
-      context, classification, haloConfig, ticket.created_at,
+      context, classification, haloConfig, haloCreatedAt,
     );
     if (eligibility.eligible) {
       try {
@@ -850,10 +854,12 @@ async function postHaloNotes(
     : undefined;
 
   // On retriage, post a compact review — not the full triage table
+  // Priority recommendation is now inline in both note types (no separate comment)
   if (isRetriage) {
     try {
       const compactNote = buildCompactRetriageNote(
         classification, michaelResult, findings, processingTime, slaInfo,
+        ticket.original_priority,
       );
       await halo.addInternalNote(ticket.halo_id, compactNote);
     } catch (error) {
@@ -864,6 +870,7 @@ async function postHaloNotes(
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
         similarTickets, duplicates, slaInfo, branding,
+        ticket.original_priority,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {
@@ -893,19 +900,5 @@ async function postHaloNotes(
     await halo.updateTicketCustomField(ticket.halo_id, "CFTriageUrgency", String(classification.urgency_score));
   } catch (error) {
     console.warn(`[MICHAEL] Auto-tag failed for #${ticket.halo_id} (custom fields may not be configured):`, error);
-  }
-
-  // ── Priority Recommendation — RECOMMEND only, don't SET ──────────
-  if (classification.recommended_priority !== ticket.original_priority && ticket.original_priority) {
-    try {
-      const priorityNote = buildPriorityRecommendationNote(
-        ticket.original_priority,
-        classification.recommended_priority,
-        classification.urgency_reasoning,
-      );
-      await halo.addInternalNote(ticket.halo_id, priorityNote);
-    } catch (error) {
-      console.error(`[MICHAEL] Failed to write priority recommendation:`, error);
-    }
   }
 }

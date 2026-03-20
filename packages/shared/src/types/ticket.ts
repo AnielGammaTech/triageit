@@ -60,6 +60,7 @@ export type TicketStatus =
   | "pending"
   | "triaging"
   | "triaged"
+  | "re-triaged"
   | "approved"
   | "needs_review"
   | "error";
