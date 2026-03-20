@@ -541,7 +541,11 @@ function resolveAgentName(
   }
   // Look up by agent_id in our cached agents list
   if (ticket.agent_id) {
-    return agentNameMap.get(ticket.agent_id) ?? null;
+    const name = agentNameMap.get(ticket.agent_id) ?? null;
+    if (!name) {
+      console.warn(`[HALO SYNC] Ticket #${ticket.id}: agent_id=${ticket.agent_id} not found in agent map (${agentNameMap.size} agents loaded)`);
+    }
+    return name;
   }
   return null;
 }
@@ -566,16 +570,21 @@ async function fetchAgentNameMap(
     );
 
     if (res.ok) {
-      const data = (await res.json()) as ReadonlyArray<{
-        id: number;
-        name: string;
-      }>;
-      for (const agent of data) {
-        map.set(agent.id, agent.name);
+      const raw = await res.json();
+      // Halo may return a flat array OR { agents: [...] }
+      const agents: ReadonlyArray<{ id: number; name: string }> =
+        Array.isArray(raw) ? raw : (raw.agents ?? raw.records ?? []);
+      for (const agent of agents) {
+        if (agent.id && agent.name) {
+          map.set(agent.id, agent.name);
+        }
       }
+      console.log(`[HALO SYNC] Agent name map: ${map.size} agents loaded`);
+    } else {
+      console.warn(`[HALO SYNC] Agent list fetch failed: ${res.status}`);
     }
-  } catch {
-    // Non-critical — agent names will just be missing
+  } catch (err) {
+    console.warn("[HALO SYNC] Agent name map fetch error:", err);
   }
   return map;
 }
