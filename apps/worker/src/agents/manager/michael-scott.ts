@@ -148,8 +148,34 @@ export async function runTriage(
       // (NOT from who left comments — that could be automations like "Triggr KTR API")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ticketRecord = ticket as any;
-      const assignedTechName: string | null =
+      let assignedTechName: string | null =
         ticketRecord.halo_agent ?? null;
+
+      // If DB doesn't have the agent name, try to get it from the Halo API
+      if (!assignedTechName) {
+        try {
+          const ticketWithSlaForAgent = await haloEarly.getTicketWithSLA(ticket.halo_id);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawTicket = ticketWithSlaForAgent as any;
+          assignedTechName = rawTicket.agent_name ?? null;
+
+          // If still no name but we have an agent_id, look it up
+          if (!assignedTechName && rawTicket.agent_id) {
+            const agentName = await haloEarly.getAgentName(rawTicket.agent_id);
+            assignedTechName = agentName;
+          }
+
+          // Update the DB so future runs have it
+          if (assignedTechName) {
+            await supabase
+              .from("tickets")
+              .update({ halo_agent: assignedTechName })
+              .eq("id", ticket.id);
+          }
+        } catch (err) {
+          console.warn(`[MICHAEL] Could not resolve agent name for #${ticket.halo_id}:`, err);
+        }
+      }
 
       // Fetch images from ticket attachments and inline images
       const [attachmentImages, inlineImages] = await Promise.all([

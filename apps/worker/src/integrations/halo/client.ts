@@ -117,6 +117,19 @@ export class HaloClient {
     );
   }
 
+  async getAgentName(agentId: number): Promise<string | null> {
+    try {
+      const agent = await this.request<{ name?: string }>(
+        "GET",
+        `/agent/${agentId}`,
+      );
+      return agent.name ?? null;
+    } catch {
+      console.warn(`[HALO] Could not resolve agent name for agent_id=${agentId}`);
+      return null;
+    }
+  }
+
   async updateCustomFields(
     ticketId: number,
     fields: ReadonlyArray<{ id: number; value: string }>,

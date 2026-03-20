@@ -115,9 +115,9 @@ export async function POST(request: NextRequest) {
     // Authenticate with Halo
     const token = await getHaloToken(config);
 
-    // Fetch the full ticket from Halo API
+    // Fetch the full ticket from Halo API (includecolumns=true to get agent_name)
     const ticketResponse = await fetch(
-      `${config.base_url}/api/tickets/${ticketId}`,
+      `${config.base_url}/api/tickets/${ticketId}?includecolumns=true`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
       original_priority: haloTicket.priority_id ?? null,
       halo_status: (haloTicket.statusname ?? haloTicket.status_name ?? null) as string | null,
       halo_status_id: haloTicket.status_id ?? null,
-      halo_agent: (haloTicket.agent_name ?? null) as string | null,
+      halo_agent: await resolveWebhookAgentName(haloTicket, config, token),
       halo_team: (haloTicket.team ?? null) as string | null,
       raw_data: haloTicket,
     });
@@ -477,6 +477,43 @@ async function discoverTokenEndpoint(
   }
   const tokenUrl = `${baseUrl}/auth/token`;
   return tenant ? `${tokenUrl}?tenant=${tenant}` : tokenUrl;
+}
+
+/**
+ * Resolve the assigned agent's name from a Halo ticket.
+ * Prefers agent_name field; falls back to looking up agent_id via the Halo agents API.
+ */
+async function resolveWebhookAgentName(
+  ticket: HaloApiTicket,
+  config: { base_url: string; client_id: string; client_secret: string; tenant?: string },
+  token: string,
+): Promise<string | null> {
+  // Prefer agent_name if the API returned it
+  if (ticket.agent_name && typeof ticket.agent_name === "string") {
+    return ticket.agent_name;
+  }
+
+  // Fall back to agent_id lookup
+  const agentId = ticket.agent_id;
+  if (typeof agentId !== "number" || agentId <= 0) return null;
+
+  try {
+    const res = await fetch(
+      `${config.base_url}/api/agent/${agentId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    if (!res.ok) return null;
+    const agent = (await res.json()) as { name?: string };
+    return agent.name ?? null;
+  } catch {
+    console.warn(`[WEBHOOK] Could not resolve agent name for agent_id=${agentId}`);
+    return null;
+  }
 }
 
 interface HaloApiTicket {
