@@ -137,13 +137,16 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [ticket, setTicket] = useState<TicketData | null>(null);
   const [triage, setTriage] = useState<TriageResult | null>(null);
   const [agentLogs, setAgentLogs] = useState<ReadonlyArray<AgentLog>>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "agents" | "raw">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "agents" | "triageit" | "raw">("overview");
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
+  const [triageItNotes, setTriageItNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesLoaded, setNotesLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadTicket = useCallback(async () => {
@@ -195,6 +198,31 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setRetriaging(false);
     }
   }, [ticketId, retriaging]);
+
+  const loadTriageItNotes = useCallback(async () => {
+    if (notesLoading || !ticket) return;
+    setNotesLoading(true);
+
+    try {
+      const response = await fetch("/api/triageit-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: ticket.halo_id }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          notes: ReadonlyArray<{ id: number; note: string; date: string; type: string }>;
+        };
+        setTriageItNotes(data.notes);
+      }
+    } catch (error) {
+      console.error("Failed to load TriageIt notes:", error);
+    } finally {
+      setNotesLoading(false);
+      setNotesLoaded(true);
+    }
+  }, [ticket, notesLoading]);
 
   const handleSummarize = useCallback(async () => {
     if (summarizing || !ticket) return;
@@ -310,6 +338,13 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setActiveTab("agents");
     }
   }, [ticket?.status, agentLogs.length]);
+
+  // Load TriageIt notes when tab is selected (lazy load)
+  useEffect(() => {
+    if (activeTab === "triageit" && !notesLoaded && !notesLoading) {
+      loadTriageItNotes();
+    }
+  }, [activeTab, notesLoaded, notesLoading, loadTriageItNotes]);
 
   if (loading) {
     return (
@@ -611,7 +646,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-white/10">
-        {(["overview", "agents", "raw"] as const).map((tab) => (
+        {(["overview", "agents", "triageit", "raw"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -633,7 +668,16 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                       )}
                     </>
                   )
-                : "Details"}
+                : tab === "triageit"
+                  ? (
+                      <>
+                        TriageIT
+                        {notesLoaded && triageItNotes.length > 0 && (
+                          <span className="ml-1.5 text-xs text-white/30">({triageItNotes.length})</span>
+                        )}
+                      </>
+                    )
+                  : "Details"}
           </button>
         ))}
       </div>
@@ -818,6 +862,56 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
         </div>
       )}
 
+      {activeTab === "triageit" && (
+        <div className="space-y-3">
+          {notesLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex items-center gap-2 text-sm text-white/40">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+                Loading TriageIt notes from Halo...
+              </div>
+            </div>
+          ) : triageItNotes.length === 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
+              <p className="text-sm text-white/40">No TriageIt notes found for this ticket.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-white/30">
+                  {triageItNotes.length} note{triageItNotes.length !== 1 ? "s" : ""} posted by TriageIt
+                </p>
+                <button
+                  onClick={() => { setNotesLoaded(false); loadTriageItNotes(); }}
+                  className="text-xs text-white/30 hover:text-white/60 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+              {triageItNotes.map((note) => (
+                <div
+                  key={note.id}
+                  className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden"
+                >
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.02]">
+                    <div className="flex items-center gap-2">
+                      <NoteTypeBadge type={note.type} />
+                      <span className="text-[10px] text-white/30">
+                        {note.date ? new Date(note.date).toLocaleString() : "Unknown date"}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className="p-4 overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_img]:max-h-6"
+                    dangerouslySetInnerHTML={{ __html: note.note }}
+                  />
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {activeTab === "raw" && (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
           <pre className="max-h-96 overflow-auto text-xs text-white/60">
@@ -826,6 +920,25 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
         </div>
       )}
     </div>
+  );
+}
+
+const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  triage: { bg: "bg-[#6366f1]/10", text: "text-[#6366f1]", label: "Triage" },
+  retriage: { bg: "bg-violet-500/10", text: "text-violet-400", label: "Retriage" },
+  "tech-review": { bg: "bg-emerald-500/10", text: "text-emerald-400", label: "Tech Review" },
+  alert: { bg: "bg-amber-500/10", text: "text-amber-400", label: "Alert" },
+  priority: { bg: "bg-orange-500/10", text: "text-orange-400", label: "Priority" },
+  documentation: { bg: "bg-yellow-500/10", text: "text-yellow-400", label: "Doc Gap" },
+  other: { bg: "bg-white/5", text: "text-white/50", label: "Note" },
+};
+
+function NoteTypeBadge({ type }: { readonly type: string }) {
+  const style = NOTE_TYPE_STYLES[type] ?? NOTE_TYPE_STYLES.other;
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", style.bg, style.text)}>
+      {style.label}
+    </span>
   );
 }
 

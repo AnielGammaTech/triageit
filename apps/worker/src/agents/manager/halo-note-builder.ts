@@ -65,6 +65,11 @@ export function formatTechNotes(notes: unknown): string {
 
 // ── Full Triage Note ─────────────────────────────────────────────────
 
+export interface BrandingConfig {
+  readonly logoUrl?: string | null;
+  readonly name?: string | null;
+}
+
 export function buildHaloNote(
   classification: {
     readonly classification: { readonly type: string; readonly subtype: string; readonly confidence: number };
@@ -87,6 +92,7 @@ export function buildHaloNote(
   similarTickets?: ReadonlyArray<SimilarTicket>,
   duplicates?: ReadonlyArray<DuplicateCandidate>,
   slaInfo?: SlaInfo,
+  branding?: BrandingConfig,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -96,8 +102,12 @@ export function buildHaloNote(
 
   const rows: string[] = [];
 
-  // Header — gradient
-  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+  // Header — gradient with optional logo
+  const brandName = branding?.name ?? "TriageIt";
+  const logoHtml = branding?.logoUrl
+    ? `<img src="${branding.logoUrl}" alt="${brandName}" style="height:22px;width:auto;vertical-align:middle;margin-right:8px;border-radius:3px;" />`
+    : "🤖 ";
+  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">${logoHtml}AI Triage — ${brandName}<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
 
   // SLA Breach — red alert banner, placed first for maximum visibility
   if (slaInfo?.breached) {
@@ -110,9 +120,10 @@ export function buildHaloNote(
   // Classification
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
-  // Priority · Urgency · Team — merged into one line
+  // Priority + Urgency merged into one row
   const urgencyColor = classification.urgency_score >= 4 ? "#f87171" : classification.urgency_score >= 3 ? "#f59e0b" : "#4ade80";
-  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#22d3ee;">Priority</td><td ${td2}><strong style="color:#22d3ee;">P${classification.recommended_priority}</strong> · <strong style="color:${urgencyColor};">Urgency ${classification.urgency_score}/5</strong> · ${michaelResult.recommended_team}</td></tr>`);
+  const priorityColor = classification.recommended_priority <= 2 ? "#f87171" : classification.recommended_priority === 3 ? "#f59e0b" : "#4ade80";
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#94a3b8;">Priority</td><td ${td2}><strong style="color:${priorityColor};font-size:15px;">P${classification.recommended_priority}</strong> <span style="color:#64748b;">·</span> <strong style="color:${urgencyColor};">${classification.urgency_score}/5</strong> <span style="color:#64748b;font-size:11px;">urgency</span> <span style="color:#64748b;">·</span> <span style="color:#e2e8f0;">${michaelResult.recommended_team}</span></td></tr>`);
   if (classification.urgency_reasoning) {
     rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
   }

@@ -35,7 +35,7 @@ export async function findSimilarTickets(
   },
 ): Promise<ReadonlyArray<SimilarTicket>> {
   const maxResults = params.maxResults ?? 5;
-  const minSimilarity = params.minSimilarity ?? 0.65;
+  const minSimilarity = params.minSimilarity ?? 0.78;
 
   // Generate embedding for the current ticket's content
   const queryText = `${params.summary} ${params.details ?? ""}`.trim();
@@ -84,18 +84,26 @@ async function findSimilarByText(
   clientName: string | null,
   maxResults: number,
 ): Promise<ReadonlyArray<SimilarTicket>> {
-  // Extract key words from summary for search
+  // Extract meaningful words (>3 chars, skip common IT noise words)
+  const stopWords = new Set([
+    "that", "this", "with", "from", "have", "been", "will", "would",
+    "could", "should", "about", "their", "there", "when", "what",
+    "need", "help", "please", "issue", "problem", "ticket", "request",
+    "user", "unable", "working", "work", "does", "doesn",
+  ]);
+
   const keywords = summary
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 3)
+    .filter((w) => w.length > 3 && !stopWords.has(w))
     .slice(0, 5);
 
   if (keywords.length === 0) return [];
 
-  // Search for tickets with similar keywords in summary
-  const searchPattern = `%${keywords[0]}%`;
+  // Search using the most specific keyword (longest word)
+  const bestKeyword = [...keywords].sort((a, b) => b.length - a.length)[0];
+  const searchPattern = `%${bestKeyword}%`;
 
   const { data, error } = await supabase
     .from("tickets")
@@ -104,17 +112,19 @@ async function findSimilarByText(
     .in("status", ["triaged", "resolved", "closed"])
     .ilike("summary", searchPattern)
     .order("created_at", { ascending: false })
-    .limit(maxResults);
+    .limit(maxResults * 3); // Fetch extra to filter down
 
   if (error || !data) return [];
 
-  // Score by keyword overlap, boost same-client matches
+  // Score by keyword overlap — require at least 2 keyword matches
   return data.map((t) => {
     const tWords = (t.summary as string).toLowerCase().split(/\s+/);
-    const overlap = keywords.filter((k) => tWords.some((w) => w.includes(k))).length;
+    const overlap = keywords.filter((k) =>
+      tWords.some((w) => w === k || (w.length > 4 && k.length > 4 && w.includes(k))),
+    ).length;
     const baseSimilarity = overlap / Math.max(keywords.length, 1);
     const similarity = (t.client_name as string | null) === clientName
-      ? Math.min(baseSimilarity * 1.15, 1.0)
+      ? Math.min(baseSimilarity * 1.1, 1.0) // 10% boost (reduced from 15%)
       : baseSimilarity;
 
     return {
@@ -127,7 +137,10 @@ async function findSimilarByText(
       resolvedAt: null,
       status: t.status as string,
     };
-  }).filter((t) => t.similarity > 0.3);
+  })
+  .filter((t) => t.similarity >= 0.5 && keywords.length >= 2 ? true : t.similarity >= 0.7)
+  .sort((a, b) => b.similarity - a.similarity)
+  .slice(0, maxResults);
 }
 
 /**
