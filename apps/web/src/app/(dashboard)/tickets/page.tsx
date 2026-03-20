@@ -226,23 +226,24 @@ export default function TicketsPage() {
     // Check summary patterns for common alert/notification sources
     const summary = t.summary.toLowerCase();
     const alertKeywords = [
+      // Backup & monitoring systems
       "spanning backup", "backup for office 365",
-      "3cx", "ip blocked", "ip block",
       "datto alert", "datto rmm",
       "monitoring alert", "system alert",
       "backup fail", "backup error", "backup warning",
       "device offline", "agent offline",
       "threshold exceeded", "certificate expir",
       "client-alert", "backupiq:", "backupiq ",
+      // Security/phishing alerts
       "report domain:", "phish911", "phishalarm",
       "risk detection", "o365 p2", "o365 p1",
       "microsoft 365 alert",
-      // Notification/transactional patterns
+      // Phone system
+      "3cx",
+      // Notification/transactional (clearly automated only)
       "alert:", "completion notice", "order confirmation",
       "auto-replenishment", "low balance warning",
-      "hasn't been delivered", "has not been delivered",
-      "nso request", "fw: your message",
-      "verify your", "verify account",
+      "nso request",
     ];
     return alertKeywords.some((kw) => summary.includes(kw));
   };

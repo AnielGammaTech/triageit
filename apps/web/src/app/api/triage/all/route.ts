@@ -71,9 +71,7 @@ export async function POST() {
     "microsoft 365 alert",
     "alert:", "completion notice", "order confirmation",
     "auto-replenishment", "low balance warning",
-    "hasn't been delivered", "has not been delivered",
-    "nso request", "fw: your message",
-    "verify your", "verify account",
+    "nso request",
   ];
 
   // Check which tickets already have alert triage results
