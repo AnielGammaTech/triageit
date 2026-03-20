@@ -889,23 +889,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                 </button>
               </div>
               {triageItNotes.map((note) => (
-                <div
-                  key={note.id}
-                  className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden"
-                >
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.02]">
-                    <div className="flex items-center gap-2">
-                      <NoteTypeBadge type={note.type} />
-                      <span className="text-[10px] text-white/30">
-                        {note.date ? new Date(note.date).toLocaleString() : "Unknown date"}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    className="p-4 overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_img]:max-h-6"
-                    dangerouslySetInnerHTML={{ __html: note.note }}
-                  />
-                </div>
+                <CollapsibleNote key={note.id} note={note} />
               ))}
             </>
           )}
@@ -932,6 +916,41 @@ const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string
   documentation: { bg: "bg-yellow-500/10", text: "text-yellow-400", label: "Doc Gap" },
   other: { bg: "bg-white/5", text: "text-white/50", label: "Note" },
 };
+
+function CollapsibleNote({ note }: { readonly note: { readonly id: number; readonly note: string; readonly date: string; readonly type: string } }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center justify-between px-4 py-2 border-b border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <NoteTypeBadge type={note.type} />
+          <span className="text-[10px] text-white/30">
+            {note.date ? new Date(note.date).toLocaleString() : "Unknown date"}
+          </span>
+        </div>
+        <svg
+          className={cn("h-3.5 w-3.5 text-white/30 transition-transform", expanded && "rotate-180")}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div
+          className="p-4 overflow-x-auto [&_table]:w-full [&_table]:border-collapse [&_img]:max-h-6"
+          dangerouslySetInnerHTML={{ __html: note.note }}
+        />
+      )}
+    </div>
+  );
+}
 
 function NoteTypeBadge({ type }: { readonly type: string }) {
   const style = NOTE_TYPE_STYLES[type] ?? NOTE_TYPE_STYLES.other;
