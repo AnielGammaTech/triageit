@@ -154,6 +154,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             halo_id: haloId,
             summary: breacher.summary as string,
             status: "pending" as const,
+            created_at: (breacher as Record<string, unknown>).datecreated as string ?? new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
           .select("id, halo_id, summary")

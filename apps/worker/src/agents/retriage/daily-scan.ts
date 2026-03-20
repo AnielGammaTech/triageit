@@ -548,19 +548,31 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         }
       }
 
+      // If the list API didn't return agent data, fetch the individual ticket
+      // to get accurate assignment info before running checks
+      let enrichedTicket = ticket;
+      if (!ticket.agent_id && !getAgentName(ticket)) {
+        try {
+          const full = await halo.getTicket(ticket.id);
+          enrichedTicket = full;
+        } catch {
+          // Non-critical — proceed with list data
+        }
+      }
+
       // Quick rule-based check first (free, no tokens)
-      const ruleResult = quickRuleCheck(ticket, actions);
+      const ruleResult = quickRuleCheck(enrichedTicket, actions);
       if (ruleResult) {
         if (ruleResult.severity === "critical") critical.push(ruleResult);
         else if (ruleResult.severity === "warning") warnings.push(ruleResult);
         else info.push(ruleResult);
 
         // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
-        const ruleTicketId = await upsertTicketFromHalo(supabase, ticket, actions);
+        const ruleTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions);
 
         // Post note to Halo and flag for manager review
         if (ruleResult.severity === "critical" || ruleResult.severity === "warning") {
-          await postReTriageNote(halo, ticket.id, ruleResult);
+          await postReTriageNote(halo, enrichedTicket.id, ruleResult);
 
           if (ruleTicketId) {
             await supabase
@@ -578,20 +590,20 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
       // For non-obvious tickets, use Haiku for a quick assessment
       const now = new Date().toISOString();
-      const daysOpen = daysBetween(ticket.datecreated, now);
+      const daysOpen = daysBetween(enrichedTicket.datecreated, now);
       const lastActivity = getLastActivity(actions);
-      const status = getStatusName(ticket);
+      const status = getStatusName(enrichedTicket);
 
-      const assignedTech = getAgentName(ticket);
+      const assignedTech = getAgentName(enrichedTicket);
 
       const contextMessage = [
-        `Ticket #${ticket.id}: ${ticket.summary}`,
-        `Client: ${ticket.client_name ?? "Unknown"}`,
+        `Ticket #${enrichedTicket.id}: ${enrichedTicket.summary}`,
+        `Client: ${enrichedTicket.client_name ?? "Unknown"}`,
         `Status: ${status}`,
-        `Priority: ${ticket.priority ?? "Unknown"}`,
-        `Team: ${ticket.team ?? "Unassigned"}`,
+        `Priority: ${enrichedTicket.priority ?? "Unknown"}`,
+        `Team: ${enrichedTicket.team ?? "Unassigned"}`,
         `Assigned Tech: ${assignedTech ?? "UNASSIGNED"}`,
-        `Created: ${ticket.datecreated} (${daysOpen} days ago)`,
+        `Created: ${enrichedTicket.datecreated} (${daysOpen} days ago)`,
         `Last Activity: ${lastActivity ?? "None"}`,
         "",
         `Recent Actions (last 10):`,
@@ -620,9 +632,9 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       }>(text);
 
       const result: ReTriageResult = {
-        haloId: ticket.id,
-        summary: ticket.summary,
-        clientName: ticket.client_name ?? null,
+        haloId: enrichedTicket.id,
+        summary: enrichedTicket.summary,
+        clientName: enrichedTicket.client_name ?? null,
         status,
         assignedTech,
         flags: parsed.flags,
@@ -638,7 +650,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       else info.push(result);
 
       // Upsert ticket tracking (creates record if ticket only exists in Halo)
-      const localTicketId = await upsertTicketFromHalo(supabase, ticket, actions);
+      const localTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions);
 
       if (localTicketId) {
         await supabase.from("triage_results").insert({
@@ -648,7 +660,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           urgency_score: parsed.severity === "critical" ? 5 : parsed.severity === "warning" ? 3 : 1,
           urgency_reasoning: parsed.recommendation,
           recommended_priority: parsed.severity === "critical" ? 1 : parsed.severity === "warning" ? 3 : 5,
-          recommended_team: ticket.team ?? "General",
+          recommended_team: enrichedTicket.team ?? "General",
           security_flag: false,
           findings: { daily_scan: { flags: parsed.flags, positives: parsed.positives ?? [], recommendation: parsed.recommendation } },
           internal_notes: parsed.recommendation,
@@ -659,7 +671,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
         // Post note to Halo and flag for manager review
         if (parsed.severity === "critical" || parsed.severity === "warning") {
-          await postReTriageNote(halo, ticket.id, result);
+          await postReTriageNote(halo, enrichedTicket.id, result);
 
           await supabase
             .from("tickets")

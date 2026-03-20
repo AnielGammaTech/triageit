@@ -30,7 +30,7 @@ interface ReviewEligibility {
 
 export function checkReviewEligibility(
   context: TriageContext,
-  classification: ClassificationResult,
+  _classification: ClassificationResult,
   haloConfig: HaloConfig | null,
   ticketCreatedAt: string,
 ): ReviewEligibility {
@@ -64,9 +64,7 @@ export function checkReviewEligibility(
   const eligible =
     haloConfig !== null &&
     actions.length > 0 &&
-    ticketAgeHours >= 1 &&
-    customerActions.length > 0 &&
-    classification.urgency_score >= 2;
+    customerActions.length > 0;
 
   return {
     eligible,

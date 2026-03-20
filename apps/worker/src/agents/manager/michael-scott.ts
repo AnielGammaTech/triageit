@@ -491,18 +491,17 @@ export async function runTriage(
   // ── Step 7: Employee feedback — private coaching note ──────────────
 
   if (haloConfig) {
-    // Use Halo's original creation date, not the local DB import timestamp
-    const haloCreatedAt =
-      (ticket.raw_data as Record<string, unknown> | null)?.datecreated as string | undefined
-      ?? (ticket.raw_data as Record<string, unknown> | null)?.dateCreated as string | undefined
-      ?? ticket.created_at;
+    // Use ticket.created_at directly — pull-tickets already sets this to Halo's datecreated
     const eligibility = checkReviewEligibility(
-      context, classification, haloConfig, haloCreatedAt,
+      context, classification, haloConfig, ticket.created_at,
     );
     if (eligibility.eligible) {
       try {
         await generateTechReview(
           context, classification, haloConfig, eligibility, supabase,
+        );
+        console.log(
+          `[MICHAEL] Tech review generated for ticket #${ticket.halo_id} — rating pending`,
         );
       } catch (error) {
         console.error(
@@ -510,6 +509,16 @@ export async function runTriage(
           error,
         );
       }
+    } else {
+      const actions = context.actions ?? [];
+      const customerActions = actions.filter((a) => !a.isInternal);
+      console.log(
+        `[MICHAEL] Tech review skipped for #${ticket.halo_id}: ` +
+        `age=${eligibility.ticketAgeHours.toFixed(1)}h, ` +
+        `actions=${actions.length}, ` +
+        `customerActions=${customerActions.length}, ` +
+        `urgency=${classification.urgency_score}`,
+      );
     }
   }
 

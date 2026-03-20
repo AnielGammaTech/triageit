@@ -17,8 +17,14 @@ export function parseLlmJson<T>(text: string): T {
     return JSON.parse(extracted) as T;
   } catch {
     // Second try: fix trailing commas (common LLM mistake)
-    const cleaned = fixTrailingCommas(extracted);
-    return JSON.parse(cleaned) as T;
+    try {
+      const cleaned = fixTrailingCommas(extracted);
+      return JSON.parse(cleaned) as T;
+    } catch {
+      // Third try: fix common LLM JSON issues (unescaped newlines, control chars in strings)
+      const sanitized = sanitizeLlmJson(extracted);
+      return JSON.parse(sanitized) as T;
+    }
   }
 }
 
@@ -80,4 +86,79 @@ function extractJson(text: string): string {
 function fixTrailingCommas(json: string): string {
   // Remove commas followed by optional whitespace/newlines then ] or }
   return json.replace(/,\s*([\]}])/g, "$1");
+}
+
+/**
+ * Sanitize malformed LLM JSON by fixing common issues:
+ * - Unescaped control characters inside strings (newlines, tabs)
+ * - Trailing commas
+ * - Truncated responses (close any open arrays/objects)
+ */
+function sanitizeLlmJson(json: string): string {
+  let cleaned = fixTrailingCommas(json);
+
+  // Replace unescaped control characters inside JSON string values
+  // Walk through the string character by character to handle only characters inside quotes
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\" && inString) {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+
+    if (inString) {
+      // Replace unescaped control chars with escaped versions
+      if (ch === "\n") { result += "\\n"; continue; }
+      if (ch === "\r") { result += "\\r"; continue; }
+      if (ch === "\t") { result += "\\t"; continue; }
+      // Skip other control characters
+      if (ch.charCodeAt(0) < 32) { result += " "; continue; }
+    }
+
+    result += ch;
+  }
+
+  cleaned = result;
+
+  // Close any unclosed brackets/braces from truncated responses
+  let openBraces = 0;
+  let openBrackets = 0;
+  inString = false;
+  escaped = false;
+
+  for (const ch of cleaned) {
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (ch === "{") openBraces++;
+      if (ch === "}") openBraces--;
+      if (ch === "[") openBrackets++;
+      if (ch === "]") openBrackets--;
+    }
+  }
+
+  // Close any remaining open structures
+  for (let i = 0; i < openBrackets; i++) cleaned += "]";
+  for (let i = 0; i < openBraces; i++) cleaned += "}";
+
+  return cleaned;
 }
