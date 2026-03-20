@@ -229,7 +229,7 @@ export function buildCompactRetriageNote(
     readonly escalation_needed: boolean;
     readonly escalation_reason: string | null;
   },
-  _findings: Record<string, AgentFinding>,
+  findings: Record<string, AgentFinding>,
   processingTime: number,
   slaInfo?: SlaInfo,
 ): string {
@@ -257,12 +257,24 @@ export function buildCompactRetriageNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${michaelResult.escalation_reason}</td></tr>`);
   }
 
-  // Notes — keep short
+  // Action items — keep short
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#60a5fa;">Action</td><td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
 
+  // Specialist DD — one-line summary per agent that ran (excluding ryan_howard)
+  const specialistEntries = Object.entries(findings)
+    .filter(([name]) => name !== "ryan_howard")
+    .map(([name, finding]) => {
+      const label = AGENT_LABELS[name]?.split("(")[0]?.trim() ?? name;
+      return `<strong>${label}:</strong> ${finding.summary}`;
+    });
+
+  if (specialistEntries.length > 0) {
+    rows.push(`<tr style="background:#1E2028;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#a78bfa;vertical-align:top;">DD</td><td style="padding:5px 12px;${border}font-size:11px;color:#c4b5fd;line-height:1.6;word-break:break-word;">${specialistEntries.join("<br/>")}</td></tr>`);
+  }
+
   // Footer
-  rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage</td></tr>`);
+  rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage · ${Object.keys(findings).length} agents</td></tr>`);
 
   return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
 }
