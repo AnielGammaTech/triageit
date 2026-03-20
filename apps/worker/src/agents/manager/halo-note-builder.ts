@@ -150,22 +150,6 @@ export function buildHaloNote(
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
-  // Specialist findings
-  const specialists = Object.entries(findings).filter(([name]) => name !== "ryan_howard");
-  if (specialists.length > 0) {
-    rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:8px 12px;font-size:12px;font-weight:600;color:#94a3b8;${border}text-transform:uppercase;letter-spacing:0.5px;">Specialist Findings</td></tr>`);
-    for (let i = 0; i < specialists.length; i++) {
-      const [name, finding] = specialists[i];
-      const label = AGENT_LABELS[name] ?? name;
-      const bg = i % 2 === 0 ? "#252830" : "#1E2028";
-      // Truncate long findings to keep the note compact
-      const truncatedSummary = finding.summary.length > 300
-        ? finding.summary.substring(0, 297) + "..."
-        : finding.summary;
-      rows.push(`<tr style="background:${bg};"><td style="padding:6px 12px;${border}font-size:12px;font-weight:600;color:#818cf8;width:100px;vertical-align:top;">${label}</td><td style="padding:6px 12px;${border}font-size:13px;color:#cbd5e1;line-height:1.4;word-break:break-word;">${truncatedSummary}</td></tr>`);
-    }
-  }
-
   // Quick Links — Hudu links and credentials from Dwight
   const dwightData = findings.dwight_schrute?.data;
   const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
@@ -260,18 +244,6 @@ export function buildCompactRetriageNote(
   // Action items — keep short
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#60a5fa;">Action</td><td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
-
-  // Specialist DD — one-line summary per agent that ran (excluding ryan_howard)
-  const specialistEntries = Object.entries(findings)
-    .filter(([name]) => name !== "ryan_howard")
-    .map(([name, finding]) => {
-      const label = AGENT_LABELS[name]?.split("(")[0]?.trim() ?? name;
-      return `<strong>${label}:</strong> ${finding.summary}`;
-    });
-
-  if (specialistEntries.length > 0) {
-    rows.push(`<tr style="background:#1E2028;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#a78bfa;vertical-align:top;">DD</td><td style="padding:5px 12px;${border}font-size:11px;color:#c4b5fd;line-height:1.6;word-break:break-word;">${specialistEntries.join("<br/>")}</td></tr>`);
-  }
 
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage · ${Object.keys(findings).length} agents</td></tr>`);

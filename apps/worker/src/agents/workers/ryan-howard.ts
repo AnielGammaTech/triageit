@@ -75,6 +75,19 @@ Priority is the INVERSE of urgency — P1 is the most critical, P5 is the least:
 - 4 (P4 Low): Maps to urgency 2 — minor inconvenience, cosmetic, feature request
 - 5 (P5 Minimal): Maps to urgency 1 — informational, notifications, general questions
 
+## IMPORTANT: Automated Alert Detection (is_automated_alert)
+Set is_automated_alert to TRUE if the ticket is:
+- An automated notification from a monitoring/backup/security tool (Spanning, Datto, 3CX, SaaSAlerts, BackupIQ, Cove, RocketCyber, Huntress, Veeam, Sophos, CrowdStrike, etc.)
+- A system-generated alert (backup reports, device offline, certificate expiry, IP blocked, risk detection)
+- A forwarded vendor email that is clearly machine-generated (no-reply, automated message)
+- A phishing report submission (Report domain:, Phish911, PhishAlarm)
+- A "Client-Alert" prefixed ticket
+- Any ticket where NO human wrote a support request — it's purely an automated notification
+
+Set is_automated_alert to FALSE if:
+- A human is asking for help, even if the subject looks like an alert
+- The ticket contains "please help", "can you", "I need", etc.
+
 ## Output Format
 Respond with ONLY valid JSON, no markdown:
 {
@@ -88,7 +101,8 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_priority": <1-5 where 1=Critical and 5=Minimal, should be inverse of urgency_score>,
   "entities": ["<extracted entities: usernames, device names, error codes, IPs, domains>"],
   "security_flag": <true/false>,
-  "security_notes": "<security concerns if flagged, null otherwise>"
+  "security_notes": "<security concerns if flagged, null otherwise>",
+  "is_automated_alert": <true/false>
 }`;
 
 export async function classifyTicket(
@@ -135,5 +149,6 @@ export async function classifyTicket(
     entities: parsed.entities,
     security_flag: parsed.security_flag,
     security_notes: parsed.security_notes,
+    is_automated_alert: parsed.is_automated_alert ?? false,
   };
 }

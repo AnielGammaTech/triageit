@@ -8,6 +8,7 @@ export interface ClassificationResult {
   readonly entities: ReadonlyArray<string>;
   readonly security_flag: boolean;
   readonly security_notes: string | null;
+  readonly is_automated_alert?: boolean;
 }
 
 export interface TicketImageContext {

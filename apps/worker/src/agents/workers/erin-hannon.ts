@@ -83,6 +83,11 @@ export function isAlertTicket(
     "fortigate",
     "meraki",
     "unifi",
+    "backupiq",
+    "backup iq",
+    "client-alert",
+    "phish911",
+    "phishalarm",
   ];
 
   const hasAlertSource = alertSources.some((src) => text.includes(src));
@@ -132,6 +137,14 @@ export function isAlertTicket(
     "virus detect",
     "quarantine",
     "endpoint protection",
+    "risk detection",
+    "report domain:",
+    "report domain",
+    "phishing report",
+    "submitter: google",
+    "microsoft 365 alert",
+    "o365 p2",
+    "o365 p1",
   ];
 
   const hasAlertPattern = alertPatterns.some((pat) => text.includes(pat));
@@ -175,7 +188,17 @@ export function isAlertTicket(
   // But NOT if it clearly looks human-written
   if (looksHuman) return false;
 
+  // Strong alert signals — any one of these is enough on its own
+  const strongPatterns = [
+    "client-alert",
+    "report domain:",
+    "backupiq:",
+    "phish911",
+  ];
+  const hasStrongSignal = strongPatterns.some((pat) => text.includes(pat));
+
   return (
+    hasStrongSignal ||
     (hasAlertSource && hasAlertPattern) ||
     (hasAlertSource && isAlertClassType) ||
     (isEmailAlert && hasAlertPattern)

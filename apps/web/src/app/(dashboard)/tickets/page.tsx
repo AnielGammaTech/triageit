@@ -229,6 +229,10 @@ export default function TicketsPage() {
       "backup fail", "backup error", "backup warning",
       "device offline", "agent offline",
       "threshold exceeded", "certificate expir",
+      "client-alert", "backupiq:", "backupiq ",
+      "report domain:", "phish911", "phishalarm",
+      "risk detection", "o365 p2", "o365 p1",
+      "microsoft 365 alert",
     ];
     return alertKeywords.some((kw) => summary.includes(kw));
   };
@@ -278,6 +282,9 @@ export default function TicketsPage() {
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
+
+  // Total non-resolved (should match Halo's open count)
+  const totalNonResolved = filteredTickets.filter((t) => !isResolved(t)).length;
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
@@ -493,19 +500,7 @@ export default function TicketsPage() {
         <span className="ml-auto text-xs text-white/25 tabular-nums">
           {error
             ? "Unable to load"
-            : activeTab === "incoming"
-              ? incomingTickets.length > 0
-                ? `${incomingTickets.length} awaiting triage`
-                : "All caught up"
-              : activeTab === "needs_review"
-                ? `${needsReviewTickets.length} need review`
-                : activeTab === "alerts"
-                  ? `${alertTickets.length} alerts`
-                  : activeTab === "stale"
-                    ? `${staleTickets.length} stale`
-                    : activeTab === "resolved"
-                      ? `${resolvedTickets.length} resolved`
-                      : `${openTickets.length} open`}
+            : `${totalNonResolved} open`}
         </span>
       </div>
 

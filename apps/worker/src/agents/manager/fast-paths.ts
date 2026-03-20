@@ -116,7 +116,7 @@ export async function tryAlertFastPath(
   startTime: number,
 ): Promise<TriageOutput | null> {
   const classType = classification.classification.type;
-  const isAlert = isAlertTicket(
+  const isAlert = classification.is_automated_alert || isAlertTicket(
     ticket.summary,
     ticket.details,
     classType,

@@ -699,36 +699,15 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             </div>
           )}
 
-          {/* Specialist findings */}
+          {/* Specialist findings — collapsible per agent */}
           {triage?.findings && Object.keys(triage.findings).length > 1 && (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
               <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/30">Specialist Findings</h4>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {Object.entries(triage.findings)
                   .filter(([name]) => name !== "ryan_howard")
                   .map(([name, finding]) => (
-                    <div
-                      key={name}
-                      className="rounded-lg border border-white/5 bg-white/[0.02] p-4"
-                    >
-                      <div className="mb-2 flex items-center gap-2">
-                        <div className={cn("flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[name] ?? "bg-white/20")}>
-                          {(AGENT_NAMES[name] ?? name).split(" ").map((w) => w[0]).join("").slice(0, 2)}
-                        </div>
-                        <span className="text-sm font-medium text-white">
-                          {AGENT_NAMES[name] ?? name}
-                        </span>
-                        <span className="text-[10px] text-white/30">
-                          {AGENT_ROLES[name] ?? finding.agent_name}
-                        </span>
-                        <span className="ml-auto text-[10px] text-white/20">
-                          {(finding.confidence * 100).toFixed(0)}% confidence
-                        </span>
-                      </div>
-                      <p className="text-xs text-white/60 leading-relaxed">
-                        {finding.summary}
-                      </p>
-                    </div>
+                    <CollapsibleFinding key={name} name={name} finding={finding} />
                   ))}
               </div>
             </div>
@@ -916,6 +895,42 @@ const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string
   documentation: { bg: "bg-yellow-500/10", text: "text-yellow-400", label: "Doc Gap" },
   other: { bg: "bg-white/5", text: "text-white/50", label: "Note" },
 };
+
+function CollapsibleFinding({ name, finding }: { readonly name: string; readonly finding: { agent_name: string; summary: string; confidence: number } }) {
+  const [expanded, setExpanded] = useState(false);
+  // Convert **text** to <strong> for readability
+  const formatted = finding.summary
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br/>");
+  return (
+    <div className="rounded-lg border border-white/5 bg-white/[0.02] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center gap-2 px-4 py-2.5 hover:bg-white/[0.03] transition-colors cursor-pointer"
+      >
+        <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[name] ?? "bg-white/20")}>
+          {(AGENT_NAMES[name] ?? name).split(" ").map((w) => w[0]).join("").slice(0, 2)}
+        </div>
+        <span className="text-sm font-medium text-white">{AGENT_NAMES[name] ?? name}</span>
+        <span className="text-[10px] text-white/30">{AGENT_ROLES[name] ?? finding.agent_name}</span>
+        <span className="ml-auto text-[10px] text-white/20">{(finding.confidence * 100).toFixed(0)}%</span>
+        <svg
+          className={cn("h-3.5 w-3.5 text-white/20 transition-transform", expanded && "rotate-180")}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div
+          className="px-4 pb-4 pt-1 text-xs text-white/60 leading-relaxed [&_strong]:text-white/80 [&_strong]:font-semibold"
+          dangerouslySetInnerHTML={{ __html: formatted }}
+        />
+      )}
+    </div>
+  );
+}
 
 function CollapsibleNote({ note }: { readonly note: { readonly id: number; readonly note: string; readonly date: string; readonly type: string } }) {
   const [expanded, setExpanded] = useState(false);
