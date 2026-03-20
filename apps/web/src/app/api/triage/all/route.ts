@@ -90,13 +90,26 @@ export async function POST() {
       .map((r) => r.ticket_id),
   );
 
-  const ticketsToTriage = openTickets.filter((t) => {
-    // Skip if currently triaging
-    if (t.status === "triaging") return false;
-    // Skip if recently updated (likely just triaged)
-    if (t.updated_at && new Date(t.updated_at).getTime() > twoHoursAgo && t.status === "triaged") {
-      return false;
+  // Check actual triage timestamps (not updated_at which gets refreshed by every sync)
+  const { data: recentTriageResults } = await supabase
+    .from("triage_results")
+    .select("ticket_id, created_at")
+    .in("ticket_id", ticketIds)
+    .order("created_at", { ascending: false });
+
+  const lastTriageTime = new Map<string, number>();
+  for (const r of recentTriageResults ?? []) {
+    if (!lastTriageTime.has(r.ticket_id)) {
+      lastTriageTime.set(r.ticket_id, new Date(r.created_at).getTime());
     }
+  }
+
+  const ticketsToTriage = openTickets.filter((t) => {
+    // Skip if currently triaging or pending
+    if (t.status === "triaging" || t.status === "pending") return false;
+    // Skip if actually triaged within the last 2 hours (based on triage_results, not updated_at)
+    const lastTriage = lastTriageTime.get(t.id);
+    if (lastTriage && lastTriage > twoHoursAgo) return false;
     // Skip alert tickets — they don't need retriage
     const summaryLower = (t.summary ?? "").toLowerCase();
     if (alertKeywords.some((kw) => summaryLower.includes(kw))) return false;
