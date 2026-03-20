@@ -160,8 +160,11 @@ export async function POST() {
       });
     }
 
-    // Build agent name lookup from Halo agents list
-    const agentNameMap = await fetchAgentNameMap(config.base_url, token);
+    // Build lookup maps from Halo API
+    const [agentNameMap, statusNameMap] = await Promise.all([
+      fetchAgentNameMap(config.base_url, token),
+      fetchStatusNameMap(config.base_url, token),
+    ]);
 
     const now = new Date().toISOString();
 
@@ -200,7 +203,7 @@ export async function POST() {
         user_email: ticket.user_emailaddress ?? null,
         original_priority: ticket.priority_id ?? null,
         status: "pending" as const,
-        halo_status: resolveStatusName(ticket),
+        halo_status: resolveStatusName(ticket, statusNameMap),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: resolveAgentName(ticket, agentNameMap),
@@ -244,7 +247,7 @@ export async function POST() {
         .update({
           summary: ticket.summary,
           client_name: ticket.client_name ?? null,
-          halo_status: resolveStatusName(ticket),
+          halo_status: resolveStatusName(ticket, statusNameMap),
           halo_status_id: ticket.status_id,
           halo_team: ticket.team_name ?? ticket.team ?? null,
           halo_agent: resolveAgentName(ticket, agentNameMap),
@@ -354,7 +357,7 @@ export async function POST() {
 
           if (res.ok) {
             const ticketData = (await res.json()) as HaloTicket;
-            const freshStatus = resolveStatusName(ticketData);
+            const freshStatus = resolveStatusName(ticketData, statusNameMap);
 
             await serviceClient
               .from("tickets")
@@ -510,7 +513,10 @@ async function fetchHaloTicketsPaginated(
  * Resolve the human-readable status name from Halo ticket data.
  * Halo uses different field names depending on the endpoint/version.
  */
-function resolveStatusName(ticket: HaloTicket): string {
+function resolveStatusName(
+  ticket: HaloTicket,
+  statusNameMap: ReadonlyMap<number, string>,
+): string {
   // Try the various status name fields Halo returns
   const name =
     ticket.statusname ??
@@ -518,11 +524,15 @@ function resolveStatusName(ticket: HaloTicket): string {
     ticket.status ??
     null;
 
-  if (name && typeof name === "string" && !name.startsWith("status_")) {
+  if (name && typeof name === "string" && /[a-zA-Z]/.test(name)) {
     return name;
   }
 
-  // Fall back to our status ID map
+  // Try the live status map from Halo API
+  const fromApi = statusNameMap.get(ticket.status_id);
+  if (fromApi) return fromApi;
+
+  // Fall back to our hardcoded status ID map
   return HALO_STATUS_MAP[ticket.status_id] ?? `Status ${ticket.status_id}`;
 }
 
@@ -533,8 +543,13 @@ function resolveAgentName(
   ticket: HaloTicket,
   agentNameMap: ReadonlyMap<number, string>,
 ): string | null {
-  // Prefer agent_name from the API if present
-  if (ticket.agent_name && typeof ticket.agent_name === "string") {
+  // Prefer agent_name from the API — but only if it looks like a real name
+  // Halo sometimes returns the agent_id as the agent_name field
+  if (
+    ticket.agent_name &&
+    typeof ticket.agent_name === "string" &&
+    /[a-zA-Z]/.test(ticket.agent_name)
+  ) {
     return ticket.agent_name;
   }
   // Look up by agent_id in our cached agents list
@@ -551,6 +566,41 @@ function resolveAgentName(
 /**
  * Fetch all Halo agents and build an id→name lookup map.
  */
+async function fetchStatusNameMap(
+  baseUrl: string,
+  token: string,
+): Promise<ReadonlyMap<number, string>> {
+  const map = new Map<number, string>();
+  try {
+    const res = await fetch(
+      `${baseUrl}/api/status?count=500`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (res.ok) {
+      const raw = await res.json();
+      const statuses: ReadonlyArray<{ id: number; name: string }> =
+        Array.isArray(raw) ? raw : (raw.statuses ?? raw.records ?? []);
+      for (const s of statuses) {
+        if (s.id && s.name) {
+          map.set(s.id, s.name);
+        }
+      }
+      console.log(`[HALO SYNC] Status name map: ${map.size} statuses loaded`);
+    } else {
+      console.warn(`[HALO SYNC] Status list fetch failed: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn("[HALO SYNC] Status name map fetch error:", err);
+  }
+  return map;
+}
+
 async function fetchAgentNameMap(
   baseUrl: string,
   token: string,

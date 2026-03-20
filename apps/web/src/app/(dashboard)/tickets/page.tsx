@@ -56,6 +56,7 @@ export default function TicketsPage() {
   );
   const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
   const [haloIdInput, setHaloIdInput] = useState("");
@@ -418,11 +419,12 @@ export default function TicketsPage() {
           {/* Refresh */}
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); loadTickets(); }}
-            className="rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/5 hover:text-white/60"
+            onClick={(e) => { e.preventDefault(); setRefreshing(true); loadTickets().finally(() => setRefreshing(false)); }}
+            disabled={refreshing}
+            className="rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/5 hover:text-white/60 disabled:text-white/15"
             title="Refresh tickets"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}>
               <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1Z" clipRule="evenodd" />
               <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466Z" />
             </svg>
@@ -520,6 +522,14 @@ export default function TicketsPage() {
           <button onClick={() => setStatusMessage(null)} className="ml-4 text-xs opacity-60 hover:opacity-100">
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Sync progress bar */}
+      {pulling && (
+        <div className="overflow-hidden rounded-full h-1 bg-white/5">
+          <div className="h-full w-1/3 bg-indigo-500/60 rounded-full animate-[pulse_1.5s_ease-in-out_infinite]" style={{ animation: "syncSlide 1.5s ease-in-out infinite" }} />
+          <style>{`@keyframes syncSlide { 0% { transform: translateX(-100%); width: 33%; } 50% { transform: translateX(100%); width: 66%; } 100% { transform: translateX(300%); width: 33%; } }`}</style>
         </div>
       )}
 
