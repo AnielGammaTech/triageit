@@ -283,6 +283,12 @@ async function upsertTicket(
     // Forward the latest action to the worker's /webhook/action endpoint
     await checkForUpdateRequest(data.halo_id);
 
+    // Auto-retriage when ticket status is "Customer Reply" — customer is waiting
+    const statusLower = (data.halo_status ?? "").toLowerCase();
+    if (statusLower.includes("customer reply") || statusLower.includes("customer responded")) {
+      await triggerAutoRetriage(data.halo_id, existing.id);
+    }
+
     return NextResponse.json({ status: "updated", ticket_id: existing.id });
   }
 
@@ -429,6 +435,31 @@ async function triggerTriage(ticketId: string): Promise<void> {
   } catch (error) {
     // Non-fatal — ticket stays "pending", can be retried
     console.error("[WEBHOOK] Failed to reach worker:", error);
+  }
+}
+
+/**
+ * Trigger auto-retriage for a ticket when a customer replies.
+ * This ensures the tech review catches unresponsive techs in real-time
+ * instead of waiting for the next cron cycle.
+ */
+async function triggerAutoRetriage(haloId: number, localTicketId: string): Promise<void> {
+  const workerUrl = process.env.WORKER_URL;
+  if (!workerUrl) return;
+
+  try {
+    console.log(`[WEBHOOK] Auto-retriage triggered for #${haloId} (customer reply detected)`);
+    const response = await fetch(`${workerUrl}/triage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_id: localTicketId }),
+    });
+
+    if (!response.ok) {
+      console.error(`[WEBHOOK] Auto-retriage failed for #${haloId}: ${response.status}`);
+    }
+  } catch (error) {
+    console.error(`[WEBHOOK] Auto-retriage error for #${haloId}:`, error);
   }
 }
 

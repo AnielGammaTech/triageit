@@ -149,6 +149,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Status</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Pri</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Activity</th>
+            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Triaged</th>
             <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Assigned To</th>
           </tr>
         </thead>
@@ -218,6 +219,28 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                 </td>
                 <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
                   {activityLabel}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {(() => {
+                    const retriageAt = ticket.last_retriage_at;
+                    const triageAt = ticket.triage_results[0]?.created_at;
+                    if (retriageAt) {
+                      return (
+                        <span className="inline-flex items-center gap-1 text-violet-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString()}`}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                          {timeAgo(retriageAt)}
+                        </span>
+                      );
+                    }
+                    if (triageAt) {
+                      return (
+                        <span className="text-emerald-400/70" title={`Triaged: ${new Date(triageAt).toLocaleString()}`}>
+                          {timeAgo(triageAt)}
+                        </span>
+                      );
+                    }
+                    return <span className="text-white/20">—</span>;
+                  })()}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {ticket.halo_agent ? (

@@ -9,9 +9,12 @@ export interface HaloTicket {
   readonly user_id?: number;
   readonly user_name?: string;
   readonly agent_id?: number;
+  readonly agent_name?: string;
   readonly team?: string;
+  readonly team_name?: string;
   readonly status_id: number;
   readonly status?: string;
+  readonly statusname?: string;
   readonly priority_id: number;
   readonly priority?: string;
   readonly sla_id?: number;

@@ -17,7 +17,7 @@ export async function POST() {
   if (auth.error) return auth.error;
 
   // Very strict rate limit — this is expensive (full pipeline per ticket)
-  const rateLimited = checkRateLimit(auth.user.id, 2, 60_000);
+  const rateLimited = checkRateLimit(auth.user.id, 2, 60_000, "triage-all");
   if (rateLimited) return rateLimited;
 
   const workerUrl = process.env.WORKER_URL;

@@ -67,7 +67,7 @@ export async function POST() {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
-  const rateLimited = checkRateLimit(auth.user.id, 10);
+  const rateLimited = checkRateLimit(auth.user.id, 10, 60_000, "pull-tickets");
   if (rateLimited) return rateLimited;
 
   const serviceClient = await createServiceClient();

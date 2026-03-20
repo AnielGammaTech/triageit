@@ -112,7 +112,7 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
-  const rateLimited = checkRateLimit(auth.user.id, 20);
+  const rateLimited = checkRateLimit(auth.user.id, 20, 60_000, "triageit-notes");
   if (rateLimited) return rateLimited;
 
   try {

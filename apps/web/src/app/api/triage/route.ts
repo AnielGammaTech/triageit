@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   const auth = await requireAuth();
   if (auth.error) return auth.error;
 
-  const rateLimited = checkRateLimit(auth.user.id, 10);
+  const rateLimited = checkRateLimit(auth.user.id, 10, 60_000, "triage");
   if (rateLimited) return rateLimited;
 
   const body = (await request.json()) as { ticket_id?: string; halo_id?: number };

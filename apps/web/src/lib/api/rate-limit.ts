@@ -46,22 +46,28 @@ function startCleanupTimer(windowMs: number): void {
 }
 
 /**
- * Check whether `userId` has exceeded their rate limit.
+ * Check whether `userId` has exceeded their rate limit for a specific route.
  *
  * @param userId   - Authenticated user ID (from requireAuth).
  * @param limit    - Max requests allowed within the window. Default: 60.
  * @param windowMs - Sliding window size in milliseconds. Default: 60_000.
+ * @param routeKey - Optional route identifier to scope the limit. When omitted,
+ *                   a "global" bucket is used. Expensive routes (triage/all,
+ *                   retriage, etc.) should pass a unique key so their strict
+ *                   limits don't collide with normal page-load traffic.
  * @returns `null` when the request is allowed, a 429 NextResponse when blocked.
  */
 export function checkRateLimit(
   userId: string,
   limit = 60,
   windowMs = 60_000,
+  routeKey = "global",
 ): NextResponse | null {
   startCleanupTimer(windowMs);
 
+  const bucketKey = `${userId}:${routeKey}`;
   const now = Date.now();
-  const existing = windows.get(userId);
+  const existing = windows.get(bucketKey);
   const prevTimestamps = existing?.timestamps ?? [];
 
   // Slide the window: keep only timestamps within the current window.
@@ -87,7 +93,7 @@ export function checkRateLimit(
   }
 
   // Record this request and update the window (immutable pattern).
-  windows.set(userId, { timestamps: [...windowTimestamps, now] });
+  windows.set(bucketKey, { timestamps: [...windowTimestamps, now] });
 
   return null;
 }
