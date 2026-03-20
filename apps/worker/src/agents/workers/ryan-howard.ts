@@ -67,13 +67,12 @@ NOT SECURITY (flag = false):
 - New user needing system access → onboarding, not security
 - Credential rotation or scheduled changes → maintenance, not security
 
-## Recommended Priority (Halo PSA convention)
-Priority is the INVERSE of urgency — P1 is the most critical, P5 is the least:
-- 1 (P1 Critical): Maps to urgency 5 — business outage, security breach
-- 2 (P2 High): Maps to urgency 4 — major degradation, multiple users impacted
-- 3 (P3 Medium): Maps to urgency 3 — single user, workaround available
-- 4 (P4 Low): Maps to urgency 2 — minor inconvenience, cosmetic, feature request
-- 5 (P5 Minimal): Maps to urgency 1 — informational, notifications, general questions
+## Recommended Priority (Halo PSA — use these EXACT levels)
+Priority is 1-4 where 1 is most critical:
+- 1 = High – Severe Productivity Impact (business outage, security breach, critical system down)
+- 2 = Affects Multiple Users (degraded service, multiple users impacted, team-wide issue)
+- 3 = Affects Single User (single user issue, workaround available, individual workstation)
+- 4 = Low – Minor Issue or Request (minor inconvenience, feature request, informational, general questions)
 
 ## IMPORTANT: Automated Alert Detection (is_automated_alert)
 Set is_automated_alert to TRUE if the ticket is:
@@ -96,9 +95,9 @@ Respond with ONLY valid JSON, no markdown:
     "subtype": "<more specific category>",
     "confidence": <0.0-1.0>
   },
-  "urgency_score": <1-5>,
+  "urgency_score": <1-4 where 1=low urgency and 4=critical urgency>,
   "urgency_reasoning": "<brief explanation of why this urgency level>",
-  "recommended_priority": <1-5 where 1=Critical and 5=Minimal, should be inverse of urgency_score>,
+  "recommended_priority": <1-4 where 1=High/Severe and 4=Low/Minor>,
   "entities": ["<extracted entities: usernames, device names, error codes, IPs, domains>"],
   "security_flag": <true/false>,
   "security_notes": "<security concerns if flagged, null otherwise>",
@@ -135,17 +134,19 @@ export async function classifyTicket(
 
   const parsed = parseLlmJson<ClassificationResult>(text);
 
-  // CRITICAL: Force priority = inverse of urgency.
-  // The LLM often returns both as the same value instead of inverting.
-  // P1 = urgency 5 (Critical), P5 = urgency 1 (Minimal).
-  const urgency = Math.max(1, Math.min(5, parsed.urgency_score ?? 3));
-  const computedPriority = 6 - urgency;
+  // Clamp priority to 1-4 range matching Halo levels:
+  // 1 = High – Severe Productivity Impact
+  // 2 = Affects Multiple Users
+  // 3 = Affects Single User
+  // 4 = Low – Minor Issue or Request
+  const priority = Math.max(1, Math.min(4, parsed.recommended_priority ?? 3));
+  const urgency = Math.max(1, Math.min(4, parsed.urgency_score ?? 2));
 
   return {
     classification: parsed.classification,
     urgency_score: urgency,
     urgency_reasoning: parsed.urgency_reasoning,
-    recommended_priority: computedPriority,
+    recommended_priority: priority,
     entities: parsed.entities,
     security_flag: parsed.security_flag,
     security_notes: parsed.security_notes,

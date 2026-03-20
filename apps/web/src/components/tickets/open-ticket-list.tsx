@@ -67,6 +67,13 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: "text-gray-400",
 };
 
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "High",
+  2: "Multiple Users",
+  3: "Single User",
+  4: "Low",
+};
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return "—";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -215,7 +222,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                   </span>
                 </td>
                 <td className={cn("px-3 py-2 text-xs font-medium", PRIORITY_COLORS[ticket.original_priority ?? 0] ?? "text-[var(--muted-foreground)]")}>
-                  {ticket.original_priority ? `P${ticket.original_priority}` : "—"}
+                  {ticket.original_priority ? (PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`) : "—"}
                 </td>
                 <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
                   {activityLabel}

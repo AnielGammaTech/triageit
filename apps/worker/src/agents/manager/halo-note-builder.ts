@@ -17,6 +17,19 @@ export const AGENT_LABELS: Record<string, string> = {
   oscar_martinez: "Oscar Martinez (Backup/Cove)",
 };
 
+// ── Halo Priority Labels ─────────────────────────────────────────────
+
+const PRIORITY_LABELS: Record<number, string> = {
+  1: "High – Severe Productivity Impact",
+  2: "Affects Multiple Users",
+  3: "Affects Single User",
+  4: "Low – Minor Issue or Request",
+};
+
+function priorityLabel(p: number): string {
+  return PRIORITY_LABELS[p] ?? `P${p}`;
+}
+
 // ── SLA Info type ────────────────────────────────────────────────────
 
 export interface SlaInfo {
@@ -122,10 +135,9 @@ export function buildHaloNote(
   // Classification
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
-  // Priority + Urgency merged into one row
-  const urgencyColor = classification.urgency_score >= 4 ? "#f87171" : classification.urgency_score >= 3 ? "#f59e0b" : "#4ade80";
-  const priorityColor = classification.recommended_priority <= 2 ? "#f87171" : classification.recommended_priority === 3 ? "#f59e0b" : "#4ade80";
-  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#94a3b8;">Priority</td><td ${td2}><strong style="color:${priorityColor};font-size:15px;">P${classification.recommended_priority}</strong> <span style="color:#64748b;">·</span> <strong style="color:${urgencyColor};">${classification.urgency_score}/5</strong> <span style="color:#64748b;font-size:11px;">urgency</span> <span style="color:#64748b;">·</span> <span style="color:#e2e8f0;">${michaelResult.recommended_team}</span></td></tr>`);
+  // Priority row — use Halo label
+  const priorityColor = classification.recommended_priority <= 1 ? "#f87171" : classification.recommended_priority === 2 ? "#f59e0b" : classification.recommended_priority === 3 ? "#60a5fa" : "#4ade80";
+  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#94a3b8;">Priority</td><td ${td2}><strong style="color:${priorityColor};font-size:15px;">${priorityLabel(classification.recommended_priority)}</strong> <span style="color:#64748b;">·</span> <span style="color:#e2e8f0;">${michaelResult.recommended_team}</span></td></tr>`);
   if (classification.urgency_reasoning) {
     rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
   }
@@ -204,7 +216,7 @@ export function buildHaloNote(
   if (originalPriority && classification.recommended_priority !== originalPriority) {
     const direction = classification.recommended_priority < originalPriority ? "⬆ Upgrade" : "⬇ Downgrade";
     const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
-    rows.push(`<tr style="background:linear-gradient(135deg,${classification.recommended_priority < originalPriority ? "#3b2508" : "#162216"},#1E2028);"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:${dirColor};">${direction}</td><td style="padding:8px 12px;${border}font-size:13px;color:#e2e8f0;">Current: <strong>P${originalPriority}</strong> → Recommended: <strong style="color:${dirColor};">P${classification.recommended_priority}</strong><br/><span style="font-size:11px;color:#94a3b8;">Priority Recommendation Only · Not Auto-Applied</span></td></tr>`);
+    rows.push(`<tr style="background:linear-gradient(135deg,${classification.recommended_priority < originalPriority ? "#3b2508" : "#162216"},#1E2028);"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:${dirColor};">${direction}</td><td style="padding:8px 12px;${border}font-size:13px;color:#e2e8f0;">Current: <strong>${priorityLabel(originalPriority)}</strong> → Recommended: <strong style="color:${dirColor};">${priorityLabel(classification.recommended_priority)}</strong><br/><span style="font-size:11px;color:#94a3b8;">Priority Recommendation Only · Not Auto-Applied</span></td></tr>`);
   }
 
   // Footer
@@ -251,7 +263,7 @@ export function buildCompactRetriageNote(
   const escalationTag = michaelResult.escalation_needed
     ? ` <span style="background:#dc2626;color:white;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;">⬆ ESCALATE</span>`
     : "";
-  rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · P${classification.recommended_priority} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
+  rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · ${priorityLabel(classification.recommended_priority)} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
 
   // Escalation reason (only if escalating)
   if (michaelResult.escalation_needed && michaelResult.escalation_reason) {
@@ -272,7 +284,7 @@ export function buildCompactRetriageNote(
   if (originalPriority && classification.recommended_priority !== originalPriority) {
     const direction = classification.recommended_priority < originalPriority ? "⬆" : "⬇";
     const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
-    rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:${dirColor};">${direction} Pri</td><td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">P${originalPriority} → <strong style="color:${dirColor};">P${classification.recommended_priority}</strong> <span style="color:#64748b;font-size:10px;">· Not Auto-Applied</span></td></tr>`);
+    rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:${dirColor};">${direction} Pri</td><td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">${priorityLabel(originalPriority)} → <strong style="color:${dirColor};">${priorityLabel(classification.recommended_priority)}</strong> <span style="color:#64748b;font-size:10px;">· Not Auto-Applied</span></td></tr>`);
   }
 
   // Footer
@@ -294,7 +306,7 @@ export function buildFastPathNote(
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
     `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Triage — TriageIt<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">fast path · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>` +
     `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Classification</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;"><strong>${classification.classification.type} / ${classification.classification.subtype}</strong></td></tr>` +
-    `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Result</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bbf7d0;">Notification / transactional — no action required. P${classification.recommended_priority} priority.</td></tr>` +
+    `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Result</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bbf7d0;">Notification / transactional — no action required. ${priorityLabel(classification.recommended_priority)}.</td></tr>` +
     `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · fast path · ${(processingTime / 1000).toFixed(1)}s</td></tr>` +
     `</table>`
   );
@@ -367,8 +379,8 @@ export function buildPriorityRecommendationNote(
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:6px;overflow:hidden;">` +
     `<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:12px;font-weight:600;">${direction} Priority Recommendation</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Current</td><td style="padding:6px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid #3a3f4b;">P${currentPriority}</td></tr>` +
-    `<tr style="background:#1E2028;"><td style="padding:6px 12px;width:100px;font-size:12px;color:${dirColor};font-weight:600;border-bottom:1px solid #3a3f4b;">Recommended</td><td style="padding:6px 12px;font-size:13px;color:${dirColor};font-weight:700;border-bottom:1px solid #3a3f4b;">P${recommendedPriority}</td></tr>` +
+    `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Current</td><td style="padding:6px 12px;font-size:13px;color:#e2e8f0;border-bottom:1px solid #3a3f4b;">${priorityLabel(currentPriority)}</td></tr>` +
+    `<tr style="background:#1E2028;"><td style="padding:6px 12px;width:100px;font-size:12px;color:${dirColor};font-weight:600;border-bottom:1px solid #3a3f4b;">Recommended</td><td style="padding:6px 12px;font-size:13px;color:${dirColor};font-weight:700;border-bottom:1px solid #3a3f4b;">${priorityLabel(recommendedPriority)}</td></tr>` +
     `<tr style="background:#252830;"><td style="padding:6px 12px;width:100px;font-size:12px;color:#94a3b8;border-bottom:1px solid #3a3f4b;">Reason</td><td style="padding:6px 12px;font-size:12px;color:#cbd5e1;border-bottom:1px solid #3a3f4b;">${urgencyReasoning}</td></tr>` +
     `<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · Priority Recommendation Only · Not Auto-Applied</td></tr>` +
     `</table>`
