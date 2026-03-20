@@ -23,7 +23,6 @@ import {
   AGENT_LABELS,
   buildHaloNote,
   buildCompactRetriageNote,
-  buildDocumentationGapNote,
   type BrandingConfig,
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
@@ -853,13 +852,27 @@ async function postHaloNotes(
       }
     : undefined;
 
+  // ── Customer Response — Pam Beesly (run first to get doc gaps for inline note) ──
+  let docGaps: ReadonlyArray<string> = [];
+  try {
+    const pamResult = await generateCustomerResponse(
+      context, classification, findings, michaelResult, similarTickets,
+    );
+    if (pamResult.missing_info.length > 0) {
+      docGaps = pamResult.missing_info;
+    }
+    console.log(`[MICHAEL] Pam response for #${ticket.halo_id}: tone=${pamResult.tone}, gaps=${pamResult.missing_info.length}`);
+  } catch (error) {
+    console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
+  }
+
   // On retriage, post a compact review — not the full triage table
-  // Priority recommendation is now inline in both note types (no separate comment)
+  // Priority recommendation + doc gaps are inline (no separate comments)
   if (isRetriage) {
     try {
       const compactNote = buildCompactRetriageNote(
         classification, michaelResult, findings, processingTime, slaInfo,
-        ticket.original_priority,
+        ticket.original_priority, docGaps.length > 0 ? docGaps : undefined,
       );
       await halo.addInternalNote(ticket.halo_id, compactNote);
     } catch (error) {
@@ -870,28 +883,12 @@ async function postHaloNotes(
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
         similarTickets, duplicates, slaInfo, branding,
-        ticket.original_priority,
+        ticket.original_priority, docGaps.length > 0 ? docGaps : undefined,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {
       console.error(`[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`, error);
     }
-  }
-
-  // ── Customer Response — Pam Beesly drafts the response ──────────
-  try {
-    const pamResult = await generateCustomerResponse(
-      context, classification, findings, michaelResult, similarTickets,
-    );
-
-    if (pamResult.customer_response && pamResult.missing_info.length > 0) {
-      const gapNote = buildDocumentationGapNote(pamResult.missing_info);
-      await halo.addInternalNote(ticket.halo_id, gapNote);
-    }
-
-    console.log(`[MICHAEL] Pam response for #${ticket.halo_id}: tone=${pamResult.tone}, gaps=${pamResult.missing_info.length}`);
-  } catch (error) {
-    console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
   }
 
   // ── Auto-tag: Write classification to Halo custom field ──────────

@@ -94,6 +94,7 @@ export function buildHaloNote(
   slaInfo?: SlaInfo,
   branding?: BrandingConfig,
   originalPriority?: number | null,
+  docGaps?: ReadonlyArray<string>,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -193,6 +194,12 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}<br/><span style="font-size:11px;color:#94a3b8;">Consider merging if same issue.</span></td></tr>`);
   }
 
+  // Documentation Gap — inline
+  if (docGaps && docGaps.length > 0) {
+    const gapItems = docGaps.map((g) => `<li>${g}</li>`).join("");
+    rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">📝 Doc Gap</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.5;">Update Hudu after resolution:<ul style="margin:4px 0;padding-left:18px;">${gapItems}</ul></td></tr>`);
+  }
+
   // Priority Recommendation — inline instead of separate note
   if (originalPriority && classification.recommended_priority !== originalPriority) {
     const direction = classification.recommended_priority < originalPriority ? "⬆ Upgrade" : "⬇ Downgrade";
@@ -225,6 +232,7 @@ export function buildCompactRetriageNote(
   processingTime: number,
   slaInfo?: SlaInfo,
   originalPriority?: number | null,
+  docGaps?: ReadonlyArray<string>,
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const rows: string[] = [];
@@ -264,6 +272,12 @@ export function buildCompactRetriageNote(
 
   if (specialistEntries.length > 0) {
     rows.push(`<tr style="background:#1E2028;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#a78bfa;vertical-align:top;">DD</td><td style="padding:5px 12px;${border}font-size:11px;color:#c4b5fd;line-height:1.6;word-break:break-word;">${specialistEntries.join("<br/>")}</td></tr>`);
+  }
+
+  // Documentation Gap — inline
+  if (docGaps && docGaps.length > 0) {
+    const gapItems = docGaps.map((g) => `• ${g}`).join("<br/>");
+    rows.push(`<tr style="background:#332b1a;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#fbbf24;">Doc Gap</td><td style="padding:5px 12px;${border}font-size:11px;color:#fde68a;line-height:1.5;">${gapItems}</td></tr>`);
   }
 
   // Priority Recommendation — inline
