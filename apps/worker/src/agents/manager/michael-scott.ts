@@ -25,6 +25,7 @@ import {
   buildCompactRetriageNote,
   buildPriorityRecommendationNote,
   buildDocumentationGapNote,
+  type BrandingConfig,
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
 import { checkReviewEligibility, generateTechReview } from "./tech-reviewer.js";
@@ -51,6 +52,23 @@ async function getHaloConfig(
     .single();
 
   return data ? (data.config as HaloConfig) : null;
+}
+
+async function getBrandingConfig(
+  supabase: SupabaseClient,
+): Promise<BrandingConfig | undefined> {
+  const { data } = await supabase
+    .from("integrations")
+    .select("config")
+    .eq("service", "branding")
+    .single();
+
+  if (!data) return undefined;
+  const config = data.config as { logo_url?: string | null; name?: string | null };
+  return {
+    logoUrl: config.logo_url ?? undefined,
+    name: config.name ?? undefined,
+  };
 }
 
 async function getTeamsConfig(
@@ -438,10 +456,11 @@ export async function runTriage(
 
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig) {
+    const branding = await getBrandingConfig(supabase);
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
       findings, processingTime, similarTickets, duplicates,
-      isRetriage, ticket,
+      isRetriage, ticket, branding,
     );
   }
 
@@ -788,6 +807,7 @@ async function postHaloNotes(
   duplicates: ReadonlyArray<DuplicateCandidate>,
   isRetriage: boolean,
   ticket: Ticket,
+  branding?: BrandingConfig,
 ): Promise<void> {
   const halo = new HaloClient(haloConfig);
 
@@ -817,7 +837,7 @@ async function postHaloNotes(
     try {
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
-        similarTickets, duplicates, slaInfo,
+        similarTickets, duplicates, slaInfo, branding,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {

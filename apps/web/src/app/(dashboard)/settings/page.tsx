@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { TriageRulesList } from "@/components/settings/triage-rules-list";
+import { BrandingSettings } from "@/components/settings/branding-settings";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -22,6 +23,9 @@ export default async function SettingsPage() {
         </p>
         <TriageRulesList rules={rules ?? []} />
       </div>
+
+      {/* Branding */}
+      <BrandingSettings />
 
       {/* Re-Triage Configuration */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-6">
