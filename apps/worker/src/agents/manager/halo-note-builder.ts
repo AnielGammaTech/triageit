@@ -262,18 +262,6 @@ export function buildCompactRetriageNote(
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#60a5fa;">Action</td><td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
 
-  // Specialist DD — one-line summary per agent that ran (excluding ryan_howard)
-  const specialistEntries = Object.entries(findings)
-    .filter(([name]) => name !== "ryan_howard")
-    .map(([name, finding]) => {
-      const label = AGENT_LABELS[name]?.split("(")[0]?.trim() ?? name;
-      return `<strong>${label}:</strong> ${finding.summary.length > 200 ? finding.summary.substring(0, 197) + "..." : finding.summary}`;
-    });
-
-  if (specialistEntries.length > 0) {
-    rows.push(`<tr style="background:#1E2028;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#a78bfa;vertical-align:top;">DD</td><td style="padding:5px 12px;${border}font-size:11px;color:#c4b5fd;line-height:1.6;word-break:break-word;">${specialistEntries.join("<br/>")}</td></tr>`);
-  }
-
   // Documentation Gap — inline
   if (docGaps && docGaps.length > 0) {
     const gapItems = docGaps.map((g) => `• ${g}`).join("<br/>");
