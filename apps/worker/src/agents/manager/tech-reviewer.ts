@@ -112,68 +112,61 @@ export async function generateTechReview(
     : [];
 
   const feedbackPrompt = [
-    `You are a senior IT service delivery manager reviewing how the ASSIGNED TECHNICIAN handled a support ticket.`,
+    `You are a brutally honest IT service delivery manager. You do NOT sugarcoat. You call out problems directly.`,
+    `Your job: evaluate how **${assignedTech ?? "the assigned technician"}** handled this ticket. Be specific and blunt.`,
     ``,
-    `## CRITICAL: Identity Clarification`,
-    `- **CUSTOMER (submitted the ticket):** ${context.userName ?? context.clientName ?? "Unknown"}`,
-    `- **CLIENT COMPANY:** ${context.clientName ?? "Unknown"}`,
-    `- **ASSIGNED TECHNICIAN (the ONLY person you are reviewing):** ${assignedTech ?? "Unknown Tech"}`,
+    `## IDENTITY — Who is Who`,
+    `- **CUSTOMER:** ${context.userName ?? context.clientName ?? "Unknown"} (${context.clientName ?? "Unknown"})`,
+    `- **ASSIGNED TECH (you are reviewing THIS person ONLY):** ${assignedTech ?? "Unknown Tech"}`,
     dispatcherNames.length > 0
-      ? `- **DISPATCHERS/TRIAGE (NOT being reviewed):** ${dispatcherNames.join(", ")} — these people triaged/routed the ticket. Do NOT review their performance.`
+      ? `- **DISPATCHERS (NOT reviewed, ignore them):** ${dispatcherNames.join(", ")}`
       : ``,
     ``,
-    `## CRITICAL RULES`,
-    `1. You are reviewing ONLY **${assignedTech ?? "the assigned tech"}** — nobody else.`,
-    `2. Dispatchers/triage staff who acknowledged or routed the ticket are NOT the assigned tech. Do not give them credit or review them.`,
-    `3. If ${assignedTech ?? "the assigned tech"} has NOT posted any actions or notes, that is the most important finding — they have not engaged with this ticket at all.`,
-    `4. ${assignedTech ?? "The assigned tech"} has ${assignedTechActions.length} action(s) on this ticket. If this is 0, the rating should be "poor" or "needs_improvement".`,
+    `## HARD FACTS — Do Not Ignore These`,
+    `- ${assignedTech ?? "The tech"} has **${assignedTechActions.length} action(s)** on this ticket.`,
+    `- Ticket has been open for **${ticketAgeHours.toFixed(1)} hours**.`,
+    `- Longest gap between customer message and ${assignedTech ?? "tech"}'s response: **${maxResponseGapHours.toFixed(1)} hours**.`,
+    `- ${assignedTechActions.length === 0 ? `⚠ ${assignedTech ?? "The tech"} has done NOTHING on this ticket. Zero actions. Zero notes. Zero engagement. This alone warrants a POOR rating.` : ""}`,
     ``,
-    `## Ticket Context`,
-    `- **Ticket #${context.haloId}:** ${context.summary}`,
-    `- **Classification:** ${classification.classification.type} / ${classification.classification.subtype}`,
-    `- **Urgency:** ${classification.urgency_score}/5`,
-    `- **Ticket Age:** ${ticketAgeHours.toFixed(1)} hours`,
-    `- **${assignedTech ?? "Tech"}'s actions:** ${assignedTechActions.length} | **Other staff actions:** ${actions.length - assignedTechActions.length}`,
-    `- **Longest response gap (customer → assigned tech):** ${maxResponseGapHours.toFixed(1)} hours`,
+    `## RULES — Be Honest`,
+    `- If ${assignedTech ?? "the tech"} hasn't responded to a customer in ${maxResponseGapHours >= 4 ? `${maxResponseGapHours.toFixed(1)} hours — call that out hard.` : "a timely manner, note it."}`,
+    `- A dispatcher acknowledging the ticket is NOT the same as the assigned tech responding. Do NOT confuse them.`,
+    `- 0 actions = POOR. No exceptions. The customer is waiting.`,
+    `- Gaps > 4 hours on urgent tickets = needs_improvement at best.`,
+    `- Gaps > 24 hours = POOR. Period.`,
+    `- Don't make excuses for the tech. If they didn't act, say so plainly.`,
+    `- If the customer has been waiting and the tech hasn't responded, say "${assignedTech ?? "The tech"} has left the customer waiting X hours with no communication."`,
+    `- Be specific: "contacted customer within 30 min" or "has not contacted customer at all despite 3-hour wait"`,
     ``,
-    `## Response Time Standards`,
-    `- Gaps over 24 hours without any customer contact from the ASSIGNED TECH are UNACCEPTABLE.`,
-    `- For high-urgency tickets (3+), gaps over 4 hours should be noted.`,
-    `- A dispatcher acknowledging the ticket does NOT count as the assigned tech responding.`,
-    `- Consider the ticket age when evaluating: if the ticket was just assigned, the tech hasn't had time to respond.`,
+    `## Ticket: #${context.haloId} — ${context.summary}`,
+    `Type: ${classification.classification.type}/${classification.classification.subtype} | Urgency: ${classification.urgency_score}/5`,
     ``,
-    `## Full Conversation History`,
+    `## Conversation History`,
     ...actions.map((a) => {
       const who = a.who ?? "Unknown";
       const when = a.date ?? "";
-      const visibility = a.isInternal ? "[INTERNAL NOTE]" : "[CUSTOMER-VISIBLE]";
+      const visibility = a.isInternal ? "[INTERNAL]" : "[VISIBLE]";
       const isAssignedTech = assignedTech && who.toLowerCase().includes(assignedTech.toLowerCase());
       const role = isAssignedTech ? " [ASSIGNED TECH]" : "";
       return `- ${visibility}${role} **${who}** (${when}): ${a.note}`;
     }),
     ``,
-    `## Your Task`,
-    `Evaluate ONLY **${assignedTech ?? "the assigned tech"}**'s performance.`,
-    `- If they have 0 actions: rate them poorly for non-engagement.`,
-    `- If a dispatcher (like ${dispatcherNames[0] ?? "someone else"}) responded promptly, that is NOT credit for ${assignedTech ?? "the tech"}.`,
-    `- Reference ${assignedTech ?? "the tech"} by name. NEVER review the customer or dispatchers.`,
-    ``,
-    `Respond with ONLY valid JSON:`,
+    `## Output — JSON only`,
     `{`,
-    `  "rating": "<great | good | needs_improvement | poor>",`,
-    `  "communication_score": "<1-5, where 5 = excellent>",`,
-    `  "response_time_assessment": "<fast, adequate, slow, no_response>",`,
-    `  "max_response_gap_hours": "<number, longest gap between customer msg and ASSIGNED TECH reply>",`,
-    `  "strengths": "<what ${assignedTech ?? "the tech"} did well, null if nothing notable>",`,
-    `  "improvement_areas": "<specific areas ${assignedTech ?? "the tech"} should improve, null if none>",`,
-    `  "suggestions": ["<actionable suggestion for ${assignedTech ?? "the tech"}>"],`,
-    `  "summary": "<1-2 sentence assessment of ${assignedTech ?? "the tech"}'s handling>"`,
+    `  "rating": "great | good | needs_improvement | poor",`,
+    `  "communication_score": 1-5,`,
+    `  "response_time_assessment": "fast | adequate | slow | no_response",`,
+    `  "max_response_gap_hours": number,`,
+    `  "strengths": "what they did well, or null if nothing",`,
+    `  "improvement_areas": "be direct — what they failed at",`,
+    `  "suggestions": ["actionable, specific steps they must take NOW"],`,
+    `  "summary": "2-3 sentences. Name the tech. State exactly what they did or didn't do. No corporate speak."`,
     `}`,
   ].filter(Boolean).join("\n");
 
   const feedbackResponse = await feedbackClient.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 512,
+    max_tokens: 768,
     messages: [{ role: "user", content: feedbackPrompt }],
   });
 
