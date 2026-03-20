@@ -243,15 +243,26 @@ export async function POST() {
 
     // Batch update existing tickets
     for (const ticket of existingIds) {
+      const resolvedStatus = resolveStatusName(ticket, statusNameMap);
+      const resolvedAgent = resolveAgentName(ticket, agentNameMap);
+
+      // Debug: log tickets that fail to resolve status or agent
+      if (resolvedStatus.startsWith("Status ") || resolvedStatus === "Unknown") {
+        console.warn(`[HALO SYNC] Ticket #${ticket.id}: unresolved status — status_id=${ticket.status_id}, statusname=${ticket.statusname}, status=${ticket.status}, mapSize=${statusNameMap.size}`);
+      }
+      if (!resolvedAgent && ticket.agent_id) {
+        console.warn(`[HALO SYNC] Ticket #${ticket.id}: unresolved agent — agent_id=${ticket.agent_id}, agent_name=${ticket.agent_name}, mapSize=${agentNameMap.size}`);
+      }
+
       const { error: updateError } = await serviceClient
         .from("tickets")
         .update({
           summary: ticket.summary,
           client_name: ticket.client_name ?? null,
-          halo_status: resolveStatusName(ticket, statusNameMap),
+          halo_status: resolvedStatus,
           halo_status_id: ticket.status_id,
           halo_team: ticket.team_name ?? ticket.team ?? null,
-          halo_agent: resolveAgentName(ticket, agentNameMap),
+          halo_agent: resolvedAgent,
           last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
           last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
           updated_at: now,
@@ -447,6 +458,7 @@ export async function POST() {
       reset_to_pending: resetToPending,
       sla_breaching: slaBreachers.length,
       sla_auto_triaged: slaTriaged,
+      maps: { agents: agentNameMap.size, statuses: statusNameMap.size },
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
