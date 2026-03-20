@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { TicketDetail } from "@/components/tickets/ticket-detail";
 import { OpenTicketList } from "@/components/tickets/open-ticket-list";
+import { ReviewList } from "@/components/tickets/review-list";
 import { cn } from "@/lib/utils/cn";
 import type { TicketStatus } from "@triageit/shared";
 
@@ -211,15 +212,18 @@ export default function TicketsPage() {
     t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
 
   const isAlert = (t: TicketRow): boolean => {
-    // Check triage notes for "Alert:" prefix (written by Erin Hannon)
+    // Check triage notes for "Alert:" or notification fast-path
     const latestTriage = t.triage_results[0];
     if (latestTriage?.internal_notes?.startsWith("Alert:")) return true;
+    if (latestTriage?.internal_notes === "Notification/transactional ticket — no action required.") return true;
 
-    // Check classification subtype
+    // Check classification type/subtype
+    const classType = latestTriage?.classification?.type?.toLowerCase() ?? "";
     const subtype = latestTriage?.classification?.subtype?.toLowerCase() ?? "";
-    if (["alert", "notification", "monitoring"].includes(subtype)) return true;
+    if (["alert", "notification", "monitoring", "automated_alert"].includes(subtype)) return true;
+    if (classType === "notification" || classType === "alert") return true;
 
-    // Check summary patterns for common alert sources
+    // Check summary patterns for common alert/notification sources
     const summary = t.summary.toLowerCase();
     const alertKeywords = [
       "spanning backup", "backup for office 365",
@@ -233,6 +237,12 @@ export default function TicketsPage() {
       "report domain:", "phish911", "phishalarm",
       "risk detection", "o365 p2", "o365 p1",
       "microsoft 365 alert",
+      // Notification/transactional patterns
+      "alert:", "completion notice", "order confirmation",
+      "auto-replenishment", "low balance warning",
+      "hasn't been delivered", "has not been delivered",
+      "nso request", "fw: your message",
+      "verify your", "verify account",
     ];
     return alertKeywords.some((kw) => summary.includes(kw));
   };
@@ -529,20 +539,7 @@ export default function TicketsPage() {
       )}
 
       {activeTab === "needs_review" ? (
-        needsReviewTickets.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
-            <p className="text-[var(--muted-foreground)]">
-              No tickets need review right now. Re-triaged tickets flagged as critical or warning will appear here.
-            </p>
-          </div>
-        ) : (
-          <div>
-            <div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-2.5 text-sm text-rose-300">
-              These tickets were flagged during re-triage — they may need tech follow-up or escalation.
-            </div>
-            <OpenTicketList tickets={needsReviewTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
-          </div>
-        )
+        <ReviewList onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
       ) : activeTab === "incoming" ? (
         incomingTickets.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">

@@ -62,13 +62,18 @@ export async function POST() {
   // Skip tickets triaged in the last 2 hours to avoid duplicate work
   const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
 
-  // Alert keyword patterns — skip these from retriage entirely
+  // Alert/notification keyword patterns — skip these from retriage entirely
   const alertKeywords = [
     "spanning backup", "backup for office 365",
     "3cx", "datto alert", "datto rmm",
     "client-alert", "backupiq:", "backupiq ",
     "report domain:", "phish911", "phishalarm",
     "microsoft 365 alert",
+    "alert:", "completion notice", "order confirmation",
+    "auto-replenishment", "low balance warning",
+    "hasn't been delivered", "has not been delivered",
+    "nso request", "fw: your message",
+    "verify your", "verify account",
   ];
 
   // Check which tickets already have alert triage results

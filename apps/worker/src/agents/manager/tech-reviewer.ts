@@ -186,6 +186,21 @@ export async function generateTechReview(
   const coachingNote = buildCoachingNote(feedback, maxResponseGapHours, ticketAgeHours);
   await halo.addInternalNote(context.haloId, coachingNote);
 
+  // Store in tech_reviews table for the Review tab
+  await supabase.from("tech_reviews").insert({
+    ticket_id: context.ticketId,
+    halo_id: context.haloId,
+    tech_name: context.assignedTechName ?? null,
+    rating: feedback.rating,
+    communication_score: feedback.communication_score,
+    response_time: feedback.response_time_assessment,
+    max_gap_hours: maxResponseGapHours,
+    strengths: feedback.strengths ?? null,
+    improvement_areas: feedback.improvement_areas ?? null,
+    suggestions: feedback.suggestions ?? [],
+    summary: feedback.summary,
+  });
+
   await supabase.from("agent_logs").insert({
     ticket_id: context.ticketId,
     agent_name: "michael_scott",
