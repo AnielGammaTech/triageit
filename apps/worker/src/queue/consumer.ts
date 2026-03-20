@@ -35,10 +35,30 @@ export function startTriageWorker(): Worker<TriageJobData> {
 
       try {
         // Check if this is a retriage (existing results before this run)
-        const { count: priorTriageCount } = await supabase
+        const { data: priorTriages } = await supabase
           .from("triage_results")
-          .select("id", { count: "exact", head: true })
-          .eq("ticket_id", job.data.ticketId);
+          .select("id, created_at")
+          .eq("ticket_id", job.data.ticketId)
+          .order("created_at", { ascending: false });
+
+        const priorTriageCount = priorTriages?.length ?? 0;
+
+        // Skip if this ticket was triaged less than 30 minutes ago (dedup)
+        const lastTriagedAt = priorTriages?.[0]?.created_at;
+        if (lastTriagedAt) {
+          const minutesSinceLast = (Date.now() - new Date(lastTriagedAt).getTime()) / 60_000;
+          if (minutesSinceLast < 30) {
+            console.log(
+              `[TRIAGE] Skipping #${job.data.haloId} — triaged ${minutesSinceLast.toFixed(0)}m ago (< 30m cooldown)`,
+            );
+            // Reset status back (don't leave it stuck on "triaging")
+            await supabase
+              .from("tickets")
+              .update({ status: priorTriageCount > 0 ? "re-triaged" : "triaged", updated_at: new Date().toISOString() })
+              .eq("id", job.data.ticketId);
+            return { success: true, skipped: true, reason: "recently_triaged" };
+          }
+        }
 
         const result = await runTriage(ticket, supabase);
 
