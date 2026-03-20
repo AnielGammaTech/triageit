@@ -243,15 +243,32 @@ export async function POST() {
 
     // Batch update existing tickets
     for (const ticket of existingIds) {
-      const resolvedStatus = resolveStatusName(ticket, statusNameMap);
-      const resolvedAgent = resolveAgentName(ticket, agentNameMap);
+      let resolvedStatus = resolveStatusName(ticket, statusNameMap);
+      let resolvedAgent = resolveAgentName(ticket, agentNameMap);
 
-      // Debug: log tickets that fail to resolve status or agent
-      if (resolvedStatus.startsWith("Status ") || resolvedStatus === "Unknown") {
-        console.warn(`[HALO SYNC] Ticket #${ticket.id}: unresolved status — status_id=${ticket.status_id}, statusname=${ticket.statusname}, status=${ticket.status}, mapSize=${statusNameMap.size}`);
-      }
-      if (!resolvedAgent && ticket.agent_id) {
-        console.warn(`[HALO SYNC] Ticket #${ticket.id}: unresolved agent — agent_id=${ticket.agent_id}, agent_name=${ticket.agent_name}, mapSize=${agentNameMap.size}`);
+      // If status or agent couldn't be resolved from list data, fetch the
+      // individual ticket from Halo which returns richer field data
+      const statusMissing = resolvedStatus.startsWith("Status ") || resolvedStatus === "Unknown";
+      const agentMissing = !resolvedAgent;
+      if (statusMissing || agentMissing) {
+        try {
+          const singleRes = await fetch(
+            `${config.base_url}/api/tickets/${ticket.id}?includedetails=true`,
+            { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+          );
+          if (singleRes.ok) {
+            const full = (await singleRes.json()) as HaloTicket;
+            if (statusMissing) {
+              resolvedStatus = resolveStatusName(full, statusNameMap);
+            }
+            if (agentMissing) {
+              resolvedAgent = resolveAgentName(full, agentNameMap);
+            }
+            console.log(`[HALO SYNC] Ticket #${ticket.id}: enriched from single endpoint — status="${resolvedStatus}", agent="${resolvedAgent}"`);
+          }
+        } catch {
+          // Non-critical — keep whatever we resolved from the list
+        }
       }
 
       const { error: updateError } = await serviceClient
