@@ -62,6 +62,29 @@ export async function POST() {
   // Skip tickets triaged in the last 2 hours to avoid duplicate work
   const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
 
+  // Alert keyword patterns — skip these from retriage entirely
+  const alertKeywords = [
+    "spanning backup", "backup for office 365",
+    "3cx", "datto alert", "datto rmm",
+    "client-alert", "backupiq:", "backupiq ",
+    "report domain:", "phish911", "phishalarm",
+    "microsoft 365 alert",
+  ];
+
+  // Check which tickets already have alert triage results
+  const ticketIds = openTickets.map((t) => t.id);
+  const { data: alertTriageResults } = await supabase
+    .from("triage_results")
+    .select("ticket_id, internal_notes")
+    .in("ticket_id", ticketIds)
+    .order("created_at", { ascending: false });
+
+  const alertTicketIds = new Set(
+    (alertTriageResults ?? [])
+      .filter((r) => r.internal_notes?.startsWith("Alert:") || r.internal_notes === "Notification/transactional ticket — no action required.")
+      .map((r) => r.ticket_id),
+  );
+
   const ticketsToTriage = openTickets.filter((t) => {
     // Skip if currently triaging
     if (t.status === "triaging") return false;
@@ -69,6 +92,11 @@ export async function POST() {
     if (t.updated_at && new Date(t.updated_at).getTime() > twoHoursAgo && t.status === "triaged") {
       return false;
     }
+    // Skip alert tickets — they don't need retriage
+    const summaryLower = (t.summary ?? "").toLowerCase();
+    if (alertKeywords.some((kw) => summaryLower.includes(kw))) return false;
+    // Skip tickets previously triaged as alerts
+    if (alertTicketIds.has(t.id)) return false;
     return true;
   });
 
