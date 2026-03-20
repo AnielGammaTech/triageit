@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
  * GET /api/integrations/customers?service=hudu
@@ -7,6 +9,12 @@ import { createClient } from "@/lib/supabase/server";
  * Returns a normalized { customers: [{ id, name, is_active }] } shape.
  */
 export async function GET(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const service = request.nextUrl.searchParams.get("service");
   if (!service) {
     return NextResponse.json(

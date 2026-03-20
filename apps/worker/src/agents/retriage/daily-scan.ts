@@ -12,6 +12,7 @@ interface ReTriageResult {
   readonly summary: string;
   readonly clientName: string | null;
   readonly status: string;
+  readonly assignedTech: string | null;
   readonly flags: ReadonlyArray<string>;
   readonly positives: ReadonlyArray<string>;
   readonly recommendation: string;
@@ -59,14 +60,47 @@ Respond with ONLY valid JSON:
   "recommendation": "Brief actionable recommendation — MAX 2 sentences. If things are going well, acknowledge it."
 }`;
 
+// Common Halo status ID → name map (fallback when API doesn't return status name)
+const HALO_STATUS_MAP: Record<number, string> = {
+  1: "New",
+  2: "In Progress",
+  3: "Waiting on Customer",
+  4: "Customer Reply",
+  5: "Scheduled",
+  6: "On Hold",
+  7: "Pending Vendor",
+  8: "Waiting on Tech",
+  9: "Closed",
+  10: "Resolved",
+  23: "In Progress",
+  24: "Resolved Remotely",
+  25: "Waiting on Parts",
+  26: "Resolved Onsite",
+  27: "Cancelled",
+  29: "Waiting on Customer",
+  30: "Waiting on Customer",
+  32: "New",
+};
+
 function getStatusName(ticket: HaloTicket): string {
-  return ticket.status ?? `status_${ticket.status_id}`;
+  // Halo returns status name in various fields depending on includecolumns
+  const raw = ticket as unknown as Record<string, unknown>;
+  const name = (raw.statusname as string | undefined)
+    ?? (raw.status_name as string | undefined)
+    ?? ticket.status;
+
+  if (name && typeof name === "string" && !name.startsWith("status_")) {
+    return name;
+  }
+
+  return HALO_STATUS_MAP[ticket.status_id] ?? `Unknown (${ticket.status_id})`;
 }
 
-function daysBetween(date1: string, date2: string): number {
-  return Math.floor(
-    (new Date(date2).getTime() - new Date(date1).getTime()) / (1000 * 60 * 60 * 24),
-  );
+function daysBetween(date1: string | undefined | null, date2: string): number {
+  if (!date1) return 0;
+  const ms = new Date(date2).getTime() - new Date(date1).getTime();
+  if (Number.isNaN(ms)) return 0;
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
 function getLastActivity(actions: ReadonlyArray<HaloAction>): string | null {
@@ -112,6 +146,11 @@ const POSITIVE_LABELS: Record<string, string> = {
   thorough_troubleshooting: "Thorough troubleshooting",
 };
 
+function getAgentName(ticket: HaloTicket): string | null {
+  const raw = ticket as unknown as Record<string, unknown>;
+  return (raw.agent_name as string | undefined) ?? null;
+}
+
 // Quick rule-based check before using AI (saves tokens)
 function quickRuleCheck(
   ticket: HaloTicket,
@@ -122,6 +161,7 @@ function quickRuleCheck(
   const statusLower = status.toLowerCase();
   const daysOpen = daysBetween(ticket.datecreated, now);
   const lastActivity = getLastActivity(actions);
+  const assignedTech = getAgentName(ticket);
   const flags: string[] = [];
   let severity: "critical" | "warning" | "info" = "info";
 
@@ -255,32 +295,34 @@ function quickRuleCheck(
       summary: ticket.summary,
       clientName: ticket.client_name ?? null,
       status,
+      assignedTech,
       flags: [],
       positives,
-      recommendation: `Good work on this ticket — ${positives.map((p) => POSITIVE_LABELS[p] ?? p).join(", ")}.`,
+      recommendation: `Good work on this ticket${assignedTech ? ` by ${assignedTech}` : ""} — ${positives.map((p) => POSITIVE_LABELS[p] ?? p).join(", ")}.`,
       daysOpen,
       lastActivity,
       severity: "info",
     };
   }
 
+  const techLabel = assignedTech ?? "The assigned tech";
   const recommendations: string[] = [];
   if (flags.includes("wot_overdue"))
-    recommendations.push("Tech has not acted on this ticket for 24+ hours — needs immediate attention.");
+    recommendations.push(`${techLabel} has not acted on this ticket for 24+ hours — needs immediate attention.`);
   if (flags.includes("customer_waiting"))
-    recommendations.push("Customer replied 24+ hours ago with no tech follow-up — respond ASAP.");
+    recommendations.push(`Customer replied 24+ hours ago with no follow-up from ${techLabel} — respond ASAP.`);
   if (flags.includes("unassigned"))
-    recommendations.push("Ticket is unassigned — needs to be picked up by a tech.");
+    recommendations.push("Ticket is unassigned — assign a specific technician immediately.");
   if (flags.includes("stale"))
-    recommendations.push(`No activity for ${daysBetween(lastActivity!, now)} days — review and update.`);
+    recommendations.push(`No activity from ${techLabel} for ${daysBetween(lastActivity!, now)} days — review and update.`);
   if (flags.includes("no_tech_notes"))
-    recommendations.push("No internal tech notes — document what's been done and next steps.");
+    recommendations.push(`${techLabel} has no internal notes — document what's been done and next steps.`);
   if (flags.includes("low_progress"))
-    recommendations.push(`Open ${daysOpen} days with minimal tech activity (${techNotes.length} notes) — needs attention.`);
+    recommendations.push(`Open ${daysOpen} days with minimal activity from ${techLabel} (${techNotes.length} notes) — needs attention.`);
   if (flags.includes("high_priority_aging"))
-    recommendations.push(`P${ticket.priority_id} ticket open ${daysOpen} days — high priority aging, escalate if blocked.`);
+    recommendations.push(`P${ticket.priority_id} ticket open ${daysOpen} days — ${techLabel} should escalate if blocked.`);
   if (flags.includes("sla_breached"))
-    recommendations.push("SLA BREACHED — customer was promised a response/resolution time that has passed. Immediate action required.");
+    recommendations.push(`SLA BREACHED — ${techLabel} must take immediate action. Customer was promised a response/resolution time that has passed.`);
 
   // Acknowledge positives even when there are issues
   if (positives.length > 0) {
@@ -292,6 +334,7 @@ function quickRuleCheck(
     summary: ticket.summary,
     clientName: ticket.client_name ?? null,
     status,
+    assignedTech,
     flags,
     positives,
     recommendation: recommendations.join(" "),
@@ -316,7 +359,7 @@ async function upsertTicketFromHalo(
     halo_status: getStatusName(ticket),
     halo_status_id: ticket.status_id,
     halo_team: ticket.team ?? null,
-    halo_agent: ticket.agent_id ? String(ticket.agent_id) : null,
+    halo_agent: getAgentName(ticket) ?? (ticket.agent_id ? String(ticket.agent_id) : null),
     last_retriage_at: now,
     last_customer_reply_at: getLastCustomerReply(actions),
     last_tech_action_at: getLastTechAction(actions),
@@ -386,7 +429,10 @@ async function postReTriageNote(
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">`,
     `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
     `<tr style="background:${style.bg};"><td colspan="2" style="padding:10px 14px;font-size:14px;color:${style.text};line-height:1.6;border-bottom:1px solid #3a3f4b;"><strong style="font-size:15px;">${style.label}</strong> — ${result.recommendation}</td></tr>`,
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Status</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${result.status} · Open ${result.daysOpen} days</td></tr>`,
+    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Status</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${result.status} · Open ${result.daysOpen} day${result.daysOpen === 1 ? "" : "s"}</td></tr>`,
+    result.assignedTech
+      ? `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Assigned</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-weight:600;">${result.assignedTech}</td></tr>`
+      : `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#f87171;">Assigned</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#f87171;font-weight:600;">UNASSIGNED</td></tr>`,
   ];
 
   if (flagBadges) {
@@ -536,13 +582,15 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const lastActivity = getLastActivity(actions);
       const status = getStatusName(ticket);
 
+      const assignedTech = getAgentName(ticket);
+
       const contextMessage = [
         `Ticket #${ticket.id}: ${ticket.summary}`,
         `Client: ${ticket.client_name ?? "Unknown"}`,
         `Status: ${status}`,
         `Priority: ${ticket.priority ?? "Unknown"}`,
         `Team: ${ticket.team ?? "Unassigned"}`,
-        `Agent: ${ticket.agent_id ? "Assigned" : "UNASSIGNED"}`,
+        `Assigned Tech: ${assignedTech ?? "UNASSIGNED"}`,
         `Created: ${ticket.datecreated} (${daysOpen} days ago)`,
         `Last Activity: ${lastActivity ?? "None"}`,
         "",
@@ -576,6 +624,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         summary: ticket.summary,
         clientName: ticket.client_name ?? null,
         status,
+        assignedTech,
         flags: parsed.flags,
         positives: parsed.positives ?? [],
         recommendation: parsed.recommendation,

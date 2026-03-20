@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 interface HaloTicket {
   readonly id: number;
@@ -62,6 +64,12 @@ const HALO_STATUS_MAP: Record<number, string> = {
  * local tickets table. Returns { pulled, created, updated }.
  */
 export async function POST() {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 10);
+  if (rateLimited) return rateLimited;
+
   const serviceClient = await createServiceClient();
 
   const { data: integration } = await serviceClient

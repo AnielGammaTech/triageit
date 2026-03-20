@@ -248,6 +248,120 @@ export class MemoryManager {
   }
 
   /**
+   * Recall memories from the shared "company_context" namespace.
+   * All agents can read from this — it stores cross-cutting knowledge
+   * like client-specific patterns, infrastructure notes, and org-wide insights.
+   */
+  async recallShared(
+    queryText: string,
+  ): Promise<ReadonlyArray<MemoryMatch>> {
+    return this.recall("company_context", queryText);
+  }
+
+  /**
+   * Store a memory in the shared namespace that all agents can access.
+   */
+  async createSharedMemory(params: {
+    readonly ticket_id: string | null;
+    readonly content: string;
+    readonly summary: string;
+    readonly memory_type: MemoryType;
+    readonly confidence?: number;
+    readonly metadata?: Record<string, unknown>;
+  }): Promise<string> {
+    return this.createMemory({
+      ...params,
+      agent_name: "company_context",
+    });
+  }
+
+  /**
+   * Evict stale, low-value memories to prevent unbounded growth.
+   *
+   * Eviction criteria:
+   * 1. Older than `maxAgeDays` AND never recalled → delete
+   * 2. Older than `maxAgeDays * 2` AND recalled < 2 times → delete
+   * 3. Confidence below `minConfidence` AND older than 7 days → delete
+   *
+   * Returns the number of memories evicted.
+   */
+  async evictStaleMemories(params?: {
+    readonly maxAgeDays?: number;
+    readonly minConfidence?: number;
+  }): Promise<number> {
+    const maxAgeDays = params?.maxAgeDays ?? 90;
+    const minConfidence = params?.minConfidence ?? 0.3;
+
+    const cutoffDate = new Date(
+      Date.now() - maxAgeDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const deepCutoffDate = new Date(
+      Date.now() - maxAgeDays * 2 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const recentCutoff = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    let evicted = 0;
+
+    // 1. Old + never recalled
+    const { data: neverRecalled } = await this.supabase
+      .from("agent_memories")
+      .select("id")
+      .lt("created_at", cutoffDate)
+      .eq("times_recalled", 0);
+
+    if (neverRecalled && neverRecalled.length > 0) {
+      const ids = neverRecalled.map((m) => m.id as string);
+      await this.supabase
+        .from("agent_memories")
+        .delete()
+        .in("id", ids);
+      evicted += ids.length;
+      console.log(`[MEMORY] Evicted ${ids.length} never-recalled memories older than ${maxAgeDays}d`);
+    }
+
+    // 2. Very old + rarely recalled
+    const { data: rarelyRecalled } = await this.supabase
+      .from("agent_memories")
+      .select("id")
+      .lt("created_at", deepCutoffDate)
+      .lt("times_recalled", 2);
+
+    if (rarelyRecalled && rarelyRecalled.length > 0) {
+      const ids = rarelyRecalled.map((m) => m.id as string);
+      await this.supabase
+        .from("agent_memories")
+        .delete()
+        .in("id", ids);
+      evicted += ids.length;
+      console.log(`[MEMORY] Evicted ${ids.length} rarely-recalled memories older than ${maxAgeDays * 2}d`);
+    }
+
+    // 3. Low confidence + not recent
+    const { data: lowConfidence } = await this.supabase
+      .from("agent_memories")
+      .select("id")
+      .lt("confidence", minConfidence)
+      .lt("created_at", recentCutoff);
+
+    if (lowConfidence && lowConfidence.length > 0) {
+      const ids = lowConfidence.map((m) => m.id as string);
+      await this.supabase
+        .from("agent_memories")
+        .delete()
+        .in("id", ids);
+      evicted += ids.length;
+      console.log(`[MEMORY] Evicted ${ids.length} low-confidence memories (< ${minConfidence})`);
+    }
+
+    console.log(`[MEMORY] Eviction complete: ${evicted} total memories removed`);
+    return evicted;
+  }
+
+  /**
    * Get all memories for an agent, optionally filtered by type.
    */
   async getMemories(

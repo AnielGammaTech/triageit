@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
  * POST /api/cron-jobs/trigger
  * Triggers a specific cron job to run immediately via the worker.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const body = await request.json();
   const { job_id } = body;
 
@@ -31,9 +39,9 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      console.error(`[API] Cron trigger failed: ${response.status}`);
       return NextResponse.json(
-        { error: `Worker returned ${response.status}: ${text}` },
+        { error: "Failed to trigger cron job" },
         { status: 502 },
       );
     }
@@ -41,8 +49,9 @@ export async function POST(request: NextRequest) {
     const result = await response.json();
     return NextResponse.json(result);
   } catch (error) {
+    console.error("[API] Cron trigger error:", error);
     return NextResponse.json(
-      { error: `Failed to reach worker: ${(error as Error).message}` },
+      { error: "Failed to reach worker" },
       { status: 502 },
     );
   }

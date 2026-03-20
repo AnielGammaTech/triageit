@@ -74,9 +74,10 @@ export default async function EmbedTriagePage({
   const haloId = params.halo_id;
   const token = params.token;
 
+  // Embed token is REQUIRED — fail-safe if EMBED_SECRET is not configured
   const embedSecret = process.env.EMBED_SECRET;
-  if (embedSecret && token !== embedSecret) {
-    return <ErrorState message="Unauthorized — invalid embed token." />;
+  if (!embedSecret || token !== embedSecret) {
+    return <ErrorState message="Unauthorized — invalid or missing embed token." />;
   }
 
   if (!haloId || isNaN(Number(haloId))) {

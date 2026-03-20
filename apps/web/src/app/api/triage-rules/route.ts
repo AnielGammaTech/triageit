@@ -1,11 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
  * GET /api/triage-rules
  * Returns all triage rules ordered by priority then name.
  */
 export async function GET() {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -15,7 +23,7 @@ export async function GET() {
     .order("name", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rules: data });
@@ -26,6 +34,12 @@ export async function GET() {
  * Create a new triage rule.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const body = (await request.json()) as {
     name: string;
     description?: string;
@@ -60,7 +74,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rule: data }, { status: 201 });
@@ -71,6 +85,12 @@ export async function POST(request: NextRequest) {
  * Update an existing triage rule.
  */
 export async function PATCH(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Missing 'id' query parameter" }, { status: 400 });
@@ -96,7 +116,7 @@ export async function PATCH(request: NextRequest) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rule: data });
@@ -107,6 +127,12 @@ export async function PATCH(request: NextRequest) {
  * Delete a triage rule.
  */
 export async function DELETE(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Missing 'id' query parameter" }, { status: 400 });
@@ -117,7 +143,7 @@ export async function DELETE(request: NextRequest) {
   const { error } = await supabase.from("triage_rules").delete().eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ success: true });

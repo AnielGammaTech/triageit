@@ -60,6 +60,7 @@ export default function TicketsPage() {
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
   const [haloIdInput, setHaloIdInput] = useState("");
   const [triagingHaloId, setTriagingHaloId] = useState(false);
+  const [triagingAll, setTriagingAll] = useState(false);
   const hasPulled = useRef(false);
 
   const loadTickets = useCallback(async () => {
@@ -108,12 +109,12 @@ export default function TicketsPage() {
         const result = await res.json();
         const errInfo = result.errors?.length ? ` (${result.errors.length} errors)` : "";
         const closedInfo = result.closed ? `, ${result.closed} closed` : "";
-        const haloTotal = result.halo_total && result.halo_total !== result.pulled
-          ? ` (Halo reports ${result.halo_total} total)`
+        const breakdown = result.open_count && result.closed_synced
+          ? ` (${result.open_count} open + ${result.closed_synced} recently resolved)`
           : "";
         setStatusMessage({
           type: result.errors?.length ? "error" : "success",
-          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${haloTotal}${errInfo}`,
+          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${breakdown}${errInfo}`,
         });
       }
     } catch (err) {
@@ -166,6 +167,34 @@ export default function TicketsPage() {
       setTriagingHaloId(false);
     }
   }, [haloIdInput, loadTickets]);
+
+  // Triage ALL open tickets (full pipeline with tech performance reviews)
+  const triageAll = useCallback(async () => {
+    setTriagingAll(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch("/api/triage/all", { method: "POST" });
+      const result = await res.json();
+      if (res.ok) {
+        setStatusMessage({
+          type: "success",
+          text: `${result.message} (${result.skipped} skipped — recently triaged)`,
+        });
+        setTimeout(() => loadTickets(), 3000);
+      } else {
+        setStatusMessage({
+          type: "error",
+          text: result.error ?? "Failed to trigger triage all",
+        });
+      }
+    } catch (err) {
+      setStatusMessage({
+        type: "error",
+        text: `Failed: ${(err as Error).message}`,
+      });
+    }
+    setTriagingAll(false);
+  }, [loadTickets]);
 
   // On mount: load DB tickets, then auto-pull from Halo once
   useEffect(() => {
@@ -257,6 +286,7 @@ export default function TicketsPage() {
         <TicketDetail
           ticketId={selectedTicketId}
           onBack={() => router.push("/tickets")}
+          haloBaseUrl={haloBaseUrl}
         />
       </div>
     );
@@ -357,6 +387,30 @@ export default function TicketsPage() {
                   <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.56a.75.75 0 0 1-1.5 0V9.446a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.025-.274Z" clipRule="evenodd" />
                 </svg>
                 Sync
+              </>
+            )}
+          </button>
+
+          {/* Triage All */}
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); triageAll(); }}
+            disabled={triagingAll}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:text-white/30"
+            title="Run full AI triage on all open tickets (includes tech performance reviews)"
+          >
+            {triagingAll ? (
+              <>
+                <span className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
+                Triaging All
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                  <path d="M8 1a.75.75 0 0 1 .75.75V6h4.5a.75.75 0 0 1 0 1.5h-4.5v4.25a.75.75 0 0 1-1.5 0V7.5h-4.5a.75.75 0 0 1 0-1.5h4.5V1.75A.75.75 0 0 1 8 1Z" />
+                  <path fillRule="evenodd" d="M2.5 13a.75.75 0 0 1 .75-.75h9.5a.75.75 0 0 1 0 1.5h-9.5A.75.75 0 0 1 2.5 13Z" clipRule="evenodd" />
+                </svg>
+                Triage All
               </>
             )}
           </button>

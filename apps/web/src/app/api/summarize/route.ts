@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -146,6 +148,12 @@ async function fetchHaloAppointments(
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 10);
+  if (rateLimited) return rateLimited;
+
   try {
     const body = (await request.json()) as { halo_id?: number };
 

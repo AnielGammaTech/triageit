@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
  * GET /api/cron-jobs
  * Returns all cron jobs from the database.
  */
 export async function GET() {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const supabase = await createServiceClient();
 
   const { data, error } = await supabase
@@ -15,7 +23,7 @@ export async function GET() {
 
   if (error) {
     return NextResponse.json(
-      { error: `Failed to fetch cron jobs: ${error.message}` },
+      { error: "Failed to fetch cron jobs" },
       { status: 500 },
     );
   }
@@ -28,6 +36,12 @@ export async function GET() {
  * Create a new cron job.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const body = await request.json();
   const { name, description, schedule, endpoint } = body;
 
@@ -54,7 +68,7 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     return NextResponse.json(
-      { error: `Failed to create cron job: ${error.message}` },
+      { error: "Failed to create cron job" },
       { status: 500 },
     );
   }
@@ -70,6 +84,12 @@ export async function POST(request: NextRequest) {
  * Update a cron job (toggle active, change schedule, etc.)
  */
 export async function PATCH(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -101,7 +121,7 @@ export async function PATCH(request: NextRequest) {
 
   if (error) {
     return NextResponse.json(
-      { error: `Failed to update cron job: ${error.message}` },
+      { error: "Failed to update cron job" },
       { status: 500 },
     );
   }
@@ -117,6 +137,12 @@ export async function PATCH(request: NextRequest) {
  * Delete a cron job by ID.
  */
 export async function DELETE(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id);
+  if (rateLimited) return rateLimited;
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
@@ -136,7 +162,7 @@ export async function DELETE(request: NextRequest) {
 
   if (error) {
     return NextResponse.json(
-      { error: `Failed to delete cron job: ${error.message}` },
+      { error: "Failed to delete cron job" },
       { status: 500 },
     );
   }

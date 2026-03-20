@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -72,6 +74,12 @@ async function fetchHaloTicket(config: HaloConfig, haloId: number): Promise<Halo
  * When using halo_id, pulls the ticket from Halo and creates a local record first.
  */
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 10);
+  if (rateLimited) return rateLimited;
+
   const body = (await request.json()) as { ticket_id?: string; halo_id?: number };
 
   if (!body.ticket_id && !body.halo_id) {

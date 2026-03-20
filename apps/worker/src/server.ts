@@ -14,6 +14,12 @@ import {
   handleUpdateRequest,
 } from "./agents/retriage/update-request.js";
 import { scanForSlaBreaches } from "./cron/sla-scan.js";
+import {
+  triageSchema,
+  cronTriggerSchema,
+  webhookActionSchema,
+} from "./validation/schemas.js";
+import { MemoryManager } from "./memory/memory-manager.js";
 
 const server = Fastify({ logger: true });
 
@@ -27,11 +33,11 @@ server.get("/health", async () => {
 server.post<{ Body: { ticket_id?: string; halo_id?: number } }>(
   "/triage",
   async (request, reply) => {
-    const { ticket_id, halo_id } = request.body;
-
-    if (!ticket_id && !halo_id) {
-      return reply.status(400).send({ error: "ticket_id or halo_id is required" });
+    const parsed = triageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request", details: parsed.error.issues });
     }
+    const { ticket_id, halo_id } = parsed.data;
 
     const supabase = createSupabaseClient();
 
@@ -94,15 +100,40 @@ server.post<{ Body: Record<string, never> }>(
 server.post<{ Body: { job_id: string } }>(
   "/cron/trigger",
   async (request, reply) => {
-    const { job_id } = request.body;
-
-    if (!job_id) {
-      return reply.status(400).send({ error: "job_id is required" });
+    const parsed = cronTriggerSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request", details: parsed.error.issues });
     }
+    const { job_id } = parsed.data;
 
     try {
       const result = await triggerCronJob(job_id);
       return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Memory eviction — prune stale, low-value memories
+server.post<{ Body: { max_age_days?: number; min_confidence?: number } }>(
+  "/memory/evict",
+  async (request, reply) => {
+    try {
+      const supabase = createSupabaseClient();
+      const memoryManager = new MemoryManager(supabase);
+      const body = (request.body ?? {}) as {
+        max_age_days?: number;
+        min_confidence?: number;
+      };
+
+      const evicted = await memoryManager.evictStaleMemories({
+        maxAgeDays: body.max_age_days,
+        minConfidence: body.min_confidence,
+      });
+
+      return { status: "completed", evicted };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
@@ -130,11 +161,11 @@ server.post<{
 }>(
   "/webhook/action",
   async (request, reply) => {
-    const { ticket_id, note, hiddenfromuser } = request.body;
-
-    if (!ticket_id || !note) {
-      return reply.status(400).send({ error: "ticket_id and note are required" });
+    const parsed = webhookActionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid request", details: parsed.error.issues });
     }
+    const { ticket_id, note, hiddenfromuser } = parsed.data;
 
     // Only process customer-visible actions (not internal notes)
     if (hiddenfromuser) {

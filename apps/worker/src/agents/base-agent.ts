@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentDefinition, MemoryMatch } from "@triageit/shared";
 import { MemoryManager } from "../memory/memory-manager.js";
 import { SkillLoader } from "../memory/skill-loader.js";
+import {
+  extractRememberTags,
+  REMEMBER_INSTRUCTIONS,
+} from "../memory/memory-extractor.js";
 import type { TriageContext } from "./types.js";
 
 /**
@@ -60,32 +64,37 @@ export abstract class BaseAgent {
         this.definition.name,
       );
 
-      // 2. Recall relevant memories
+      // 2. Recall agent-specific + shared memories in parallel
       const queryText = `${context.summary} ${context.details ?? ""}`;
-      const memories = await this.memoryManager.recall(
-        this.definition.name,
-        queryText,
-      );
+      const [agentMemories, sharedMemories] = await Promise.all([
+        this.memoryManager.recall(this.definition.name, queryText),
+        this.memoryManager.recallShared(queryText),
+      ]);
 
-      const memoriesPrompt = this.formatMemoriesForPrompt(memories);
+      // Merge and deduplicate by id, agent-specific first
+      const allMemories = this.mergeMemories(agentMemories, sharedMemories);
+      const memoriesPrompt = this.formatMemoriesForPrompt(allMemories);
 
-      // 3. Build the full system prompt
+      // 3. Build the full system prompt (now includes <remember> instructions)
       const systemPrompt = this.buildSystemPrompt(skillsPrompt, memoriesPrompt);
 
       // 4. Execute the agent's specific logic
-      const result = await this.process(context, systemPrompt, memories);
+      const result = await this.process(context, systemPrompt, allMemories);
 
-      // 5. Create a memory from this resolution
+      // 5. Extract <remember> tags from agent output and store as memories
+      await this.extractAndStoreMemories(context, result);
+
+      // 6. Create a memory from this resolution
       await this.createResolutionMemory(context, result);
 
-      // 6. Log completion
+      // 7. Log completion
       const duration = Date.now() - startTime;
       await this.log(context.ticketId, "completed", {
         output: result.summary,
         duration,
       });
 
-      return { ...result, memories_used: memories.length };
+      return { ...result, memories_used: allMemories.length };
     } catch (error) {
       const duration = Date.now() - startTime;
       const message =
@@ -122,6 +131,8 @@ export abstract class BaseAgent {
       this.getAgentInstructions(),
       skillsPrompt,
       memoriesPrompt,
+      "",
+      REMEMBER_INSTRUCTIONS,
     ]
       .filter(Boolean)
       .join("\n");
@@ -131,6 +142,86 @@ export abstract class BaseAgent {
    * Agent-specific instructions. Subclasses can override.
    */
   protected abstract getAgentInstructions(): string;
+
+  /**
+   * Merge agent-specific and shared memories, deduplicating by id.
+   * Agent-specific memories take priority (appear first).
+   */
+  private mergeMemories(
+    agentMemories: ReadonlyArray<MemoryMatch>,
+    sharedMemories: ReadonlyArray<MemoryMatch>,
+  ): ReadonlyArray<MemoryMatch> {
+    const seenIds = new Set(agentMemories.map((m) => m.id));
+    const uniqueShared = sharedMemories.filter((m) => !seenIds.has(m.id));
+    return [...agentMemories, ...uniqueShared];
+  }
+
+  /**
+   * Extract <remember> tags from agent output and store as explicit memories.
+   * These are high-signal memories the agent flagged as worth remembering.
+   */
+  private async extractAndStoreMemories(
+    context: TriageContext,
+    result: AgentResult,
+  ): Promise<void> {
+    // Check both summary and stringified data for <remember> tags
+    const textToScan = [
+      result.summary,
+      typeof result.data === "object" ? JSON.stringify(result.data) : "",
+    ].join("\n");
+
+    const extracted = extractRememberTags(textToScan);
+    if (extracted.length === 0) return;
+
+    console.log(
+      `[${this.definition.name}] Extracted ${extracted.length} <remember> tag(s) from ticket #${context.haloId}`,
+    );
+
+    for (const mem of extracted) {
+      try {
+        // Determine if this is agent-specific or shared company context
+        const isCompanyWide =
+          mem.content.toLowerCase().includes("always") ||
+          mem.content.toLowerCase().includes("company") ||
+          mem.content.toLowerCase().includes("all clients") ||
+          mem.memory_type === "pattern";
+
+        if (isCompanyWide) {
+          await this.memoryManager.createSharedMemory({
+            ticket_id: context.ticketId,
+            content: mem.content,
+            summary: mem.content.slice(0, 200),
+            memory_type: mem.memory_type,
+            confidence: mem.confidence,
+            metadata: {
+              source_agent: this.definition.name,
+              halo_id: context.haloId,
+              client_name: context.clientName,
+            },
+          });
+        } else {
+          await this.memoryManager.createMemory({
+            agent_name: this.definition.name,
+            ticket_id: context.ticketId,
+            content: mem.content,
+            summary: mem.content.slice(0, 200),
+            memory_type: mem.memory_type,
+            confidence: mem.confidence,
+            metadata: {
+              halo_id: context.haloId,
+              client_name: context.clientName,
+              extracted_from: "remember_tag",
+            },
+          });
+        }
+      } catch (error) {
+        console.error(
+          `[${this.definition.name}] Failed to store extracted memory:`,
+          error,
+        );
+      }
+    }
+  }
 
   /**
    * Format recalled memories into a prompt section.

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
  * POST /api/retriage
@@ -8,6 +10,12 @@ import { NextResponse } from "next/server";
  * updates ticket tracking columns, and sends Teams notifications.
  */
 export async function POST() {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 10);
+  if (rateLimited) return rateLimited;
+
   const workerUrl = process.env.WORKER_URL;
   if (!workerUrl) {
     return NextResponse.json(
@@ -24,9 +32,9 @@ export async function POST() {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      console.error(`[API] Retriage failed: ${response.status}`);
       return NextResponse.json(
-        { error: `Worker returned ${response.status}: ${text}` },
+        { error: "Retriage scan failed" },
         { status: 502 },
       );
     }
@@ -34,8 +42,9 @@ export async function POST() {
     const result = await response.json();
     return NextResponse.json({ status: "completed", ...result });
   } catch (error) {
+    console.error("[API] Retriage error:", error);
     return NextResponse.json(
-      { error: `Failed to reach worker: ${(error as Error).message}` },
+      { error: "Failed to reach worker" },
       { status: 502 },
     );
   }
