@@ -75,25 +75,30 @@ function CopyButton({
 
 // ── Re-Triage Button ────────────────────────────────────────────────────
 
-function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">(
-    "idle",
-  );
+function ReTriageButton({
+  haloId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly token: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
 
   const handleRetriage = useCallback(async () => {
     if (state === "loading") return;
     setState("loading");
 
     try {
-      const response = await fetch("/api/triage", {
+      const response = await fetch("/api/embed/triage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket_id: ticketId }),
+        body: JSON.stringify({ halo_id: haloId, token }),
       });
 
       if (response.ok) {
         setState("done");
-        setTimeout(() => window.location.reload(), 1500);
+        // Auto-refresh after a short delay to show updated notes
+        setTimeout(() => window.location.reload(), 5000);
       } else {
         setState("error");
         setTimeout(() => setState("idle"), 3000);
@@ -102,7 +107,7 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
       setState("error");
       setTimeout(() => setState("idle"), 3000);
     }
-  }, [ticketId, state]);
+  }, [haloId, token, state]);
 
   const config = {
     idle: { label: "Re-Triage", bg: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "#fff" },
@@ -169,7 +174,13 @@ function ReTriageButton({ ticketId }: { readonly ticketId: string }) {
 
 // ── SummarizeIT Button ──────────────────────────────────────────────────
 
-function SummarizeITButton({ haloId }: { readonly haloId: number }) {
+function SummarizeITButton({
+  haloId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly token: string;
+}) {
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [summary, setSummary] = useState<string | null>(null);
 
@@ -179,10 +190,10 @@ function SummarizeITButton({ haloId }: { readonly haloId: number }) {
     setSummary(null);
 
     try {
-      const response = await fetch("/api/summarize", {
+      const response = await fetch("/api/embed/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ halo_id: haloId }),
+        body: JSON.stringify({ halo_id: haloId, token }),
       });
 
       if (response.ok) {
@@ -197,7 +208,7 @@ function SummarizeITButton({ haloId }: { readonly haloId: number }) {
       setState("error");
       setTimeout(() => setState("idle"), 3000);
     }
-  }, [haloId, state]);
+  }, [haloId, token, state]);
 
   return (
     <>
@@ -307,12 +318,15 @@ export function QuickActions({
   haloId,
   suggestedResponse,
   internalNotes,
+  token,
 }: {
   readonly ticketId: string;
   readonly haloId: number;
   readonly suggestedResponse: string | null;
   readonly internalNotes: string | null;
+  readonly token: string;
 }) {
+  void ticketId; // kept for potential future use
   return (
     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const, alignItems: "center" }}>
       {suggestedResponse && (
@@ -321,8 +335,8 @@ export function QuickActions({
       {internalNotes && (
         <CopyButton text={internalNotes} label="Copy Notes" icon="\u270E" />
       )}
-      <SummarizeITButton haloId={haloId} />
-      <ReTriageButton ticketId={ticketId} />
+      <SummarizeITButton haloId={haloId} token={token} />
+      <ReTriageButton haloId={haloId} token={token} />
     </div>
   );
 }
@@ -426,7 +440,13 @@ export function CollapsibleSection({
 
 // ── Triage Button (for embed empty state) ────────────────────────────────
 
-export function EmbedTriageButton({ haloId }: { readonly haloId: number }) {
+export function EmbedTriageButton({
+  haloId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly token: string;
+}) {
   const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
 
   const handleTriage = useCallback(async () => {
@@ -434,10 +454,10 @@ export function EmbedTriageButton({ haloId }: { readonly haloId: number }) {
     setState("loading");
 
     try {
-      const response = await fetch("/api/triage", {
+      const response = await fetch("/api/embed/triage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ halo_id: haloId }),
+        body: JSON.stringify({ halo_id: haloId, token }),
       });
 
       if (response.ok) {
@@ -456,7 +476,7 @@ export function EmbedTriageButton({ haloId }: { readonly haloId: number }) {
       setState("error");
       setTimeout(() => setState("idle"), 3000);
     }
-  }, [haloId, state]);
+  }, [haloId, token, state]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", gap: "12px" }}>

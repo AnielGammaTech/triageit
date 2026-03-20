@@ -8,7 +8,11 @@ import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, Aut
  * URL format: /embed/triage?halo_id=$FAULTID&token={EMBED_SECRET}
  * Halo replaces $FAULTID with the ticket's Halo ID automatically.
  *
- * Shows the latest triage prominently + full triage history with timestamps.
+ * Shows:
+ * 1. Latest triage summary (priority, urgency, type, team)
+ * 2. Quick actions (Copy Response, Copy Notes, SummarizeIT, Re-Triage)
+ * 3. All TriageIt notes posted to the ticket (in chronological order)
+ * 4. Agent activity and triage history
  */
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -27,6 +31,16 @@ const URGENCY_COLOR = (score: number): string =>
 const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
   AGENTS.map((a) => [a.name, a.character]),
 );
+
+const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; icon: string }> = {
+  triage: { label: "AI Triage", accent: "#6366f1", icon: "🔍" },
+  retriage: { label: "Re-Triage", accent: "#f59e0b", icon: "🔄" },
+  "tech-review": { label: "Tech Review", accent: "#10b981", icon: "📋" },
+  alert: { label: "Alert", accent: "#ef4444", icon: "🚨" },
+  priority: { label: "Priority", accent: "#8b5cf6", icon: "⚡" },
+  documentation: { label: "Documentation", accent: "#06b6d4", icon: "📝" },
+  other: { label: "Note", accent: "#64748b", icon: "💬" },
+};
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -63,6 +77,112 @@ interface AgentLog {
   readonly duration_ms: number | null;
 }
 
+interface HaloAction {
+  readonly id: number;
+  readonly note: string;
+  readonly hiddenfromuser: boolean;
+  readonly who?: string;
+  readonly datecreated?: string;
+}
+
+interface TriageItNote {
+  readonly id: number;
+  readonly html: string;
+  readonly date: string;
+  readonly type: string;
+}
+
+// ── Halo Note Helpers ──────────────────────────────────────────────────
+
+function isTriageItNote(action: HaloAction): boolean {
+  const note = action.note ?? "";
+  return (
+    note.includes("TriageIt") ||
+    note.includes("TriageIt AI") ||
+    note.includes("AI Triage") ||
+    note.includes("triageit") ||
+    note.includes("linear-gradient(135deg,#6366f1") ||
+    note.includes("linear-gradient(135deg,#4f46e5") ||
+    note.includes("linear-gradient(135deg,#059669")
+  );
+}
+
+function classifyNote(html: string): string {
+  if (html.includes("Tech Performance Review")) return "tech-review";
+  if (html.includes("Retriage Check") || html.includes("Re-Triage")) return "retriage";
+  if (html.includes("alert path") || html.includes("Alert Path")) return "alert";
+  if (html.includes("Priority Recommendation")) return "priority";
+  if (html.includes("Documentation Gap")) return "documentation";
+  if (html.includes("AI Triage")) return "triage";
+  return "other";
+}
+
+interface HaloConfig {
+  readonly base_url: string;
+  readonly client_id: string;
+  readonly client_secret: string;
+  readonly tenant?: string;
+}
+
+async function fetchTriageItNotes(
+  config: HaloConfig,
+  haloId: number,
+): Promise<ReadonlyArray<TriageItNote>> {
+  try {
+    // Get Halo token
+    const tokenUrl = `${config.base_url}/auth/token`;
+    const tokenBody = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      scope: "all",
+    });
+    if (config.tenant) tokenBody.set("tenant", config.tenant);
+
+    const tokenRes = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenBody.toString(),
+    });
+
+    if (!tokenRes.ok) return [];
+    const { access_token } = (await tokenRes.json()) as { access_token: string };
+
+    // Fetch all actions for this ticket
+    const actionsRes = await fetch(
+      `${config.base_url}/api/actions?ticket_id=${haloId}&excludesys=true`,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!actionsRes.ok) return [];
+    const data = (await actionsRes.json()) as { actions: HaloAction[] };
+    const actions = data.actions ?? [];
+
+    // Filter to TriageIt notes and sort chronologically (oldest first)
+    return actions
+      .filter(isTriageItNote)
+      .sort(
+        (a, b) =>
+          new Date(a.datecreated ?? "").getTime() -
+          new Date(b.datecreated ?? "").getTime(),
+      )
+      .map((a) => ({
+        id: a.id,
+        html: a.note,
+        date: a.datecreated ?? "",
+        type: classifyNote(a.note),
+      }));
+  } catch (err) {
+    console.error("[EMBED] Failed to fetch TriageIt notes:", err);
+    return [];
+  }
+}
+
 // ── Page Component ──────────────────────────────────────────────────────
 
 export default async function EmbedTriagePage({
@@ -86,6 +206,16 @@ export default async function EmbedTriagePage({
 
   const supabase = await createServiceClient();
 
+  // Fetch Halo integration config (needed for notes)
+  const { data: haloIntegration } = await supabase
+    .from("integrations")
+    .select("config")
+    .eq("service", "halo")
+    .eq("is_active", true)
+    .single();
+
+  const haloConfig = haloIntegration?.config as HaloConfig | null;
+
   const { data: ticket } = await supabase
     .from("tickets")
     .select("id, halo_id, summary, client_name, user_name, status")
@@ -101,26 +231,36 @@ export default async function EmbedTriagePage({
           <p style={s.emptyText}>
             No triage data found for Halo ticket #{haloId}.
           </p>
-          <EmbedTriageButton haloId={Number(haloId)} />
+          <EmbedTriageButton haloId={Number(haloId)} token={embedSecret} />
         </div>
       </div>
     );
   }
 
-  const { data: allTriageResults } = await supabase
-    .from("triage_results")
-    .select("*")
-    .eq("ticket_id", ticket.id)
-    .order("created_at", { ascending: false });
+  // Fetch triage results, agent logs, and TriageIt notes in parallel
+  const [triageResultsRes, agentLogsRes, triageItNotes] = await Promise.all([
+    supabase
+      .from("triage_results")
+      .select("*")
+      .eq("ticket_id", ticket.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("agent_logs")
+      .select("agent_name, agent_role, status, output_summary, tokens_used, duration_ms")
+      .eq("ticket_id", ticket.id)
+      .order("created_at", { ascending: true }),
+    haloConfig ? fetchTriageItNotes(haloConfig, ticket.halo_id) : Promise.resolve([]),
+  ]);
 
-  const triageResults = (allTriageResults ?? []) as ReadonlyArray<TriageData>;
+  const triageResults = (triageResultsRes.data ?? []) as ReadonlyArray<TriageData>;
+  const logs = (agentLogsRes.data ?? []) as ReadonlyArray<AgentLog>;
 
   if (triageResults.length === 0) {
     return (
       <div style={s.page}>
         <SpinnerStyles />
         <div style={s.emptyWrap}>
-          <div style={s.emptyIcon}>
+          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#6366f1" : "#52525b" }}>
             {ticket.status === "triaging" ? "\u23F3" : "\u2014"}
           </div>
           <p style={s.emptyText}>
@@ -131,7 +271,7 @@ export default async function EmbedTriagePage({
           {ticket.status === "triaging" ? (
             <AutoRefresh />
           ) : (
-            <EmbedTriageButton haloId={ticket.halo_id} />
+            <EmbedTriageButton haloId={ticket.halo_id} token={embedSecret} />
           )}
         </div>
       </div>
@@ -139,15 +279,6 @@ export default async function EmbedTriagePage({
   }
 
   const latest = triageResults[0];
-  const history = triageResults.slice(1);
-
-  const { data: agentLogs } = await supabase
-    .from("agent_logs")
-    .select("agent_name, agent_role, status, output_summary, tokens_used, duration_ms")
-    .eq("ticket_id", ticket.id)
-    .order("created_at", { ascending: true });
-
-  const logs = (agentLogs ?? []) as ReadonlyArray<AgentLog>;
   const priority = PRIORITY_CONFIG[latest.recommended_priority] ?? {
     label: `P${latest.recommended_priority}`,
     color: "#a1a1aa",
@@ -203,12 +334,6 @@ export default async function EmbedTriagePage({
             <span style={s.heroValue}>{latest.recommended_team}</span>
           </div>
         )}
-        {latest.recommended_agent && (
-          <div style={s.heroCard}>
-            <span style={s.heroLabel}>ASSIGN TO</span>
-            <span style={s.heroValue}>{latest.recommended_agent}</span>
-          </div>
-        )}
       </div>
 
       {/* ── Quick Actions ───────────────────────────────────── */}
@@ -218,6 +343,7 @@ export default async function EmbedTriagePage({
           haloId={ticket.halo_id}
           suggestedResponse={latest.suggested_response}
           internalNotes={latest.internal_notes}
+          token={embedSecret}
         />
       </div>
 
@@ -232,25 +358,37 @@ export default async function EmbedTriagePage({
         </div>
       )}
 
-      {/* ── Urgency Analysis ────────────────────────────────── */}
-      <div style={s.card}>
-        <div style={s.cardHeader}>
-          <span style={s.cardDot("#6366f1")} />
-          <span style={s.cardTitle}>Urgency Analysis</span>
+      {/* ── TriageIt Notes History ────────────────────────────── */}
+      {triageItNotes.length > 0 && (
+        <div style={s.notesSection}>
+          <div style={s.notesSectionHeader}>
+            <span style={s.notesSectionDot} />
+            <span style={s.notesSectionTitle}>TriageIt Notes</span>
+            <span style={s.notesSectionBadge}>{triageItNotes.length} notes</span>
+          </div>
+          <div style={s.notesList}>
+            {triageItNotes.map((note) => (
+              <NoteCard key={note.id} note={note} />
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* ── Urgency Analysis ────────────────────────────────── */}
+      <CollapsibleSection title="Urgency Analysis" accent="#6366f1" defaultOpen={triageItNotes.length === 0}>
         <p style={s.bodyText}>{latest.urgency_reasoning}</p>
-      </div>
+      </CollapsibleSection>
 
       {/* ── Suggested Response ──────────────────────────────── */}
       {latest.suggested_response && (
-        <CollapsibleSection title="Suggested Customer Response" accent="#06b6d4" defaultOpen>
+        <CollapsibleSection title="Suggested Customer Response" accent="#06b6d4">
           <p style={s.responseText}>{latest.suggested_response}</p>
         </CollapsibleSection>
       )}
 
       {/* ── Internal Notes ──────────────────────────────────── */}
       {latest.internal_notes && (
-        <CollapsibleSection title="Internal Notes" accent="#a78bfa" defaultOpen>
+        <CollapsibleSection title="Internal Notes" accent="#a78bfa">
           <p style={s.bodyText}>{latest.internal_notes}</p>
         </CollapsibleSection>
       )}
@@ -283,17 +421,6 @@ export default async function EmbedTriagePage({
         </CollapsibleSection>
       )}
 
-      {/* ── Triage History ──────────────────────────────────── */}
-      {history.length > 0 && (
-        <CollapsibleSection title="Triage History" accent="#f59e0b" badge={`${history.length} previous`}>
-          <div style={s.historyList}>
-            {history.map((t) => (
-              <HistoryCard key={t.id} triage={t} />
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
       {/* ── Footer ──────────────────────────────────────────── */}
       <div style={s.footer}>
         {latest.processing_time_ms != null && (
@@ -309,6 +436,26 @@ export default async function EmbedTriagePage({
 }
 
 // ── Sub Components ──────────────────────────────────────────────────────
+
+function NoteCard({ note }: { readonly note: TriageItNote }) {
+  const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
+
+  return (
+    <div style={s.noteCard}>
+      <div style={s.noteCardHeader}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px" }}>{cfg.icon}</span>
+          <span style={{ ...s.noteCardType, color: cfg.accent }}>{cfg.label}</span>
+        </div>
+        <span style={s.noteCardDate}>{formatTimestamp(note.date)}</span>
+      </div>
+      <div
+        style={s.noteCardBody}
+        dangerouslySetInnerHTML={{ __html: note.html }}
+      />
+    </div>
+  );
+}
 
 function FindingCard({
   agentName,
@@ -329,7 +476,6 @@ function FindingCard({
         <span style={s.findingAgent}>{character}</span>
         <span style={{ ...s.findingPct, color: barColor }}>{pct}%</span>
       </div>
-      {/* Confidence bar */}
       <div style={s.confidenceTrack}>
         <div style={{ ...s.confidenceBar, width: `${pct}%`, backgroundColor: barColor }} />
       </div>
@@ -355,38 +501,6 @@ function AgentLogRow({ log }: { readonly log: AgentLog }) {
       {log.duration_ms != null && (
         <span style={s.logDuration}>{(log.duration_ms / 1000).toFixed(1)}s</span>
       )}
-    </div>
-  );
-}
-
-function HistoryCard({ triage }: { readonly triage: TriageData }) {
-  const p = PRIORITY_CONFIG[triage.recommended_priority] ?? {
-    label: `P${triage.recommended_priority}`,
-    color: "#a1a1aa",
-    bg: "",
-  };
-
-  return (
-    <div style={s.historyCard}>
-      <div style={s.historyHeader}>
-        <span style={s.historyTime}>{formatTimestamp(triage.created_at)}</span>
-        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          {triage.triage_type === "retriage" && <span style={s.historyBadge}>re-triage</span>}
-          <span style={{ fontSize: "11px", fontWeight: 700, color: p.color }}>{p.label}</span>
-          <span style={{ fontSize: "11px", fontWeight: 600, color: URGENCY_COLOR(triage.urgency_score) }}>
-            U{triage.urgency_score}
-          </span>
-        </div>
-      </div>
-      <div style={s.historyBody}>
-        <span style={s.historyType}>
-          {triage.classification.type}
-          {triage.classification.subtype ? ` / ${triage.classification.subtype}` : ""}
-        </span>
-        {triage.recommended_team && (
-          <span style={s.historyTeam}>{triage.recommended_team}</span>
-        )}
-      </div>
     </div>
   );
 }
@@ -580,34 +694,77 @@ const s = {
     marginBottom: "4px",
   } as React.CSSProperties,
 
-  // Card (non-collapsible)
-  card: {
-    background: "rgba(255,255,255,0.02)",
-    border: "1px solid rgba(255,255,255,0.05)",
-    borderRadius: "10px",
-    padding: "14px 16px",
-    marginBottom: "10px",
+  // TriageIt Notes section
+  notesSection: {
+    marginBottom: "14px",
   } as React.CSSProperties,
-  cardHeader: {
+  notesSectionHeader: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    marginBottom: "8px",
+    marginBottom: "10px",
+    paddingBottom: "8px",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
   } as React.CSSProperties,
-  cardDot: (color: string): React.CSSProperties => ({
+  notesSectionDot: {
     width: "6px",
     height: "6px",
     borderRadius: "50%",
-    backgroundColor: color,
-    flexShrink: 0,
-    boxShadow: `0 0 6px ${color}50`,
-  }),
-  cardTitle: {
+    backgroundColor: "#6366f1",
+    boxShadow: "0 0 6px rgba(99, 102, 241, 0.5)",
+  } as React.CSSProperties,
+  notesSectionTitle: {
     fontSize: "11px",
     fontWeight: 700,
     color: "#a1a1aa",
     textTransform: "uppercase" as const,
     letterSpacing: "0.06em",
+    flex: 1,
+  } as React.CSSProperties,
+  notesSectionBadge: {
+    fontSize: "10px",
+    fontWeight: 600,
+    padding: "2px 8px",
+    borderRadius: "10px",
+    backgroundColor: "rgba(99, 102, 241, 0.1)",
+    color: "#6366f1",
+    border: "1px solid rgba(99, 102, 241, 0.2)",
+  } as React.CSSProperties,
+  notesList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "10px",
+  } as React.CSSProperties,
+  noteCard: {
+    background: "rgba(255,255,255,0.02)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: "10px",
+    overflow: "hidden",
+  } as React.CSSProperties,
+  noteCardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px 12px",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    background: "rgba(255,255,255,0.02)",
+  } as React.CSSProperties,
+  noteCardType: {
+    fontSize: "11px",
+    fontWeight: 700,
+    letterSpacing: "0.02em",
+  } as React.CSSProperties,
+  noteCardDate: {
+    fontSize: "10px",
+    color: "#52525b",
+    fontWeight: 500,
+  } as React.CSSProperties,
+  noteCardBody: {
+    padding: "10px 12px",
+    fontSize: "12px",
+    lineHeight: 1.6,
+    overflow: "auto",
+    maxHeight: "500px",
   } as React.CSSProperties,
 
   // Text
@@ -712,56 +869,6 @@ const s = {
     color: "#52525b",
     fontSize: "10px",
     fontFamily: "'SF Mono', 'Fira Code', monospace",
-    fontWeight: 500,
-  } as React.CSSProperties,
-
-  // History
-  historyList: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "6px",
-  } as React.CSSProperties,
-  historyCard: {
-    background: "rgba(255,255,255,0.02)",
-    border: "1px solid rgba(255,255,255,0.05)",
-    borderRadius: "8px",
-    overflow: "hidden",
-  } as React.CSSProperties,
-  historyHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "8px 12px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
-  } as React.CSSProperties,
-  historyTime: {
-    fontSize: "11px",
-    fontWeight: 600,
-    color: "#a1a1aa",
-  } as React.CSSProperties,
-  historyBadge: {
-    fontSize: "9px",
-    fontWeight: 600,
-    padding: "2px 6px",
-    borderRadius: "4px",
-    background: "rgba(245, 158, 11, 0.1)",
-    color: "#fbbf24",
-    border: "1px solid rgba(245, 158, 11, 0.15)",
-  } as React.CSSProperties,
-  historyBody: {
-    padding: "8px 12px",
-    display: "flex",
-    gap: "12px",
-    alignItems: "center",
-    fontSize: "11px",
-  } as React.CSSProperties,
-  historyType: {
-    color: "#a1a1aa",
-    textTransform: "capitalize" as const,
-    fontWeight: 500,
-  } as React.CSSProperties,
-  historyTeam: {
-    color: "#71717a",
     fontWeight: 500,
   } as React.CSSProperties,
 
