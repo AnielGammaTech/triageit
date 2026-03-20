@@ -253,7 +253,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
 
             {/* Expanded detail — show ALL reviews */}
             {isExpanded && (
-              <div className="border-t border-white/[0.06]">
+              <div className="border-t border-white/[0.08]">
                 {ticketReviews.map((review, idx) => {
                   const revStyle = RATING_STYLES[review.rating] ?? RATING_STYLES.good;
                   const isLatest = idx === 0;
@@ -262,69 +262,56 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                     <div
                       key={review.id}
                       className={cn(
-                        "px-5 py-4",
-                        idx > 0 && "border-t border-white/[0.04]",
-                        !isLatest && "opacity-80",
+                        "px-6 py-5",
+                        idx > 0 && "border-t border-white/[0.06]",
+                        !isLatest && "opacity-75 bg-white/[0.01]",
                       )}
                     >
                       {/* Review header */}
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className={cn("rounded px-2 py-0.5 text-[10px] font-bold", revStyle.bg, revStyle.text)}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <span className={cn("rounded px-2.5 py-1 text-xs font-bold", revStyle.bg, revStyle.text)}>
                           {revStyle.label}
                         </span>
-                        <div className="flex items-center gap-0.5">
-                          {[1, 2, 3, 4, 5].map((i) => (
-                            <div
-                              key={i}
-                              className={cn(
-                                "h-1.5 w-2.5 rounded-sm",
-                                i <= review.communication_score
-                                  ? COMM_BAR_COLORS[review.communication_score] ?? "bg-white/40"
-                                  : "bg-white/10",
-                              )}
-                            />
-                          ))}
-                          <span className="ml-1 text-[10px] text-white/30">{review.communication_score}/5</span>
-                        </div>
-                        <span className="text-xs text-white/30">{formatDate(review.created_at)}</span>
+                        <span className="text-sm text-white/50">{formatDate(review.created_at)}</span>
                         {isLatest && (
-                          <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] text-white/40">Latest</span>
+                          <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs text-indigo-400 font-medium">Latest</span>
                         )}
                         {!isLatest && (
-                          <span className="text-[10px] text-white/20">v{ticketReviews.length - idx}</span>
+                          <span className="text-xs text-white/30 font-medium">v{ticketReviews.length - idx}</span>
                         )}
-                        <span className="ml-auto text-xs text-white/25">
-                          {review.response_time} · {review.max_gap_hours.toFixed(1)}h max gap
-                        </span>
+                        <div className="ml-auto flex items-center gap-4 text-sm text-white/40">
+                          <span>Response: <span className="text-white/60">{review.response_time}</span></span>
+                          <span>Max gap: <span className="text-white/60">{review.max_gap_hours.toFixed(1)}h</span></span>
+                        </div>
                       </div>
 
                       {/* Summary */}
-                      <p className="text-sm text-white/80 leading-relaxed mb-3">{review.summary}</p>
+                      <p className="text-[15px] text-white/90 leading-7 mb-5">{review.summary}</p>
 
                       {/* Strengths & Improvements — side by side */}
-                      <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="grid grid-cols-2 gap-4 mb-4">
                         {review.strengths && (
-                          <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/10 p-3">
-                            <p className="text-xs text-emerald-400 font-semibold mb-1.5">Strengths</p>
-                            <p className="text-sm text-emerald-200/70 leading-relaxed">{review.strengths}</p>
+                          <div className="rounded-xl bg-emerald-500/8 border border-emerald-500/15 p-5">
+                            <p className="text-sm text-emerald-400 font-bold mb-2">Strengths</p>
+                            <p className="text-[15px] text-emerald-100/80 leading-7">{review.strengths}</p>
                           </div>
                         )}
                         {review.improvement_areas && (
-                          <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 p-3">
-                            <p className="text-xs text-amber-400 font-semibold mb-1.5">Needs Improvement</p>
-                            <p className="text-sm text-amber-200/70 leading-relaxed">{review.improvement_areas}</p>
+                          <div className="rounded-xl bg-amber-500/8 border border-amber-500/15 p-5">
+                            <p className="text-sm text-amber-400 font-bold mb-2">Needs Improvement</p>
+                            <p className="text-[15px] text-amber-100/80 leading-7">{review.improvement_areas}</p>
                           </div>
                         )}
                       </div>
 
                       {/* Suggestions */}
                       {review.suggestions.length > 0 && (
-                        <div className="rounded-lg bg-blue-500/5 border border-blue-500/10 p-3 mb-3">
-                          <p className="text-xs text-blue-400 font-semibold mb-2">Suggestions</p>
-                          <ul className="space-y-1.5">
+                        <div className="rounded-xl bg-blue-500/8 border border-blue-500/15 p-5 mb-4">
+                          <p className="text-sm text-blue-400 font-bold mb-3">Suggestions</p>
+                          <ul className="space-y-2.5">
                             {review.suggestions.map((s, i) => (
-                              <li key={i} className="text-sm text-blue-200/70 leading-relaxed pl-4 relative">
-                                <span className="absolute left-0 text-blue-400/50">•</span>
+                              <li key={i} className="text-[15px] text-blue-100/80 leading-7 pl-5 relative">
+                                <span className="absolute left-0 text-blue-400">•</span>
                                 {s}
                               </li>
                             ))}
@@ -334,16 +321,16 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
 
                       {/* Footer — only on latest */}
                       {isLatest && (
-                        <div className="flex items-center gap-4 pt-2 border-t border-white/[0.04]">
-                          <span className="text-xs text-white/30">
-                            Client: <span className="text-white/50">{review.tickets.client_name ?? "Unknown"}</span>
+                        <div className="flex items-center gap-5 pt-3 mt-2 border-t border-white/[0.06]">
+                          <span className="text-sm text-white/40">
+                            Client: <span className="text-white/70 font-medium">{review.tickets.client_name ?? "Unknown"}</span>
                           </span>
-                          <span className="text-xs text-white/30">
-                            Tech: <span className="text-white/50">{review.tech_name ?? "Unassigned"}</span>
+                          <span className="text-sm text-white/40">
+                            Tech: <span className="text-white/70 font-medium">{review.tech_name ?? "Unassigned"}</span>
                           </span>
                           <button
                             onClick={() => onSelectTicket(ticketId)}
-                            className="ml-auto text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
+                            className="ml-auto text-sm text-indigo-400 hover:text-indigo-300 hover:underline font-medium"
                           >
                             View ticket →
                           </button>
