@@ -110,3 +110,68 @@ When a customer asks "any update?", "status?", "following up", etc:
 
 ## Integration Mapping
 Agents only run when their integration is active AND has a customer mapping for the ticket's client. Dwight (Hudu) and Angela (security) always run.
+
+### Customer Mapping
+- Mappings are **auto-matched by name** between Halo client and each integration's customer list.
+- No manual mapping required — system matches on company name.
+
+### Live Integrations (as of March 2026)
+- **Hudu** (Dwight) — LIVE
+- **Datto RMM** (Andy) — LIVE
+- **JumpCloud** (Jim) — LIVE
+- All others are stubbed/planned but not live yet.
+
+## Halo PSA Details
+
+### Ticket Types
+- **Gamma Default**: The main ticket type for real customer tickets. Triage these fully.
+- **Alerts**: Automated monitoring alerts. Fast-path only (Erin Hannon / Haiku).
+- **Auto-reclassification**: If Ryan classifies a "Gamma Default" ticket as an alert, the system should **change the ticket type in Halo to Alerts** (write-back to Halo API). This keeps Halo clean and ensures alerts don't clutter the default queue.
+- Other ticket types are not currently used.
+
+### 3-Hour Scan Scope
+- Only scan open **Gamma Default** tickets. Skip Alerts entirely.
+- No age cutoff — scan all open Gamma Default tickets regardless of creation date.
+
+## Client & Environment Context
+
+### Gamma Tech Identity
+- **Company**: Gamma Tech Services LLC
+- **Location**: Naples, FL
+- **Domains**: gtmail.us, gamma.tech
+- **Helpdesk email**: help@gamma.tech
+- When tickets come from gtmail.us or gamma.tech — that's the MSP itself (internal), not a client.
+
+### Client Profile
+- **Typical size**: Mixed SMB — ranges from small offices (5-10 users) to medium companies (50-100 users)
+- **Email platform**: M365 dominant — nearly all clients use Microsoft 365
+- **VIP clients**: No VIP distinction currently — all clients treated equally
+
+### Tech Team
+- **Size**: 4-8 technicians
+- **Structure**: No formal L1/L2/L3 tiers — everyone handles everything
+- **Dispatcher**: Bryanna (sole dispatcher, hardcoded)
+- **Identification**: Techs identified by Halo's assigned agent field (agent_name / agent_id)
+
+## Triage Output Preferences
+
+### Format
+- Keep the current structured format (table/sections) but **cut the filler** — less verbose, same structure.
+- Techs won't read walls of text. Every sentence should carry useful information.
+- Don't pad with obvious statements like "This ticket appears to be about a computer issue."
+
+### Missing Info to Improve
+- **Hudu context**: Pull relevant client docs, network diagrams, known issues, passwords context, and previous procedures for that client. Techs currently have to go look this up manually.
+- **Datto device info**: If the ticket mentions a specific device, pull its status, recent alerts, patch status, and last-seen from Datto RMM. Techs shouldn't have to open a second console to check device health.
+
+### Retriage Notes
+- **Adaptive**: Small update (customer reply with minor info) = compact diff note. Big change (new symptoms, escalation, priority shift) = full retriage note.
+- Don't repeat the entire original triage when a customer just says "thanks, that worked."
+
+### Update Requests
+- **Internal alert only** — do NOT draft customer responses. The tech decides what to say.
+- Teams alert should fire immediately upon detection (within the webhook handler, not batched).
+
+## Planned Features
+- **Thumbs up/down feedback**: Add to the web dashboard so admins can rate triage quality. This will feed into future model fine-tuning and prompt improvement.
+- **Triage quality tracking**: Store feedback in a table linked to triage_results for analysis.
