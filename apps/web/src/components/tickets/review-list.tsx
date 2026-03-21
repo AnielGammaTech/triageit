@@ -230,8 +230,8 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
               )}
 
               {/* Tech name */}
-              <span className="text-sm text-white/50 shrink-0">
-                {latest.tech_name ?? "Unassigned"}
+              <span className={cn("text-sm shrink-0", latest.tech_name ? "text-white/50" : "text-amber-400/70")}>
+                {latest.tech_name ?? "Dispatch (Bryanna)"}
               </span>
 
               {/* Time */}
@@ -326,7 +326,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                             Client: <span className="text-white/70 font-medium">{review.tickets.client_name ?? "Unknown"}</span>
                           </span>
                           <span className="text-sm text-white/40">
-                            Tech: <span className="text-white/70 font-medium">{review.tech_name ?? "Unassigned"}</span>
+                            Tech: <span className={cn("font-medium", review.tech_name ? "text-white/70" : "text-amber-400/80")}>{review.tech_name ?? "Dispatch (Bryanna)"}</span>
                           </span>
                           <button
                             onClick={() => onSelectTicket(ticketId)}

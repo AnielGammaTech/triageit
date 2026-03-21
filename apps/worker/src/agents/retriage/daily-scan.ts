@@ -312,7 +312,7 @@ function quickRuleCheck(
   if (flags.includes("customer_waiting"))
     recommendations.push(`Customer replied 24+ hours ago with no follow-up from ${techLabel} — respond ASAP.`);
   if (flags.includes("unassigned"))
-    recommendations.push("Ticket is unassigned — assign a specific technician immediately.");
+    recommendations.push("Ticket is unassigned — dispatcher (Bryanna) needs to assign a technician immediately.");
   if (flags.includes("stale"))
     recommendations.push(`No activity from ${techLabel} for ${daysBetween(lastActivity!, now)} days — review and update.`);
   if (flags.includes("no_tech_notes"))
