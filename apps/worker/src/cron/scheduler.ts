@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
+import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
 
@@ -24,6 +25,7 @@ let scheduledTasks: ReadonlyArray<ScheduledTask> = [];
 const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/retriage": runDailyRetriage,
   "/sla-scan": runSlaScan,
+  "/toby/analyze": runTobyAnalysisCron,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -53,6 +55,26 @@ async function updateJobStatus(
       updated_at: new Date().toISOString(),
     })
     .eq("id", jobId);
+}
+
+async function runTobyAnalysisCron(): Promise<void> {
+  console.log("[CRON] Starting Toby's learning analysis");
+  const supabase = createSupabaseClient();
+
+  try {
+    const result = await runTobyAnalysis(supabase, "daily");
+    console.log(`[CRON] Toby analysis complete: ${result.summary}`);
+
+    // Send Teams notification with Toby's findings
+    const teamsConfig = await getTeamsConfig();
+    if (teamsConfig && (result.trendsDetected > 0 || result.techProfilesUpdated > 0)) {
+      const teams = new TeamsClient(teamsConfig);
+      await teams.sendTobyReport(result);
+    }
+  } catch (err) {
+    console.error("[CRON] Toby analysis failed:", err);
+    throw err;
+  }
 }
 
 async function runSlaScan(): Promise<void> {

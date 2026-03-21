@@ -104,6 +104,9 @@ When a customer asks "any update?", "status?", "following up", etc:
 - **Darryl Philbin**: CIPP M365 management
 - **Creed Bratton**: UniFi networking
 
+### Analytics
+- **Toby Flenderson**: Learning & analytics agent — runs daily at 2 AM ET. Analyzes all tickets to build tech behavioral profiles, detect customer patterns, identify cross-ticket trends, and self-evaluate triage accuracy. Feeds insights back into Michael's skills and shared memory so the whole pipeline gets smarter over time.
+
 ### Support Roles
 - **Erin Hannon**: Alert summarizer (fast path for automated alerts)
 - **Pam Beesly**: Dead code — customer response drafting (remove)
@@ -172,6 +175,35 @@ Agents only run when their integration is active AND has a customer mapping for 
 - **Internal alert only** — do NOT draft customer responses. The tech decides what to say.
 - Teams alert should fire immediately upon detection (within the webhook handler, not batched).
 
+## Toby Flenderson — Learning Agent Details
+
+### What Toby Produces
+1. **Tech profiles** (`tech_profiles` table): Per-tech scorecards with avg response time, ticket volume, rating breakdown, strong/weak categories, behavioral patterns summary
+2. **Customer insights** (`customer_insights` table): Per-client patterns — recurring issues, top issue types, update request frequency, environment notes
+3. **Trend detections** (`trend_detections` table): Cross-ticket patterns — spikes, recurring issues, anomalies, correlations, improvements/degradations
+4. **Triage evaluations** (`triage_evaluations` table): Self-assessment — compares AI predictions vs actual outcomes for resolved tickets
+
+### Where Insights Go
+- **Database**: All four tables above, displayed in the web dashboard
+- **Michael's memory**: Key findings stored as shared memories for all agents
+- **Michael's skills**: Updated context skills ("Toby's Tech Profiles" and "Toby's Customer Profiles") injected into every future triage
+- **Teams**: Daily summary card with key findings
+- **Run log**: `toby_run_log` table tracks every analysis run
+
+### Schedule
+- Daily at 2 AM ET via cron job
+- Manual trigger: `POST /toby/analyze`
+- Analyzes last 30 days of ticket data
+
+## Known Issues
+
+### Cron Jobs Not Running on Railway
+The node-cron scheduler in the worker may not be firing reliably on Railway. Cron jobs appear to work locally but not in production. Tickets only get triaged when manually triggered, not automatically.
+- **Workaround**: May need to use Railway's native cron service or an external scheduler instead of in-process node-cron.
+- **Affected**: Daily retriage scan (every 3 hours), SLA breach scan, Toby's daily analysis (2 AM)
+- **Investigate**: Check Railway logs for cron scheduling messages. Consider adding a heartbeat/health endpoint that confirms cron is running.
+
 ## Planned Features
 - **Thumbs up/down feedback**: Add to the web dashboard so admins can rate triage quality. This will feed into future model fine-tuning and prompt improvement.
 - **Triage quality tracking**: Store feedback in a table linked to triage_results for analysis.
+- **Fix Railway cron**: Move to Railway's cron service or external scheduler for reliable periodic jobs.

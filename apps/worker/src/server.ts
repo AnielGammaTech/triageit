@@ -20,6 +20,7 @@ import {
   webhookActionSchema,
 } from "./validation/schemas.js";
 import { MemoryManager } from "./memory/memory-manager.js";
+import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 
 const server = Fastify({ logger: true });
 
@@ -134,6 +135,24 @@ server.post<{ Body: { max_age_days?: number; min_confidence?: number } }>(
       });
 
       return { status: "completed", evicted };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Toby learning analysis — manual trigger
+server.post<{ Body: Record<string, never> }>(
+  "/toby/analyze",
+  async (_request, reply) => {
+    try {
+      const supabase = createSupabaseClient();
+      const result = await runTobyAnalysis(supabase, "manual");
+      return {
+        status: "completed",
+        ...result,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
