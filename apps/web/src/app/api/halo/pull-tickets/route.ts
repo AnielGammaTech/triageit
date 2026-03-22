@@ -405,6 +405,44 @@ export async function POST() {
       }
     }
 
+    // ── Auto-triage pending tickets that were never triaged ──────────
+    // Tickets stuck in "pending" status missed their initial triage.
+    let pendingTriaged = 0;
+    {
+      const workerUrl = process.env.WORKER_URL ?? process.env.NEXT_PUBLIC_WORKER_URL;
+      if (workerUrl) {
+        const { data: pendingTickets } = await serviceClient
+          .from("tickets")
+          .select("id, halo_id, updated_at")
+          .eq("status", "pending");
+
+        // Only retry tickets that have been pending for at least 2 minutes
+        // (avoid racing with in-flight triage requests)
+        const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+
+        for (const ticket of pendingTickets ?? []) {
+          const updatedAt = ticket.updated_at ? new Date(ticket.updated_at).getTime() : 0;
+          if (updatedAt < twoMinutesAgo) {
+            try {
+              await fetch(`${workerUrl}/triage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ halo_id: ticket.halo_id }),
+              });
+              pendingTriaged++;
+              console.log(`[HALO SYNC] Retrying stuck pending ticket #${ticket.halo_id}`);
+            } catch {
+              // Non-critical
+            }
+          }
+        }
+
+        if (pendingTriaged > 0) {
+          console.log(`[HALO SYNC] Re-queued ${pendingTriaged} stuck pending tickets for triage`);
+        }
+      }
+    }
+
     // ── Auto-triage SLA-breaching tickets ────────────────────────────
     // Tickets with breached response or fix SLA need immediate attention.
     // Trigger triage for any that haven't been triaged recently.
@@ -473,6 +511,7 @@ export async function POST() {
       updated,
       closed: closedCount,
       reset_to_pending: resetToPending,
+      pending_retriaged: pendingTriaged,
       sla_breaching: slaBreachers.length,
       sla_auto_triaged: slaTriaged,
       maps: { agents: agentNameMap.size, statuses: statusNameMap.size },

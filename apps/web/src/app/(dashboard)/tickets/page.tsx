@@ -114,9 +114,10 @@ export default function TicketsPage() {
         const breakdown = result.open_count && result.closed_synced
           ? ` (${result.open_count} open + ${result.closed_synced} recently resolved)`
           : "";
+        const pendingInfo = result.pending_retriaged ? `, ${result.pending_retriaged} pending re-queued` : "";
         setStatusMessage({
           type: result.errors?.length ? "error" : "success",
-          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${breakdown}${errInfo}`,
+          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${pendingInfo}${breakdown}${errInfo}`,
         });
       }
     } catch (err) {
