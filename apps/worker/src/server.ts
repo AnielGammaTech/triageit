@@ -8,6 +8,8 @@ import {
   triggerDailyRetriage,
   reloadCronScheduler,
   triggerCronJob,
+  catchUpMissedJobs,
+  getCronStatus,
 } from "./cron/scheduler.js";
 import {
   isUpdateRequest,
@@ -141,6 +143,11 @@ server.post<{ Body: { max_age_days?: number; min_confidence?: number } }>(
     }
   },
 );
+
+// Cron status — check if scheduler is alive and when jobs last ran
+server.get("/cron/status", async () => {
+  return getCronStatus();
+});
 
 // Toby learning analysis — manual trigger
 server.post<{ Body: Record<string, never> }>(
@@ -303,6 +310,11 @@ async function start() {
 
   // Process any tickets stuck in pending (missed while worker was down)
   await processPendingTickets();
+
+  // Catch up on any cron jobs that should have run while we were down
+  catchUpMissedJobs().catch((err) => {
+    console.error("[WORKER] Cron catch-up failed:", err);
+  });
 
   // Retroactive SLA scan — catch any breaching tickets on startup
   scanForSlaBreaches().catch((err) => {

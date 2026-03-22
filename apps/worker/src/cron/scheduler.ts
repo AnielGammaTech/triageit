@@ -20,6 +20,9 @@ interface ScheduledTask {
 }
 
 let scheduledTasks: ReadonlyArray<ScheduledTask> = [];
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Map of endpoint -> handler function
 const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
@@ -191,6 +194,7 @@ export async function startCronScheduler(): Promise<void> {
   }
 
   scheduledTasks = newTasks;
+  startHeartbeat();
   console.log(`[CRON] Scheduler started with ${newTasks.length} active jobs`);
 }
 
@@ -219,6 +223,7 @@ function startLegacyScheduler(): void {
   });
 
   scheduledTasks = [{ jobId: "legacy", task }];
+  startHeartbeat();
   console.log(`[CRON] Legacy scheduler started — schedule: "${schedule}"`);
 }
 
@@ -227,6 +232,11 @@ export function stopCronScheduler(): void {
     task.stop();
   }
   scheduledTasks = [];
+
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
 }
 
 /**
@@ -255,6 +265,153 @@ export async function triggerCronJob(jobId: string): Promise<{ status: string; e
 
   await executeJob(job);
   return { status: "triggered" };
+}
+
+// ── Heartbeat ────────────────────────────────────────────────────────
+
+/**
+ * Write a heartbeat to Supabase every 5 minutes.
+ * This lets us detect when the cron scheduler stops running.
+ */
+function startHeartbeat(): void {
+  if (heartbeatInterval) return;
+
+  const beat = async () => {
+    try {
+      const supabase = createSupabaseClient();
+      await supabase
+        .from("cron_heartbeat")
+        .upsert(
+          {
+            id: "worker-cron",
+            last_heartbeat: new Date().toISOString(),
+            active_jobs: scheduledTasks.length,
+          },
+          { onConflict: "id" },
+        );
+    } catch {
+      // Non-critical — don't crash the worker over a heartbeat failure
+    }
+  };
+
+  // Immediate first beat
+  beat();
+  heartbeatInterval = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+  console.log("[CRON] Heartbeat started (every 5m)");
+}
+
+// ── Missed Job Catch-up ──────────────────────────────────────────────
+
+/**
+ * On startup, check which cron jobs should have run while the worker was down
+ * and execute them immediately. Prevents gaps when Railway restarts the service.
+ */
+export async function catchUpMissedJobs(): Promise<void> {
+  const supabase = createSupabaseClient();
+
+  const { data: jobs, error } = await supabase
+    .from("cron_jobs")
+    .select("id, name, schedule, endpoint, is_active, last_run_at")
+    .eq("is_active", true);
+
+  if (error || !jobs || jobs.length === 0) return;
+
+  const now = Date.now();
+
+  for (const job of jobs) {
+    try {
+      const lastRun = job.last_run_at ? new Date(job.last_run_at).getTime() : 0;
+      const intervalMs = estimateIntervalMs(job.schedule);
+
+      if (intervalMs <= 0) continue;
+
+      // If the last run was more than 1.5x the interval ago, it was missed
+      const missedThreshold = intervalMs * 1.5;
+      const timeSinceLastRun = now - lastRun;
+
+      if (timeSinceLastRun > missedThreshold) {
+        const hoursAgo = (timeSinceLastRun / (1000 * 60 * 60)).toFixed(1);
+        console.log(
+          `[CRON] Catch-up: "${job.name}" last ran ${hoursAgo}h ago (interval: ${(intervalMs / (1000 * 60 * 60)).toFixed(1)}h) — running now`,
+        );
+        await executeJob(job);
+      }
+    } catch (err) {
+      console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
+    }
+  }
+}
+
+/**
+ * Estimate the rough interval in ms from a cron expression.
+ * Used only for catch-up detection — doesn't need to be exact.
+ */
+function estimateIntervalMs(schedule: string): number {
+  const parts = schedule.split(/\s+/);
+  if (parts.length < 5) return 0;
+
+  const [minute, hour] = parts;
+
+  // Every N hours: "0 */N * * *"
+  const hourlyMatch = hour?.match(/^\*\/(\d+)$/);
+  if (hourlyMatch) {
+    return parseInt(hourlyMatch[1], 10) * 60 * 60 * 1000;
+  }
+
+  // Every N minutes: "*/N * * * *"
+  const minuteMatch = minute?.match(/^\*\/(\d+)$/);
+  if (minuteMatch) {
+    return parseInt(minuteMatch[1], 10) * 60 * 1000;
+  }
+
+  // Specific hour (daily job): "M H * * *"
+  if (hour !== "*" && !hour?.includes("/") && !hour?.includes(",")) {
+    return 24 * 60 * 60 * 1000; // daily
+  }
+
+  // Default: assume hourly
+  return 60 * 60 * 1000;
+}
+
+/**
+ * Get cron scheduler health status for the /cron/status endpoint.
+ */
+export async function getCronStatus(): Promise<{
+  readonly active: boolean;
+  readonly jobCount: number;
+  readonly heartbeat: string | null;
+  readonly jobs: ReadonlyArray<{
+    readonly name: string;
+    readonly schedule: string;
+    readonly lastRun: string | null;
+    readonly lastStatus: string | null;
+  }>;
+}> {
+  const supabase = createSupabaseClient();
+
+  const [{ data: heartbeat }, { data: jobs }] = await Promise.all([
+    supabase
+      .from("cron_heartbeat")
+      .select("last_heartbeat")
+      .eq("id", "worker-cron")
+      .maybeSingle(),
+    supabase
+      .from("cron_jobs")
+      .select("name, schedule, last_run_at, last_status, is_active")
+      .eq("is_active", true),
+  ]);
+
+  return {
+    active: scheduledTasks.length > 0,
+    jobCount: scheduledTasks.length,
+    heartbeat: heartbeat?.last_heartbeat ?? null,
+    jobs: (jobs ?? []).map((j) => ({
+      name: j.name,
+      schedule: j.schedule,
+      lastRun: j.last_run_at,
+      lastStatus: j.last_status,
+    })),
+  };
 }
 
 // Manual trigger (from the /retriage endpoint)
