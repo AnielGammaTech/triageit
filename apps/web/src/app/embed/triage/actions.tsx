@@ -311,6 +311,185 @@ function SummarizeITButton({
   );
 }
 
+// ── Suggest Customer Reply Button ───────────────────────────────────────
+
+function SuggestReplyButton({
+  haloId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly token: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [reply, setReply] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleSuggest = useCallback(async () => {
+    if (state === "loading") return;
+    setState("loading");
+
+    try {
+      const response = await fetch("/api/embed/suggest-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId, token }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as { reply: string };
+        setReply(data.reply);
+        setState("done");
+      } else {
+        setState("error");
+        setTimeout(() => setState("idle"), 3000);
+      }
+    } catch {
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
+    }
+  }, [haloId, token, state]);
+
+  const handleCopy = useCallback(async () => {
+    if (!reply) return;
+    try {
+      await navigator.clipboard.writeText(reply);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = reply;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [reply]);
+
+  if (state === "done" && reply) {
+    return (
+      <div style={{ width: "100%" }}>
+        <div
+          style={{
+            backgroundColor: "rgba(99, 102, 241, 0.06)",
+            border: "1px solid rgba(99, 102, 241, 0.15)",
+            borderRadius: "10px",
+            padding: "12px 14px",
+            marginTop: "8px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#818cf8", letterSpacing: "0.03em", textTransform: "uppercase" as const }}>
+              Suggested Customer Reply
+            </span>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                onClick={handleCopy}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: copied ? "#34d399" : "#a1a1aa",
+                  backgroundColor: copied ? "rgba(52, 211, 153, 0.08)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${copied ? "rgba(52, 211, 153, 0.2)" : "rgba(255,255,255,0.06)"}`,
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+              <button
+                onClick={() => { setState("idle"); setReply(null); }}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: "#a1a1aa",
+                  backgroundColor: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <p style={{ fontSize: "12px", color: "#d4d4d8", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" as const }}>
+            {reply}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const config = {
+    idle: { label: "Suggest Reply", bg: "rgba(255,255,255,0.03)", color: "#a1a1aa", border: "rgba(255,255,255,0.06)" },
+    loading: { label: "Generating...", bg: "rgba(99, 102, 241, 0.1)", color: "#818cf8", border: "rgba(99, 102, 241, 0.2)" },
+    error: { label: "Failed", bg: "rgba(239, 68, 68, 0.1)", color: "#f87171", border: "rgba(239, 68, 68, 0.2)" },
+    done: { label: "Done", bg: "rgba(52, 211, 153, 0.1)", color: "#34d399", border: "rgba(52, 211, 153, 0.2)" },
+  } as const;
+
+  const c = config[state];
+
+  return (
+    <button
+      onClick={handleSuggest}
+      disabled={state === "loading"}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "7px 14px",
+        fontSize: "11px",
+        fontWeight: 600,
+        fontFamily: "inherit",
+        color: c.color,
+        backgroundColor: c.bg,
+        border: `1px solid ${c.border}`,
+        borderRadius: "8px",
+        cursor: state === "loading" ? "not-allowed" : "pointer",
+        transition: "all 0.2s ease",
+        whiteSpace: "nowrap" as const,
+        letterSpacing: "0.01em",
+      }}
+      onMouseEnter={(e) => {
+        if (state === "idle") {
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+          e.currentTarget.style.color = "#d4d4d8";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (state === "idle") {
+          e.currentTarget.style.backgroundColor = c.bg;
+          e.currentTarget.style.borderColor = c.border;
+          e.currentTarget.style.color = c.color;
+        }
+      }}
+    >
+      {state === "loading" && (
+        <span
+          style={{
+            display: "inline-block",
+            width: "11px",
+            height: "11px",
+            border: "2px solid rgba(129, 140, 248, 0.3)",
+            borderTopColor: "#818cf8",
+            borderRadius: "50%",
+            animation: "spin 0.6s linear infinite",
+          }}
+        />
+      )}
+      <span style={{ fontSize: "13px" }}>💬</span>
+      {c.label}
+    </button>
+  );
+}
+
 // ── Quick Action Bar ────────────────────────────────────────────────────
 
 export function QuickActions({
@@ -330,11 +509,12 @@ export function QuickActions({
   return (
     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const, alignItems: "center" }}>
       {suggestedResponse && (
-        <CopyButton text={suggestedResponse} label="Copy Response" icon="\u2709" />
+        <CopyButton text={suggestedResponse} label="Copy Response" icon={"✉"} />
       )}
       {internalNotes && (
-        <CopyButton text={internalNotes} label="Copy Notes" icon="\u270E" />
+        <CopyButton text={internalNotes} label="Copy Notes" icon={"📋"} />
       )}
+      <SuggestReplyButton haloId={haloId} token={token} />
       <SummarizeITButton haloId={haloId} token={token} />
       <ReTriageButton haloId={haloId} token={token} />
     </div>
