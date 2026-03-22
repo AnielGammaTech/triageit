@@ -146,123 +146,202 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--card)]">
-          <tr className="border-b border-[var(--border)]">
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">#</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Summary</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Client</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Status</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Pri</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Activity</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Triaged</th>
-            <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Assigned To</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tickets.map((ticket) => {
-            const flags = getFlags(ticket);
-            const hasCritical = flags.some((f) => f.severity === "critical");
-            const statusStyle = getStatusStyle(ticket.halo_status ?? "");
+    <>
+      {/* Mobile: card layout */}
+      <div className="space-y-2 md:hidden">
+        {tickets.map((ticket) => {
+          const flags = getFlags(ticket);
+          const hasCritical = flags.some((f) => f.severity === "critical");
+          const statusStyle = getStatusStyle(ticket.halo_status ?? "");
 
-            // Most recent activity timestamp
-            const techTime = ticket.last_tech_action_at
-              ? new Date(ticket.last_tech_action_at).getTime()
-              : 0;
-            const clientTime = ticket.last_customer_reply_at
-              ? new Date(ticket.last_customer_reply_at).getTime()
-              : 0;
-            const latestTime = Math.max(techTime, clientTime);
-            const activityLabel = latestTime > 0
-              ? timeAgo(new Date(latestTime).toISOString())
-              : "—";
+          const techTime = ticket.last_tech_action_at ? new Date(ticket.last_tech_action_at).getTime() : 0;
+          const clientTime = ticket.last_customer_reply_at ? new Date(ticket.last_customer_reply_at).getTime() : 0;
+          const latestTime = Math.max(techTime, clientTime);
+          const activityLabel = latestTime > 0 ? timeAgo(new Date(latestTime).toISOString()) : "—";
 
-            return (
-              <tr
-                key={ticket.id}
-                onClick={() => onSelectTicket(ticket.id)}
-                className={cn(
-                  "border-b border-[var(--border)] transition-colors cursor-pointer",
-                  hasCritical
-                    ? "hover:bg-red-500/5 bg-red-500/[0.02]"
-                    : "hover:bg-[var(--accent)]",
-                )}
-              >
-                <td className="px-3 py-2 font-mono text-xs">
+          return (
+            <div
+              key={ticket.id}
+              onClick={() => onSelectTicket(ticket.id)}
+              className={cn(
+                "rounded-lg border p-3 cursor-pointer transition-colors",
+                hasCritical
+                  ? "border-red-500/20 bg-red-500/[0.04] hover:bg-red-500/[0.08]"
+                  : "border-[var(--border)] bg-[var(--card)] hover:bg-[var(--accent)]",
+              )}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
                   {haloBaseUrl ? (
                     <a
                       href={`${haloBaseUrl}/tickets?id=${ticket.halo_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-[#6366f1] hover:text-[#818cf8] transition-colors"
-                      title="Open in Halo"
+                      className="font-mono text-xs text-[#6366f1] hover:text-[#818cf8]"
                     >
-                      {ticket.halo_id}
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
+                      #{ticket.halo_id}
                     </a>
                   ) : (
-                    <span className="text-[#6366f1]">{ticket.halo_id}</span>
+                    <span className="font-mono text-xs text-[#6366f1]">#{ticket.halo_id}</span>
                   )}
-                </td>
-                <td className="max-w-sm truncate px-3 py-2">
-                  {ticket.summary}
-                </td>
-                <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                  {ticket.client_name ?? "—"}
-                </td>
-                <td className="px-3 py-2">
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
                   </span>
-                </td>
-                <td className={cn("px-3 py-2 text-xs font-medium", PRIORITY_COLORS[ticket.original_priority ?? 0] ?? "text-[var(--muted-foreground)]")}>
-                  {ticket.original_priority ? (PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`) : "—"}
-                </td>
-                <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
-                  {activityLabel}
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {(() => {
-                    const retriageAt = ticket.last_retriage_at;
-                    const triageAt = ticket.triage_results[0]?.created_at;
-                    if (retriageAt) {
-                      return (
-                        <span className="inline-flex items-center gap-1 text-violet-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString()}`}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
-                          {timeAgo(retriageAt)}
-                        </span>
-                      );
-                    }
-                    if (triageAt) {
-                      return (
-                        <span className="text-emerald-400/70" title={`Triaged: ${new Date(triageAt).toLocaleString()}`}>
-                          {timeAgo(triageAt)}
-                        </span>
-                      );
-                    }
-                    return <span className="text-white/20">—</span>;
-                  })()}
-                </td>
-                <td className="px-3 py-2 text-xs">
+                </div>
+                <span className="text-xs text-[var(--muted-foreground)]">{activityLabel}</span>
+              </div>
+
+              <p className="text-sm text-white mb-2 line-clamp-2">{ticket.summary}</p>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</span>
+                <span className={cn("text-xs", ticket.halo_agent ? "text-[var(--muted-foreground)]" : "")}>
                   {ticket.halo_agent ? (
-                    <span className="text-[var(--muted-foreground)]">{ticket.halo_agent}</span>
+                    ticket.halo_agent
                   ) : (
                     <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES.warning)}>
                       Unassigned
                     </span>
                   )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                </span>
+              </div>
+
+              {flags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {flags.map((flag) => (
+                    <span
+                      key={flag.label}
+                      className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES[flag.severity])}
+                    >
+                      {flag.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: table layout */}
+      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
+        <table className="w-full text-sm">
+          <thead className="bg-[var(--card)]">
+            <tr className="border-b border-[var(--border)]">
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">#</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Summary</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Client</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Status</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Pri</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Activity</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Triaged</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Assigned To</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tickets.map((ticket) => {
+              const flags = getFlags(ticket);
+              const hasCritical = flags.some((f) => f.severity === "critical");
+              const statusStyle = getStatusStyle(ticket.halo_status ?? "");
+
+              const techTime = ticket.last_tech_action_at
+                ? new Date(ticket.last_tech_action_at).getTime()
+                : 0;
+              const clientTime = ticket.last_customer_reply_at
+                ? new Date(ticket.last_customer_reply_at).getTime()
+                : 0;
+              const latestTime = Math.max(techTime, clientTime);
+              const activityLabel = latestTime > 0
+                ? timeAgo(new Date(latestTime).toISOString())
+                : "—";
+
+              return (
+                <tr
+                  key={ticket.id}
+                  onClick={() => onSelectTicket(ticket.id)}
+                  className={cn(
+                    "border-b border-[var(--border)] transition-colors cursor-pointer",
+                    hasCritical
+                      ? "hover:bg-red-500/5 bg-red-500/[0.02]"
+                      : "hover:bg-[var(--accent)]",
+                  )}
+                >
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {haloBaseUrl ? (
+                      <a
+                        href={`${haloBaseUrl}/tickets?id=${ticket.halo_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-[#6366f1] hover:text-[#818cf8] transition-colors"
+                        title="Open in Halo"
+                      >
+                        {ticket.halo_id}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
+                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                          <polyline points="15 3 21 3 21 9" />
+                          <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                      </a>
+                    ) : (
+                      <span className="text-[#6366f1]">{ticket.halo_id}</span>
+                    )}
+                  </td>
+                  <td className="max-w-sm truncate px-3 py-2">
+                    {ticket.summary}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                    {ticket.client_name ?? "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
+                      {ticket.halo_status ?? "Unknown"}
+                    </span>
+                  </td>
+                  <td className={cn("px-3 py-2 text-xs font-medium", PRIORITY_COLORS[ticket.original_priority ?? 0] ?? "text-[var(--muted-foreground)]")}>
+                    {ticket.original_priority ? (PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                    {activityLabel}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {(() => {
+                      const retriageAt = ticket.last_retriage_at;
+                      const triageAt = ticket.triage_results[0]?.created_at;
+                      if (retriageAt) {
+                        return (
+                          <span className="inline-flex items-center gap-1 text-violet-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString()}`}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                            {timeAgo(retriageAt)}
+                          </span>
+                        );
+                      }
+                      if (triageAt) {
+                        return (
+                          <span className="text-emerald-400/70" title={`Triaged: ${new Date(triageAt).toLocaleString()}`}>
+                            {timeAgo(triageAt)}
+                          </span>
+                        );
+                      }
+                      return <span className="text-white/20">—</span>;
+                    })()}
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {ticket.halo_agent ? (
+                      <span className="text-[var(--muted-foreground)]">{ticket.halo_agent}</span>
+                    ) : (
+                      <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES.warning)}>
+                        Unassigned
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

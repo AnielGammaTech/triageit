@@ -258,6 +258,58 @@ export class TeamsClient {
     await this.sendCard(card);
   }
 
+  async sendTobyReport(result: {
+    readonly techProfilesUpdated: number;
+    readonly customerInsightsUpdated: number;
+    readonly trendsDetected: number;
+    readonly triagesEvaluated: number;
+    readonly tokensUsed: number;
+    readonly processingTimeMs: number;
+    readonly summary: string;
+  }): Promise<void> {
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                text: "TriageIt — Toby's Daily Learning Report",
+                weight: "Bolder",
+                size: "Large",
+              },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Tech Profiles", value: String(result.techProfilesUpdated) },
+                  { title: "Customer Insights", value: String(result.customerInsightsUpdated) },
+                  { title: "Trends Detected", value: String(result.trendsDetected) },
+                  { title: "Triages Evaluated", value: String(result.triagesEvaluated) },
+                  { title: "Tokens Used", value: String(result.tokensUsed) },
+                  { title: "Processing Time", value: `${(result.processingTimeMs / 1000).toFixed(1)}s` },
+                ],
+              },
+              {
+                type: "TextBlock",
+                text: result.summary,
+                wrap: true,
+                size: "Small",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
   async sendImmediateAlert(ticket: ReTriageTicket, reason: string): Promise<void> {
     const card = {
       type: "message",

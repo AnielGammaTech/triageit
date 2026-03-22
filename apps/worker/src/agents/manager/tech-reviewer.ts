@@ -61,8 +61,12 @@ export function checkReviewEligibility(
     return maxGap;
   })();
 
+  // No tech assigned = nothing to review (that's a dispatch problem, not a tech problem)
+  const hasAssignedTech = !!(context.assignedTechName);
+
   const eligible =
     haloConfig !== null &&
+    hasAssignedTech &&
     actions.length > 0 &&
     customerActions.length > 0;
 

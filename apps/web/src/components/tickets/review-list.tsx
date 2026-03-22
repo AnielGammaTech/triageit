@@ -128,11 +128,11 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
   return (
     <div className="space-y-3">
       {/* Summary bar */}
-      <div className="flex items-center gap-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-2.5">
         <span className="text-xs text-white/40">
           {latestReviews.length} Tech {latestReviews.length === 1 ? "Review" : "Reviews"}
         </span>
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 ml-auto">
           {poorCount > 0 && (
             <span className="flex items-center gap-1.5 text-xs">
               <span className="h-2 w-2 rounded-full bg-red-400" />
@@ -178,77 +178,123 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
           >
             {/* Main review row */}
             <div
-              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.03] transition-colors"
+              className="px-3 sm:px-4 py-3 cursor-pointer hover:bg-white/[0.03] transition-colors"
               onClick={() => setExpandedId(isExpanded ? null : ticketId)}
             >
-              {/* Rating badge */}
-              <span className={cn("shrink-0 rounded px-2.5 py-1 text-[11px] font-bold tracking-wide", style.bg, style.text)}>
-                {style.label}
-              </span>
-
-              {/* Communication score bars */}
-              <div className="flex items-center gap-0.5 shrink-0">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "h-2 w-3.5 rounded-sm",
-                      i <= latest.communication_score
-                        ? COMM_BAR_COLORS[latest.communication_score] ?? "bg-white/40"
-                        : "bg-white/10",
-                    )}
-                  />
-                ))}
-                <span className="ml-1.5 text-xs text-white/40 font-mono">{latest.communication_score}/5</span>
-              </div>
-
-              {/* Ticket info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {haloLink ? (
-                    <a
-                      href={haloLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-mono text-indigo-400 hover:underline shrink-0"
-                      onClick={(e) => e.stopPropagation()}
+              {/* Mobile layout */}
+              <div className="sm:hidden">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className={cn("shrink-0 rounded px-2 py-0.5 text-[10px] font-bold tracking-wide", style.bg, style.text)}>
+                    {style.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-white/30 tabular-nums">{timeAgo(latest.created_at)}</span>
+                    <svg
+                      className={cn("h-4 w-4 text-white/25 transition-transform shrink-0", isExpanded && "rotate-180")}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
                     >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mb-1">
+                  {haloLink ? (
+                    <a href={haloLink} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-mono text-indigo-400 hover:underline shrink-0"
+                      onClick={(e) => e.stopPropagation()}>
                       #{latest.halo_id}
                     </a>
                   ) : (
-                    <span className="text-sm font-mono text-white/40 shrink-0">#{latest.halo_id}</span>
+                    <span className="text-xs font-mono text-white/40 shrink-0">#{latest.halo_id}</span>
                   )}
                   <span className="text-sm text-white/70 truncate">{latest.tickets.summary}</span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className={cn("text-xs", latest.tech_name ? "text-white/50" : "text-amber-400/70")}>
+                    {latest.tech_name ?? "Dispatch (Bryanna)"}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className={cn("h-1.5 w-2.5 rounded-sm",
+                        i <= latest.communication_score ? COMM_BAR_COLORS[latest.communication_score] ?? "bg-white/40" : "bg-white/10"
+                      )} />
+                    ))}
+                    <span className="ml-1 text-[10px] text-white/40 font-mono">{latest.communication_score}/5</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Version count */}
-              {ticketReviews.length > 1 && (
-                <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/40">
-                  {ticketReviews.length} reviews
+              {/* Desktop layout */}
+              <div className="hidden sm:flex items-center gap-3">
+                {/* Rating badge */}
+                <span className={cn("shrink-0 rounded px-2.5 py-1 text-[11px] font-bold tracking-wide", style.bg, style.text)}>
+                  {style.label}
                 </span>
-              )}
 
-              {/* Tech name */}
-              <span className="text-sm text-white/50 shrink-0">
-                {latest.tech_name ?? "Unassigned"}
-              </span>
+                {/* Communication score bars */}
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "h-2 w-3.5 rounded-sm",
+                        i <= latest.communication_score
+                          ? COMM_BAR_COLORS[latest.communication_score] ?? "bg-white/40"
+                          : "bg-white/10",
+                      )}
+                    />
+                  ))}
+                  <span className="ml-1.5 text-xs text-white/40 font-mono">{latest.communication_score}/5</span>
+                </div>
 
-              {/* Time */}
-              <span className="text-xs text-white/30 shrink-0 tabular-nums w-16 text-right">
-                {timeAgo(latest.created_at)}
-              </span>
+                {/* Ticket info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {haloLink ? (
+                      <a
+                        href={haloLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-mono text-indigo-400 hover:underline shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        #{latest.halo_id}
+                      </a>
+                    ) : (
+                      <span className="text-sm font-mono text-white/40 shrink-0">#{latest.halo_id}</span>
+                    )}
+                    <span className="text-sm text-white/70 truncate">{latest.tickets.summary}</span>
+                  </div>
+                </div>
 
-              {/* Expand indicator */}
-              <svg
-                className={cn("h-4 w-4 text-white/25 transition-transform shrink-0", isExpanded && "rotate-180")}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
+                {/* Version count */}
+                {ticketReviews.length > 1 && (
+                  <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/40">
+                    {ticketReviews.length} reviews
+                  </span>
+                )}
+
+                {/* Tech name */}
+                <span className={cn("text-sm shrink-0", latest.tech_name ? "text-white/50" : "text-amber-400/70")}>
+                  {latest.tech_name ?? "Dispatch (Bryanna)"}
+                </span>
+
+                {/* Time */}
+                <span className="text-xs text-white/30 shrink-0 tabular-nums w-16 text-right">
+                  {timeAgo(latest.created_at)}
+                </span>
+
+                {/* Expand indicator */}
+                <svg
+                  className={cn("h-4 w-4 text-white/25 transition-transform shrink-0", isExpanded && "rotate-180")}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
 
             {/* Expanded detail — show ALL reviews */}
@@ -262,13 +308,13 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                     <div
                       key={review.id}
                       className={cn(
-                        "px-6 py-5",
+                        "px-4 py-4 sm:px-6 sm:py-5",
                         idx > 0 && "border-t border-white/[0.06]",
                         !isLatest && "opacity-75 bg-white/[0.01]",
                       )}
                     >
                       {/* Review header */}
-                      <div className="flex items-center gap-3 mb-4">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
                         <span className={cn("rounded px-2.5 py-1 text-xs font-bold", revStyle.bg, revStyle.text)}>
                           {revStyle.label}
                         </span>
@@ -279,7 +325,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                         {!isLatest && (
                           <span className="text-xs text-white/30 font-medium">v{ticketReviews.length - idx}</span>
                         )}
-                        <div className="ml-auto flex items-center gap-4 text-sm text-white/40">
+                        <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-4 text-xs sm:text-sm text-white/40">
                           <span>Response: <span className="text-white/60">{review.response_time}</span></span>
                           <span>Max gap: <span className="text-white/60">{review.max_gap_hours.toFixed(1)}h</span></span>
                         </div>
@@ -288,8 +334,8 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                       {/* Summary */}
                       <p className="text-[15px] text-white/90 leading-7 mb-5">{review.summary}</p>
 
-                      {/* Strengths & Improvements — side by side */}
-                      <div className="grid grid-cols-2 gap-4 mb-4">
+                      {/* Strengths & Improvements — side by side on desktop, stacked on mobile */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                         {review.strengths && (
                           <div className="rounded-xl bg-emerald-500/8 border border-emerald-500/15 p-5">
                             <p className="text-sm text-emerald-400 font-bold mb-2">Strengths</p>
@@ -321,16 +367,16 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
 
                       {/* Footer — only on latest */}
                       {isLatest && (
-                        <div className="flex items-center gap-5 pt-3 mt-2 border-t border-white/[0.06]">
-                          <span className="text-sm text-white/40">
+                        <div className="flex flex-wrap items-center gap-3 sm:gap-5 pt-3 mt-2 border-t border-white/[0.06]">
+                          <span className="text-xs sm:text-sm text-white/40">
                             Client: <span className="text-white/70 font-medium">{review.tickets.client_name ?? "Unknown"}</span>
                           </span>
-                          <span className="text-sm text-white/40">
-                            Tech: <span className="text-white/70 font-medium">{review.tech_name ?? "Unassigned"}</span>
+                          <span className="text-xs sm:text-sm text-white/40">
+                            Tech: <span className={cn("font-medium", review.tech_name ? "text-white/70" : "text-amber-400/80")}>{review.tech_name ?? "Dispatch (Bryanna)"}</span>
                           </span>
                           <button
                             onClick={() => onSelectTicket(ticketId)}
-                            className="ml-auto text-sm text-indigo-400 hover:text-indigo-300 hover:underline font-medium"
+                            className="w-full sm:w-auto sm:ml-auto text-sm text-indigo-400 hover:text-indigo-300 hover:underline font-medium"
                           >
                             View ticket →
                           </button>

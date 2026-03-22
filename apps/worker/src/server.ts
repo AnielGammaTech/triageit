@@ -8,6 +8,8 @@ import {
   triggerDailyRetriage,
   reloadCronScheduler,
   triggerCronJob,
+  catchUpMissedJobs,
+  getCronStatus,
 } from "./cron/scheduler.js";
 import {
   isUpdateRequest,
@@ -20,6 +22,7 @@ import {
   webhookActionSchema,
 } from "./validation/schemas.js";
 import { MemoryManager } from "./memory/memory-manager.js";
+import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 
 const server = Fastify({ logger: true });
 
@@ -134,6 +137,29 @@ server.post<{ Body: { max_age_days?: number; min_confidence?: number } }>(
       });
 
       return { status: "completed", evicted };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Cron status — check if scheduler is alive and when jobs last ran
+server.get("/cron/status", async () => {
+  return getCronStatus();
+});
+
+// Toby learning analysis — manual trigger
+server.post<{ Body: Record<string, never> }>(
+  "/toby/analyze",
+  async (_request, reply) => {
+    try {
+      const supabase = createSupabaseClient();
+      const result = await runTobyAnalysis(supabase, "manual");
+      return {
+        status: "completed",
+        ...result,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
@@ -284,6 +310,11 @@ async function start() {
 
   // Process any tickets stuck in pending (missed while worker was down)
   await processPendingTickets();
+
+  // Catch up on any cron jobs that should have run while we were down
+  catchUpMissedJobs().catch((err) => {
+    console.error("[WORKER] Cron catch-up failed:", err);
+  });
 
   // Retroactive SLA scan — catch any breaching tickets on startup
   scanForSlaBreaches().catch((err) => {

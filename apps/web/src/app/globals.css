@@ -50,3 +50,20 @@ body {
 .animate-in {
   animation: fade-in 0.2s ease-out;
 }
+
+/* Hide scrollbar for horizontally-scrolling elements on mobile */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Clamp text to N lines */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

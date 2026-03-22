@@ -124,12 +124,12 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
   {
     name: "toby_flenderson",
     character: "Toby Flenderson",
-    role: "compliance",
-    specialty: "Compliance & Audit",
+    role: "analytics",
+    specialty: "Learning & Analytics",
     integration: null,
     model: "haiku",
     description:
-      "Reviews triage actions for compliance with internal policies, maintains audit logs, and flags any compliance concerns.",
+      "The quiet observer. Runs daily during idle time to analyze all tickets, build tech behavioral profiles, detect customer patterns, identify cross-ticket trends, and self-evaluate triage accuracy. Feeds insights back to Michael Scott as skills and memories.",
   },
   {
     name: "meredith_palmer",

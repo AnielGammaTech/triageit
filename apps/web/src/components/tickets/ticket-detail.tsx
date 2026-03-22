@@ -365,17 +365,17 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   return (
     <div className="space-y-6">
       {/* Back + header */}
-      <div className="flex items-start gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <button
           onClick={onBack}
-          className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/5 hover:text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/5 hover:text-white self-start"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h2 className="text-xl font-semibold text-white">
               {haloBaseUrl ? (
                 <a
@@ -419,7 +419,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           </div>
           <p className="mt-1 text-sm text-white/70">{ticket.summary}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 self-start">
           <button
             onClick={handleSummarize}
             disabled={summarizing}
@@ -597,7 +597,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               </div>
             );
           })()}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30">Classification</p>
               <p className="mt-1 text-sm font-medium text-white">
@@ -644,7 +644,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-white/10">
+      <div className="flex gap-1 border-b border-white/10 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
         {(["overview", "agents", "triageit", "raw"] as const).map((tab) => (
           <button
             key={tab}

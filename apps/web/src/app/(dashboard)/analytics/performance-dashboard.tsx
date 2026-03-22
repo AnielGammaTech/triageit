@@ -195,7 +195,7 @@ export function PerformanceDashboard({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold">Performance & Reporting</h2>
           <p className="mt-1 text-sm text-zinc-500">
@@ -203,7 +203,7 @@ export function PerformanceDashboard({
           </p>
         </div>
         <p className="text-xs text-zinc-600">
-          Updated on page load · Refresh to see latest data
+          Updated on page load
         </p>
       </div>
 
@@ -244,7 +244,7 @@ export function PerformanceDashboard({
       </div>
 
       {/* Triage activity */}
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <div
           className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
           onClick={() => router.push("/tickets?tab=open")}
@@ -282,61 +282,114 @@ export function PerformanceDashboard({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/5 bg-white/[0.01]">
-                  <th
-                    className="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("name")}
+          <>
+            {/* Mobile: tech cards */}
+            <div className="md:hidden divide-y divide-white/5">
+              {sorted.map((tech, i) => {
+                const grade = responseGrade(tech.avgResponseHours);
+                const customerGrade = responseGrade(tech.avgCustomerWaitHours);
+                return (
+                  <div
+                    key={tech.name}
+                    className="px-4 py-3 cursor-pointer hover:bg-white/[0.04] transition-colors"
+                    onClick={() => router.push(`/tickets?tab=open&tech=${encodeURIComponent(tech.name)}`)}
                   >
-                    Technician{sortArrow("name")}
-                  </th>
-                  <th
-                    className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("openTickets")}
-                  >
-                    Open / Total{sortArrow("openTickets")}
-                  </th>
-                  <th
-                    className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("avgResponseHours")}
-                  >
-                    Avg Response{sortArrow("avgResponseHours")}
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Customer Wait
-                  </th>
-                  <th
-                    className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("staleTickets")}
-                  >
-                    Stale{sortArrow("staleTickets")}
-                  </th>
-                  <th
-                    className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("needsReviewTickets")}
-                  >
-                    Needs Review{sortArrow("needsReviewTickets")}
-                  </th>
-                  <th
-                    className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
-                    onClick={() => handleSort("resolvedTickets")}
-                  >
-                    Resolved{sortArrow("resolvedTickets")}
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Oldest Open
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((tech, i) => (
-                  <TechRow key={tech.name} tech={tech} rank={i + 1} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/5 text-[10px] font-medium text-zinc-400">
+                          {i + 1}
+                        </span>
+                        <span className="font-medium text-zinc-200">{tech.name}</span>
+                      </div>
+                      <span className="text-xs text-zinc-500">{tech.ticketsLastWeek} this week</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <p className="text-zinc-500">Open</p>
+                        <p className="font-semibold text-zinc-200">{tech.openTickets}<span className="text-zinc-500 font-normal">/{tech.totalTickets}</span></p>
+                      </div>
+                      <div>
+                        <p className="text-zinc-500">Response</p>
+                        <p className="font-semibold text-zinc-200">{formatHours(tech.avgResponseHours)}</p>
+                        <p className={cn("text-[10px] font-medium", grade.color)}>{grade.label}</p>
+                      </div>
+                      <div>
+                        <p className="text-zinc-500">Cust Wait</p>
+                        <p className="font-semibold text-zinc-200">{formatHours(tech.avgCustomerWaitHours)}</p>
+                        <p className={cn("text-[10px] font-medium", customerGrade.color)}>{customerGrade.label}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-2 text-xs">
+                      {tech.staleTickets > 0 && (
+                        <span className="text-orange-400">{tech.staleTickets} stale</span>
+                      )}
+                      {tech.needsReviewTickets > 0 && (
+                        <span className="text-rose-400 animate-pulse">{tech.needsReviewTickets} review</span>
+                      )}
+                      <span className="text-emerald-400">{tech.resolvedTickets} resolved</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/5 bg-white/[0.01]">
+                    <th
+                      className="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("name")}
+                    >
+                      Technician{sortArrow("name")}
+                    </th>
+                    <th
+                      className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("openTickets")}
+                    >
+                      Open / Total{sortArrow("openTickets")}
+                    </th>
+                    <th
+                      className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("avgResponseHours")}
+                    >
+                      Avg Response{sortArrow("avgResponseHours")}
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Customer Wait
+                    </th>
+                    <th
+                      className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("staleTickets")}
+                    >
+                      Stale{sortArrow("staleTickets")}
+                    </th>
+                    <th
+                      className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("needsReviewTickets")}
+                    >
+                      Needs Review{sortArrow("needsReviewTickets")}
+                    </th>
+                    <th
+                      className="cursor-pointer px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleSort("resolvedTickets")}
+                    >
+                      Resolved{sortArrow("resolvedTickets")}
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Oldest Open
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((tech, i) => (
+                    <TechRow key={tech.name} tech={tech} rank={i + 1} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

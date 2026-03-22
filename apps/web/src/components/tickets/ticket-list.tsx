@@ -79,141 +79,209 @@ export function TicketList({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--card)]">
-          <tr className="border-b border-[var(--border)]">
-            {onToggleSelect && (
-              <th className="w-10 px-3 py-3">
-                <span className="sr-only">Select</span>
-              </th>
-            )}
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Ticket #
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Summary
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Client
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Status
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Priority
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              AI Priority
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Type
-            </th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
-              Created
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {tickets.map((ticket) => {
-            const triage = ticket.triage_results[0];
-            const isSelected = selectedIds.includes(ticket.id);
-            return (
-              <tr
-                key={ticket.id}
-                className={cn(
-                  "border-b border-[var(--border)] transition-colors cursor-pointer",
-                  isSelected
-                    ? "bg-indigo-500/10 hover:bg-indigo-500/15"
-                    : "hover:bg-[var(--accent)]",
-                )}
-              >
-                {onToggleSelect && (
-                  <td className="px-3 py-3">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        onToggleSelect(ticket.id);
-                      }}
-                      className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
-                    />
-                  </td>
-                )}
-                <td
-                  className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  #{ticket.halo_id}
-                </td>
-                <td
-                  className="max-w-xl truncate px-4 py-3"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  {ticket.summary}
-                </td>
-                <td
-                  className="px-4 py-3 text-[var(--muted-foreground)]"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  {ticket.client_name ?? "—"}
-                </td>
-                <td
-                  className="px-4 py-3"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                      STATUS_STYLES[ticket.status],
-                    )}
-                  >
-                    {ticket.status}
-                  </span>
-                </td>
-                <td
-                  className="px-4 py-3 text-[var(--muted-foreground)]"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  {ticket.original_priority
-                    ? PRIORITY_LABELS[ticket.original_priority] ??
-                      `P${ticket.original_priority}`
-                    : "—"}
-                </td>
-                <td
-                  className="px-4 py-3"
-                  onClick={() => onSelectTicket(ticket.id)}
-                >
-                  {triage ? (
-                    <span className={PRIORITY_COLORS[triage.recommended_priority] ?? "font-medium"}>
-                      {PRIORITY_LABELS[triage.recommended_priority] ??
-                        `P${triage.recommended_priority}`}
-                      <span className="ml-1 text-xs opacity-50">
-                        (U:{triage.urgency_score}/5)
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="text-[var(--muted-foreground)]">—</span>
+    <>
+      {/* Mobile: card layout */}
+      <div className="space-y-2 md:hidden">
+        {tickets.map((ticket) => {
+          const triage = ticket.triage_results[0];
+          const isSelected = selectedIds.includes(ticket.id);
+          return (
+            <div
+              key={ticket.id}
+              onClick={() => onSelectTicket(ticket.id)}
+              className={cn(
+                "rounded-lg border border-[var(--border)] p-3 cursor-pointer transition-colors",
+                isSelected
+                  ? "bg-indigo-500/10 border-indigo-500/30"
+                  : "bg-[var(--card)] hover:bg-[var(--accent)]",
+              )}
+            >
+              {onToggleSelect && (
+                <div className="float-right ml-2">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleSelect(ticket.id);
+                    }}
+                    className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="font-mono text-xs font-medium text-[#6366f1]">#{ticket.halo_id}</span>
+                <span
+                  className={cn(
+                    "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    STATUS_STYLES[ticket.status],
                   )}
-                </td>
-                <td
-                  className="px-4 py-3 text-[var(--muted-foreground)]"
-                  onClick={() => onSelectTicket(ticket.id)}
                 >
-                  {triage?.classification?.type ?? "—"}
-                </td>
-                <td
-                  className="px-4 py-3 text-xs text-[var(--muted-foreground)]"
-                  onClick={() => onSelectTicket(ticket.id)}
+                  {ticket.status}
+                </span>
+              </div>
+              <p className="text-sm text-white mb-2 line-clamp-2">{ticket.summary}</p>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</span>
+                {triage ? (
+                  <span className={PRIORITY_COLORS[triage.recommended_priority] ?? "font-medium"}>
+                    {PRIORITY_LABELS[triage.recommended_priority] ?? `P${triage.recommended_priority}`}
+                    <span className="ml-1 opacity-50">(U:{triage.urgency_score}/5)</span>
+                  </span>
+                ) : (
+                  <span className="text-[var(--muted-foreground)]">
+                    {ticket.original_priority
+                      ? PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`
+                      : "—"}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mt-1">
+                <span>{triage?.classification?.type ?? "—"}</span>
+                <span>{formatDate(ticket.created_at)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: table layout */}
+      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
+        <table className="w-full text-sm">
+          <thead className="bg-[var(--card)]">
+            <tr className="border-b border-[var(--border)]">
+              {onToggleSelect && (
+                <th className="w-10 px-3 py-3">
+                  <span className="sr-only">Select</span>
+                </th>
+              )}
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Ticket #
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Summary
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Client
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Priority
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                AI Priority
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Type
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">
+                Created
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {tickets.map((ticket) => {
+              const triage = ticket.triage_results[0];
+              const isSelected = selectedIds.includes(ticket.id);
+              return (
+                <tr
+                  key={ticket.id}
+                  className={cn(
+                    "border-b border-[var(--border)] transition-colors cursor-pointer",
+                    isSelected
+                      ? "bg-indigo-500/10 hover:bg-indigo-500/15"
+                      : "hover:bg-[var(--accent)]",
+                  )}
                 >
-                  {formatDate(ticket.created_at)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  {onToggleSelect && (
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          onToggleSelect(ticket.id);
+                        }}
+                        className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                      />
+                    </td>
+                  )}
+                  <td
+                    className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    #{ticket.halo_id}
+                  </td>
+                  <td
+                    className="max-w-xl truncate px-4 py-3"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {ticket.summary}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-[var(--muted-foreground)]"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {ticket.client_name ?? "—"}
+                  </td>
+                  <td
+                    className="px-4 py-3"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                        STATUS_STYLES[ticket.status],
+                      )}
+                    >
+                      {ticket.status}
+                    </span>
+                  </td>
+                  <td
+                    className="px-4 py-3 text-[var(--muted-foreground)]"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {ticket.original_priority
+                      ? PRIORITY_LABELS[ticket.original_priority] ??
+                        `P${ticket.original_priority}`
+                      : "—"}
+                  </td>
+                  <td
+                    className="px-4 py-3"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {triage ? (
+                      <span className={PRIORITY_COLORS[triage.recommended_priority] ?? "font-medium"}>
+                        {PRIORITY_LABELS[triage.recommended_priority] ??
+                          `P${triage.recommended_priority}`}
+                        <span className="ml-1 text-xs opacity-50">
+                          (U:{triage.urgency_score}/5)
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-[var(--muted-foreground)]">—</span>
+                    )}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-[var(--muted-foreground)]"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {triage?.classification?.type ?? "—"}
+                  </td>
+                  <td
+                    className="px-4 py-3 text-xs text-[var(--muted-foreground)]"
+                    onClick={() => onSelectTicket(ticket.id)}
+                  >
+                    {formatDate(ticket.created_at)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

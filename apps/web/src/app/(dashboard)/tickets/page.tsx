@@ -351,9 +351,9 @@ export default function TicketsPage() {
       )}
 
       {/* Header row: title + actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold">Tickets</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Triage by Halo # */}
           <div className="flex items-center rounded-lg border border-white/[0.06] bg-white/[0.02]">
             <input
@@ -386,7 +386,7 @@ export default function TicketsPage() {
             </button>
           </div>
 
-          <div className="h-5 w-px bg-white/[0.06]" />
+          <div className="hidden sm:block h-5 w-px bg-white/[0.06]" />
 
           {/* Sync button */}
           <button
@@ -398,7 +398,7 @@ export default function TicketsPage() {
             {pulling ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border border-indigo-400/30 border-t-indigo-400" />
-                Syncing
+                <span className="hidden sm:inline">Syncing</span>
               </>
             ) : (
               <>
@@ -421,7 +421,7 @@ export default function TicketsPage() {
             {triagingAll ? (
               <>
                 <span className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
-                Triaging All
+                <span className="hidden sm:inline">Triaging All</span>
               </>
             ) : (
               <>
@@ -429,7 +429,7 @@ export default function TicketsPage() {
                   <path d="M8 1a.75.75 0 0 1 .75.75V6h4.5a.75.75 0 0 1 0 1.5h-4.5v4.25a.75.75 0 0 1-1.5 0V7.5h-4.5a.75.75 0 0 1 0-1.5h4.5V1.75A.75.75 0 0 1 8 1Z" />
                   <path fillRule="evenodd" d="M2.5 13a.75.75 0 0 1 .75-.75h9.5a.75.75 0 0 1 0 1.5h-9.5A.75.75 0 0 1 2.5 13Z" clipRule="evenodd" />
                 </svg>
-                Triage All
+                <span className="hidden sm:inline">Triage All</span>
               </>
             )}
           </button>
@@ -451,7 +451,7 @@ export default function TicketsPage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
         <TabButton
           active={activeTab === "incoming"}
           onClick={() => setActiveTab("incoming")}
@@ -603,50 +603,84 @@ function IncomingTicketList({
   readonly onSelectTicket: (id: string) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-[var(--border)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--card)]">
-          <tr className="border-b border-[var(--border)]">
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Ticket #</th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Summary</th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Client</th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Reported By</th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Status</th>
-            <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Received</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tickets.map((ticket) => (
-            <tr
-              key={ticket.id}
-              onClick={() => onSelectTicket(ticket.id)}
-              className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--accent)]"
-            >
-              <td className="px-4 py-3 font-mono text-xs text-blue-400">#{ticket.halo_id}</td>
-              <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
-              <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</td>
-              <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.user_name ?? "—"}</td>
-              <td className="px-4 py-3">
-                <span className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
-                  ticket.status === "pending"
-                    ? "bg-yellow-500/20 text-yellow-400"
-                    : "bg-blue-500/20 text-blue-400",
-                )}>
-                  {ticket.status === "triaging" && (
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-                  )}
-                  {ticket.status}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
-                {timeAgo(ticket.created_at)}
-              </td>
+    <>
+      {/* Mobile: card layout */}
+      <div className="space-y-2 md:hidden">
+        {tickets.map((ticket) => (
+          <div
+            key={ticket.id}
+            onClick={() => onSelectTicket(ticket.id)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 cursor-pointer hover:bg-[var(--accent)] transition-colors"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-xs text-blue-400">#{ticket.halo_id}</span>
+              <span className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                ticket.status === "pending"
+                  ? "bg-yellow-500/20 text-yellow-400"
+                  : "bg-blue-500/20 text-blue-400",
+              )}>
+                {ticket.status === "triaging" && (
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                )}
+                {ticket.status}
+              </span>
+            </div>
+            <p className="text-sm text-white mb-1.5 line-clamp-2">{ticket.summary}</p>
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
+              <span>{ticket.client_name ?? "—"}</span>
+              <span>{timeAgo(ticket.created_at)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: table layout */}
+      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
+        <table className="w-full text-sm">
+          <thead className="bg-[var(--card)]">
+            <tr className="border-b border-[var(--border)]">
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Ticket #</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Summary</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Client</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Reported By</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Received</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {tickets.map((ticket) => (
+              <tr
+                key={ticket.id}
+                onClick={() => onSelectTicket(ticket.id)}
+                className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--accent)]"
+              >
+                <td className="px-4 py-3 font-mono text-xs text-blue-400">#{ticket.halo_id}</td>
+                <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
+                <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</td>
+                <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.user_name ?? "—"}</td>
+                <td className="px-4 py-3">
+                  <span className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+                    ticket.status === "pending"
+                      ? "bg-yellow-500/20 text-yellow-400"
+                      : "bg-blue-500/20 text-blue-400",
+                  )}>
+                    {ticket.status === "triaging" && (
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                    )}
+                    {ticket.status}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
+                  {timeAgo(ticket.created_at)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
