@@ -1,10 +1,23 @@
-import cron from "node-cron";
+import { Queue, Worker, type Job } from "bullmq";
+import { getRedisConnectionOptions } from "../queue/connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
+
+// ── BullMQ-based cron scheduler ─────────────────────────────────────
+// Uses BullMQ repeatable jobs instead of node-cron.
+// Repeat configs are stored in Redis, so they survive container restarts
+// on Railway (unlike node-cron which dies with the process).
+
+const CRON_QUEUE_NAME = "cron-jobs";
+
+interface CronJobData {
+  readonly endpoint: string;
+  readonly name: string;
+}
 
 interface CronJobRecord {
   readonly id: string;
@@ -14,15 +27,8 @@ interface CronJobRecord {
   readonly is_active: boolean;
 }
 
-interface ScheduledTask {
-  readonly jobId: string;
-  readonly task: ReturnType<typeof cron.schedule>;
-}
-
-let scheduledTasks: ReadonlyArray<ScheduledTask> = [];
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-
-const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+let cronQueue: Queue<CronJobData> | null = null;
+let cronWorker: Worker<CronJobData> | null = null;
 
 // Map of endpoint -> handler function
 const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
@@ -134,104 +140,135 @@ async function runDailyRetriage(): Promise<void> {
 }
 
 /**
- * Run a single cron job by its database record, updating status in Supabase.
+ * Process a cron job from the BullMQ queue.
  */
-async function executeJob(job: CronJobRecord): Promise<void> {
-  const handler = ENDPOINT_HANDLERS[job.endpoint];
+async function processCronJob(job: Job<CronJobData>): Promise<void> {
+  const { endpoint, name } = job.data;
+
+  console.log(`[CRON] Running "${name}" (${endpoint})`);
+
+  const handler = ENDPOINT_HANDLERS[endpoint];
   if (!handler) {
-    console.error(`[CRON] No handler for endpoint: ${job.endpoint}`);
-    await updateJobStatus(job.id, "error", `No handler for endpoint: ${job.endpoint}`);
+    console.error(`[CRON] No handler for endpoint: ${endpoint}`);
     return;
   }
 
+  // Find the DB record to update status
+  const supabase = createSupabaseClient();
+  const { data: dbJob } = await supabase
+    .from("cron_jobs")
+    .select("id")
+    .eq("endpoint", endpoint)
+    .eq("is_active", true)
+    .maybeSingle();
+
   try {
     await handler();
-    await updateJobStatus(job.id, "success");
+    if (dbJob) await updateJobStatus(dbJob.id, "success");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[CRON] Job "${job.name}" failed:`, message);
-    await updateJobStatus(job.id, "error", message);
+    console.error(`[CRON] Job "${name}" failed:`, message);
+    if (dbJob) await updateJobStatus(dbJob.id, "error", message);
   }
 }
 
 /**
- * Start the cron scheduler.
- * Reads job definitions from the cron_jobs table in Supabase.
- * Falls back to default schedule if the table is empty or unavailable.
+ * Start the BullMQ-based cron scheduler.
+ * Reads job definitions from the cron_jobs table and registers them
+ * as BullMQ repeatable jobs backed by Redis.
  */
 export async function startCronScheduler(): Promise<void> {
-  const supabase = createSupabaseClient();
+  const connection = getRedisConnectionOptions();
 
+  // Create the cron queue
+  cronQueue = new Queue<CronJobData>(CRON_QUEUE_NAME, {
+    connection,
+    defaultJobOptions: {
+      attempts: 2,
+      backoff: { type: "exponential", delay: 30_000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    },
+  });
+
+  // Create the worker that processes cron jobs
+  cronWorker = new Worker<CronJobData>(CRON_QUEUE_NAME, processCronJob, {
+    connection,
+    concurrency: 1, // Run one cron job at a time
+  });
+
+  cronWorker.on("completed", (job) => {
+    console.log(`[CRON] Completed: ${job.data.name}`);
+  });
+
+  cronWorker.on("failed", (job, error) => {
+    console.error(`[CRON] Failed: ${job?.data.name}:`, error.message);
+  });
+
+  // Read job definitions from DB
+  const supabase = createSupabaseClient();
   const { data: jobs, error } = await supabase
     .from("cron_jobs")
     .select("id, name, schedule, endpoint, is_active");
 
   if (error || !jobs || jobs.length === 0) {
-    // Fallback to legacy behavior if table doesn't exist yet
-    console.log("[CRON] No cron_jobs table or no jobs found — using legacy scheduler");
-    startLegacyScheduler();
+    console.log("[CRON] No cron_jobs found — using default schedules");
+    await registerDefaultJobs(cronQueue);
+    startHeartbeat();
     return;
   }
 
-  const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
-
-  const newTasks: ScheduledTask[] = [];
-
-  for (const job of activeJobs) {
-    if (!cron.validate(job.schedule)) {
-      console.error(`[CRON] Invalid cron expression for "${job.name}": "${job.schedule}" — skipping`);
-      continue;
-    }
-
-    const task = cron.schedule(job.schedule, () => {
-      executeJob(job).catch((err) =>
-        console.error(`[CRON] Unhandled error in job "${job.name}":`, err),
-      );
-    });
-
-    newTasks.push({ jobId: job.id, task });
-    console.log(`[CRON] Scheduled "${job.name}" — "${job.schedule}" -> ${job.endpoint}`);
+  // Remove any old repeatable jobs from previous deploys
+  const existingRepeatables = await cronQueue.getRepeatableJobs();
+  for (const rep of existingRepeatables) {
+    await cronQueue.removeRepeatableByKey(rep.key);
   }
 
-  scheduledTasks = newTasks;
+  // Register active jobs as BullMQ repeatables
+  const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
+
+  for (const job of activeJobs) {
+    await cronQueue.add(
+      `cron-${job.endpoint}`,
+      { endpoint: job.endpoint, name: job.name },
+      { repeat: { pattern: job.schedule }, jobId: `cron-${job.endpoint}` },
+    );
+    console.log(`[CRON] Registered "${job.name}" — "${job.schedule}" -> ${job.endpoint} (BullMQ repeatable)`);
+  }
+
   startHeartbeat();
-  console.log(`[CRON] Scheduler started with ${newTasks.length} active jobs`);
+  console.log(`[CRON] BullMQ scheduler started with ${activeJobs.length} active jobs`);
 }
 
 /**
- * Legacy scheduler for backwards compatibility when cron_jobs table doesn't exist.
+ * Register default cron jobs when the DB table is empty.
  */
-function startLegacyScheduler(): void {
-  const schedule = process.env.RETRIAGE_CRON ?? "0 */3 * * *";
+async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
+  const defaults = [
+    { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "0 */3 * * *" },
+    { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
+    { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
+  ];
 
-  if (!cron.validate(schedule)) {
-    console.error(`[CRON] Invalid cron expression: "${schedule}" — scheduler not started`);
-    return;
+  for (const job of defaults) {
+    await queue.add(
+      `cron-${job.endpoint}`,
+      { endpoint: job.endpoint, name: job.name },
+      { repeat: { pattern: job.schedule }, jobId: `cron-${job.endpoint}` },
+    );
+    console.log(`[CRON] Registered default "${job.name}" — "${job.schedule}" (BullMQ repeatable)`);
   }
-
-  const task = cron.schedule(schedule, () => {
-    Promise.all([
-      runDailyRetriage().catch((err) =>
-        console.error("[CRON] Unhandled error in daily retriage:", err),
-      ),
-      scanForSlaBreaches().catch((err) =>
-        console.error("[CRON] Unhandled error in SLA scan:", err),
-      ),
-    ]).catch(() => {
-      // Individual errors already logged above
-    });
-  });
-
-  scheduledTasks = [{ jobId: "legacy", task }];
-  startHeartbeat();
-  console.log(`[CRON] Legacy scheduler started — schedule: "${schedule}"`);
 }
 
 export function stopCronScheduler(): void {
-  for (const { task } of scheduledTasks) {
-    task.stop();
+  if (cronWorker) {
+    cronWorker.close();
+    cronWorker = null;
   }
-  scheduledTasks = [];
+  if (cronQueue) {
+    cronQueue.close();
+    cronQueue = null;
+  }
 
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
@@ -263,38 +300,49 @@ export async function triggerCronJob(jobId: string): Promise<{ status: string; e
     return { status: "error", error: `Job not found: ${jobId}` };
   }
 
-  await executeJob(job);
-  return { status: "triggered" };
+  const handler = ENDPOINT_HANDLERS[job.endpoint];
+  if (!handler) {
+    return { status: "error", error: `No handler for endpoint: ${job.endpoint}` };
+  }
+
+  try {
+    await handler();
+    await updateJobStatus(job.id, "success");
+    return { status: "triggered" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await updateJobStatus(job.id, "error", message);
+    return { status: "error", error: message };
+  }
 }
 
 // ── Heartbeat ────────────────────────────────────────────────────────
 
-/**
- * Write a heartbeat to Supabase every 5 minutes.
- * This lets us detect when the cron scheduler stops running.
- */
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 function startHeartbeat(): void {
   if (heartbeatInterval) return;
 
   const beat = async () => {
     try {
       const supabase = createSupabaseClient();
+      const repeatableCount = cronQueue ? (await cronQueue.getRepeatableJobs()).length : 0;
       await supabase
         .from("cron_heartbeat")
         .upsert(
           {
             id: "worker-cron",
             last_heartbeat: new Date().toISOString(),
-            active_jobs: scheduledTasks.length,
+            active_jobs: repeatableCount,
           },
           { onConflict: "id" },
         );
     } catch {
-      // Non-critical — don't crash the worker over a heartbeat failure
+      // Non-critical
     }
   };
 
-  // Immediate first beat
   beat();
   heartbeatInterval = setInterval(beat, HEARTBEAT_INTERVAL_MS);
   console.log("[CRON] Heartbeat started (every 5m)");
@@ -303,74 +351,12 @@ function startHeartbeat(): void {
 // ── Missed Job Catch-up ──────────────────────────────────────────────
 
 /**
- * On startup, check which cron jobs should have run while the worker was down
- * and execute them immediately. Prevents gaps when Railway restarts the service.
+ * With BullMQ repeatables, missed jobs are handled automatically by Redis.
+ * This function is kept for compatibility but is mostly a no-op now.
+ * BullMQ will fire the next scheduled run immediately if the previous was missed.
  */
 export async function catchUpMissedJobs(): Promise<void> {
-  const supabase = createSupabaseClient();
-
-  const { data: jobs, error } = await supabase
-    .from("cron_jobs")
-    .select("id, name, schedule, endpoint, is_active, last_run_at")
-    .eq("is_active", true);
-
-  if (error || !jobs || jobs.length === 0) return;
-
-  const now = Date.now();
-
-  for (const job of jobs) {
-    try {
-      const lastRun = job.last_run_at ? new Date(job.last_run_at).getTime() : 0;
-      const intervalMs = estimateIntervalMs(job.schedule);
-
-      if (intervalMs <= 0) continue;
-
-      // If the last run was more than 1.5x the interval ago, it was missed
-      const missedThreshold = intervalMs * 1.5;
-      const timeSinceLastRun = now - lastRun;
-
-      if (timeSinceLastRun > missedThreshold) {
-        const hoursAgo = (timeSinceLastRun / (1000 * 60 * 60)).toFixed(1);
-        console.log(
-          `[CRON] Catch-up: "${job.name}" last ran ${hoursAgo}h ago (interval: ${(intervalMs / (1000 * 60 * 60)).toFixed(1)}h) — running now`,
-        );
-        await executeJob(job);
-      }
-    } catch (err) {
-      console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
-    }
-  }
-}
-
-/**
- * Estimate the rough interval in ms from a cron expression.
- * Used only for catch-up detection — doesn't need to be exact.
- */
-function estimateIntervalMs(schedule: string): number {
-  const parts = schedule.split(/\s+/);
-  if (parts.length < 5) return 0;
-
-  const [minute, hour] = parts;
-
-  // Every N hours: "0 */N * * *"
-  const hourlyMatch = hour?.match(/^\*\/(\d+)$/);
-  if (hourlyMatch) {
-    return parseInt(hourlyMatch[1], 10) * 60 * 60 * 1000;
-  }
-
-  // Every N minutes: "*/N * * * *"
-  const minuteMatch = minute?.match(/^\*\/(\d+)$/);
-  if (minuteMatch) {
-    return parseInt(minuteMatch[1], 10) * 60 * 1000;
-  }
-
-  // Specific hour (daily job): "M H * * *"
-  if (hour !== "*" && !hour?.includes("/") && !hour?.includes(",")) {
-    return 24 * 60 * 60 * 1000; // daily
-  }
-
-  // Default: assume hourly
-  return 60 * 60 * 1000;
+  console.log("[CRON] BullMQ handles missed job catch-up via Redis — no manual catch-up needed");
 }
 
 /**
@@ -401,9 +387,11 @@ export async function getCronStatus(): Promise<{
       .eq("is_active", true),
   ]);
 
+  const repeatableCount = cronQueue ? (await cronQueue.getRepeatableJobs()).length : 0;
+
   return {
-    active: scheduledTasks.length > 0,
-    jobCount: scheduledTasks.length,
+    active: repeatableCount > 0,
+    jobCount: repeatableCount,
     heartbeat: heartbeat?.last_heartbeat ?? null,
     jobs: (jobs ?? []).map((j) => ({
       name: j.name,
