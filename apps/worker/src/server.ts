@@ -16,6 +16,7 @@ import {
   handleUpdateRequest,
 } from "./agents/retriage/update-request.js";
 import { scanForSlaBreaches } from "./cron/sla-scan.js";
+import { syncTicketsFromHalo } from "./cron/ticket-sync.js";
 import {
   triageSchema,
   cronTriggerSchema,
@@ -75,6 +76,20 @@ server.post<{ Body: Record<string, never> }>(
         status: "completed",
         ...result,
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Manual ticket sync from Halo
+server.post<{ Body: Record<string, never> }>(
+  "/ticket-sync",
+  async (_request, reply) => {
+    try {
+      const result = await syncTicketsFromHalo();
+      return { status: "completed", ...result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

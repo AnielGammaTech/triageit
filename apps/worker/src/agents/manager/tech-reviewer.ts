@@ -26,6 +26,47 @@ interface ReviewEligibility {
   readonly techActions: ReadonlyArray<TriageContext["actions"] extends ReadonlyArray<infer T> | undefined ? T : never>;
 }
 
+// ── Business Hours Utilities ─────────────────────────────────────────
+
+const BUSINESS_START_HOUR = 7;  // 7 AM ET
+const BUSINESS_END_HOUR = 18;   // 6 PM ET
+const TIMEZONE = "America/New_York";
+const MIN_TICKET_AGE_HOURS = 1; // Don't review tickets younger than 1 hour
+
+/**
+ * Check if a given timestamp falls within business hours (Mon-Fri, 7 AM - 6 PM ET).
+ */
+function isBusinessHours(date: Date): boolean {
+  const etDate = new Date(date.toLocaleString("en-US", { timeZone: TIMEZONE }));
+  const day = etDate.getDay(); // 0 = Sunday, 6 = Saturday
+  const hour = etDate.getHours();
+  return day >= 1 && day <= 5 && hour >= BUSINESS_START_HOUR && hour < BUSINESS_END_HOUR;
+}
+
+/**
+ * Calculate business hours between two timestamps.
+ * Only counts time during Mon-Fri 7 AM - 6 PM Eastern.
+ * Returns hours (fractional).
+ */
+function calculateBusinessHoursGap(startTime: number, endTime: number): number {
+  if (endTime <= startTime) return 0;
+
+  let businessMs = 0;
+  const STEP_MS = 15 * 60 * 1000; // 15-minute increments for accuracy
+
+  let cursor = startTime;
+  while (cursor < endTime) {
+    const cursorDate = new Date(cursor);
+    if (isBusinessHours(cursorDate)) {
+      const stepEnd = Math.min(cursor + STEP_MS, endTime);
+      businessMs += stepEnd - cursor;
+    }
+    cursor += STEP_MS;
+  }
+
+  return businessMs / (1000 * 60 * 60);
+}
+
 // ── Eligibility Check ────────────────────────────────────────────────
 
 export function checkReviewEligibility(
@@ -41,7 +82,7 @@ export function checkReviewEligibility(
   const customerActions = actions.filter((a) => !a.isInternal);
   const techActions = actions.filter((a) => a.isInternal);
 
-  // Find the longest gap between a customer reply and the next tech action
+  // Find the longest BUSINESS HOURS gap between a customer reply and the next tech action
   const maxResponseGapHours = (() => {
     let maxGap = 0;
     for (const custAction of customerActions) {
@@ -50,25 +91,41 @@ export function checkReviewEligibility(
       const nextTech = techActions
         .filter((t) => t.date && new Date(t.date).getTime() > custTime)
         .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
-      if (nextTech?.date) {
-        const gapMs = new Date(nextTech.date).getTime() - custTime;
-        maxGap = Math.max(maxGap, gapMs / (1000 * 60 * 60));
-      } else {
-        const gapMs = Date.now() - custTime;
-        maxGap = Math.max(maxGap, gapMs / (1000 * 60 * 60));
-      }
+
+      const endTime = nextTech?.date ? new Date(nextTech.date).getTime() : Date.now();
+      const businessGap = calculateBusinessHoursGap(custTime, endTime);
+      maxGap = Math.max(maxGap, businessGap);
     }
     return maxGap;
   })();
 
   // No tech assigned = nothing to review (that's a dispatch problem, not a tech problem)
-  const hasAssignedTech = !!(context.assignedTechName);
+  const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
+  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
+  const hasAssignedTech = !!(context.assignedTechName) && !NON_TECH_NAMES.includes(techName);
+
+  // Must have at least 1 business hour of ticket age before reviewing
+  const ticketCreatedTime = new Date(ticketCreatedAt).getTime();
+  const businessAgeHours = calculateBusinessHoursGap(ticketCreatedTime, Date.now());
+  const hasMinimumAge = businessAgeHours >= MIN_TICKET_AGE_HOURS;
 
   const eligible =
     haloConfig !== null &&
     hasAssignedTech &&
+    hasMinimumAge &&
     actions.length > 0 &&
     customerActions.length > 0;
+
+  if (!eligible && haloConfig !== null) {
+    const reasons: string[] = [];
+    if (!hasAssignedTech) reasons.push("no assigned tech");
+    if (!hasMinimumAge) reasons.push(`ticket too new (${businessAgeHours.toFixed(1)} business hrs < ${MIN_TICKET_AGE_HOURS}hr minimum)`);
+    if (actions.length === 0) reasons.push("no actions");
+    if (customerActions.length === 0) reasons.push("no customer actions");
+    if (reasons.length > 0) {
+      console.log(`[TECH-REVIEW] Skipping review for #${context.haloId}: ${reasons.join(", ")}`);
+    }
+  }
 
   return {
     eligible,
@@ -128,10 +185,16 @@ export async function generateTechReview(
     `- Only flag a response as unhelpful if the tech is clearly ignoring the customer's request, going on a tangent, or providing wrong solutions.`,
     `- Read the tech's response in context. If it moves the ticket forward even slightly, give credit.`,
     ``,
+    `## BUSINESS HOURS CONTEXT`,
+    `- Business hours are **Mon-Fri, 7 AM - 6 PM Eastern** only.`,
+    `- Response gaps are measured in **business hours only** — nights, weekends, and holidays do NOT count.`,
+    `- A ticket opened at 9 PM won't start counting response time until 7 AM the next business day.`,
+    `- The max_response_gap_hours below is already calculated in business hours.`,
+    ``,
     `## WHAT TO CALL OUT HARD`,
-    `- No response at all = POOR, always.`,
-    `- Customer waiting > 4 hours with no update on urgent tickets = call it out.`,
-    `- Customer waiting > 24 hours = POOR, period.`,
+    `- No response within 1 business hour = call it out.`,
+    `- Customer waiting > 4 business hours with no update on urgent tickets = call it out.`,
+    `- Customer waiting > 8 business hours (full business day) = POOR.`,
     `- Customer is visibly frustrated or repeating the same request = the tech is failing.`,
     `- Tech closed/resolved without actually fixing the issue = call it out.`,
     `- Tech gave a generic canned response that doesn't address the specific situation = call it out.`,
@@ -145,8 +208,8 @@ export async function generateTechReview(
     ``,
     `## FACTS`,
     `- ${assignedTech ?? "The tech"} has **${assignedTechActions.length} action(s)** on this ticket.`,
-    `- Ticket has been open for **${ticketAgeHours.toFixed(1)} hours**.`,
-    `- Longest response gap: **${maxResponseGapHours.toFixed(1)} hours**.`,
+    `- Ticket has been open for **${ticketAgeHours.toFixed(1)} total hours**.`,
+    `- Longest response gap: **${maxResponseGapHours.toFixed(1)} business hours** (excludes nights/weekends).`,
     `- ${assignedTechActions.length === 0 ? `⚠ ${assignedTech ?? "The tech"} has taken ZERO actions. The customer is waiting with no engagement.` : ""}`,
     ``,
     `## Ticket: #${context.haloId} — ${context.summary}`,

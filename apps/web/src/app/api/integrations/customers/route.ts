@@ -427,7 +427,7 @@ async function fetchUnitrendsCustomers(
   };
 
   const res = await fetch(
-    "https://public-api.backup.net/v1/customers?pageSize=500",
+    "https://public-api.backup.net/v1/customers",
     { headers },
   );
 

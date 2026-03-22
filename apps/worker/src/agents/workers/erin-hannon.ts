@@ -140,8 +140,12 @@ export function isAlertTicket(
     "risk detection",
     "report domain:",
     "report domain",
+    "dmarc",
+    "dmarc report",
+    "aggregate report",
     "phishing report",
     "submitter: google",
+    "report-id:",
     "microsoft 365 alert",
     "o365 p2",
     "o365 p1",
@@ -192,6 +196,8 @@ export function isAlertTicket(
   const strongPatterns = [
     "client-alert",
     "report domain:",
+    "report-id:",
+    "dmarc",
     "backupiq:",
     "phish911",
   ];

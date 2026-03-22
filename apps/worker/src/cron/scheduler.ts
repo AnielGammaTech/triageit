@@ -3,6 +3,7 @@ import { getRedisConnectionOptions } from "../queue/connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
+import { syncTicketsFromHalo } from "./ticket-sync.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -35,6 +36,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/retriage": runDailyRetriage,
   "/sla-scan": runSlaScan,
   "/toby/analyze": runTobyAnalysisCron,
+  "/ticket-sync": runTicketSync,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -86,6 +88,14 @@ async function runTobyAnalysisCron(): Promise<void> {
   }
 }
 
+async function runTicketSync(): Promise<void> {
+  console.log("[CRON] Starting periodic ticket sync from Halo");
+  const result = await syncTicketsFromHalo();
+  console.log(
+    `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
+  );
+}
+
 async function runSlaScan(): Promise<void> {
   console.log(`[CRON] Starting SLA breach scan`);
   await scanForSlaBreaches();
@@ -127,6 +137,34 @@ async function runDailyRetriage(): Promise<void> {
             "Customer Reply > 24hrs — No Tech Response",
           );
         }
+      }
+
+      // Include recent tech performance concerns in Teams
+      try {
+        const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+        const { data: recentReviews } = await supabase
+          .from("tech_reviews")
+          .select("tech_name, halo_id, rating, response_time, max_gap_hours, improvement_areas, summary, tickets!inner(summary, client_name)")
+          .in("rating", ["poor", "needs_improvement"])
+          .gte("created_at", threeHoursAgo);
+
+        if (recentReviews && recentReviews.length > 0) {
+          await teams.sendTechPerformanceSummary(
+            recentReviews.map((r) => ({
+              techName: r.tech_name ?? "Unknown",
+              haloId: r.halo_id,
+              summary: (r.tickets as { summary: string })?.summary ?? "",
+              clientName: (r.tickets as { client_name: string | null })?.client_name ?? null,
+              rating: r.rating,
+              responseTime: r.response_time ?? "unknown",
+              maxGapHours: r.max_gap_hours ?? 0,
+              improvementAreas: r.improvement_areas,
+            })),
+          );
+          console.log(`[CRON] Sent ${recentReviews.length} tech performance concerns to Teams`);
+        }
+      } catch (err) {
+        console.error("[CRON] Failed to send tech performance to Teams:", err);
       }
 
       console.log("[CRON] Teams notifications sent");
@@ -245,6 +283,7 @@ export async function startCronScheduler(): Promise<void> {
  */
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
+    { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "*/30 * * * *" }, // Every 30 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "0 */3 * * *" },
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC

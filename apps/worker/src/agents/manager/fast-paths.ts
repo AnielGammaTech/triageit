@@ -123,7 +123,10 @@ export async function tryAlertFastPath(
     classification.classification.subtype ?? "",
   );
 
-  if (!isAlert || classification.security_flag || context.slaBreached) {
+  // Skip fast path for SLA-breached tickets (need full analysis).
+  // Allow security_flag through for alerts — DMARC reports, phishing alerts, etc.
+  // are automated and should still use the alert fast path.
+  if (!isAlert || context.slaBreached) {
     return null;
   }
 
