@@ -154,7 +154,7 @@ export async function runTobyAnalysis(
         .gte("created_at", thirtyDaysAgo),
       supabase
         .from("tickets")
-        .select("id, halo_id, summary, client_name, original_priority, status, halo_agent, created_at, updated_at")
+        .select("id, halo_id, summary, client_name, original_priority, status, halo_status, halo_agent, created_at, updated_at")
         .in("status", ["triaged", "re-triaged"])
         .or("halo_status.ilike.%resolved%,halo_status.ilike.%closed%"),
       supabase
@@ -453,7 +453,7 @@ export async function runTobyAnalysis(
             {} as Record<string, number>,
           ),
         )
-          .sort((a, b) => b[1] - a[1])
+          .sort((a, b) => (b[1] as number) - (a[1] as number))
           .map(([type, count]) => `  - ${type}: ${count}`),
       ].join("\n");
 

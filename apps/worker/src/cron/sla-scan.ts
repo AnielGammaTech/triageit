@@ -116,7 +116,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     .in("halo_id", breacherHaloIds);
 
   const localTicketMap = new Map(
-    (localTickets ?? []).map((t) => [t.halo_id, t]),
+    (localTickets ?? []).map((t: { halo_id: number; id: string; summary: string; status: string }) => [t.halo_id, t]),
   );
 
   // Get actual last triage time from triage_results (NOT updated_at)
