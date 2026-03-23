@@ -353,13 +353,21 @@ async function upsertTicketFromHalo(
   supabase: SupabaseClient,
   ticket: HaloTicket,
   actions: ReadonlyArray<HaloAction>,
+  halo?: HaloClient,
 ): Promise<string> {
   const now = new Date().toISOString();
+
+  // Resolve agent name — prefer API field, then resolve ID via Halo API
+  let agentName = getAgentName(ticket);
+  if (!agentName && ticket.agent_id && halo) {
+    agentName = await halo.getAgentName(ticket.agent_id);
+  }
+
   const trackingData = {
     halo_status: getStatusName(ticket),
     halo_status_id: ticket.status_id,
     halo_team: ticket.team ?? null,
-    halo_agent: getAgentName(ticket) ?? (ticket.agent_id ? String(ticket.agent_id) : null),
+    halo_agent: agentName,
     last_retriage_at: now,
     last_customer_reply_at: getLastCustomerReply(actions),
     last_tech_action_at: getLastTechAction(actions),
@@ -517,7 +525,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       );
       if (isAlert) {
         // Still upsert tracking data so we have fresh status info
-        await upsertTicketFromHalo(supabase, ticket, actions);
+        await upsertTicketFromHalo(supabase, ticket, actions, halo);
         continue;
       }
 
@@ -543,7 +551,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
             notes.startsWith("Alert:") ||
             notes === "Notification/transactional ticket — no action required."
           ) {
-            await upsertTicketFromHalo(supabase, ticket, actions);
+            await upsertTicketFromHalo(supabase, ticket, actions, halo);
             continue;
           }
         }
@@ -569,7 +577,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         else info.push(ruleResult);
 
         // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
-        const ruleTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions);
+        const ruleTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
 
         // Post note to Halo and flag for manager review
         if (ruleResult.severity === "critical" || ruleResult.severity === "warning") {
@@ -651,7 +659,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       else info.push(result);
 
       // Upsert ticket tracking (creates record if ticket only exists in Halo)
-      const localTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions);
+      const localTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
 
       if (localTicketId) {
         await supabase.from("triage_results").insert({

@@ -62,26 +62,35 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const newTickets = openTickets.filter((t) => !existingMap.has(t.id));
 
   if (newTickets.length > 0) {
-    const insertRows = newTickets.map((ticket) => ({
-      halo_id: ticket.id,
-      summary: ticket.summary ?? `Ticket #${ticket.id}`,
-      details: ticket.details ?? null,
-      client_name: ticket.client_name ?? null,
-      client_id: ticket.client_id ?? null,
-      user_name: ticket.user_name ?? null,
-      user_email: ticket.user_emailaddress ?? null,
-      original_priority: ticket.priority_id ?? null,
-      status: "pending" as const,
-      halo_status: resolveStatusName(ticket),
-      halo_status_id: ticket.status_id,
-      halo_team: ticket.team_name ?? ticket.team ?? null,
-      halo_agent: ticket.agent_name ?? null,
-      tickettype_id: ticket.tickettype_id ?? null,
-      last_tech_action_at: ticket.lastactiondate ?? null,
-      last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
-      created_at: ticket.datecreated ?? now,
-      updated_at: now,
-    }));
+    const insertRows = [];
+    for (const ticket of newTickets) {
+      // Resolve agent name — prefer API field, then resolve ID via Halo API
+      let agentName: string | null = ticket.agent_name ?? null;
+      if (!agentName && ticket.agent_id) {
+        agentName = await halo.getAgentName(ticket.agent_id);
+      }
+
+      insertRows.push({
+        halo_id: ticket.id,
+        summary: ticket.summary ?? `Ticket #${ticket.id}`,
+        details: ticket.details ?? null,
+        client_name: ticket.client_name ?? null,
+        client_id: ticket.client_id ?? null,
+        user_name: ticket.user_name ?? null,
+        user_email: ticket.user_emailaddress ?? null,
+        original_priority: ticket.priority_id ?? null,
+        status: "pending" as const,
+        halo_status: resolveStatusName(ticket),
+        halo_status_id: ticket.status_id,
+        halo_team: ticket.team_name ?? ticket.team ?? null,
+        halo_agent: agentName,
+        tickettype_id: ticket.tickettype_id ?? null,
+        last_tech_action_at: ticket.lastactiondate ?? null,
+        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+        created_at: ticket.datecreated ?? now,
+        updated_at: now,
+      });
+    }
 
     const { error: insertError } = await supabase
       .from("tickets")
@@ -122,6 +131,12 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const existingToUpdate = openTickets.filter((t) => existingMap.has(t.id));
 
   for (const ticket of existingToUpdate) {
+    // Resolve agent name — prefer API field, then resolve ID via Halo API
+    let agentName: string | null = ticket.agent_name ?? null;
+    if (!agentName && ticket.agent_id) {
+      agentName = await halo.getAgentName(ticket.agent_id);
+    }
+
     const { error: updateError } = await supabase
       .from("tickets")
       .update({
@@ -130,7 +145,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         halo_status: resolveStatusName(ticket),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
-        halo_agent: ticket.agent_name ?? null,
+        halo_agent: agentName,
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         updated_at: now,
