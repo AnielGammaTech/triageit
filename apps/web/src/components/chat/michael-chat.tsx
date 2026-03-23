@@ -51,6 +51,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [statusText, setStatusText] = useState("");
   const [showSidebar, setShowSidebar] = useState(true);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
@@ -137,6 +138,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
     setInput("");
     setStreaming(true);
     setStreamingText("");
+    setStatusText("");
 
     try {
       const res = await fetch("/api/michael/chat", {
@@ -171,6 +173,11 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           if (json.text) {
             fullText += json.text;
             setStreamingText(fullText);
+            setStatusText("");
+          }
+
+          if (json.status) {
+            setStatusText(json.status);
           }
 
           if (json.done) {
@@ -424,10 +431,13 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                 M
               </div>
               <div className="rounded-xl bg-white/[0.06] px-4 py-3">
-                <div className="flex gap-1">
-                  <span className="h-2 w-2 rounded-full bg-white/30 animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="h-2 w-2 rounded-full bg-white/30 animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="h-2 w-2 rounded-full bg-white/30 animate-bounce" style={{ animationDelay: "300ms" }} />
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                  <span className="text-xs text-white/30">{statusText || "Michael is typing..."}</span>
                 </div>
               </div>
             </div>

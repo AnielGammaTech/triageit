@@ -21,6 +21,25 @@ You are having a direct conversation with the admin/owner of Gamma Tech. You are
 - Analyze patterns across tickets
 - Suggest improvements to triage process
 - Answer questions about clients, techs, integrations
+- **Delegate tasks to your workers** — you manage a team of specialist agents. When the admin asks you to do something actionable, use the appropriate tool to delegate it.
+
+## Your Team (specialist agents you manage):
+- **Ryan Howard** — Classifier. Categorizes tickets by type/subtype, urgency, and security flags.
+- **Dwight Schrute** — Hudu documentation & asset lookup. Always runs. Pulls client docs, network diagrams, known issues.
+- **Angela Martin** — Security assessment. Flags security concerns and compliance issues.
+- **Jim Halpert** — JumpCloud identity & access. Checks user accounts, MFA status, group membership.
+- **Andy Bernard** — Datto RMM endpoints. Pulls device health, alerts, patch status.
+- **Kelly Kapoor** — 3CX/Twilio telephony. Checks phone system status and call routing.
+- **Stanley Hudson** — Vultr cloud infrastructure. Monitors VPS health and resource usage.
+- **Phyllis Vance** — Email/DNS (MX Toolbox + DMARC). Checks mail flow, DNS records, deliverability.
+- **Meredith Palmer** — Spanning M365 backup. Verifies backup status and coverage.
+- **Oscar Martinez** — Cove backup. Checks backup jobs and restore points.
+- **Darryl Philbin** — CIPP M365 management. Manages licenses, conditional access, tenant config.
+- **Creed Bratton** — UniFi networking. Checks AP status, client connections, network health.
+- **Erin Hannon** — Alert summarizer. Handles automated monitoring alerts quickly.
+- **Toby Flenderson** — Analytics. Runs daily analysis of tech performance, customer patterns, and triage accuracy.
+
+When you reference your team, be natural about it — "I'll have Dwight pull the Hudu docs for that client" or "Let me get Andy to check the device in Datto."
 
 ## About Gamma Tech:
 - MSP based in Naples, FL
@@ -280,31 +299,226 @@ export async function POST(request: NextRequest) {
   // Add current messages including the new one
   messages.push({ role: "user", content: message });
 
-  // Stream response from Claude
+  // Define tools Michael can use to delegate tasks
+  const tools: Anthropic.Messages.Tool[] = [
+    {
+      name: "retriage_ticket",
+      description: "Retriage a ticket through the full AI pipeline. Use when the admin asks you to retriage, re-evaluate, or re-process a specific ticket.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number (e.g. 33722)" },
+        },
+        required: ["halo_id"],
+      },
+    },
+    {
+      name: "lookup_ticket",
+      description: "Look up detailed information about a ticket including triage results, tech review, and current status. Use when you need more context about a ticket.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number" },
+        },
+        required: ["halo_id"],
+      },
+    },
+    {
+      name: "run_toby_analysis",
+      description: "Trigger Toby Flenderson's analytics run to refresh tech profiles, customer insights, and trend detections. Use when the admin asks for fresh analytics or to update performance data.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "pull_tickets",
+      description: "Sync all open Gamma Default tickets from Halo. Use when the admin wants to refresh the ticket list or catch missed tickets.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+    },
+  ];
+
+  // Tool execution helper
+  async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+    const workerUrl = process.env.WORKER_URL ?? "http://localhost:3001";
+
+    switch (name) {
+      case "retriage_ticket": {
+        const haloId = input.halo_id as number;
+        const { data: ticket } = await serviceClient
+          .from("tickets")
+          .select("id")
+          .eq("halo_id", haloId)
+          .single();
+
+        if (!ticket) return `Ticket #${haloId} not found in the system.`;
+
+        const res = await fetch(`${workerUrl}/triage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticketId: ticket.id, haloId }),
+        });
+        return res.ok
+          ? `Retriage queued for ticket #${haloId}. The pipeline will run Ryan's classification, then route to the relevant specialists.`
+          : `Failed to queue retriage for #${haloId}: ${await res.text()}`;
+      }
+
+      case "lookup_ticket": {
+        const haloId = input.halo_id as number;
+        const { data: ticket } = await serviceClient
+          .from("tickets")
+          .select("halo_id, summary, client_name, details, halo_status, halo_agent, created_at, triage_results(internal_notes, classification, urgency_score, recommended_priority, findings, created_at)")
+          .eq("halo_id", haloId)
+          .order("created_at", { referencedTable: "triage_results", ascending: false })
+          .single();
+
+        if (!ticket) return `Ticket #${haloId} not found.`;
+
+        let result = `**#${ticket.halo_id}**: ${ticket.summary}\n`;
+        result += `Client: ${ticket.client_name ?? "Unknown"} | Status: ${ticket.halo_status ?? "Unknown"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\n`;
+        if (ticket.details) result += `Details: ${ticket.details.slice(0, 1000)}\n`;
+
+        const triageResults = (ticket.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
+        const latest = triageResults[0];
+        if (latest) {
+          const classification = latest.classification as Record<string, string> | null;
+          result += `\nLatest triage: ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}`;
+          const notes = Array.isArray(latest.internal_notes) ? (latest.internal_notes as string[]).join("\n") : String(latest.internal_notes ?? "");
+          if (notes) result += `\nNotes: ${notes.slice(0, 1500)}`;
+        }
+
+        const { data: review } = await serviceClient
+          .from("tech_reviews")
+          .select("rating, response_time, summary, improvement_areas")
+          .eq("halo_id", haloId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (review) {
+          result += `\nTech Review: ${review.rating} (response: ${review.response_time}) — ${review.summary ?? ""}`;
+        }
+
+        return result;
+      }
+
+      case "run_toby_analysis": {
+        const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+        return res.ok
+          ? "Toby's analysis has been triggered. He'll update tech profiles, customer insights, and trend detections. Results will be available shortly."
+          : `Failed to trigger Toby: ${await res.text()}`;
+      }
+
+      case "pull_tickets": {
+        const res = await fetch(`${workerUrl}/api/halo/pull-tickets`, { method: "POST" });
+        return res.ok
+          ? `Ticket sync triggered. ${(await res.json()).message ?? "Pulling all open Gamma Default tickets from Halo."}`
+          : `Failed to sync: ${await res.text()}`;
+      }
+
+      default:
+        return `Unknown tool: ${name}`;
+    }
+  }
+
+  // Stream response from Claude with tool use support
   const client = new Anthropic();
-
   const modelId = "claude-sonnet-4-20250514";
-  const stream = await client.messages.stream({
-    model: modelId,
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
-  });
 
-  // Create a readable stream for the response
+  // Build the message loop — Michael may use tools, then respond with text
+  let currentMessages: Anthropic.Messages.MessageParam[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       let fullResponse = "";
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
 
       try {
-        for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            fullResponse += event.delta.text;
+        // Tool use loop — Michael may call tools, get results, then respond
+        let iteration = 0;
+        const maxIterations = 5;
+
+        while (iteration < maxIterations) {
+          iteration++;
+
+          const stream = await client.messages.stream({
+            model: modelId,
+            max_tokens: 2048,
+            system: systemPrompt,
+            messages: currentMessages,
+            tools,
+          });
+
+          let hasToolUse = false;
+          const toolUseBlocks: Array<{ id: string; name: string; input: string }> = [];
+          let currentToolId = "";
+          let currentToolName = "";
+          let currentToolInput = "";
+
+          for await (const event of stream) {
+            if (event.type === "content_block_delta") {
+              if (event.delta.type === "text_delta") {
+                fullResponse += event.delta.text;
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`),
+                );
+              } else if (event.delta.type === "input_json_delta") {
+                currentToolInput += event.delta.partial_json;
+              }
+            } else if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+              hasToolUse = true;
+              currentToolId = event.content_block.id;
+              currentToolName = event.content_block.name;
+              currentToolInput = "";
+            } else if (event.type === "content_block_stop" && currentToolId) {
+              toolUseBlocks.push({ id: currentToolId, name: currentToolName, input: currentToolInput });
+              currentToolId = "";
+            }
+          }
+
+          const finalMsg = await stream.finalMessage();
+          totalInputTokens += finalMsg.usage?.input_tokens ?? 0;
+          totalOutputTokens += finalMsg.usage?.output_tokens ?? 0;
+
+          if (!hasToolUse || toolUseBlocks.length === 0) break;
+
+          // Execute tools and build tool results
+          // Notify the UI that Michael is delegating
+          for (const tool of toolUseBlocks) {
+            const delegateMsg = tool.name === "retriage_ticket" ? "Delegating retriage to the pipeline..."
+              : tool.name === "lookup_ticket" ? "Looking up ticket details..."
+              : tool.name === "run_toby_analysis" ? "Asking Toby to run his analysis..."
+              : tool.name === "pull_tickets" ? "Syncing tickets from Halo..."
+              : "Working on it...";
+
             controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`),
+              encoder.encode(`data: ${JSON.stringify({ status: delegateMsg })}\n\n`),
             );
           }
+
+          const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+          for (const tool of toolUseBlocks) {
+            const parsedInput = tool.input ? JSON.parse(tool.input) : {};
+            const result = await executeTool(tool.name, parsedInput);
+            toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
+          }
+
+          // Append assistant message with tool calls + tool results for next iteration
+          currentMessages = [
+            ...currentMessages,
+            { role: "assistant", content: finalMsg.content },
+            { role: "user", content: toolResults },
+          ];
         }
 
         // Save assistant message
@@ -342,12 +556,8 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Get token usage from the final message
-        const finalMessage = await stream.finalMessage();
-        const inputTokens = finalMessage.usage?.input_tokens ?? 0;
-        const outputTokens = finalMessage.usage?.output_tokens ?? 0;
         // Sonnet 4 pricing: $3/M input, $15/M output
-        const cost = (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+        const cost = (totalInputTokens * 3 + totalOutputTokens * 15) / 1_000_000;
 
         // Send done event with conversation ID, model, and usage
         controller.enqueue(
@@ -355,7 +565,7 @@ export async function POST(request: NextRequest) {
             done: true,
             conversation_id: convId,
             model: modelId,
-            usage: { input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: Math.round(cost * 10000) / 10000 },
+            usage: { input_tokens: totalInputTokens, output_tokens: totalOutputTokens, cost_usd: Math.round(cost * 10000) / 10000 },
           })}\n\n`),
         );
         controller.close();
