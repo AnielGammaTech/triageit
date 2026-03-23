@@ -23,6 +23,7 @@ import {
   AGENT_LABELS,
   buildHaloNote,
   buildCompactRetriageNote,
+  buildAccountabilityNote,
   type BrandingConfig,
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
@@ -472,15 +473,63 @@ export async function runTriage(
   // ── Detect retriage vs first triage ────────────────────────────────
   const { data: existingTriages } = await supabase
     .from("triage_results")
-    .select("id")
+    .select("id, created_at, classification, urgency_score, recommended_priority, security_flag")
     .eq("ticket_id", ticket.id)
+    .order("created_at", { ascending: false })
     .limit(1);
   const isRetriage = (existingTriages?.length ?? 0) > 0;
+
+  // Content-aware dedup: detect if retriage produced identical results
+  const priorResult = existingTriages?.[0];
+  const isIdenticalRetriage = isRetriage && priorResult != null &&
+    JSON.stringify(priorResult.classification) === JSON.stringify(classification.classification) &&
+    priorResult.urgency_score === classification.urgency_score &&
+    priorResult.recommended_priority === classification.recommended_priority &&
+    priorResult.security_flag === classification.security_flag;
+
+  // If findings are unchanged, check if the tech has taken any action since the last triage.
+  // No tech activity + no change = accountability flag (red note to Halo).
+  // Tech has acted but no change in classification = skip silently.
+  let techInactive = false;
+  if (isIdenticalRetriage) {
+    const lastTriageTime = priorResult?.created_at
+      ? new Date(priorResult.created_at as string).getTime()
+      : 0;
+    const actions = context.actions ?? [];
+    // Check if any tech/internal action happened after the last triage
+    const techActionsSinceLast = actions.filter((a) => {
+      if (!a.date) return false;
+      const actionTime = new Date(a.date).getTime();
+      return actionTime > lastTriageTime && a.isInternal;
+    });
+    techInactive = techActionsSinceLast.length === 0;
+
+    if (techInactive) {
+      console.log(`[MICHAEL] Retriage for #${ticket.halo_id} — findings unchanged, NO tech activity since last review → accountability note`);
+    } else {
+      console.log(`[MICHAEL] Retriage for #${ticket.halo_id} — findings unchanged but tech has acted, skipping duplicate note`);
+    }
+  }
 
   // ── Step 6: Write note to Halo ─────────────────────────────────────
 
   const haloConfig = await getHaloConfig(supabase);
-  if (haloConfig) {
+  if (haloConfig && isIdenticalRetriage && techInactive) {
+    // Post accountability note — red flag that nothing has changed
+    try {
+      const halo = new HaloClient(haloConfig);
+      const accountabilityNote = buildAccountabilityNote(
+        context.assignedTechName ?? "Assigned tech",
+        ticket.halo_id,
+        classification.urgency_score,
+        context.clientName,
+      );
+      await halo.addInternalNote(ticket.halo_id, accountabilityNote);
+      console.log(`[MICHAEL] Accountability note posted for #${ticket.halo_id}`);
+    } catch (error) {
+      console.error(`[MICHAEL] Failed to post accountability note for #${ticket.halo_id}:`, error);
+    }
+  } else if (haloConfig && !isIdenticalRetriage) {
     const branding = await getBrandingConfig(supabase);
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
@@ -491,7 +540,7 @@ export async function runTriage(
 
   // ── Step 7: Employee feedback — private coaching note ──────────────
 
-  if (haloConfig) {
+  if (haloConfig && !isIdenticalRetriage) {
     // Use ticket.created_at directly — pull-tickets already sets this to Halo's datecreated
     const eligibility = checkReviewEligibility(
       context, classification, haloConfig, ticket.created_at,
@@ -537,9 +586,14 @@ export async function runTriage(
 
   // ── Step 8: Send triage summary to Teams ─────────────────────────
 
+  // Skip Teams for identical retriages where tech has acted (no news).
+  // For tech-inactive identical retriages, the accountability note to Halo is enough —
+  // Teams alert fires only for real triage changes.
+  const skipTeams = isIdenticalRetriage;
+
   try {
     const teamsConfig = await getTeamsConfig(supabase);
-    if (teamsConfig) {
+    if (teamsConfig && !skipTeams) {
       const teams = new TeamsClient(teamsConfig);
       await teams.sendTriageSummary({
         haloId: ticket.halo_id,

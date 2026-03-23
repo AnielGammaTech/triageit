@@ -328,6 +328,48 @@ export function buildCompactRetriageNote(
   return `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;font-size:12px;color:#e2e8f0;border:1px solid #3a3f4b;background:#1E2028;border-radius:6px;overflow:hidden;">${rows.join("")}</table>`;
 }
 
+// ── Accountability Note ──────────────────────────────────────────────
+
+export function buildAccountabilityNote(
+  techName: string,
+  haloId: number,
+  urgencyScore: number,
+  clientName: string | null,
+): string {
+  const urgencyLabel = urgencyScore >= 4 ? "CRITICAL" : urgencyScore >= 3 ? "HIGH" : "MEDIUM";
+  const urgencyColor = urgencyScore >= 4 ? "#dc2626" : urgencyScore >= 3 ? "#f59e0b" : "#94a3b8";
+  const clientLabel = clientName ? ` for <strong>${clientName}</strong>` : "";
+
+  const rows: string[] = [];
+
+  // Red header
+  rows.push(
+    `<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#991b1b,#dc2626);color:white;font-size:12px;font-weight:700;">` +
+    `🚩 No Progress Since Last Review</td></tr>`,
+  );
+
+  // Body
+  rows.push(
+    `<tr style="background:#2a1215;"><td colspan="2" style="padding:10px 12px;font-size:12px;color:#fca5a5;line-height:1.5;">` +
+    `<strong>${techName}</strong> — ticket #${haloId}${clientLabel} was reviewed previously but <strong>no tech activity or customer communication</strong> has been logged since.<br/><br/>` +
+    `<span style="color:${urgencyColor};font-weight:700;">Urgency: ${urgencyLabel} (${urgencyScore}/5)</span><br/>` +
+    `Please update the customer or log an internal note with current status.` +
+    `</td></tr>`,
+  );
+
+  // Footer
+  rows.push(
+    `<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">` +
+    `TriageIt AI · accountability check</td></tr>`,
+  );
+
+  return (
+    `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;` +
+    `font-size:12px;color:#e2e8f0;border:2px solid #dc2626;background:#1E2028;border-radius:6px;overflow:hidden;">` +
+    `${rows.join("")}</table>`
+  );
+}
+
 // ── Fast Path Note Builders ──────────────────────────────────────────
 
 export function buildFastPathNote(

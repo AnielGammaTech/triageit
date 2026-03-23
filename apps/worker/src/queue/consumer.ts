@@ -7,6 +7,35 @@ import type { TriageJobData } from "./producer.js";
 
 const QUEUE_NAME = "triage";
 
+/**
+ * Compare key fields between the previous triage and the new result.
+ * If classification, urgency, priority, and security flag are all the same,
+ * there's no value in posting a duplicate note to Halo.
+ */
+function isTriageIdentical(
+  previous: {
+    classification: unknown;
+    urgency_score: number;
+    recommended_priority: number;
+    security_flag: boolean;
+    internal_notes: string | null;
+  },
+  current: {
+    classification: unknown;
+    urgency_score: number;
+    recommended_priority: number;
+    security_flag: boolean;
+    internal_notes: string;
+  },
+): boolean {
+  return (
+    JSON.stringify(previous.classification) === JSON.stringify(current.classification) &&
+    previous.urgency_score === current.urgency_score &&
+    previous.recommended_priority === current.recommended_priority &&
+    previous.security_flag === current.security_flag
+  );
+}
+
 export function startTriageWorker(): Worker<TriageJobData> {
   const worker = new Worker<TriageJobData>(
     QUEUE_NAME,
@@ -37,7 +66,7 @@ export function startTriageWorker(): Worker<TriageJobData> {
         // Check if this is a retriage (existing results before this run)
         const { data: priorTriages } = await supabase
           .from("triage_results")
-          .select("id, created_at")
+          .select("id, created_at, classification, urgency_score, recommended_priority, security_flag, internal_notes")
           .eq("ticket_id", job.data.ticketId)
           .order("created_at", { ascending: false });
 
@@ -61,6 +90,19 @@ export function startTriageWorker(): Worker<TriageJobData> {
         }
 
         const result = await runTriage(ticket, supabase);
+
+        // Content-aware dedup: skip insert + Halo note if retriage produced identical results
+        const lastTriage = priorTriages?.[0];
+        if (lastTriage && isTriageIdentical(lastTriage, result)) {
+          console.log(
+            `[TRIAGE] Skipping duplicate retriage for #${job.data.haloId} — findings unchanged since ${lastTriage.created_at}`,
+          );
+          await supabase
+            .from("tickets")
+            .update({ status: "re-triaged", updated_at: new Date().toISOString() })
+            .eq("id", job.data.ticketId);
+          return { success: true, skipped: true, reason: "identical_retriage" };
+        }
 
         await supabase.from("triage_results").insert(result);
 
