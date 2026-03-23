@@ -90,16 +90,15 @@ export function Sidebar({ userEmail }: SidebarProps) {
             </button>
 
             <Link href="/tickets" className="flex items-center gap-2.5">
-              {/* Logo: T with small dot */}
+              {/* Logo: compact app icon — T with small dot */}
               <div
-                className="relative flex h-8 w-8 items-center justify-center rounded-lg text-sm font-extrabold text-white"
+                className="flex h-7 w-7 items-center justify-center rounded-md"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
-                T
-                <span
-                  className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2"
-                  style={{ backgroundColor: "#ef4444", borderColor: HEADER_BG }}
-                />
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <text x="3" y="12.5" fontFamily="Inter, system-ui, sans-serif" fontSize="12" fontWeight="800" fill="white">T</text>
+                  <circle cx="13" cy="11.5" r="1.5" fill="#ef4444" />
+                </svg>
               </div>
               <span className="hidden text-sm font-bold tracking-tight text-white sm:block">
                 Triage<span style={{ color: PRIMARY_COLOR }}>IT</span>
