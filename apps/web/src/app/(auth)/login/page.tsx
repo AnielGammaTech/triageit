@@ -10,8 +10,8 @@ export default function LoginPage() {
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[#b91c1c]">
             <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
-              <text x="3" y="12.5" fontFamily="Inter, system-ui, sans-serif" fontSize="12" fontWeight="800" fill="white">T</text>
-              <circle cx="13" cy="11.5" r="1.5" fill="#ef4444" />
+              <text x="2" y="14" fontFamily="Inter, system-ui, sans-serif" fontSize="15" fontWeight="800" fill="white">T</text>
+              <circle cx="13.5" cy="3" r="2" fill="#ef4444" />
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-white">

@@ -97,8 +97,8 @@ export function Sidebar({ userEmail }: SidebarProps) {
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <text x="3" y="12.5" fontFamily="Inter, system-ui, sans-serif" fontSize="12" fontWeight="800" fill="white">T</text>
-                  <circle cx="13" cy="11.5" r="1.5" fill="#ef4444" />
+                  <text x="2" y="14" fontFamily="Inter, system-ui, sans-serif" fontSize="15" fontWeight="800" fill="white">T</text>
+                  <circle cx="13.5" cy="3" r="2" fill="#ef4444" />
                 </svg>
               </div>
               <span className="hidden text-sm font-bold tracking-tight text-white sm:block">
