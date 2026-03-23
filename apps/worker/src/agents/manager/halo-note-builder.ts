@@ -42,7 +42,7 @@ export const AGENT_LABELS: Record<string, string> = {
   meredith_palmer: "Meredith Palmer (Backup/Recovery)",
   kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
   erin_hannon: "Erin Hannon (Alert Specialist)",
-  oscar_martinez: "Oscar Martinez (Backup/Cove)",
+  oscar_martinez: "Oscar Martinez (Backup/Cove/Unitrends)",
 };
 
 // ── Halo Priority Labels ─────────────────────────────────────────────
@@ -192,13 +192,20 @@ export function buildHaloNote(
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
-  // Quick Links — Hudu links and credentials from Dwight
+  // Quick Links — Hudu links from Dwight + backup quicklinks from Oscar/Meredith
   const dwightData = findings.dwight_schrute?.data;
   const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
   const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
 
-  if (huduLinks.length > 0 || relevantPasswords.length > 0) {
-    const linkItems = huduLinks
+  // Collect backup quicklinks from Oscar (Cove/Unitrends) and Meredith (Spanning)
+  const oscarLinks = (findings.oscar_martinez?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
+  const meredithLinks = (findings.meredith_palmer?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
+  const backupLinks = [...oscarLinks, ...meredithLinks];
+
+  const allLinks = [...huduLinks, ...backupLinks];
+
+  if (allLinks.length > 0 || relevantPasswords.length > 0) {
+    const linkItems = allLinks
       .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;">${l.label}</a>`)
       .join(" · ");
     const pwItems = relevantPasswords.map((p) => p.name).join(", ");

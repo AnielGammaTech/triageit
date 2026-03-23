@@ -126,6 +126,7 @@ Respond with ONLY valid JSON:
   "recovery_steps": ["<step-by-step recovery/resolution instructions>"],
   "is_transient": <true/false>,
   "transient_reason": "<why this is/isn't transient, null if not applicable>",
+  "quicklinks": [{"label": "<display text>", "url": "<link>"}],
   "backup_notes": "<comprehensive backup assessment with all findings>",
   "confidence": <0.0-1.0>
 }`;
@@ -182,9 +183,31 @@ Respond with ONLY valid JSON:
       `Spanning analysis complete. Backup status: ${backupStatus}. ${matchedErrorCount > 0 ? `Found ${matchedErrorCount} matching error(s).` : "No matching errors found."} ${spanningData.affectedUser ? `User ${spanningData.affectedUser.displayName ?? spanningData.affectedUser.userPrincipalName} identified.` : ""}`,
     );
 
+    // Build quicklinks — always include Spanning admin + relevant KB links
+    const quicklinks: Array<{ label: string; url: string }> = [];
+    if (spanningData.tenant || spanningData.tenantStatus) {
+      quicklinks.push({ label: "Spanning Admin Console", url: "https://o365-admin.spanning.com" });
+    }
+    if (errorCode) {
+      quicklinks.push({ label: "Spanning Error Codes", url: "https://spanning.zendesk.com/hc/en-us/articles/207566426-Error-Codes" });
+    }
+    quicklinks.push({ label: "Spanning Restore Guide", url: "https://spanning.zendesk.com/hc/en-us/articles/207566306-Restoring-Data" });
+    quicklinks.push({ label: "M365 Service Health", url: "https://admin.microsoft.com/#/servicehealth" });
+
+    // Merge LLM-generated quicklinks
+    const llmLinks = result.quicklinks as Array<{ label: string; url: string }> | undefined;
+    if (llmLinks && Array.isArray(llmLinks)) {
+      const existingUrls = new Set(quicklinks.map((l) => l.url));
+      for (const link of llmLinks) {
+        if (link.url && link.label && !existingUrls.has(link.url)) {
+          quicklinks.push(link);
+        }
+      }
+    }
+
     return {
       summary: (result.backup_notes as string) ?? "No backup data available",
-      data: result,
+      data: { ...result, quicklinks: quicklinks.slice(0, 6) },
       confidence: (result.confidence as number) ?? 0.5,
     };
   }

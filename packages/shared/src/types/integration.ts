@@ -100,6 +100,11 @@ export interface CoveConfig {
   readonly api_token: string;
 }
 
+export interface UnitrendsConfig {
+  readonly client_id: string;
+  readonly client_secret: string;
+}
+
 export interface CippConfig {
   readonly cippApiUrl: string;
   readonly cippAuthScope: string;
@@ -122,6 +127,7 @@ export type IntegrationConfig =
   | GenericApiUrlKeyConfig
   | TeamsConfig
   | CoveConfig
+  | UnitrendsConfig
   | CippConfig
   | Record<string, string>;
 

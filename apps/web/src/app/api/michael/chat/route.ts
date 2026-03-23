@@ -15,13 +15,18 @@ You are having a direct conversation with the admin/owner of Gamma Tech. You are
 - You learn from corrections — when the admin teaches you something, acknowledge it clearly
 
 ## What you can do:
-- Discuss any ticket by number — pull context from the conversation
+- Discuss any ticket by number — use lookup_ticket first, and if not found, use fetch_from_halo to pull it directly from Halo and import it
 - Explain your triage reasoning and accept feedback
 - Learn new skills/procedures when taught ("From now on, when you see X, do Y")
-- Analyze patterns across tickets
+- Analyze patterns across tickets — use get_dashboard for detailed stats
 - Suggest improvements to triage process
 - Answer questions about clients, techs, integrations
 - **Delegate tasks to your workers** — you manage a team of specialist agents. When the admin asks you to do something actionable, use the appropriate tool to delegate it.
+
+## IMPORTANT — Token efficiency:
+- For simple questions (ticket lookup, status check), just use the lookup tool and respond concisely
+- Only call get_dashboard when the admin asks about team performance, patterns, or operational metrics
+- Don't load heavy context you don't need — keep responses focused and efficient
 
 ## Your Team (specialist agents you manage):
 - **Ryan Howard** — Classifier. Categorizes tickets by type/subtype, urgency, and security flags.
@@ -137,28 +142,22 @@ export async function POST(request: NextRequest) {
   // Build system context with full system knowledge
   let systemPrompt = MICHAEL_CHAT_PROMPT;
 
-  // ── Load all context in parallel ──
+  // ── Load only lightweight context into system prompt ──
+  // Heavy data (tech profiles, customer insights, reviews, trends) are available
+  // via on-demand tools to keep token usage low.
   const [
     { data: skills },
     { data: agentSkills },
-    { data: techProfiles },
-    { data: customerInsights },
-    { data: recentTrends },
-    { data: recentReviews },
-    { data: openTicketStats },
     { data: integrations },
+    { count: openTicketCount },
   ] = await Promise.all([
     serviceClient.from("michael_learned_skills").select("title, content").eq("is_active", true),
     serviceClient.from("agent_skills").select("title, content").eq("agent_name", "michael_scott").eq("is_active", true),
-    serviceClient.from("tech_profiles").select("tech_name, avg_response_time, ticket_count, rating_breakdown, strong_categories, weak_categories, behavioral_patterns").order("updated_at", { ascending: false }),
-    serviceClient.from("customer_insights").select("client_name, recurring_issues, top_issue_types, update_request_frequency, environment_notes").order("updated_at", { ascending: false }).limit(20),
-    serviceClient.from("trend_detections").select("trend_type, title, description, severity, affected_clients, created_at").order("created_at", { ascending: false }).limit(10),
-    serviceClient.from("tech_reviews").select("tech_name, halo_id, rating, response_time, summary, improvement_areas, created_at").order("created_at", { ascending: false }).limit(20),
-    serviceClient.from("tickets").select("halo_status, halo_agent, client_name").is("tickettype_id", null).or("tickettype_id.eq.31"),
     serviceClient.from("integrations").select("service, is_active").eq("is_active", true),
+    serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
   ]);
 
-  // Learned skills
+  // Learned skills (these are small and directly relevant)
   if (skills && skills.length > 0) {
     systemPrompt += "\n\n## Skills You've Been Taught:\n";
     for (const skill of skills) {
@@ -166,7 +165,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Agent skills
+  // Agent skills (operational knowledge from Toby — kept because it shapes behavior)
   if (agentSkills && agentSkills.length > 0) {
     systemPrompt += "\n\n## Your Operational Knowledge:\n";
     for (const skill of agentSkills) {
@@ -174,73 +173,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Tech performance profiles
-  if (techProfiles && techProfiles.length > 0) {
-    systemPrompt += "\n\n## Tech Team Performance:\n";
-    for (const tp of techProfiles) {
-      systemPrompt += `\n**${tp.tech_name}**: ${tp.ticket_count ?? 0} tickets, avg response: ${tp.avg_response_time ?? "N/A"}`;
-      if (tp.rating_breakdown) systemPrompt += `, ratings: ${JSON.stringify(tp.rating_breakdown)}`;
-      if (tp.strong_categories) systemPrompt += `\n  Strong: ${tp.strong_categories}`;
-      if (tp.weak_categories) systemPrompt += `\n  Weak: ${tp.weak_categories}`;
-      if (tp.behavioral_patterns) systemPrompt += `\n  Patterns: ${tp.behavioral_patterns}`;
-      systemPrompt += "\n";
-    }
-  }
-
-  // Customer insights
-  if (customerInsights && customerInsights.length > 0) {
-    systemPrompt += "\n\n## Customer Insights:\n";
-    for (const ci of customerInsights) {
-      systemPrompt += `\n**${ci.client_name}**:`;
-      if (ci.recurring_issues) systemPrompt += ` Recurring: ${ci.recurring_issues}`;
-      if (ci.top_issue_types) systemPrompt += ` | Top issues: ${ci.top_issue_types}`;
-      if (ci.update_request_frequency) systemPrompt += ` | Update requests: ${ci.update_request_frequency}`;
-      if (ci.environment_notes) systemPrompt += ` | Env: ${ci.environment_notes}`;
-      systemPrompt += "\n";
-    }
-  }
-
-  // Recent trends
-  if (recentTrends && recentTrends.length > 0) {
-    systemPrompt += "\n\n## Recent Trends (Toby's analysis):\n";
-    for (const t of recentTrends) {
-      systemPrompt += `- [${t.severity}] **${t.title}**: ${t.description}`;
-      if (t.affected_clients) systemPrompt += ` (Clients: ${t.affected_clients})`;
-      systemPrompt += "\n";
-    }
-  }
-
-  // Recent tech reviews
-  if (recentReviews && recentReviews.length > 0) {
-    systemPrompt += "\n\n## Recent Tech Reviews:\n";
-    for (const r of recentReviews) {
-      systemPrompt += `- #${r.halo_id} **${r.tech_name}**: ${r.rating} (response: ${r.response_time ?? "N/A"}) — ${r.summary ?? ""}`;
-      if (r.improvement_areas) systemPrompt += ` [Improve: ${r.improvement_areas}]`;
-      systemPrompt += "\n";
-    }
-  }
-
-  // Open ticket summary
-  if (openTicketStats && openTicketStats.length > 0) {
-    const resolvedStatuses = ["closed", "resolved", "cancelled", "completed", "resolved remotely", "resolved onsite", "resolved - awaiting confirmation"];
-    const openTickets = openTicketStats.filter((t) => !t.halo_status || !resolvedStatuses.includes(t.halo_status.toLowerCase()));
-    const byTech: Record<string, number> = {};
-    const byClient: Record<string, number> = {};
-    for (const t of openTickets) {
-      const tech = t.halo_agent ?? "Unassigned";
-      const client = t.client_name ?? "Unknown";
-      byTech[tech] = (byTech[tech] ?? 0) + 1;
-      byClient[client] = (byClient[client] ?? 0) + 1;
-    }
-    systemPrompt += `\n\n## Current Open Tickets: ${openTickets.length}\n`;
-    systemPrompt += `By tech: ${Object.entries(byTech).sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name}: ${count}`).join(", ")}\n`;
-    systemPrompt += `Top clients: ${Object.entries(byClient).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, count]) => `${name}: ${count}`).join(", ")}\n`;
-  }
-
-  // Active integrations
+  // Lightweight summary — details available via tools
+  systemPrompt += `\n\n## Quick Stats:\n`;
+  systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
   if (integrations && integrations.length > 0) {
-    systemPrompt += `\n\n## Active Integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
+    systemPrompt += `- Active integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
   }
+  systemPrompt += `\nUse the **get_dashboard** tool to see tech workload, customer breakdown, recent trends, and tech reviews when the conversation needs that context. Don't load it preemptively.\n`;
 
   // ── Auto-detect ticket numbers (#XXXXX) in the message ──
   const ticketNumbers = [...message.matchAll(/#(\d{4,6})/g)].map((m) => parseInt(m[1], 10));
@@ -341,6 +280,32 @@ export async function POST(request: NextRequest) {
         required: [],
       },
     },
+    {
+      name: "fetch_from_halo",
+      description: "Fetch a ticket directly from Halo PSA API and import it into TriageIt if missing. Use when a ticket isn't found in the local database — it might have been missed by the webhook or sync. This will pull the ticket from Halo and queue it for triage.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number to fetch" },
+        },
+        required: ["halo_id"],
+      },
+    },
+    {
+      name: "get_dashboard",
+      description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          sections: {
+            type: "array",
+            items: { type: "string", enum: ["tech_workload", "tech_profiles", "customer_insights", "trends", "reviews"] },
+            description: "Which sections to load. Omit to load all. Pick only what's relevant to the question.",
+          },
+        },
+        required: [],
+      },
+    },
   ];
 
   // Tool execution helper
@@ -377,7 +342,7 @@ export async function POST(request: NextRequest) {
           .order("created_at", { referencedTable: "triage_results", ascending: false })
           .single();
 
-        if (!ticket) return `Ticket #${haloId} not found.`;
+        if (!ticket) return `Ticket #${haloId} not found in local database. Use the fetch_from_halo tool to pull it directly from Halo PSA and import it.`;
 
         let result = `**#${ticket.halo_id}**: ${ticket.summary}\n`;
         result += `Client: ${ticket.client_name ?? "Unknown"} | Status: ${ticket.halo_status ?? "Unknown"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\n`;
@@ -415,10 +380,200 @@ export async function POST(request: NextRequest) {
       }
 
       case "pull_tickets": {
-        const res = await fetch(`${workerUrl}/api/halo/pull-tickets`, { method: "POST" });
+        const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST" });
         return res.ok
-          ? `Ticket sync triggered. ${(await res.json()).message ?? "Pulling all open Gamma Default tickets from Halo."}`
+          ? `Ticket sync complete. ${JSON.stringify(await res.json())}`
           : `Failed to sync: ${await res.text()}`;
+      }
+
+      case "fetch_from_halo": {
+        const haloId = input.halo_id as number;
+
+        // First check if it already exists locally
+        const { data: existing } = await serviceClient
+          .from("tickets")
+          .select("id, halo_id, summary, halo_status")
+          .eq("halo_id", haloId)
+          .maybeSingle();
+
+        if (existing) {
+          return `Ticket #${haloId} is already in TriageIt: "${existing.summary}" (status: ${existing.halo_status ?? "unknown"})`;
+        }
+
+        // Fetch from Halo API
+        const { data: haloIntegration } = await serviceClient
+          .from("integrations")
+          .select("config")
+          .eq("service", "halo")
+          .eq("is_active", true)
+          .single();
+
+        if (!haloIntegration) return "Halo PSA is not configured.";
+
+        const haloConfig = haloIntegration.config as { base_url: string; client_id: string; client_secret: string; tenant?: string };
+
+        try {
+          // Get Halo token
+          const tokenUrl = haloConfig.tenant
+            ? `${haloConfig.base_url}/auth/token?tenant=${haloConfig.tenant}`
+            : `${haloConfig.base_url}/auth/token`;
+          const tokenRes = await fetch(tokenUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "client_credentials",
+              client_id: haloConfig.client_id,
+              client_secret: haloConfig.client_secret,
+              scope: "all",
+            }),
+          });
+
+          if (!tokenRes.ok) return `Failed to authenticate with Halo: ${tokenRes.status}`;
+          const tokenData = await tokenRes.json() as { access_token: string };
+
+          // Fetch the ticket
+          const ticketRes = await fetch(
+            `${haloConfig.base_url}/api/tickets/${haloId}?includecolumns=true`,
+            { headers: { Authorization: `Bearer ${tokenData.access_token}`, "Content-Type": "application/json" } },
+          );
+
+          if (!ticketRes.ok) return `Ticket #${haloId} not found in Halo (${ticketRes.status}).`;
+          const ticket = await ticketRes.json() as Record<string, unknown>;
+
+          // Insert into local DB
+          const { data: inserted, error: insertErr } = await serviceClient
+            .from("tickets")
+            .insert({
+              halo_id: haloId,
+              summary: (ticket.summary as string) ?? `Ticket #${haloId}`,
+              details: (ticket.details as string) ?? null,
+              client_name: (ticket.client_name as string) ?? null,
+              client_id: typeof ticket.client_id === "number" ? ticket.client_id : null,
+              user_name: (ticket.user_name as string) ?? null,
+              user_email: (ticket.user_emailaddress as string) ?? null,
+              original_priority: typeof ticket.priority_id === "number" ? ticket.priority_id : null,
+              status: "pending",
+              halo_status: (ticket.statusname as string) ?? (ticket.status_name as string) ?? null,
+              halo_status_id: typeof ticket.status_id === "number" ? ticket.status_id : null,
+              halo_agent: (ticket.agent_name as string) ?? null,
+              halo_team: (ticket.team as string) ?? null,
+              tickettype_id: typeof ticket.tickettype_id === "number" ? ticket.tickettype_id : null,
+              raw_data: ticket,
+            })
+            .select("id")
+            .single();
+
+          if (insertErr) return `Found ticket #${haloId} in Halo ("${ticket.summary}") but failed to import: ${insertErr.message}`;
+
+          // Trigger triage
+          if (inserted) {
+            try {
+              await fetch(`${workerUrl}/triage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ticket_id: inserted.id }),
+              });
+            } catch {
+              // Non-critical
+            }
+          }
+
+          return `Found and imported ticket #${haloId} from Halo: "${ticket.summary}" (client: ${ticket.client_name ?? "unknown"}, status: ${ticket.statusname ?? "unknown"}). Triage has been queued.`;
+        } catch (err) {
+          return `Error fetching from Halo: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case "get_dashboard": {
+        const sections = (input.sections as string[] | undefined) ?? ["tech_workload", "tech_profiles", "customer_insights", "trends", "reviews"];
+        let result = "";
+
+        if (sections.includes("tech_workload")) {
+          const { data: tickets } = await serviceClient
+            .from("tickets")
+            .select("halo_status, halo_agent, client_name")
+            .or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%");
+
+          if (tickets && tickets.length > 0) {
+            const byTech: Record<string, number> = {};
+            const byClient: Record<string, number> = {};
+            for (const t of tickets) {
+              byTech[t.halo_agent ?? "Unassigned"] = (byTech[t.halo_agent ?? "Unassigned"] ?? 0) + 1;
+              byClient[t.client_name ?? "Unknown"] = (byClient[t.client_name ?? "Unknown"] ?? 0) + 1;
+            }
+            result += `## Tech Workload (${tickets.length} open tickets)\n`;
+            result += Object.entries(byTech).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ") + "\n";
+            result += `## Top Clients\n`;
+            result += Object.entries(byClient).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([n, c]) => `${n}: ${c}`).join(", ") + "\n";
+          }
+        }
+
+        if (sections.includes("tech_profiles")) {
+          const { data: profiles } = await serviceClient
+            .from("tech_profiles")
+            .select("tech_name, avg_response_time, ticket_count, rating_breakdown, strong_categories, weak_categories, behavioral_patterns")
+            .order("updated_at", { ascending: false });
+
+          if (profiles && profiles.length > 0) {
+            result += "\n## Tech Profiles\n";
+            for (const tp of profiles) {
+              result += `**${tp.tech_name}**: ${tp.ticket_count ?? 0} tickets, avg response: ${tp.avg_response_time ?? "N/A"}`;
+              if (tp.strong_categories) result += ` | Strong: ${tp.strong_categories}`;
+              if (tp.weak_categories) result += ` | Weak: ${tp.weak_categories}`;
+              result += "\n";
+            }
+          }
+        }
+
+        if (sections.includes("customer_insights")) {
+          const { data: insights } = await serviceClient
+            .from("customer_insights")
+            .select("client_name, recurring_issues, top_issue_types, update_request_frequency, environment_notes")
+            .order("updated_at", { ascending: false })
+            .limit(15);
+
+          if (insights && insights.length > 0) {
+            result += "\n## Customer Insights\n";
+            for (const ci of insights) {
+              result += `**${ci.client_name}**:`;
+              if (ci.recurring_issues) result += ` Recurring: ${ci.recurring_issues}`;
+              if (ci.top_issue_types) result += ` | Top: ${ci.top_issue_types}`;
+              result += "\n";
+            }
+          }
+        }
+
+        if (sections.includes("trends")) {
+          const { data: trends } = await serviceClient
+            .from("trend_detections")
+            .select("trend_type, title, description, severity, affected_clients, created_at")
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+          if (trends && trends.length > 0) {
+            result += "\n## Recent Trends\n";
+            for (const t of trends) {
+              result += `- [${t.severity}] **${t.title}**: ${t.description}\n`;
+            }
+          }
+        }
+
+        if (sections.includes("reviews")) {
+          const { data: reviews } = await serviceClient
+            .from("tech_reviews")
+            .select("tech_name, halo_id, rating, response_time, summary, created_at")
+            .order("created_at", { ascending: false })
+            .limit(15);
+
+          if (reviews && reviews.length > 0) {
+            result += "\n## Recent Tech Reviews\n";
+            for (const r of reviews) {
+              result += `- #${r.halo_id} **${r.tech_name}**: ${r.rating} (${r.response_time ?? "N/A"}) — ${r.summary ?? ""}\n`;
+            }
+          }
+        }
+
+        return result || "No dashboard data available yet.";
       }
 
       default:
@@ -502,12 +657,16 @@ export async function POST(request: NextRequest) {
               : tool.name === "lookup_ticket" ? `Looking up ticket #${parsedInput.halo_id}...`
               : tool.name === "run_toby_analysis" ? "Running Toby's analytics..."
               : tool.name === "pull_tickets" ? "Syncing tickets from Halo..."
+              : tool.name === "fetch_from_halo" ? `Fetching ticket #${parsedInput.halo_id} from Halo...`
+              : tool.name === "get_dashboard" ? "Loading dashboard data..."
               : `Running ${tool.name}...`;
 
             const workerName = tool.name === "retriage_ticket" ? "Ryan + specialist team"
               : tool.name === "lookup_ticket" ? "Database"
               : tool.name === "run_toby_analysis" ? "Toby Flenderson"
               : tool.name === "pull_tickets" ? "Halo PSA"
+              : tool.name === "fetch_from_halo" ? "Halo PSA"
+              : tool.name === "get_dashboard" ? "Dashboard"
               : tool.name;
 
             controller.enqueue(

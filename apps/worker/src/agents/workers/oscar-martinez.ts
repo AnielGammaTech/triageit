@@ -1,15 +1,19 @@
-import type { MemoryMatch, CoveConfig } from "@triageit/shared";
+import type { MemoryMatch, CoveConfig, UnitrendsConfig } from "@triageit/shared";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import {
+  UnitrendsClient,
+  type UnitrendsDevice,
+  type UnitrendsBackupJob,
+} from "../../integrations/unitrends/client.js";
 
 /**
- * Oscar Martinez — Backup & Recovery Specialist (Cove Data Protection)
+ * Oscar Martinez — Backup & Recovery Specialist (Cove + Unitrends)
  *
- * Queries Cove Data Protection (N-able) via JSON-RPC API for device backup
- * status, last backup times, errors, and protection coverage. Also provides
- * deep expertise on Unitrends and general backup/recovery procedures.
- * Enhances Meredith Palmer's Spanning work with broader backup knowledge.
+ * Queries Cove Data Protection (N-able) via JSON-RPC API and Unitrends
+ * (Kaseya) via REST API for backup device status, job history, errors,
+ * and protection coverage. Provides quicklinks for techs.
  */
 
 // ── Cove API Types ──────────────────────────────────────────────────
@@ -47,55 +51,50 @@ interface CoveData {
   };
 }
 
+interface UnitrendsData {
+  readonly devices: ReadonlyArray<UnitrendsDevice>;
+  readonly recentJobs: ReadonlyArray<UnitrendsBackupJob>;
+  readonly customerName: string | null;
+  readonly healthySummary: {
+    readonly totalDevices: number;
+    readonly healthyDevices: number;
+    readonly failingDevices: number;
+    readonly alertDevices: number;
+  };
+}
+
 const EMPTY_COVE_DATA: CoveData = {
   devices: [],
   matchedDevice: null,
-  healthySummary: {
-    totalDevices: 0,
-    healthyDevices: 0,
-    errorDevices: 0,
-    unprotectedDevices: 0,
-  },
+  healthySummary: { totalDevices: 0, healthyDevices: 0, errorDevices: 0, unprotectedDevices: 0 },
 };
 
-// ── Cove KB Reference URLs ──────────────────────────────────────────
+const EMPTY_UNITRENDS_DATA: UnitrendsData = {
+  devices: [],
+  recentJobs: [],
+  customerName: null,
+  healthySummary: { totalDevices: 0, healthyDevices: 0, failingDevices: 0, alertDevices: 0 },
+};
 
-const COVE_KB_REFERENCES: ReadonlyArray<{
-  readonly topic: string;
+// ── Quicklink Types ────────────────────────────────────────────────
+
+export interface BackupQuicklink {
+  readonly label: string;
   readonly url: string;
-}> = [
-  {
-    topic: "Cove Data Protection Overview",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/cove-data-protection.htm",
-  },
-  {
-    topic: "Backup Manager Error Codes",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/json-api/error-codes.htm",
-  },
-  {
-    topic: "Recovery Console Guide",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/recovery-console.htm",
-  },
-  {
-    topic: "Backup Schedule Configuration",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/backup-schedule.htm",
-  },
-  {
-    topic: "System State Backup/Restore",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/system-state.htm",
-  },
-  {
-    topic: "VMware Virtual Machine Backup",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/vmware.htm",
-  },
-  {
-    topic: "Hyper-V Backup",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/hyper-v.htm",
-  },
-  {
-    topic: "MS SQL Backup",
-    url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/mssql.htm",
-  },
+}
+
+// ── KB Reference URLs ──────────────────────────────────────────────
+
+const COVE_KB_REFERENCES: ReadonlyArray<{ readonly topic: string; readonly url: string }> = [
+  { topic: "Cove Data Protection Overview", url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/cove-data-protection.htm" },
+  { topic: "Backup Manager Error Codes", url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/json-api/error-codes.htm" },
+  { topic: "Recovery Console Guide", url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/recovery-console.htm" },
+  { topic: "Backup Schedule Configuration", url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/backup-schedule.htm" },
+];
+
+const UNITRENDS_KB_REFERENCES: ReadonlyArray<{ readonly topic: string; readonly url: string }> = [
+  { topic: "Unitrends Recovery Series", url: "https://www.unitrends.com/products/enterprise-backup-software" },
+  { topic: "Unitrends KB & Support", url: "https://helpdesk.kaseya.com/hc/en-gb/categories/360002175178-Unitrends" },
 ];
 
 // ── Agent Class ─────────────────────────────────────────────────────
@@ -103,47 +102,32 @@ const COVE_KB_REFERENCES: ReadonlyArray<{
 export class OscarMartinezAgent extends BaseAgent {
   protected getAgentInstructions(): string {
     return `## Your Mission
-You are the Backup & Recovery Specialist. You have REAL data from Cove Data Protection (N-able).
+You are the Backup & Recovery Specialist. You have REAL data from Cove Data Protection (N-able) and/or Unitrends (Kaseya).
 Analyze backup data to assess reported issues, identify affected devices, and provide recovery guidance.
-You also have deep knowledge of Unitrends and general backup/recovery best practices.
 
 ## What You Have Access To
-- Device backup statistics (status, last backup time, errors, protected vs unprotected data)
-- Backup data sources per device (Files & Folders, System State, MS SQL, VMware, Hyper-V, Exchange, SharePoint)
-- Storage usage and selected sizes
-- Customer-level device overview
+- Cove: Device backup statistics, data sources, storage, errors
+- Unitrends: Device status, backup jobs, alerts, recovery points
+- Both: Customer-level device overview and health summaries
 
 ## Cove Backup Types
-- **Files & Folders**: File-level backup with include/exclude filters
-- **System State**: Windows system state including registry, boot files, COM+ DB
-- **MS SQL**: Database-level backup with transaction log support
-- **VMware**: Agentless VM-level backup via vSphere API
-- **Hyper-V**: VM-level backup via Hyper-V VSS writer
-- **Exchange**: Mailbox-level backup (on-prem Exchange)
-- **SharePoint**: SharePoint farm or content database backup
+- Files & Folders, System State, MS SQL, VMware, Hyper-V, Exchange, SharePoint
 
-## Common Cove Errors and Fixes
-- **"Backup overdue"**: Device hasn't run backup within schedule — check if device is powered on, agent is running
-- **"VSS error"**: Volume Shadow Copy failed — check disk space, restart VSS writers, verify no conflicting backup software
-- **"Connection failed"**: Device cannot reach Cove cloud — check firewall rules for ports 443/TCP, DNS resolution
-- **"Insufficient disk space"**: Local temp space too low — free space on the backup drive or adjust LocalSpeedVaultPath
-- **"Authentication error"**: Device credentials invalid — re-register device or update passphrase
-- **"Integrity check failed"**: Backup data corruption detected — run deep verification, may need re-seed
-- **"SQL backup failed"**: Check SQL Server agent running, database not in Simple recovery model for log backups
-- **"VMware snapshot failed"**: Check datastore space, remove orphaned snapshots, verify CBT is enabled
+## Common Errors and Fixes
+- **"Backup overdue"**: Device not backing up on schedule — check power, agent status
+- **"VSS error"**: Volume Shadow Copy failed — check disk space, restart VSS writers
+- **"Connection failed"**: Can't reach cloud — check firewall 443/TCP, DNS
+- **"Insufficient disk space"**: Free space on backup drive or adjust LocalSpeedVaultPath
+- **"Authentication error"**: Re-register device or update passphrase
+- **"Integrity check failed"**: Run deep verification, may need re-seed
+- **"SLA violation"** (Unitrends): Backup didn't complete within SLA window
+- **"Replication lag"** (Unitrends): Off-site replication behind — check bandwidth
 
 ## Recovery Procedures
-- **File/Folder Restore**: Use Recovery Console or Backup Manager restore tab, select point-in-time, choose files
-- **Bare Metal Recovery**: Boot from Cove recovery ISO, connect to cloud, select recovery point, restore to disk
-- **SQL Restore**: Use Recovery Console, mount backup, restore .bak via SSMS or script
-- **VM Recovery**: Use Recovery Console, export VM to local storage, import into hypervisor
-- **Virtual Disaster Recovery**: Spin up standby VM in Cove cloud for immediate failover
-
-## Unitrends Knowledge
-- Unitrends appliance-based backup (physical or virtual)
-- Supports VMware, Hyper-V, Windows, Linux, NAS, SAN
-- Common issues: appliance disk full, replication lag, SLA policy violations
-- Recovery: instant recovery (spin up VM from backup), file-level restore, bare metal
+- **Cove File Restore**: Recovery Console > select point-in-time > choose files
+- **Cove Bare Metal**: Boot recovery ISO > connect to cloud > restore to disk
+- **Unitrends Instant Recovery**: Spin up VM directly from backup image
+- **Unitrends File-Level**: Browse backup > select files > restore to original or alternate location
 
 ## Output Format
 Respond with ONLY valid JSON:
@@ -154,7 +138,8 @@ Respond with ONLY valid JSON:
   "error_analysis": "<detailed analysis of the backup error and its meaning>",
   "recommended_actions": ["<specific action items for the tech>"],
   "recovery_guidance": "<step-by-step recovery instructions if applicable>",
-  "kb_references": ["<links to relevant N-able Cove documentation>"],
+  "kb_references": ["<links to relevant documentation>"],
+  "quicklinks": [{"label": "<display text>", "url": "<link>"}],
   "backup_notes": "<comprehensive backup assessment with all findings>",
   "confidence": <0.0-1.0>
 }`;
@@ -171,14 +156,19 @@ Respond with ONLY valid JSON:
 
     await this.logThinking(
       context.ticketId,
-      `Analyzing backup issue for ticket #${context.haloId}. ${deviceName ? `Device: ${deviceName}.` : ""} ${errorKeyword ? `Error keyword: ${errorKeyword}.` : ""} Querying Cove API...`,
+      `Analyzing backup issue for ticket #${context.haloId}. ${deviceName ? `Device: ${deviceName}.` : ""} ${errorKeyword ? `Error keyword: ${errorKeyword}.` : ""} Querying backup APIs...`,
     );
 
-    const coveData = await this.fetchCoveData(context, deviceName);
+    // Fetch from both Cove and Unitrends in parallel
+    const [coveData, unitrendsData] = await Promise.all([
+      this.fetchCoveData(context, deviceName),
+      this.fetchUnitrendsData(context),
+    ]);
 
     const userMessage = this.buildUserMessage(
       context,
       coveData,
+      unitrendsData,
       deviceName,
       errorKeyword,
     );
@@ -195,17 +185,74 @@ Respond with ONLY valid JSON:
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     const backupStatus = (result.backup_status as string) ?? "UNKNOWN";
+    const totalDevices =
+      coveData.healthySummary.totalDevices +
+      unitrendsData.healthySummary.totalDevices;
 
     await this.logThinking(
       context.ticketId,
-      `Cove analysis complete. Backup status: ${backupStatus}. ${coveData.healthySummary.totalDevices} total devices, ${coveData.healthySummary.errorDevices} with errors. ${coveData.matchedDevice ? `Matched device: ${coveData.matchedDevice.DeviceName}.` : "No specific device matched."}`,
+      `Backup analysis complete. Status: ${backupStatus}. Cove: ${coveData.healthySummary.totalDevices} devices. Unitrends: ${unitrendsData.healthySummary.totalDevices} devices. Total: ${totalDevices}.`,
     );
+
+    // Build quicklinks from both sources
+    const quicklinks = this.buildQuicklinks(coveData, unitrendsData, result);
 
     return {
       summary: (result.backup_notes as string) ?? "No backup data available",
-      data: result,
+      data: { ...result, quicklinks },
       confidence: (result.confidence as number) ?? 0.5,
     };
+  }
+
+  // ── Quicklinks Builder ──────────────────────────────────────────────
+
+  private buildQuicklinks(
+    coveData: CoveData,
+    unitrendsData: UnitrendsData,
+    _llmResult: Record<string, unknown>,
+  ): ReadonlyArray<BackupQuicklink> {
+    const links: BackupQuicklink[] = [];
+
+    // Cove quicklinks
+    if (coveData.healthySummary.totalDevices > 0) {
+      links.push({
+        label: "Cove Backup Dashboard",
+        url: "https://backup.management",
+      });
+      if (coveData.healthySummary.errorDevices > 0) {
+        links.push({
+          label: "Cove Error Codes Reference",
+          url: "https://documentation.n-able.com/covedataprotection/USERGUIDE/documentation/Content/service-management/json-api/error-codes.htm",
+        });
+      }
+    }
+
+    // Unitrends quicklinks
+    if (unitrendsData.healthySummary.totalDevices > 0) {
+      links.push({
+        label: "Unitrends Backup Portal",
+        url: "https://backup.net",
+      });
+      if (unitrendsData.healthySummary.failingDevices > 0) {
+        links.push({
+          label: "Unitrends KB & Support",
+          url: "https://helpdesk.kaseya.com/hc/en-gb/categories/360002175178-Unitrends",
+        });
+      }
+    }
+
+    // LLM-generated quicklinks
+    const llmLinks = _llmResult.quicklinks as ReadonlyArray<BackupQuicklink> | undefined;
+    if (llmLinks && Array.isArray(llmLinks)) {
+      const existingUrls = new Set(links.map((l) => l.url));
+      for (const link of llmLinks) {
+        if (link.url && link.label && !existingUrls.has(link.url)) {
+          links.push(link);
+        }
+      }
+    }
+
+    return links.slice(0, 6);
   }
 
   // ── Cove Data Fetching ──────────────────────────────────────────────
@@ -215,61 +262,98 @@ Respond with ONLY valid JSON:
     deviceName: string | null,
   ): Promise<CoveData> {
     const config = await this.getCoveConfig();
-
-    if (!config) {
-      await this.logThinking(
-        context.ticketId,
-        "Cove integration not configured — analyzing ticket with AI knowledge only.",
-      );
-      return EMPTY_COVE_DATA;
-    }
+    if (!config) return EMPTY_COVE_DATA;
 
     try {
-      // Step 1: Login to get session visa
       const visa = await this.coveLogin(config);
-      if (!visa) {
-        await this.logThinking(
-          context.ticketId,
-          "Cove API login failed — analyzing ticket with AI knowledge only.",
-        );
-        return EMPTY_COVE_DATA;
-      }
+      if (!visa) return EMPTY_COVE_DATA;
 
-      // Step 2: Find customer mapping
       const customerExternalId = await this.findCustomerMapping(
+        "cove",
         context.clientName,
       );
 
-      // Step 3: Enumerate device statistics
-      const devices = await this.enumerateDeviceStatistics(
-        visa,
-        customerExternalId,
-      );
-
-      // Step 4: Match specific device from ticket
-      const matchedDevice = deviceName
-        ? findMatchingDevice(devices, deviceName)
-        : null;
-
-      // Step 5: Compute health summary
+      const devices = await this.enumerateDeviceStatistics(visa, customerExternalId);
+      const matchedDevice = deviceName ? findMatchingDevice(devices, deviceName) : null;
       const healthySummary = computeHealthSummary(devices);
 
       await this.logThinking(
         context.ticketId,
-        `Cove data fetched: ${devices.length} devices found. ${healthySummary.healthyDevices} healthy, ${healthySummary.errorDevices} with errors, ${healthySummary.unprotectedDevices} unprotected.`,
+        `Cove: ${devices.length} devices. ${healthySummary.healthyDevices} healthy, ${healthySummary.errorDevices} with errors.`,
       );
 
       return { devices, matchedDevice, healthySummary };
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error";
-      await this.logThinking(
-        context.ticketId,
-        `Cove API error: ${message}. Falling back to AI analysis.`,
-      );
+      console.error("[OSCAR] Cove fetch failed:", error);
       return EMPTY_COVE_DATA;
     }
   }
+
+  // ── Unitrends Data Fetching ─────────────────────────────────────────
+
+  private async fetchUnitrendsData(
+    context: TriageContext,
+  ): Promise<UnitrendsData> {
+    const config = await this.getUnitrendsConfig();
+    if (!config) return EMPTY_UNITRENDS_DATA;
+
+    try {
+      const client = new UnitrendsClient(config);
+
+      // Find customer — try mapping first, then fuzzy match
+      let customerId: number | null = null;
+      let customerName: string | null = null;
+
+      const mappingId = await this.findCustomerMapping("unitrends", context.clientName);
+      if (mappingId) {
+        customerId = Number(mappingId);
+      }
+
+      if (!customerId && context.clientName) {
+        const matched = await client.findCustomerByName(context.clientName);
+        if (matched) {
+          customerId = matched.id;
+          customerName = matched.name;
+
+          // Save mapping for future use
+          await this.saveCustomerMapping(
+            "unitrends",
+            context.clientName,
+            String(matched.id),
+            matched.name,
+          );
+        }
+      }
+
+      if (!customerId) {
+        await this.logThinking(
+          context.ticketId,
+          "Unitrends configured but no customer mapping found for this client.",
+        );
+        return EMPTY_UNITRENDS_DATA;
+      }
+
+      // Fetch devices and recent jobs in parallel
+      const [devices, recentJobs] = await Promise.all([
+        client.getDevices(customerId).catch(() => [] as UnitrendsDevice[]),
+        client.getBackupJobs(customerId).catch(() => [] as UnitrendsBackupJob[]),
+      ]);
+
+      const healthySummary = computeUnitrendsHealth(devices);
+
+      await this.logThinking(
+        context.ticketId,
+        `Unitrends: ${devices.length} devices for ${customerName ?? `customer #${customerId}`}. ${healthySummary.healthyDevices} healthy, ${healthySummary.failingDevices} failing, ${healthySummary.alertDevices} with alerts.`,
+      );
+
+      return { devices, recentJobs, customerName, healthySummary };
+    } catch (error) {
+      console.error("[OSCAR] Unitrends fetch failed:", error);
+      return EMPTY_UNITRENDS_DATA;
+    }
+  }
+
+  // ── Cove Internal Methods ───────────────────────────────────────────
 
   private async coveLogin(config: CoveConfig): Promise<string | null> {
     try {
@@ -312,9 +396,7 @@ Respond with ONLY valid JSON:
     try {
       const params: Record<string, unknown> = { visa };
       if (customerExternalId) {
-        params.query = {
-          PartnerId: Number(customerExternalId),
-        };
+        params.query = { PartnerId: Number(customerExternalId) };
       }
 
       const response = await fetch(COVE_API_URL, {
@@ -329,17 +411,12 @@ Respond with ONLY valid JSON:
       });
 
       const data = (await response.json()) as {
-        readonly result?: {
-          readonly result?: ReadonlyArray<CoveDeviceStatistic>;
-        };
+        readonly result?: { readonly result?: ReadonlyArray<CoveDeviceStatistic> };
         readonly error?: { readonly message?: string };
       };
 
       if (data.error) {
-        console.error(
-          "[OSCAR] Cove EnumerateAccountStatistics error:",
-          data.error.message,
-        );
+        console.error("[OSCAR] Cove EnumerateAccountStatistics error:", data.error.message);
         return [];
       }
 
@@ -350,19 +427,60 @@ Respond with ONLY valid JSON:
     }
   }
 
+  // ── Customer Mapping (shared across Cove + Unitrends) ───────────────
+
   private async findCustomerMapping(
+    service: string,
     clientName: string | null,
   ): Promise<string | null> {
     if (!clientName) return null;
 
-    const { data: mapping } = await this.supabase
+    // Try exact case-insensitive match
+    const { data: exactMapping } = await this.supabase
       .from("integration_mappings")
       .select("external_id")
-      .eq("service", "cove")
+      .eq("service", service)
       .ilike("customer_name", clientName)
-      .single();
+      .maybeSingle();
 
-    return mapping?.external_id ?? null;
+    if (exactMapping?.external_id) return exactMapping.external_id;
+
+    // Fuzzy fallback — fetch all mappings for this service and normalize
+    const { data: allMappings } = await this.supabase
+      .from("integration_mappings")
+      .select("external_id, customer_name")
+      .eq("service", service);
+
+    if (!allMappings || allMappings.length === 0) return null;
+
+    const ticketNorm = normalizeName(clientName);
+    const match = allMappings.find((m) => {
+      const mappedNorm = normalizeName(m.customer_name);
+      if (!mappedNorm || !ticketNorm) return false;
+      if (mappedNorm === ticketNorm) return true;
+      if (mappedNorm.includes(ticketNorm) || ticketNorm.includes(mappedNorm)) {
+        const ratio = Math.min(mappedNorm.length, ticketNorm.length) / Math.max(mappedNorm.length, ticketNorm.length);
+        return ratio >= 0.5;
+      }
+      return false;
+    });
+
+    return match?.external_id ?? null;
+  }
+
+  private async saveCustomerMapping(
+    service: string,
+    customerName: string,
+    externalId: string,
+    externalName: string,
+  ): Promise<void> {
+    await this.supabase
+      .from("integration_mappings")
+      .upsert(
+        { service, customer_name: customerName, external_id: externalId, external_name: externalName },
+        { onConflict: "service,customer_name" },
+      )
+      .then(() => {});
   }
 
   // ── Config ──────────────────────────────────────────────────────────
@@ -373,133 +491,118 @@ Respond with ONLY valid JSON:
       .select("config")
       .eq("service", "cove")
       .eq("is_active", true)
-      .single();
+      .maybeSingle();
 
     return data ? (data.config as CoveConfig) : null;
+  }
+
+  private async getUnitrendsConfig(): Promise<UnitrendsConfig | null> {
+    const { data } = await this.supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "unitrends")
+      .eq("is_active", true)
+      .maybeSingle();
+
+    return data ? (data.config as UnitrendsConfig) : null;
   }
 
   // ── Message Builder ────────────────────────────────────────────────
 
   private buildUserMessage(
     context: TriageContext,
-    data: CoveData,
+    coveData: CoveData,
+    unitrendsData: UnitrendsData,
     deviceName: string | null,
     errorKeyword: string | null,
   ): string {
     const sections: string[] = [
-      `## Ticket #${context.haloId} — Backup & Recovery Assessment (Cove)`,
+      `## Ticket #${context.haloId} — Backup & Recovery Assessment`,
       `**Subject:** ${context.summary}`,
     ];
 
-    if (context.details)
-      sections.push(`**Full Description:** ${context.details}`);
-    if (context.clientName)
-      sections.push(`**Client:** ${context.clientName}`);
-    if (context.userName)
-      sections.push(`**Reported By:** ${context.userName}`);
+    if (context.details) sections.push(`**Full Description:** ${context.details}`);
+    if (context.clientName) sections.push(`**Client:** ${context.clientName}`);
+    if (context.userName) sections.push(`**Reported By:** ${context.userName}`);
 
     // Extracted signals
-    sections.push("");
-    sections.push("## Extracted Ticket Signals");
+    sections.push("", "## Extracted Ticket Signals");
     if (deviceName) sections.push(`**Device Name:** ${deviceName}`);
     if (errorKeyword) sections.push(`**Error Keyword:** ${errorKeyword}`);
     if (!deviceName && !errorKeyword) {
-      sections.push(
-        "_No specific device name or error keyword found in ticket text._",
-      );
+      sections.push("_No specific device name or error keyword found in ticket text._");
     }
 
-    // Health summary
-    if (data.healthySummary.totalDevices > 0) {
-      sections.push("");
-      sections.push("## Cove Device Overview");
-      sections.push(
-        `**Total Devices:** ${data.healthySummary.totalDevices}`,
-      );
-      sections.push(
-        `**Healthy:** ${data.healthySummary.healthyDevices} | **With Errors:** ${data.healthySummary.errorDevices} | **Unprotected:** ${data.healthySummary.unprotectedDevices}`,
-      );
-    }
+    // ── Cove section ──────────────────────────────────────────────────
+    if (coveData.healthySummary.totalDevices > 0) {
+      sections.push("", "## Cove Data Protection (N-able)");
+      sections.push(`**Total Devices:** ${coveData.healthySummary.totalDevices}`);
+      sections.push(`**Healthy:** ${coveData.healthySummary.healthyDevices} | **With Errors:** ${coveData.healthySummary.errorDevices} | **Unprotected:** ${coveData.healthySummary.unprotectedDevices}`);
 
-    // Matched device detail
-    if (data.matchedDevice) {
-      sections.push("");
-      sections.push("## Matched Device");
-      sections.push(
-        `**Device:** ${data.matchedDevice.DeviceName} (${data.matchedDevice.ComputerName})`,
-      );
-      sections.push(`**OS:** ${data.matchedDevice.OsType}`);
-      sections.push(`**Status:** ${data.matchedDevice.Status}`);
-      sections.push(
-        `**Last Backup:** ${formatTimestamp(data.matchedDevice.LastSuccessfulSessionTimestamp)}`,
-      );
-      sections.push(
-        `**Last Session:** ${formatTimestamp(data.matchedDevice.LastSessionTimestamp)}`,
-      );
-      sections.push(`**Errors:** ${data.matchedDevice.Errors}`);
-      sections.push(
-        `**Data Sources:** ${data.matchedDevice.DataSources || "None"}`,
-      );
-      sections.push(
-        `**Protected Data:** ${data.matchedDevice.ProtectedData || "None"}`,
-      );
-      sections.push(
-        `**Unprotected Data:** ${data.matchedDevice.UnprotectedData || "None"}`,
-      );
-      sections.push(
-        `**Storage Used:** ${formatBytes(data.matchedDevice.UsedStorage)}`,
-      );
-    }
+      if (coveData.matchedDevice) {
+        const d = coveData.matchedDevice;
+        sections.push("", "### Matched Cove Device");
+        sections.push(`**Device:** ${d.DeviceName} (${d.ComputerName})`);
+        sections.push(`**OS:** ${d.OsType} | **Status:** ${d.Status} | **Errors:** ${d.Errors}`);
+        sections.push(`**Last Backup:** ${formatTimestamp(d.LastSuccessfulSessionTimestamp)} | **Last Session:** ${formatTimestamp(d.LastSessionTimestamp)}`);
+        sections.push(`**Data Sources:** ${d.DataSources || "None"}`);
+        sections.push(`**Storage Used:** ${formatBytes(d.UsedStorage)}`);
+      }
 
-    // Devices with errors
-    const errorDevices = data.devices.filter((d) => d.Errors > 0);
-    if (errorDevices.length > 0) {
-      sections.push("");
-      sections.push(
-        `## Devices With Errors (${errorDevices.length} found)`,
-      );
-      for (const device of errorDevices.slice(0, 15)) {
-        sections.push(
-          `- **${device.DeviceName}** | Status: ${device.Status} | Errors: ${device.Errors} | Last Backup: ${formatTimestamp(device.LastSuccessfulSessionTimestamp)} | Data Sources: ${device.DataSources || "None"}`,
-        );
+      const errorDevices = coveData.devices.filter((d) => d.Errors > 0);
+      if (errorDevices.length > 0) {
+        sections.push("", `### Cove Devices With Errors (${errorDevices.length})`);
+        for (const d of errorDevices.slice(0, 10)) {
+          sections.push(`- **${d.DeviceName}** | ${d.Status} | Errors: ${d.Errors} | Last: ${formatTimestamp(d.LastSuccessfulSessionTimestamp)}`);
+        }
       }
     }
 
-    // All devices summary (capped for prompt size)
-    if (data.devices.length > 0 && data.devices.length <= 30) {
-      sections.push("");
-      sections.push(`## All Devices (${data.devices.length})`);
-      for (const device of data.devices) {
-        sections.push(
-          `- **${device.DeviceName}** | ${device.Status} | Last: ${formatTimestamp(device.LastSuccessfulSessionTimestamp)} | Errors: ${device.Errors}`,
-        );
+    // ── Unitrends section ─────────────────────────────────────────────
+    if (unitrendsData.healthySummary.totalDevices > 0) {
+      sections.push("", "## Unitrends (Kaseya Unified Backup)");
+      if (unitrendsData.customerName) sections.push(`**Customer:** ${unitrendsData.customerName}`);
+      sections.push(`**Total Devices:** ${unitrendsData.healthySummary.totalDevices}`);
+      sections.push(`**Healthy:** ${unitrendsData.healthySummary.healthyDevices} | **Failing:** ${unitrendsData.healthySummary.failingDevices} | **With Alerts:** ${unitrendsData.healthySummary.alertDevices}`);
+
+      if (unitrendsData.devices.length > 0) {
+        sections.push("", "### Unitrends Devices");
+        for (const d of unitrendsData.devices.slice(0, 15)) {
+          sections.push(`- **${d.name}** | ${d.os} | Status: ${d.status} | Last Backup: ${d.lastBackupStatus} (${d.lastBackupTime ?? "Never"}) | Alerts: ${d.alertCount}`);
+        }
       }
-    } else if (data.devices.length > 30) {
-      sections.push("");
-      sections.push(
-        `## All Devices (${data.devices.length} — showing first 30)`,
-      );
-      for (const device of data.devices.slice(0, 30)) {
-        sections.push(
-          `- **${device.DeviceName}** | ${device.Status} | Last: ${formatTimestamp(device.LastSuccessfulSessionTimestamp)} | Errors: ${device.Errors}`,
+
+      if (unitrendsData.recentJobs.length > 0) {
+        const failedJobs = unitrendsData.recentJobs.filter((j) =>
+          j.status.toLowerCase().includes("fail") || j.status.toLowerCase().includes("error"),
         );
+        if (failedJobs.length > 0) {
+          sections.push("", `### Recent Failed Jobs (${failedJobs.length})`);
+          for (const j of failedJobs.slice(0, 10)) {
+            sections.push(`- **${j.deviceName}** | ${j.status} | ${j.dataType ?? "N/A"} | ${j.errorMessage ?? "No error message"} | ${j.endTime ?? "In progress"}`);
+          }
+        }
       }
     }
 
     // KB references
-    sections.push("");
-    sections.push("## N-able Cove KB References");
-    for (const ref of COVE_KB_REFERENCES) {
-      sections.push(`- [${ref.topic}](${ref.url})`);
+    const hasCove = coveData.healthySummary.totalDevices > 0;
+    const hasUnitrends = unitrendsData.healthySummary.totalDevices > 0;
+
+    sections.push("", "## KB References");
+    if (hasCove) {
+      for (const ref of COVE_KB_REFERENCES) sections.push(`- [${ref.topic}](${ref.url})`);
+    }
+    if (hasUnitrends) {
+      for (const ref of UNITRENDS_KB_REFERENCES) sections.push(`- [${ref.topic}](${ref.url})`);
     }
 
     // No data fallback
-    if (data.healthySummary.totalDevices === 0) {
-      sections.push("");
-      sections.push("## No Cove Data Available");
+    if (!hasCove && !hasUnitrends) {
+      sections.push("", "## No Backup Integration Data Available");
       sections.push(
-        "Cove integration is not configured, API returned no data, or no customer mapping exists. " +
-          "Analyze the ticket using your backup/recovery expertise and knowledge of Cove, Unitrends, and general backup best practices.",
+        "Neither Cove nor Unitrends returned data for this client. " +
+        "Analyze the ticket using backup/recovery expertise and recommend what checks should be performed.",
       );
     }
 
@@ -513,8 +616,16 @@ const COVE_API_URL = "https://api.backup.management/jsonapi";
 
 // ── Helper Functions ──────────────────────────────────────────────────
 
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractDeviceName(text: string): string | null {
-  // Match common device name patterns: SERVER01, WS-ACME-01, DC01, etc.
   const patterns = [
     /\b((?:SRV|SVR|DC|FS|SQL|APP|WEB|EXCH|HV|VM|WS|PC|LT|NB)[-_]?\w{2,}[-_]?\w*)\b/i,
     /\bserver[:\s]+["']?(\S+?)["']?\b/i,
@@ -531,20 +642,10 @@ function extractDeviceName(text: string): string | null {
 
 function extractBackupErrorKeyword(text: string): string | null {
   const keywords = [
-    "VSS",
-    "overdue",
-    "connection failed",
-    "insufficient disk",
-    "authentication error",
-    "integrity check",
-    "snapshot failed",
-    "backup failed",
-    "restore failed",
-    "replication",
-    "seed",
-    "recovery point",
-    "retention",
-    "schedule",
+    "VSS", "overdue", "connection failed", "insufficient disk",
+    "authentication error", "integrity check", "snapshot failed",
+    "backup failed", "restore failed", "replication", "seed",
+    "recovery point", "retention", "schedule", "SLA violation",
   ];
 
   const lower = text.toLowerCase();
@@ -560,15 +661,11 @@ function findMatchingDevice(
 ): CoveDeviceStatistic | null {
   const lower = name.toLowerCase();
 
-  // Exact match first
   const exact = devices.find(
-    (d) =>
-      d.DeviceName.toLowerCase() === lower ||
-      d.ComputerName.toLowerCase() === lower,
+    (d) => d.DeviceName.toLowerCase() === lower || d.ComputerName.toLowerCase() === lower,
   );
   if (exact) return exact;
 
-  // Partial match
   const partial = devices.find(
     (d) =>
       d.DeviceName.toLowerCase().includes(lower) ||
@@ -588,8 +685,20 @@ function computeHealthSummary(
     (d) => d.UnprotectedData && d.UnprotectedData.length > 0,
   ).length;
   const healthyDevices = totalDevices - errorDevices;
-
   return { totalDevices, healthyDevices, errorDevices, unprotectedDevices };
+}
+
+function computeUnitrendsHealth(
+  devices: ReadonlyArray<UnitrendsDevice>,
+): UnitrendsData["healthySummary"] {
+  const totalDevices = devices.length;
+  const failingDevices = devices.filter((d) =>
+    d.lastBackupStatus.toLowerCase().includes("fail") ||
+    d.lastBackupStatus.toLowerCase().includes("error"),
+  ).length;
+  const alertDevices = devices.filter((d) => d.alertCount > 0).length;
+  const healthyDevices = totalDevices - failingDevices;
+  return { totalDevices, healthyDevices, failingDevices, alertDevices };
 }
 
 function formatTimestamp(epoch: number): string {

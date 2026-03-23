@@ -34,6 +34,7 @@ export type {
   GenericApiUrlKeyConfig,
   TeamsConfig,
   CoveConfig,
+  UnitrendsConfig,
   CippConfig,
   IntegrationConfig,
   IntegrationConfigField,

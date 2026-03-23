@@ -58,6 +58,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -142,7 +143,12 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
     setStatusText("");
     setActivityLog([]);
 
+    let fullText = "";
+
     try {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const res = await fetch("/api/michael/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -151,6 +157,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           message: trimmed,
           ticket_context: ticketContext,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok || !res.body) {
@@ -160,7 +167,6 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let fullText = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -222,11 +228,31 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
         }
       }
     } catch (err) {
-      console.error("Chat error:", err);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User cancelled — save partial text as a message if any
+        if (fullText) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: fullText + "\n\n*[Stopped]*",
+            },
+          ]);
+        }
+        setStreamingText("");
+      } else {
+        console.error("Chat error:", err);
+      }
     } finally {
+      abortControllerRef.current = null;
       setStreaming(false);
     }
   }, [input, streaming, activeConversationId, ticketContext, loadConversations, loadSkills]);
+
+  const stopStreaming = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -495,16 +521,28 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                 el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
               }}
             />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || streaming}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
+            {streaming ? (
+              <button
+                onClick={stopStreaming}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+                title="Stop generating"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim()}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       </div>

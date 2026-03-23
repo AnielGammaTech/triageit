@@ -354,6 +354,10 @@ export async function runTriage(
   // ── Step 3: Michael analyzes classification & picks specialists ────
 
   const classType = classification.classification.type;
+
+  // Inject classification type into context so specialists can use it
+  context = { ...context, classificationType: classType };
+
   const specialistNames = await getAgentsForClassification(
     classType,
     supabase,

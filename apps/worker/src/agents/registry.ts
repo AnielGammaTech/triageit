@@ -50,13 +50,13 @@ const AGENT_IMPLEMENTATIONS: Record<string, AgentConstructor> = {
  * Agents that require a specific integration to be active AND
  * have a customer mapping for the ticket's client.
  */
-const AGENT_REQUIRED_INTEGRATION: Record<string, string> = {
+const AGENT_REQUIRED_INTEGRATION: Record<string, string | ReadonlyArray<string>> = {
   jim_halpert: "jumpcloud",
   andy_bernard: "datto",
   kelly_kapoor: "threecx",
   meredith_palmer: "spanning",
   stanley_hudson: "vultr",
-  oscar_martinez: "cove",
+  oscar_martinez: ["cove", "unitrends"],
   darryl_philbin: "cipp",
   creed_bratton: "unifi",
 };
@@ -93,33 +93,68 @@ export function getAvailableAgents(): ReadonlyArray<AgentDefinition> {
  */
 async function isIntegrationMappedForCustomer(
   supabase: SupabaseClient,
-  service: string,
+  service: string | ReadonlyArray<string>,
   customerName: string | null,
 ): Promise<boolean> {
-  // Check if the integration is even active
-  const { data: integration } = await supabase
+  const services = Array.isArray(service) ? service : [service];
+
+  // Check if ANY of the listed services is active
+  const { data: integrations } = await supabase
     .from("integrations")
     .select("id, is_active")
-    .eq("service", service)
-    .eq("is_active", true)
-    .single();
+    .in("service", services)
+    .eq("is_active", true);
 
-  if (!integration) return false;
+  if (!integrations || integrations.length === 0) return false;
 
   // If no customer name, integration is active but we can't check mapping
   // Let the agent try anyway (it will handle missing data gracefully)
   if (!customerName) return true;
 
-  // Check if a customer mapping exists for this client (case-insensitive)
-  const { data: mapping } = await supabase
+  const integrationIds = integrations.map((i) => i.id);
+
+  // Try exact case-insensitive match first (fast path)
+  const { data: exactMapping } = await supabase
     .from("integration_mappings")
     .select("id")
-    .eq("integration_id", integration.id)
+    .in("integration_id", integrationIds)
     .ilike("customer_name", customerName)
     .limit(1)
     .maybeSingle();
 
-  return !!mapping;
+  if (exactMapping) return true;
+
+  // Fuzzy fallback — fetch all mappings for these integrations and normalize
+  const { data: allMappings } = await supabase
+    .from("integration_mappings")
+    .select("customer_name")
+    .in("integration_id", integrationIds);
+
+  if (!allMappings || allMappings.length === 0) return false;
+
+  const ticketNorm = normalizeName(customerName);
+  return allMappings.some((m) => {
+    const mappedNorm = normalizeName(m.customer_name);
+    if (!mappedNorm || !ticketNorm) return false;
+    // Normalized exact
+    if (mappedNorm === ticketNorm) return true;
+    // Contains (one name is a substring of the other)
+    if (mappedNorm.includes(ticketNorm) || ticketNorm.includes(mappedNorm)) {
+      const ratio = Math.min(mappedNorm.length, ticketNorm.length) / Math.max(mappedNorm.length, ticketNorm.length);
+      return ratio >= 0.5;
+    }
+    return false;
+  });
+}
+
+/** Strip suffixes like Inc, LLC, Ltd and normalize whitespace for fuzzy company matching. */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions|llp|pllc)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
