@@ -148,6 +148,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [isLive, setIsLive] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  const [closeReviewing, setCloseReviewing] = useState(false);
+  const [closeReviewDone, setCloseReviewDone] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
   const [triageItNotes, setTriageITNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
@@ -202,6 +204,27 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setRetriaging(false);
     }
   }, [ticketId, retriaging]);
+
+  const handleCloseReview = useCallback(async () => {
+    if (closeReviewing || !ticket) return;
+    setCloseReviewing(true);
+
+    try {
+      const response = await fetch("/api/close-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: ticket.halo_id }),
+      });
+
+      if (response.ok) {
+        setCloseReviewDone(true);
+      }
+    } catch (error) {
+      console.error("Failed to generate close review:", error);
+    } finally {
+      setCloseReviewing(false);
+    }
+  }, [ticket, closeReviewing]);
 
   const loadTriageITNotes = useCallback(async () => {
     if (notesLoading || !ticket) return;
@@ -470,6 +493,34 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             )}
             {retriaging ? "Re-triaging..." : "Re-triage"}
           </button>
+          {ticket.halo_status && /resolved|closed|completed/i.test(ticket.halo_status) && (
+            <button
+              onClick={handleCloseReview}
+              disabled={closeReviewing || closeReviewDone}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                closeReviewDone
+                  ? "bg-emerald-500/10 text-emerald-400"
+                  : closeReviewing
+                    ? "cursor-not-allowed bg-white/5 text-white/20"
+                    : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
+              )}
+            >
+              {closeReviewing ? (
+                <div className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
+              ) : closeReviewDone ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 6L9 17l-5-5" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 11l3 3L22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
+              )}
+              {closeReviewing ? "Reviewing..." : closeReviewDone ? "Review Posted" : "Close Review"}
+            </button>
+          )}
         </div>
       </div>
 

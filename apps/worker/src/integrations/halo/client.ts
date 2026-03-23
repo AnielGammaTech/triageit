@@ -148,6 +148,46 @@ export class HaloClient {
     return name;
   }
 
+  /**
+   * Search for an agent by name and return their ID.
+   * Useful for building Halo @mentions.
+   */
+  async findAgentByName(name: string): Promise<{ id: number; name: string } | null> {
+    try {
+      const result = await this.request<{ agents?: ReadonlyArray<{ id: number; name: string }> }>(
+        "GET",
+        `/agent?search=${encodeURIComponent(name)}&count=5`,
+      );
+      const agents = result.agents ?? [];
+      // Exact match first, then partial
+      const exact = agents.find((a) => a.name.toLowerCase() === name.toLowerCase());
+      if (exact) return exact;
+      const partial = agents.find((a) => a.name.toLowerCase().includes(name.toLowerCase()));
+      return partial ?? null;
+    } catch {
+      console.warn(`[HALO] Could not search for agent "${name}"`);
+      return null;
+    }
+  }
+
+  /**
+   * Format a Halo @mention tag for use in HTML notes.
+   * Halo uses a specific HTML format to trigger notifications.
+   */
+  static formatMention(agentId: number, agentName: string): string {
+    return `<span class="atwho-inserted" data-atwho-at="@"><span class="agent-tag" data-agent-id="${agentId}">@${agentName}</span></span>`;
+  }
+
+  /**
+   * Look up agent by name and return a formatted @mention.
+   * Falls back to plain text "@Name" if agent not found.
+   */
+  async buildMention(name: string): Promise<string> {
+    const agent = await this.findAgentByName(name);
+    if (agent) return HaloClient.formatMention(agent.id, agent.name);
+    return `@${name}`;
+  }
+
   async updateCustomFields(
     ticketId: number,
     fields: ReadonlyArray<{ id: number; value: string }>,

@@ -518,8 +518,11 @@ export async function runTriage(
     // Post accountability note — red flag that nothing has changed
     try {
       const halo = new HaloClient(haloConfig);
+      const techName = context.assignedTechName ?? "Assigned tech";
+      // Resolve proper @mention so the tech gets notified in Halo
+      const techMention = await halo.buildMention(techName);
       const accountabilityNote = buildAccountabilityNote(
-        context.assignedTechName ?? "Assigned tech",
+        techMention,
         ticket.halo_id,
         classification.urgency_score,
         context.clientName,

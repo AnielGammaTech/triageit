@@ -25,6 +25,7 @@ import {
 import { MemoryManager } from "./memory/memory-manager.js";
 import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
+import { generateCloseReview } from "./agents/manager/close-reviewer.js";
 
 const server = Fastify({ logger: true });
 
@@ -218,6 +219,29 @@ server.post<{
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[INVESTIGATE] ${worker} failed for "${client_name}":`, message);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// ── Close review endpoint ─────────────────────────────────────────────
+// Generate a close-out review for a resolved ticket
+server.post<{ Body: { halo_id: number } }>(
+  "/close-review",
+  async (request, reply) => {
+    const { halo_id } = request.body;
+    if (!halo_id) {
+      return reply.status(400).send({ error: "halo_id is required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    try {
+      const { review } = await generateCloseReview(halo_id, supabase);
+      return { status: "completed", review };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[CLOSE-REVIEW] Failed for ticket #${halo_id}:`, message);
       return reply.status(500).send({ error: message });
     }
   },

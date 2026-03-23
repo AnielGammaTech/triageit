@@ -19,7 +19,7 @@ You are the admin/owner's AI operations manager — a supercomputer that can pul
 - **Analyze techs** — response times, workload, review history, patterns of behavior
 - **Analyze clients** — recurring issues, ticket volume, which techs handle them, satisfaction signals
 - **Find patterns** — search across tickets by keyword, client, tech, status, date range
-- **Take action** — post internal notes to Halo tickets, ping techs, flag issues, retriage tickets, sync from Halo, run Toby's analytics
+- **Take action** — post internal notes to Halo tickets (use @TechName to mention/notify them), ping techs, flag issues, retriage tickets, sync from Halo, run Toby's analytics
 - **Learn and adapt** — accept corrections, learn new procedures, remember context
 
 ## Token efficiency:
@@ -664,6 +664,32 @@ export async function POST(request: NextRequest) {
           if (!tokenRes.ok) return `Failed to authenticate with Halo: ${tokenRes.status}`;
           const { access_token } = await tokenRes.json() as { access_token: string };
 
+          // Resolve @mentions — replace @Name with Halo's mention HTML
+          let resolvedNote = noteContent;
+          const mentionMatches = noteContent.match(/@[\w]+(?:\s[\w]+)?/g);
+          if (mentionMatches) {
+            for (const mention of mentionMatches) {
+              const name = mention.slice(1); // strip @
+              try {
+                const agentRes = await fetch(
+                  `${haloCfgNote.base_url}/api/agent?search=${encodeURIComponent(name)}&count=3`,
+                  { headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" } },
+                );
+                if (agentRes.ok) {
+                  const agentData = await agentRes.json() as { agents?: ReadonlyArray<{ id: number; name: string }> };
+                  const agents = agentData.agents ?? [];
+                  const match = agents.find((a) => a.name.toLowerCase().includes(name.toLowerCase()));
+                  if (match) {
+                    const mentionHtml = `<span class="atwho-inserted" data-atwho-at="@"><span class="agent-tag" data-agent-id="${match.id}">@${match.name}</span></span>`;
+                    resolvedNote = resolvedNote.replace(mention, mentionHtml);
+                  }
+                }
+              } catch {
+                // Keep plain text @mention if resolution fails
+              }
+            }
+          }
+
           // Post internal note
           const actionRes = await fetch(`${haloCfgNote.base_url}/api/actions`, {
             method: "POST",
@@ -673,7 +699,7 @@ export async function POST(request: NextRequest) {
             },
             body: JSON.stringify([{
               ticket_id: haloId,
-              note: noteContent,
+              note: resolvedNote,
               hiddenfromuser: true,
               outcome: "note",
             }]),
