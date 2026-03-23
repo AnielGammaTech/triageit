@@ -81,6 +81,7 @@ export interface Ticket {
   readonly user_email: string | null;
   readonly original_priority: number | null;
   readonly status: TicketStatus;
+  readonly tickettype_id: number | null;
   readonly raw_data: HaloTicket | null;
   readonly created_at: string;
   readonly updated_at: string;

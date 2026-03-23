@@ -13,6 +13,7 @@ import { buildFastPathNote, buildAlertPathNote } from "./halo-note-builder.js";
 
 // Halo ticket type IDs
 const HALO_ALERTS_TYPE_ID = 36;
+const HALO_GAMMA_DEFAULT_TYPE_ID = 31;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -51,8 +52,10 @@ export async function tryNotificationFastPath(
     (classTypeLower === "billing" && classification.urgency_score <= 2) ||
     (classTypeLower === "other" && subtype.includes("email") && classification.urgency_score <= 2);
 
+  // Gamma Default tickets always get full triage, even if content looks like a notification
   if (
     !isNotification ||
+    ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID ||
     classification.urgency_score > 2 ||
     classification.security_flag ||
     context.slaBreached
@@ -139,10 +142,11 @@ export async function tryAlertFastPath(
     classification.classification.subtype ?? "",
   );
 
+  // Gamma Default tickets always get full triage, even if content looks like an alert.
   // Skip fast path for SLA-breached tickets (need full analysis).
   // Allow security_flag through for alerts — DMARC reports, phishing alerts, etc.
   // are automated and should still use the alert fast path.
-  if (!isAlert || context.slaBreached) {
+  if (!isAlert || ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID || context.slaBreached) {
     return null;
   }
 
