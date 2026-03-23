@@ -150,6 +150,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [summarizing, setSummarizing] = useState(false);
   const [closeReviewing, setCloseReviewing] = useState(false);
   const [closeReviewDone, setCloseReviewDone] = useState(false);
+  const [kbDrafts, setKbDrafts] = useState<ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string }>>([]);
+  const [copiedKb, setCopiedKb] = useState<number | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
   const [triageItNotes, setTriageITNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
@@ -217,7 +219,11 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       });
 
       if (response.ok) {
+        const data = await response.json() as { review?: { hudu_kb_drafts?: ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string }> } };
         setCloseReviewDone(true);
+        if (data.review?.hudu_kb_drafts && data.review.hudu_kb_drafts.length > 0) {
+          setKbDrafts(data.review.hudu_kb_drafts);
+        }
       }
     } catch (error) {
       console.error("Failed to generate close review:", error);
@@ -492,6 +498,32 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               </svg>
             )}
             {retriaging ? "Re-triaging..." : "Re-triage"}
+          </button>
+          <button
+            onClick={handleCloseReview}
+            disabled={closeReviewing || closeReviewDone}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              closeReviewDone
+                ? "bg-emerald-500/10 text-emerald-400"
+                : closeReviewing
+                  ? "cursor-not-allowed bg-white/5 text-white/20"
+                  : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
+            )}
+          >
+            {closeReviewing ? (
+              <div className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
+            ) : closeReviewDone ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 11l3 3L22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+            )}
+            {closeReviewing ? "Reviewing..." : closeReviewDone ? "Review Posted" : "Close Review"}
           </button>
         </div>
       </div>
@@ -882,43 +914,62 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {activeTab === "triageit" && (
         <div className="space-y-3">
-          {/* Close Review button — only for resolved tickets */}
-          {ticket.halo_status && /resolved|closed|completed/i.test(ticket.halo_status) && (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-medium text-emerald-400">Ticket Resolved</h3>
-                  <p className="mt-0.5 text-xs text-white/40">
-                    Generate a close-out review: resolution summary, tech performance, documentation quality, and onsite visits.
-                  </p>
-                </div>
-                <button
-                  onClick={handleCloseReview}
-                  disabled={closeReviewing || closeReviewDone}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
-                    closeReviewDone
-                      ? "bg-emerald-500/20 text-emerald-400"
-                      : closeReviewing
-                        ? "cursor-not-allowed bg-white/5 text-white/20"
-                        : "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25",
-                  )}
-                >
-                  {closeReviewing ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
-                  ) : closeReviewDone ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M9 11l3 3L22 4" />
-                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                    </svg>
-                  )}
-                  {closeReviewing ? "Generating Review..." : closeReviewDone ? "Review Posted to Halo" : "Close Review"}
-                </button>
+          {/* KB Drafts — shown after close review completes */}
+          {kbDrafts.length > 0 && (
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-blue-400">Hudu KB Drafts</span>
+                <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">
+                  {kbDrafts.length} {kbDrafts.length === 1 ? "article" : "articles"}
+                </span>
+                <span className="text-xs text-white/30">Copy & paste into Hudu</span>
               </div>
+              {kbDrafts.map((draft, i) => (
+                <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-semibold text-blue-300 uppercase">
+                        {draft.category}
+                      </span>
+                      <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
+                        → {draft.hudu_section}
+                      </span>
+                      <span className="text-sm font-medium text-white/80">{draft.title}</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        void navigator.clipboard.writeText(draft.content);
+                        setCopiedKb(i);
+                        setTimeout(() => setCopiedKb(null), 2000);
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
+                        copiedKb === i
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70",
+                      )}
+                    >
+                      {copiedKb === i ? (
+                        <>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="px-3 py-2 text-xs text-white/60 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
+                    {draft.content}
+                  </pre>
+                </div>
+              ))}
             </div>
           )}
 

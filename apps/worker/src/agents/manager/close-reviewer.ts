@@ -1,10 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
-import { HaloClient } from "../../integrations/halo/client.js";
+import { HaloClient, type TicketImage } from "../../integrations/halo/client.js";
 import type { HaloConfig } from "@triageit/shared";
 
 // ── Types ────────────────────────────────────────────────────────────
+
+interface HuduKbDraft {
+  readonly title: string;
+  readonly category: "procedure" | "troubleshooting" | "environment" | "contact" | "network" | "password" | "general";
+  readonly content: string;
+  readonly hudu_section: string;
+}
 
 interface CloseReviewResult {
   readonly resolution_summary: string;
@@ -20,6 +27,7 @@ interface CloseReviewResult {
     readonly quality_score: 1 | 2 | 3 | 4 | 5;
     readonly notes: string;
   };
+  readonly hudu_kb_drafts: ReadonlyArray<HuduKbDraft>;
   readonly onsite_visits: ReadonlyArray<string>;
   readonly ticket_lifecycle: {
     readonly total_time: string;
@@ -37,6 +45,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - How the tech handled the ticket from open to close
 - Whether documentation needs updating in Hudu (the IT documentation platform)
 - A brief factual summary of what happened and how it was resolved
+- What KB articles, procedures, or environment docs should be created/updated in Hudu based on what was learned
 
 ## Rules:
 - Be factual — only state what the ticket history shows
@@ -44,6 +53,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - Rate the tech honestly — great/good/needs_improvement/poor
 - If there were onsite visits, note them
 - Keep everything concise
+- For hudu_kb_drafts: Draft READY-TO-PASTE content for Hudu. Each draft should be a complete article/section the admin can copy directly into Hudu. Only draft if the ticket revealed permanent knowledge worth documenting. Categories: procedure (step-by-step fix), troubleshooting (diagnosis guide), environment (infra/config details), contact (vendor contacts discovered), network (network/DNS/firewall configs), password (credential notes — NO actual passwords, just what exists and where), general (other).
 
 ## Output JSON:
 {
@@ -60,6 +70,14 @@ Analyze the full ticket lifecycle and produce a close-out review.
     "quality_score": <1-5 — how well-documented is this client's environment based on what we saw>,
     "notes": "<brief note on documentation state>"
   },
+  "hudu_kb_drafts": [
+    {
+      "title": "<KB article title, e.g. 'Fix Outlook Autodiscover for Contoso M365'>",
+      "category": "<procedure|troubleshooting|environment|contact|network|password|general>",
+      "content": "<Full ready-to-paste content in plain text with clear sections. Use markdown-style formatting (## headers, - bullets, numbered steps). Should be complete enough to paste directly into Hudu.>",
+      "hudu_section": "<Which Hudu section/asset this belongs in, e.g. 'Procedures', 'Network', 'Passwords', 'Client Overview'>"
+    }
+  ],
   "onsite_visits": ["<list of onsite visits mentioned, or empty array>"],
   "ticket_lifecycle": {
     "total_time": "<time from open to close, e.g. '2 days 4 hours'>",
@@ -109,6 +127,13 @@ export async function generateCloseReview(
       outcome: a.outcome ?? null,
     }));
 
+  // Pull images from ticket actions (screenshots, configs, etc.)
+  const [actionImages, inlineImages] = await Promise.all([
+    halo.getTicketImages(haloId, rawActions),
+    halo.extractInlineImages(rawActions),
+  ]);
+  const allImages: ReadonlyArray<TicketImage> = [...actionImages, ...inlineImages].slice(0, 5);
+
   // Check for existing tech review
   const { data: techReview } = await supabase
     .from("tech_reviews")
@@ -149,13 +174,28 @@ export async function generateCloseReview(
     }),
   ].filter(Boolean).join("\n");
 
-  // Call LLM
+  // Call LLM — include images if available for richer KB drafts
   const anthropic = new Anthropic();
+  const userContent: Anthropic.MessageCreateParams["messages"][0]["content"] = allImages.length > 0
+    ? [
+        { type: "text" as const, text: `${CLOSE_REVIEW_PROMPT}\n\n${context}` },
+        ...allImages.map((img) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: img.mediaType,
+            data: img.base64Data,
+          },
+        })),
+        { type: "text" as const, text: `\n\nThe above ${allImages.length} image(s) are from the ticket's internal notes/attachments. Use them to extract specific details for KB drafts (configs, error messages, network diagrams, screenshots of settings, etc).` },
+      ]
+    : `${CLOSE_REVIEW_PROMPT}\n\n${context}`;
+
   const response = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 1500,
+    max_tokens: 3000,
     messages: [
-      { role: "user", content: `${CLOSE_REVIEW_PROMPT}\n\n${context}` },
+      { role: "user", content: userContent },
     ],
   });
 
@@ -250,6 +290,29 @@ function buildCloseReviewNote(
     `${huduUpdates.length > 0 ? `<br/><strong>Update Hudu:</strong> ${huduUpdates.join(", ")}` : ""}` +
     `</td></tr>`,
   );
+
+  // KB Drafts
+  const kbDrafts = review.hudu_kb_drafts ?? [];
+  if (kbDrafts.length > 0) {
+    rows.push(
+      `<tr><td colspan="2" style="padding:10px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:14px;font-weight:700;">` +
+      `📘 Hudu KB Drafts — Copy & Paste into Hudu</td></tr>`,
+    );
+    for (const draft of kbDrafts) {
+      const categoryBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#3b82f6;color:white;font-size:11px;font-weight:600;margin-right:6px;">${draft.category}</span>`;
+      const sectionBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#475569;color:#e2e8f0;font-size:11px;margin-right:6px;">→ ${draft.hudu_section}</span>`;
+      const formattedContent = draft.content
+        .replace(/\n/g, "<br/>")
+        .replace(/^## (.+)$/gm, '<strong style="font-size:13px;color:#93c5fd;">$1</strong>')
+        .replace(/^- (.+)$/gm, "• $1");
+      rows.push(
+        `<tr style="background:#1a1d24;"><td colspan="2" style="padding:10px 14px;${border}">` +
+        `<div style="margin-bottom:6px;">${categoryBadge}${sectionBadge}<strong style="color:#e2e8f0;font-size:14px;">${draft.title}</strong></div>` +
+        `<div style="background:#0f1117;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-size:13px;color:#cbd5e1;line-height:1.6;">${formattedContent}</div>` +
+        `</td></tr>`,
+      );
+    }
+  }
 
   // Footer
   rows.push(
