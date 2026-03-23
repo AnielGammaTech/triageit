@@ -2,6 +2,34 @@ import type { AgentFinding } from "@triageit/shared";
 import type { SimilarTicket } from "../similar-tickets.js";
 import type { DuplicateCandidate } from "../duplicate-detector.js";
 
+// ── URL to hyperlink converter ──────────────────────────────────────
+
+/**
+ * Convert raw URLs in text to clickable HTML hyperlinks.
+ * Skips URLs already inside href="" attributes.
+ */
+function linkifyUrls(text: string): string {
+  // Don't process if already contains href (already linkified)
+  if (text.includes('href="http')) return text;
+
+  // Match URLs not already inside an HTML attribute
+  return text.replace(
+    /(?<!\w|="|='|">)(https?:\/\/[^\s<>"')\]]+)/g,
+    (url) => {
+      // Extract display name from URL for cleaner output
+      try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, "");
+        const path = parsed.pathname === "/" ? "" : parsed.pathname;
+        const display = `${host}${path}`.replace(/\/$/, "");
+        return `<a href="${url}" style="color:#60a5fa;text-decoration:underline;">${display}</a>`;
+      } catch {
+        return `<a href="${url}" style="color:#60a5fa;text-decoration:underline;">${url}</a>`;
+      }
+    },
+  );
+}
+
 // ── Agent name to display label ──────────────────────────────────────
 
 export const AGENT_LABELS: Record<string, string> = {
@@ -52,7 +80,7 @@ export function formatTechNotes(notes: unknown): string {
       .map((n) => (typeof n === "string" ? n.trim() : JSON.stringify(n)))
       .filter(Boolean);
     if (steps.length > 0) {
-      const items = steps.map((s) => `<li style="margin-bottom:6px;">${s}</li>`).join("");
+      const items = steps.map((s) => `<li style="margin-bottom:6px;">${linkifyUrls(s)}</li>`).join("");
       return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
     }
   }
@@ -62,18 +90,18 @@ export function formatTechNotes(notes: unknown): string {
   // Try splitting on numbered patterns like "1)", "1.", "(1)", or "STEP 1:"
   const numbered = text.split(/(?:^|\s)(?:\d+[\).\-:]|\(\d+\))\s*/g).filter(Boolean);
   if (numbered.length > 1) {
-    const items = numbered.map((item) => `<li style="margin-bottom:6px;">${item.trim()}</li>`).join("");
+    const items = numbered.map((item) => `<li style="margin-bottom:6px;">${linkifyUrls(item.trim())}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
 
   // Try splitting on sentence boundaries
   const sentences = text.split(/(?<=\.)\s+(?=[A-Z])/).filter(Boolean);
   if (sentences.length > 2) {
-    const items = sentences.map((s) => `<li style="margin-bottom:6px;">${s.trim()}</li>`).join("");
+    const items = sentences.map((s) => `<li style="margin-bottom:6px;">${linkifyUrls(s.trim())}</li>`).join("");
     return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
   }
 
-  return text;
+  return linkifyUrls(text);
 }
 
 // ── Full Triage Note ─────────────────────────────────────────────────
@@ -139,7 +167,7 @@ export function buildHaloNote(
   const priorityColor = classification.recommended_priority <= 1 ? "#f87171" : classification.recommended_priority === 2 ? "#f59e0b" : classification.recommended_priority === 3 ? "#60a5fa" : "#4ade80";
   rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#94a3b8;">Priority</td><td ${td2}><strong style="color:${priorityColor};font-size:15px;">${priorityLabel(classification.recommended_priority)}</strong> <span style="color:#64748b;">·</span> <span style="color:#e2e8f0;">${michaelResult.recommended_team}</span></td></tr>`);
   if (classification.urgency_reasoning) {
-    rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${classification.urgency_reasoning}</td></tr>`);
+    rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${linkifyUrls(classification.urgency_reasoning)}</td></tr>`);
   }
 
   // Entities
@@ -149,16 +177,16 @@ export function buildHaloNote(
 
   // Security
   if (classification.security_flag) {
-    rows.push(`<tr style="background:#3b1018;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#f87171;">⚠ Security</td><td style="padding:8px 12px;${border}font-size:14px;color:#fca5a5;line-height:1.5;word-break:break-word;">${classification.security_notes}</td></tr>`);
+    rows.push(`<tr style="background:#3b1018;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#f87171;">⚠ Security</td><td style="padding:8px 12px;${border}font-size:14px;color:#fca5a5;line-height:1.5;word-break:break-word;">${linkifyUrls(classification.security_notes ?? "")}</td></tr>`);
   }
 
   // Escalation
   if (michaelResult.escalation_needed) {
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${michaelResult.escalation_reason}</td></tr>`);
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.escalation_reason ?? "")}</td></tr>`);
   }
 
   // Root Cause — amber tinted dark background
-  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${michaelResult.root_cause_hypothesis}</td></tr>`);
+  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.root_cause_hypothesis)}</td></tr>`);
 
   // Tech Notes — blue tinted dark background, parsed into numbered list
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
@@ -267,10 +295,10 @@ export function buildCompactRetriageNote(
 
   // Escalation reason (only if escalating)
   if (michaelResult.escalation_needed && michaelResult.escalation_reason) {
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${michaelResult.escalation_reason}</td></tr>`);
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${linkifyUrls(michaelResult.escalation_reason)}</td></tr>`);
   }
 
-  // Action items — keep short
+  // Action items — keep short (formatTechNotes already applies linkifyUrls)
   const formattedNotes = formatTechNotes(michaelResult.internal_notes);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#60a5fa;">Action</td><td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
 
@@ -358,8 +386,8 @@ export function buildAlertPathNote(
     `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Alert Type</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.alert_type}</td></tr>` +
     `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Affected</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.affected_resource}</td></tr>` +
     `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:${severityColor};">${severityEmoji} Severity</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${severityColor};font-weight:700;">${alertResult.severity.toUpperCase()}</td></tr>` +
-    `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${alertResult.suggested_action}</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">What is this</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${alertResult.summary}</td></tr>` +
+    `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">📋 Action</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#bfdbfe;">${linkifyUrls(alertResult.suggested_action)}</td></tr>` +
+    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">What is this</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${linkifyUrls(alertResult.summary)}</td></tr>` +
     similarSection +
     `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · alert path · ${(processingTime / 1000).toFixed(1)}s</td></tr>` +
     `</table>`

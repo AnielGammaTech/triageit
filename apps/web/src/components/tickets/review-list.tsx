@@ -308,13 +308,13 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                     <div
                       key={review.id}
                       className={cn(
-                        "px-4 py-4 sm:px-6 sm:py-5",
+                        "px-4 py-3 sm:px-5 sm:py-3.5",
                         idx > 0 && "border-t border-white/[0.06]",
                         !isLatest && "opacity-75 bg-white/[0.01]",
                       )}
                     >
                       {/* Review header */}
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2.5">
                         <span className={cn("rounded px-2.5 py-1 text-xs font-bold", revStyle.bg, revStyle.text)}>
                           {revStyle.label}
                         </span>
@@ -332,31 +332,31 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                       </div>
 
                       {/* Summary */}
-                      <p className="text-[15px] text-white/90 leading-7 mb-5">{review.summary}</p>
+                      <p className="text-sm text-white/90 leading-relaxed mb-3">{review.summary}</p>
 
                       {/* Strengths & Improvements — side by side on desktop, stacked on mobile */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         {review.strengths && (
-                          <div className="rounded-xl bg-emerald-500/8 border border-emerald-500/15 p-5">
-                            <p className="text-sm text-emerald-400 font-bold mb-2">Strengths</p>
-                            <p className="text-[15px] text-emerald-100/80 leading-7">{review.strengths}</p>
+                          <div className="rounded-lg bg-emerald-500/8 border border-emerald-500/15 px-3.5 py-2.5">
+                            <p className="text-xs text-emerald-400 font-bold mb-1">Strengths</p>
+                            <p className="text-sm text-emerald-100/80 leading-relaxed">{review.strengths}</p>
                           </div>
                         )}
                         {review.improvement_areas && (
-                          <div className="rounded-xl bg-amber-500/8 border border-amber-500/15 p-5">
-                            <p className="text-sm text-amber-400 font-bold mb-2">Needs Improvement</p>
-                            <p className="text-[15px] text-amber-100/80 leading-7">{review.improvement_areas}</p>
+                          <div className="rounded-lg bg-amber-500/8 border border-amber-500/15 px-3.5 py-2.5">
+                            <p className="text-xs text-amber-400 font-bold mb-1">Needs Improvement</p>
+                            <p className="text-sm text-amber-100/80 leading-relaxed">{review.improvement_areas}</p>
                           </div>
                         )}
                       </div>
 
                       {/* Suggestions */}
                       {review.suggestions.length > 0 && (
-                        <div className="rounded-xl bg-blue-500/8 border border-blue-500/15 p-5 mb-4">
-                          <p className="text-sm text-blue-400 font-bold mb-3">Suggestions</p>
-                          <ul className="space-y-2.5">
+                        <div className="rounded-lg bg-blue-500/8 border border-blue-500/15 px-3.5 py-2.5 mb-3">
+                          <p className="text-xs text-blue-400 font-bold mb-1.5">Suggestions</p>
+                          <ul className="space-y-1">
                             {review.suggestions.map((s, i) => (
-                              <li key={i} className="text-[15px] text-blue-100/80 leading-7 pl-5 relative">
+                              <li key={i} className="text-sm text-blue-100/80 leading-relaxed pl-4 relative">
                                 <span className="absolute left-0 text-blue-400">•</span>
                                 {s}
                               </li>

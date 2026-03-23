@@ -27,6 +27,7 @@ import {
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
 import { checkReviewEligibility, generateTechReview } from "./tech-reviewer.js";
+import { checkDispatcherReviewEligibility, generateDispatcherReview } from "./dispatcher-reviewer.js";
 import { MICHAEL_SYSTEM_PROMPT } from "./prompts.js";
 import { tryNotificationFastPath, tryAlertFastPath } from "./fast-paths.js";
 import { MemoryManager } from "../../memory/memory-manager.js";
@@ -149,17 +150,27 @@ export async function runTriage(
       let assignedTechName: string | null =
         ticketRecord.halo_agent ?? null;
 
-      // If DB doesn't have the agent name, try to get it from the Halo API
-      if (!assignedTechName) {
+      // If DB doesn't have the agent name, or it looks like an ID (e.g. "27", "Tech 27"),
+      // try to resolve the real name from the Halo API
+      const looksLikeId = assignedTechName && /^(?:tech\s*)?\d+$/i.test(assignedTechName.trim());
+      if (!assignedTechName || looksLikeId) {
         try {
           const ticketWithSlaForAgent = await haloEarly.getTicketWithSLA(ticket.halo_id);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const rawTicket = ticketWithSlaForAgent as any;
-          assignedTechName = rawTicket.agent_name ?? null;
+          // Prefer agent_name if it looks like a real name (has letters, not just numbers)
+          const apiAgentName = rawTicket.agent_name;
+          if (apiAgentName && typeof apiAgentName === "string" && /[a-zA-Z]{2,}/.test(apiAgentName)) {
+            assignedTechName = apiAgentName;
+          } else {
+            assignedTechName = null;
+          }
 
-          // If still no name but we have an agent_id, look it up
-          if (!assignedTechName && rawTicket.agent_id) {
-            const agentName = await haloEarly.getAgentName(rawTicket.agent_id);
+          // If still no name, look up by agent_id (try API field first, then extract from original DB value)
+          const originalIdStr = looksLikeId ? (ticketRecord.halo_agent ?? "").replace(/\D/g, "") : "";
+          const agentId = rawTicket.agent_id ?? (originalIdStr ? parseInt(originalIdStr, 10) : null);
+          if (!assignedTechName && agentId) {
+            const agentName = await haloEarly.getAgentName(agentId);
             assignedTechName = agentName;
           }
 
@@ -519,6 +530,18 @@ export async function runTriage(
         `customerActions=${customerActions.length}, ` +
         `urgency=${classification.urgency_score}`,
       );
+    }
+
+    // ── Step 7b: Dispatcher review — evaluate Bryanna's routing ────
+    if (checkDispatcherReviewEligibility(context, ticket.created_at)) {
+      try {
+        await generateDispatcherReview(context, ticket.created_at, haloConfig, supabase);
+      } catch (error) {
+        console.error(
+          `[MICHAEL] Failed to generate dispatcher review for #${ticket.halo_id}:`,
+          error,
+        );
+      }
     }
   }
 

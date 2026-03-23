@@ -310,6 +310,95 @@ export class TeamsClient {
     await this.sendCard(card);
   }
 
+  async sendTechPerformanceSummary(reviews: ReadonlyArray<{
+    readonly techName: string;
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly rating: string;
+    readonly responseTime: string;
+    readonly maxGapHours: number;
+    readonly improvementAreas: string | null;
+  }>): Promise<void> {
+    if (reviews.length === 0) return;
+
+    const poorReviews = reviews.filter((r) => r.rating === "poor" || r.rating === "needs_improvement");
+    if (poorReviews.length === 0) return;
+
+    const ratingColor = (rating: string) => {
+      switch (rating) {
+        case "poor": return "Attention";
+        case "needs_improvement": return "Warning";
+        default: return "Default";
+      }
+    };
+
+    const reviewCards = poorReviews.map((r) => ({
+      type: "Container",
+      style: r.rating === "poor" ? "attention" : "warning",
+      items: [
+        {
+          type: "TextBlock",
+          text: `**${r.techName}** — #${r.haloId} ${r.summary}`,
+          wrap: true,
+          weight: "Bolder",
+        },
+        {
+          type: "FactSet",
+          facts: [
+            { title: "Client", value: r.clientName ?? "Unknown" },
+            { title: "Rating", value: r.rating.replace("_", " ").toUpperCase() },
+            { title: "Response", value: r.responseTime },
+            { title: "Max Gap", value: `${r.maxGapHours.toFixed(1)}h` },
+          ],
+        },
+        ...(r.improvementAreas
+          ? [
+              {
+                type: "TextBlock",
+                text: r.improvementAreas,
+                wrap: true,
+                size: "Small",
+                color: ratingColor(r.rating),
+              },
+            ]
+          : []),
+      ],
+    }));
+
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                text: "TriageIt — Tech Performance Concerns",
+                weight: "Bolder",
+                size: "Large",
+                color: "Attention",
+              },
+              {
+                type: "TextBlock",
+                text: `${poorReviews.length} tech review(s) flagged for poor response or communication:`,
+                wrap: true,
+              },
+              ...reviewCards,
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
   async sendImmediateAlert(ticket: ReTriageTicket, reason: string): Promise<void> {
     const card = {
       type: "message",
