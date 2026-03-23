@@ -24,6 +24,7 @@ import {
 } from "./validation/schemas.js";
 import { MemoryManager } from "./memory/memory-manager.js";
 import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
+import { investigateWithWorker } from "./agents/investigate.js";
 
 const server = Fastify({ logger: true });
 
@@ -191,6 +192,32 @@ server.post<{ Body: Record<string, never> }>(
       return { status: "reloaded" };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// ── Worker investigation endpoint ─────────────────────────────────────
+// Michael's chat can dispatch specialist workers to investigate things
+// for a specific client. Each worker queries their integration directly.
+server.post<{
+  Body: { worker: string; client_name: string; question: string };
+}>(
+  "/worker/investigate",
+  async (request, reply) => {
+    const { worker, client_name, question } = request.body;
+    if (!worker || !client_name) {
+      return reply.status(400).send({ error: "worker and client_name are required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    try {
+      const result = await investigateWithWorker(supabase, worker, client_name, question);
+      return { result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[INVESTIGATE] ${worker} failed for "${client_name}":`, message);
       return reply.status(500).send({ error: message });
     }
   },

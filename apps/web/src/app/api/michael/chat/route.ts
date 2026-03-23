@@ -5,28 +5,27 @@ import { requireAuth } from "@/lib/api/require-auth";
 
 const MICHAEL_CHAT_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage at Gamma Tech Services LLC.
 
-You are having a direct conversation with the admin/owner of Gamma Tech. You are their AI triage manager — knowledgeable, helpful, and you know the MSP business inside-out.
+You are the admin/owner's AI operations manager — a supercomputer that can pull data from every system, cross-reference it, spot patterns, and figure things out. You don't just read data — you investigate, reason, and connect the dots.
 
-## Your personality in chat:
-- Professional but personable — you know your stuff
-- Direct and concise — no filler, every sentence has value
-- You reference real data when available (ticket details, tech performance, client info)
-- You can discuss tickets, triage decisions, tech performance, client patterns
-- You learn from corrections — when the admin teaches you something, acknowledge it clearly
+## How you think:
+- **Investigate, don't just report.** When asked about a ticket, don't just dump the data — analyze what happened, what's missing, what went wrong, and what needs to happen next.
+- **Cross-reference everything.** A ticket about email? Check who the tech is, pull their response history, look at the client's past email issues, check if there's a pattern. Use multiple tools to build the full picture.
+- **Be proactive.** If you notice something concerning (tech hasn't responded, SLA is close, client has had 5 similar tickets), call it out without being asked.
+- **Think like a manager.** You're not a search engine — you're the person who knows every ticket, every tech, every client pattern, and can synthesize that into actionable insight.
+- **Chain your tools.** Don't stop at one lookup. If the first result raises questions, dig deeper. Use search_tickets to find related issues, get_tech_activity to check on the assigned tech, get_client_history to see if this is recurring.
 
 ## What you can do:
-- Discuss any ticket by number — use lookup_ticket first, and if not found, use fetch_from_halo to pull it directly from Halo and import it
-- Explain your triage reasoning and accept feedback
-- Learn new skills/procedures when taught ("From now on, when you see X, do Y")
-- Analyze patterns across tickets — use get_dashboard for detailed stats
-- Suggest improvements to triage process
-- Answer questions about clients, techs, integrations
-- **Delegate tasks to your workers** — you manage a team of specialist agents. When the admin asks you to do something actionable, use the appropriate tool to delegate it.
+- **Investigate any ticket** — lookup locally, fetch from Halo if missing, pull internal notes, cross-reference with related tickets
+- **Analyze techs** — response times, workload, review history, patterns of behavior
+- **Analyze clients** — recurring issues, ticket volume, which techs handle them, satisfaction signals
+- **Find patterns** — search across tickets by keyword, client, tech, status, date range
+- **Delegate work** — retriage tickets, sync from Halo, run Toby's analytics
+- **Learn and adapt** — accept corrections, learn new procedures, remember context
 
-## IMPORTANT — Token efficiency:
-- For simple questions (ticket lookup, status check), just use the lookup tool and respond concisely
-- Only call get_dashboard when the admin asks about team performance, patterns, or operational metrics
-- Don't load heavy context you don't need — keep responses focused and efficient
+## Token efficiency:
+- For simple lookups, use the tool and respond concisely
+- For complex questions, chain multiple tools but only load what's needed
+- Don't call get_dashboard unless the question specifically needs aggregate stats
 
 ## Your Team (specialist agents you manage):
 - **Ryan Howard** — Classifier. Categorizes tickets by type/subtype, urgency, and security flags.
@@ -292,6 +291,75 @@ export async function POST(request: NextRequest) {
       },
     },
     {
+      name: "search_tickets",
+      description: "Search tickets in the local database with flexible filters. Use to find patterns, related issues, or answer questions like 'how many tickets does client X have?' or 'what tickets is tech Y working on?'",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          client_name: { type: "string", description: "Filter by client name (partial match)" },
+          tech_name: { type: "string", description: "Filter by assigned tech name (partial match)" },
+          status: { type: "string", description: "Filter by halo_status (e.g. 'New', 'In Progress', 'Customer Reply', 'Waiting on Customer')" },
+          keyword: { type: "string", description: "Search in ticket summary and details" },
+          days_back: { type: "number", description: "Only tickets created in the last N days (default: 30)" },
+          limit: { type: "number", description: "Max results to return (default: 20, max: 50)" },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "get_tech_activity",
+      description: "Deep dive on a specific technician: their assigned tickets, response times, recent reviews, and behavioral patterns. Use when analyzing tech performance or investigating why a ticket isn't being handled.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          tech_name: { type: "string", description: "The tech's name (partial match)" },
+        },
+        required: ["tech_name"],
+      },
+    },
+    {
+      name: "get_client_history",
+      description: "Full client analysis: all tickets, recurring issues, assigned techs, resolution patterns. Use to understand a client's history or investigate recurring problems.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          client_name: { type: "string", description: "The client/company name (partial match)" },
+        },
+        required: ["client_name"],
+      },
+    },
+    {
+      name: "ask_worker",
+      description: "Ask one of your specialist agents to investigate something for a specific client. The worker will query their integration (Hudu, Datto, JumpCloud, etc.) and return findings. Use when you need live data from an external system.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          worker: {
+            type: "string",
+            enum: ["dwight", "andy", "jim", "kelly", "stanley", "phyllis", "meredith", "oscar", "darryl", "creed"],
+            description: "Which worker to ask: dwight (Hudu docs/assets), andy (Datto RMM devices), jim (JumpCloud users), kelly (3CX phones), stanley (Vultr cloud), phyllis (email/DNS), meredith (Spanning backup), oscar (Cove/Unitrends backup), darryl (CIPP M365), creed (UniFi network)",
+          },
+          client_name: { type: "string", description: "The client/company name to investigate" },
+          question: { type: "string", description: "What you want the worker to look into (e.g. 'check device health for workstation DESKTOP-ABC', 'find MFA status for john@example.com', 'what assets does this client have?')" },
+        },
+        required: ["worker", "client_name", "question"],
+      },
+    },
+    {
+      name: "search_halo",
+      description: "Search Halo PSA directly for tickets matching criteria. Use when the local database doesn't have what you need, or to check what's actually in Halo right now.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          search: { type: "string", description: "Search term (searches summary and details)" },
+          client_name: { type: "string", description: "Filter by client name" },
+          open_only: { type: "boolean", description: "Only return open tickets (default: true)" },
+          count: { type: "number", description: "Max results (default: 10)" },
+        },
+        required: [],
+      },
+    },
+    {
       name: "get_dashboard",
       description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
       input_schema: {
@@ -535,6 +603,277 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case "search_tickets": {
+        const filters: string[] = [];
+        let query = serviceClient
+          .from("tickets")
+          .select("halo_id, summary, client_name, halo_status, halo_agent, created_at, original_priority");
+
+        if (input.client_name) {
+          query = query.ilike("client_name", `%${input.client_name}%`);
+          filters.push(`client: ${input.client_name}`);
+        }
+        if (input.tech_name) {
+          query = query.ilike("halo_agent", `%${input.tech_name}%`);
+          filters.push(`tech: ${input.tech_name}`);
+        }
+        if (input.status) {
+          query = query.ilike("halo_status", `%${input.status}%`);
+          filters.push(`status: ${input.status}`);
+        }
+        if (input.keyword) {
+          query = query.or(`summary.ilike.%${input.keyword}%,details.ilike.%${input.keyword}%`);
+          filters.push(`keyword: ${input.keyword}`);
+        }
+
+        const daysBack = (input.days_back as number) ?? 30;
+        const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte("created_at", cutoff);
+
+        const maxResults = Math.min((input.limit as number) ?? 20, 50);
+        query = query.order("created_at", { ascending: false }).limit(maxResults);
+
+        const { data: tickets, error: searchErr } = await query;
+        if (searchErr) return `Search failed: ${searchErr.message}`;
+        if (!tickets || tickets.length === 0) return `No tickets found matching: ${filters.join(", ")} (last ${daysBack} days)`;
+
+        let result = `Found ${tickets.length} tickets (${filters.join(", ")}, last ${daysBack} days):\n\n`;
+        for (const t of tickets) {
+          result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString()}\n`;
+        }
+        return result;
+      }
+
+      case "get_tech_activity": {
+        const techName = input.tech_name as string;
+
+        // Get their current tickets
+        const { data: tickets } = await serviceClient
+          .from("tickets")
+          .select("halo_id, summary, client_name, halo_status, created_at, last_customer_reply_at, last_tech_action_at")
+          .ilike("halo_agent", `%${techName}%`)
+          .order("created_at", { ascending: false })
+          .limit(25);
+
+        // Get their reviews
+        const { data: reviews } = await serviceClient
+          .from("tech_reviews")
+          .select("halo_id, rating, response_time, max_gap_hours, summary, improvement_areas, created_at")
+          .ilike("tech_name", `%${techName}%`)
+          .order("created_at", { ascending: false })
+          .limit(15);
+
+        // Get their profile
+        const { data: profile } = await serviceClient
+          .from("tech_profiles")
+          .select("tech_name, avg_response_time, ticket_count, rating_breakdown, strong_categories, weak_categories, behavioral_patterns")
+          .ilike("tech_name", `%${techName}%`)
+          .maybeSingle();
+
+        let result = `## Tech Activity: ${techName}\n\n`;
+
+        if (profile) {
+          result += `**Profile:** ${profile.ticket_count ?? 0} total tickets, avg response: ${profile.avg_response_time ?? "N/A"}\n`;
+          if (profile.rating_breakdown) result += `Ratings: ${JSON.stringify(profile.rating_breakdown)}\n`;
+          if (profile.strong_categories) result += `Strong: ${profile.strong_categories}\n`;
+          if (profile.weak_categories) result += `Weak: ${profile.weak_categories}\n`;
+          if (profile.behavioral_patterns) result += `Patterns: ${profile.behavioral_patterns}\n`;
+          result += "\n";
+        }
+
+        if (tickets && tickets.length > 0) {
+          const openStatuses = tickets.filter((t) => {
+            const s = (t.halo_status ?? "").toLowerCase();
+            return !s.includes("closed") && !s.includes("resolved") && !s.includes("cancelled");
+          });
+          result += `**Current tickets:** ${openStatuses.length} open / ${tickets.length} total (last 25)\n`;
+          for (const t of openStatuses.slice(0, 15)) {
+            const lastCustomer = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).toLocaleDateString() : "never";
+            const lastTech = t.last_tech_action_at ? new Date(t.last_tech_action_at).toLocaleDateString() : "never";
+            result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status} | Last customer: ${lastCustomer} | Last tech: ${lastTech}\n`;
+          }
+          result += "\n";
+        }
+
+        if (reviews && reviews.length > 0) {
+          const poor = reviews.filter((r) => r.rating === "poor" || r.rating === "needs_improvement");
+          result += `**Reviews:** ${reviews.length} total, ${poor.length} poor/needs_improvement\n`;
+          for (const r of reviews.slice(0, 10)) {
+            result += `- #${r.halo_id} ${r.rating} (response: ${r.response_time ?? "?"}, gap: ${r.max_gap_hours ?? 0}h) — ${r.summary ?? ""}\n`;
+          }
+        }
+
+        return result || `No activity found for tech matching "${techName}"`;
+      }
+
+      case "get_client_history": {
+        const clientName = input.client_name as string;
+
+        // All tickets for this client
+        const { data: tickets } = await serviceClient
+          .from("tickets")
+          .select("halo_id, summary, halo_status, halo_agent, created_at, original_priority, triage_results(classification, urgency_score)")
+          .ilike("client_name", `%${clientName}%`)
+          .order("created_at", { ascending: false })
+          .limit(30);
+
+        // Customer insights from Toby
+        const { data: insight } = await serviceClient
+          .from("customer_insights")
+          .select("recurring_issues, top_issue_types, update_request_frequency, environment_notes")
+          .ilike("client_name", `%${clientName}%`)
+          .maybeSingle();
+
+        let result = `## Client History: ${clientName}\n\n`;
+
+        if (insight) {
+          if (insight.recurring_issues) result += `**Recurring Issues:** ${insight.recurring_issues}\n`;
+          if (insight.top_issue_types) result += `**Top Issue Types:** ${insight.top_issue_types}\n`;
+          if (insight.update_request_frequency) result += `**Update Request Frequency:** ${insight.update_request_frequency}\n`;
+          if (insight.environment_notes) result += `**Environment:** ${insight.environment_notes}\n`;
+          result += "\n";
+        }
+
+        if (tickets && tickets.length > 0) {
+          const open = tickets.filter((t) => {
+            const s = (t.halo_status ?? "").toLowerCase();
+            return !s.includes("closed") && !s.includes("resolved") && !s.includes("cancelled");
+          });
+
+          // Tech distribution
+          const byTech: Record<string, number> = {};
+          for (const t of tickets) byTech[t.halo_agent ?? "Unassigned"] = (byTech[t.halo_agent ?? "Unassigned"] ?? 0) + 1;
+
+          // Classification distribution
+          const byType: Record<string, number> = {};
+          for (const t of tickets) {
+            const triage = (t.triage_results as ReadonlyArray<Record<string, unknown>> | null)?.[0];
+            const cls = triage?.classification as Record<string, string> | null;
+            if (cls?.type) byType[cls.type] = (byType[cls.type] ?? 0) + 1;
+          }
+
+          result += `**Total tickets:** ${tickets.length} (${open.length} open)\n`;
+          result += `**Techs:** ${Object.entries(byTech).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
+          if (Object.keys(byType).length > 0) {
+            result += `**Issue types:** ${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
+          }
+          result += "\n**Recent tickets:**\n";
+          for (const t of tickets.slice(0, 15)) {
+            result += `- **#${t.halo_id}** ${t.summary} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString()}\n`;
+          }
+        } else {
+          result += `No tickets found for client matching "${clientName}"`;
+        }
+
+        return result;
+      }
+
+      case "ask_worker": {
+        const worker = input.worker as string;
+        const clientName = input.client_name as string;
+        const question = input.question as string;
+
+        // Map worker name to worker endpoint
+        const workerMap: Record<string, string> = {
+          dwight: "dwight-schrute",
+          andy: "andy-bernard",
+          jim: "jim-halpert",
+          kelly: "kelly-kapoor",
+          stanley: "stanley-hudson",
+          phyllis: "phyllis-vance",
+          meredith: "meredith-palmer",
+          oscar: "oscar-martinez",
+          darryl: "darryl-philbin",
+          creed: "creed-bratton",
+        };
+
+        const workerEndpoint = workerMap[worker];
+        if (!workerEndpoint) return `Unknown worker: ${worker}`;
+
+        try {
+          const res = await fetch(`${workerUrl}/worker/investigate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              worker: workerEndpoint,
+              client_name: clientName,
+              question,
+            }),
+          });
+
+          if (!res.ok) {
+            const text = await res.text();
+            return `Worker ${worker} investigation failed (${res.status}): ${text}`;
+          }
+
+          const data = await res.json() as { result?: string; error?: string };
+          return data.result ?? data.error ?? "No response from worker";
+        } catch (err) {
+          return `Failed to reach worker service: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case "search_halo": {
+        const { data: haloIntSearch } = await serviceClient
+          .from("integrations")
+          .select("config")
+          .eq("service", "halo")
+          .eq("is_active", true)
+          .single();
+
+        if (!haloIntSearch) return "Halo PSA is not configured.";
+
+        const haloCfgSearch = haloIntSearch.config as { base_url: string; client_id: string; client_secret: string; tenant?: string };
+
+        try {
+          const tokUrlSearch = haloCfgSearch.tenant
+            ? `${haloCfgSearch.base_url}/auth/token?tenant=${haloCfgSearch.tenant}`
+            : `${haloCfgSearch.base_url}/auth/token`;
+          const tokResSearch = await fetch(tokUrlSearch, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "client_credentials",
+              client_id: haloCfgSearch.client_id,
+              client_secret: haloCfgSearch.client_secret,
+              scope: "all",
+            }),
+          });
+
+          if (!tokResSearch.ok) return `Halo auth failed: ${tokResSearch.status}`;
+          const { access_token: tokenSearch } = await tokResSearch.json() as { access_token: string };
+
+          const params = new URLSearchParams();
+          if (input.search) params.set("search", input.search as string);
+          if (input.client_name) params.set("client_name", input.client_name as string);
+          params.set("open_only", String(input.open_only ?? true));
+          params.set("page_size", String(Math.min((input.count as number) ?? 10, 25)));
+          params.set("order", "datecreated");
+          params.set("orderdesc", "true");
+          params.set("includecolumns", "true");
+          params.set("tickettype_id", "31"); // Gamma Default only
+
+          const searchRes = await fetch(
+            `${haloCfgSearch.base_url}/api/tickets?${params.toString()}`,
+            { headers: { Authorization: `Bearer ${tokenSearch}`, "Content-Type": "application/json" } },
+          );
+
+          if (!searchRes.ok) return `Halo search failed: ${searchRes.status}`;
+          const searchData = await searchRes.json() as { tickets?: ReadonlyArray<Record<string, unknown>>; record_count?: number };
+          const results = searchData.tickets ?? [];
+
+          if (results.length === 0) return "No matching tickets found in Halo.";
+
+          let result = `Found ${results.length} tickets in Halo (total: ${searchData.record_count ?? results.length}):\n\n`;
+          for (const t of results) {
+            result += `- **#${t.id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.statusname ?? t.status_name ?? "?"} | Agent: ${t.agent_name ?? "Unassigned"} | ${t.datecreated ? new Date(t.datecreated as string).toLocaleDateString() : "?"}\n`;
+          }
+          return result;
+        } catch (err) {
+          return `Halo search error: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
       case "get_dashboard": {
         const sections = (input.sections as string[] | undefined) ?? ["tech_workload", "tech_profiles", "customer_insights", "trends", "reviews"];
         let result = "";
@@ -704,21 +1043,35 @@ export async function POST(request: NextRequest) {
             const parsedInput = tool.input ? JSON.parse(tool.input) : {};
 
             // Descriptive status for each tool
-            const toolLabel = tool.name === "retriage_ticket" ? `Retriaging ticket #${parsedInput.halo_id}...`
-              : tool.name === "lookup_ticket" ? `Looking up ticket #${parsedInput.halo_id}...`
-              : tool.name === "run_toby_analysis" ? "Running Toby's analytics..."
-              : tool.name === "pull_tickets" ? "Syncing tickets from Halo..."
-              : tool.name === "fetch_from_halo" ? `Fetching ticket #${parsedInput.halo_id} from Halo...`
-              : tool.name === "get_dashboard" ? "Loading dashboard data..."
-              : `Running ${tool.name}...`;
+            const toolLabels: Record<string, string> = {
+              retriage_ticket: `Retriaging ticket #${parsedInput.halo_id}...`,
+              lookup_ticket: `Looking up ticket #${parsedInput.halo_id}...`,
+              run_toby_analysis: "Running Toby's analytics...",
+              pull_tickets: "Syncing tickets from Halo...",
+              fetch_from_halo: `Fetching ticket #${parsedInput.halo_id} from Halo...`,
+              search_tickets: `Searching tickets${parsedInput.client_name ? ` for ${parsedInput.client_name}` : ""}${parsedInput.tech_name ? ` by ${parsedInput.tech_name}` : ""}...`,
+              get_tech_activity: `Analyzing ${parsedInput.tech_name}'s activity...`,
+              get_client_history: `Pulling ${parsedInput.client_name}'s history...`,
+              ask_worker: `Asking ${parsedInput.worker} to investigate...`,
+              search_halo: `Searching Halo${parsedInput.search ? ` for "${parsedInput.search}"` : ""}...`,
+              get_dashboard: "Loading dashboard data...",
+            };
+            const toolLabel = toolLabels[tool.name] ?? `Running ${tool.name}...`;
 
-            const workerName = tool.name === "retriage_ticket" ? "Ryan + specialist team"
-              : tool.name === "lookup_ticket" ? "Database"
-              : tool.name === "run_toby_analysis" ? "Toby Flenderson"
-              : tool.name === "pull_tickets" ? "Halo PSA"
-              : tool.name === "fetch_from_halo" ? "Halo PSA"
-              : tool.name === "get_dashboard" ? "Dashboard"
-              : tool.name;
+            const workerNames: Record<string, string> = {
+              retriage_ticket: "Ryan + specialist team",
+              lookup_ticket: "Database",
+              run_toby_analysis: "Toby Flenderson",
+              pull_tickets: "Halo PSA",
+              fetch_from_halo: "Halo PSA",
+              search_tickets: "Database",
+              get_tech_activity: "Database",
+              get_client_history: "Database",
+              ask_worker: String(parsedInput.worker ?? "Worker"),
+              search_halo: "Halo PSA",
+              get_dashboard: "Dashboard",
+            };
+            const workerName = workerNames[tool.name] ?? tool.name;
 
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ status: toolLabel, worker: workerName, phase: "started" })}\n\n`),
@@ -741,11 +1094,18 @@ export async function POST(request: NextRequest) {
           ];
         }
 
-        // Save assistant message
+        // Save assistant message with cost metadata
+        const costUsd = (totalInputTokens * 3 + totalOutputTokens * 15) / 1_000_000;
         await serviceClient.from("michael_messages").insert({
           conversation_id: convId,
           role: "assistant",
           content: fullResponse,
+          metadata: {
+            model: modelId,
+            input_tokens: totalInputTokens,
+            output_tokens: totalOutputTokens,
+            cost_usd: Math.round(costUsd * 10000) / 10000,
+          },
         });
 
         // Update conversation title if this is the first exchange
@@ -776,16 +1136,13 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Sonnet 4 pricing: $3/M input, $15/M output
-        const cost = (totalInputTokens * 3 + totalOutputTokens * 15) / 1_000_000;
-
         // Send done event with conversation ID, model, and usage
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({
             done: true,
             conversation_id: convId,
             model: modelId,
-            usage: { input_tokens: totalInputTokens, output_tokens: totalOutputTokens, cost_usd: Math.round(cost * 10000) / 10000 },
+            usage: { input_tokens: totalInputTokens, output_tokens: totalOutputTokens, cost_usd: Math.round(costUsd * 10000) / 10000 },
           })}\n\n`),
         );
         controller.close();

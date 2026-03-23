@@ -56,6 +56,8 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
+  const [sessionCost, setSessionCost] = useState(0);
+  const [sessionTokens, setSessionTokens] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -83,11 +85,32 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
     const supabase = createClient();
     const { data } = await supabase
       .from("michael_messages")
-      .select("id, role, content, created_at")
+      .select("id, role, content, created_at, metadata")
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true });
 
-    setMessages((data ?? []) as ReadonlyArray<Message>);
+    const loaded = (data ?? []).map((m) => {
+      const meta = m.metadata as MessageMeta | null;
+      return {
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+        created_at: m.created_at,
+        meta: meta?.model ? meta : undefined,
+      };
+    });
+    setMessages(loaded);
+
+    // Calculate session cost from loaded messages
+    let totalCost = 0;
+    let totalTokens = 0;
+    for (const m of loaded) {
+      if (m.meta?.cost_usd) totalCost += m.meta.cost_usd;
+      if (m.meta?.input_tokens) totalTokens += m.meta.input_tokens;
+      if (m.meta?.output_tokens) totalTokens += m.meta.output_tokens;
+    }
+    setSessionCost(totalCost);
+    setSessionTokens(totalTokens);
   }, []);
 
   // Load skills
@@ -110,6 +133,8 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
     setActiveConversationId(null);
     setMessages([]);
     setInput("");
+    setSessionCost(0);
+    setSessionTokens(0);
     inputRef.current?.focus();
   }, []);
 
@@ -203,6 +228,12 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               output_tokens: json.usage?.output_tokens,
               cost_usd: json.usage?.cost_usd,
             } : undefined;
+
+            // Accumulate session cost
+            if (meta?.cost_usd) setSessionCost((prev) => prev + meta.cost_usd!);
+            if (meta?.input_tokens || meta?.output_tokens) {
+              setSessionTokens((prev) => prev + (meta.input_tokens ?? 0) + (meta.output_tokens ?? 0));
+            }
 
             setMessages((prev) => [
               ...prev,
@@ -375,11 +406,22 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
             <h2 className="text-sm font-semibold text-white">Michael Scott</h2>
             <p className="text-[11px] text-white/40">Regional Manager — AI Triage</p>
           </div>
-          {ticketContext?.halo_id && (
-            <span className="ml-auto rounded-md bg-white/[0.06] px-2 py-1 text-xs text-white/50">
-              Ticket #{ticketContext.halo_id}
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-3">
+            {sessionTokens > 0 && (
+              <div className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5">
+                <span className="text-[11px] text-white/30">{sessionTokens.toLocaleString()} tokens</span>
+                <span className="text-[11px] text-white/20">·</span>
+                <span className="text-[11px] font-medium text-amber-400/70">
+                  ${sessionCost < 0.01 ? sessionCost.toFixed(4) : sessionCost.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {ticketContext?.halo_id && (
+              <span className="rounded-md bg-white/[0.06] px-2 py-1 text-xs text-white/50">
+                Ticket #{ticketContext.halo_id}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Messages */}
