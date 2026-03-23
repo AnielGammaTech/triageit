@@ -51,8 +51,8 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const filterParam = searchParams.get("filter"); // "stale" | "unassigned" | null
-  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale") ?? "open";
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale">(
+  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "retriaged" | "resolved" | "stale") ?? "open";
+  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "retriaged" | "resolved" | "stale">(
     filterParam === "stale" ? "stale" : initialTab,
   );
   const techFilter = searchParams.get("tech");
@@ -292,6 +292,11 @@ export default function TicketsPage() {
     return hoursSince > 72;
   });
 
+  // Re-triaged: tickets that have been retriaged (sorted by retriage time)
+  const retriagedTickets = [...filteredTickets]
+    .filter((t) => !!t.last_retriage_at)
+    .sort((a, b) => new Date(b.last_retriage_at!).getTime() - new Date(a.last_retriage_at!).getTime());
+
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
 
@@ -499,6 +504,15 @@ export default function TicketsPage() {
           hideZero={true}
         />
         <TabButton
+          active={activeTab === "retriaged"}
+          onClick={() => setActiveTab("retriaged")}
+          label="Re-triaged"
+          count={retriagedTickets.length}
+          badgeClass="bg-violet-500/20 text-violet-400"
+          pulse={false}
+          hideZero={true}
+        />
+        <TabButton
           active={activeTab === "resolved"}
           onClick={() => setActiveTab("resolved")}
           label="Resolved"
@@ -576,6 +590,16 @@ export default function TicketsPage() {
             </div>
             <OpenTicketList tickets={staleTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
           </div>
+        )
+      ) : activeTab === "retriaged" ? (
+        retriagedTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">
+              No re-triaged tickets yet. Tickets are re-triaged when customers reply or during periodic scans.
+            </p>
+          </div>
+        ) : (
+          <RetriagedTicketList tickets={retriagedTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
         )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (
@@ -678,6 +702,128 @@ function IncomingTicketList({
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+// ── Re-triaged tickets list ──────────────────────────────────────────
+
+function RetriagedTicketList({
+  tickets,
+  onSelectTicket,
+  haloBaseUrl,
+}: {
+  readonly tickets: ReadonlyArray<TicketRow>;
+  readonly onSelectTicket: (id: string) => void;
+  readonly haloBaseUrl: string | null;
+}) {
+  return (
+    <>
+      {/* Mobile: card layout */}
+      <div className="space-y-2 md:hidden">
+        {tickets.map((ticket) => (
+          <div
+            key={ticket.id}
+            onClick={() => onSelectTicket(ticket.id)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 cursor-pointer hover:bg-[var(--accent)] transition-colors"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-xs text-blue-400">#{ticket.halo_id}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-violet-400">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                  <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.56a.75.75 0 0 1-1.5 0V9.446a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.025-.274Z" clipRule="evenodd" />
+                </svg>
+                {timeAgo(ticket.last_retriage_at!)}
+              </span>
+            </div>
+            <p className="text-sm text-white mb-1.5 line-clamp-2">{ticket.summary}</p>
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
+              <span>{ticket.client_name ?? "—"}</span>
+              <span>{ticket.halo_agent ?? "Unassigned"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: table layout */}
+      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
+        <table className="w-full text-sm">
+          <thead className="bg-[var(--card)]">
+            <tr className="border-b border-[var(--border)]">
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">#</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Summary</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Client</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Re-triaged</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Originally Triaged</th>
+              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Assigned To</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tickets.map((ticket) => {
+              const retriageDate = new Date(ticket.last_retriage_at!);
+              const triageDate = ticket.triage_results[0]?.created_at
+                ? new Date(ticket.triage_results[0].created_at)
+                : null;
+
+              return (
+                <tr
+                  key={ticket.id}
+                  onClick={() => onSelectTicket(ticket.id)}
+                  className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--accent)]"
+                >
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {haloBaseUrl ? (
+                      <a
+                        href={`${haloBaseUrl}/tickets?ticketid=${ticket.halo_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-blue-400 hover:underline inline-flex items-center gap-1"
+                      >
+                        {ticket.halo_id}
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="h-2.5 w-2.5 opacity-40">
+                          <path d="M3.5 1a.5.5 0 0 0 0 1h3.793L1.146 8.146a.5.5 0 1 0 .708.708L8 2.707V6.5a.5.5 0 0 0 1 0v-5a.5.5 0 0 0-.5-.5h-5Z" />
+                        </svg>
+                      </a>
+                    ) : (
+                      <span className="text-blue-400">{ticket.halo_id}</span>
+                    )}
+                  </td>
+                  <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
+                  <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-[var(--muted-foreground)]">
+                      {ticket.halo_status ?? ticket.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className="inline-flex items-center gap-1 text-violet-400"
+                      title={retriageDate.toLocaleString()}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                        <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.56a.75.75 0 0 1-1.5 0V9.446a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.025-.274Z" clipRule="evenodd" />
+                      </svg>
+                      {timeAgo(ticket.last_retriage_at!)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-emerald-400/70">
+                    {triageDate ? timeAgo(triageDate.toISOString()) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--muted-foreground)]">
+                    {ticket.halo_agent ?? (
+                      <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-400">
+                        Unassigned
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
