@@ -12,7 +12,6 @@ import type { SimilarTicket } from "../similar-tickets.js";
 import { buildFastPathNote, buildAlertPathNote } from "./halo-note-builder.js";
 
 // Halo ticket type IDs
-const HALO_ALERTS_TYPE_ID = 36;
 const HALO_GAMMA_DEFAULT_TYPE_ID = 31;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -75,18 +74,8 @@ export async function tryNotificationFastPath(
       console.error(`[MICHAEL] Fast path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
 
-    // Move notification tickets to "Alerts" type (id=36) in Halo
-    try {
-      await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
-      // Update local DB to match
-      await supabase
-        .from("tickets")
-        .update({ tickettype_id: HALO_ALERTS_TYPE_ID })
-        .eq("id", ticket.id);
-      console.log(`[MICHAEL] Fast path: Changed ticket #${ticket.halo_id} to Alerts type`);
-    } catch (error) {
-      console.error(`[MICHAEL] Fast path: Failed to change ticket type for #${ticket.halo_id}:`, error);
-    }
+    // Note: ticket type changes removed — too destructive for AI to auto-reclassify.
+    // Dispatchers should change ticket types manually in Halo.
   }
 
   await supabase.from("agent_logs").insert({
@@ -193,18 +182,8 @@ export async function tryAlertFastPath(
       console.error(`[MICHAEL] Alert path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
 
-    // Move ticket to "Alerts" type (id=36) in Halo so it doesn't clog the main queue
-    try {
-      await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
-      // Update local DB to match
-      await supabase
-        .from("tickets")
-        .update({ tickettype_id: HALO_ALERTS_TYPE_ID })
-        .eq("id", ticket.id);
-      console.log(`[MICHAEL] Alert path: Changed ticket #${ticket.halo_id} to Alerts type`);
-    } catch (error) {
-      console.error(`[MICHAEL] Alert path: Failed to change ticket type for #${ticket.halo_id}:`, error);
-    }
+    // Note: ticket type changes removed — too destructive for AI to auto-reclassify.
+    // Dispatchers should change ticket types manually in Halo.
   }
 
   await supabase.from("agent_logs").insert({
