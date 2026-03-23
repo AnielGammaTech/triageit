@@ -145,8 +145,74 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Add ticket context if provided
-  if (ticket_context) {
+  // Auto-detect ticket numbers (#XXXXX) in the message and fetch context
+  const ticketNumbers = [...message.matchAll(/#(\d{4,6})/g)].map((m) => parseInt(m[1], 10));
+  const mentionedTickets: Array<{ halo_id: number; summary: string; client_name: string | null; details: string | null; halo_status: string | null; halo_agent: string | null; triage: string | null; tech_review: string | null }> = [];
+
+  if (ticketNumbers.length > 0) {
+    // Fetch ticket data + latest triage for each mentioned ticket
+    const { data: tickets } = await serviceClient
+      .from("tickets")
+      .select("halo_id, summary, client_name, details, halo_status, halo_agent, triage_results(internal_notes, classification, urgency_score, recommended_priority, findings, created_at)")
+      .in("halo_id", ticketNumbers)
+      .order("created_at", { referencedTable: "triage_results", ascending: false });
+
+    for (const t of tickets ?? []) {
+      const triageResults = (t.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
+      const latest = triageResults[0];
+      let triageSummary: string | null = null;
+
+      if (latest) {
+        const notes = Array.isArray(latest.internal_notes) ? (latest.internal_notes as string[]).join("\n") : String(latest.internal_notes ?? "");
+        const classification = latest.classification as Record<string, string> | null;
+        triageSummary = [
+          classification ? `Type: ${classification.type}/${classification.subtype}` : null,
+          `Urgency: ${latest.urgency_score}/5`,
+          `Priority: P${latest.recommended_priority}`,
+          notes ? `Notes:\n${notes}` : null,
+        ].filter(Boolean).join("\n");
+      }
+
+      // Fetch tech review if exists
+      const { data: review } = await serviceClient
+        .from("tech_reviews")
+        .select("rating, response_time, summary, improvement_areas")
+        .eq("halo_id", t.halo_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const reviewSummary = review
+        ? `Rating: ${review.rating}, Response: ${review.response_time}, Summary: ${review.summary}${review.improvement_areas ? `, Areas: ${review.improvement_areas}` : ""}`
+        : null;
+
+      mentionedTickets.push({
+        halo_id: t.halo_id,
+        summary: t.summary,
+        client_name: t.client_name,
+        details: t.details,
+        halo_status: t.halo_status,
+        halo_agent: t.halo_agent,
+        triage: triageSummary,
+        tech_review: reviewSummary,
+      });
+    }
+  }
+
+  // Add ticket context — from auto-detection or explicit context
+  if (mentionedTickets.length > 0) {
+    systemPrompt += "\n\n## Ticket Data (from database):\n";
+    for (const t of mentionedTickets) {
+      systemPrompt += `\n### Ticket #${t.halo_id}\n`;
+      systemPrompt += `- **Summary**: ${t.summary}\n`;
+      if (t.client_name) systemPrompt += `- **Client**: ${t.client_name}\n`;
+      if (t.halo_status) systemPrompt += `- **Status**: ${t.halo_status}\n`;
+      if (t.halo_agent) systemPrompt += `- **Assigned Tech**: ${t.halo_agent}\n`;
+      if (t.details) systemPrompt += `- **Details**: ${t.details.slice(0, 1500)}\n`;
+      if (t.triage) systemPrompt += `\n**Latest Triage:**\n${t.triage}\n`;
+      if (t.tech_review) systemPrompt += `\n**Tech Review:** ${t.tech_review}\n`;
+    }
+  } else if (ticket_context) {
     systemPrompt += `\n\n## Current Ticket Context:\n`;
     if (ticket_context.halo_id) systemPrompt += `- Ticket #${ticket_context.halo_id}\n`;
     if (ticket_context.summary) systemPrompt += `- Summary: ${ticket_context.summary}\n`;
