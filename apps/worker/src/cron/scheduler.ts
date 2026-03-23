@@ -235,12 +235,20 @@ export async function startCronScheduler(): Promise<void> {
     concurrency: 1, // Run one cron job at a time
   });
 
+  cronWorker.on("ready", () => {
+    console.log("[CRON] Worker connected to Redis and ready to process jobs");
+  });
+
   cronWorker.on("completed", (job) => {
     console.log(`[CRON] Completed: ${job.data.name}`);
   });
 
   cronWorker.on("failed", (job, error) => {
     console.error(`[CRON] Failed: ${job?.data.name}:`, error.message);
+  });
+
+  cronWorker.on("error", (error) => {
+    console.error("[CRON] Worker error:", error.message);
   });
 
   // Read job definitions from DB
@@ -250,8 +258,13 @@ export async function startCronScheduler(): Promise<void> {
     .select("id, name, schedule, endpoint, is_active");
 
   if (error || !jobs || jobs.length === 0) {
-    console.log("[CRON] No cron_jobs found — using default schedules");
+    console.log(`[CRON] No cron_jobs found (error: ${error?.message ?? "none"}, rows: ${jobs?.length ?? 0}) — using default schedules`);
     await registerDefaultJobs(cronQueue);
+    const defaults = await cronQueue.getRepeatableJobs();
+    for (const rep of defaults) {
+      const next = rep.next ? new Date(rep.next).toISOString() : "unknown";
+      console.log(`[CRON] Verified default repeatable: "${rep.name}" pattern="${rep.pattern}" next=${next}`);
+    }
     startHeartbeat();
     return;
   }
@@ -274,8 +287,15 @@ export async function startCronScheduler(): Promise<void> {
     console.log(`[CRON] Registered "${job.name}" — "${job.schedule}" -> ${job.endpoint} (BullMQ repeatable)`);
   }
 
+  // Verify repeatables are actually registered in Redis
+  const registered = await cronQueue.getRepeatableJobs();
+  for (const rep of registered) {
+    const next = rep.next ? new Date(rep.next).toISOString() : "unknown";
+    console.log(`[CRON] Verified repeatable: "${rep.name}" pattern="${rep.pattern}" next=${next}`);
+  }
+
   startHeartbeat();
-  console.log(`[CRON] BullMQ scheduler started with ${activeJobs.length} active jobs`);
+  console.log(`[CRON] BullMQ scheduler started with ${activeJobs.length} active jobs, ${registered.length} repeatables in Redis`);
 }
 
 /**
