@@ -914,63 +914,71 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {activeTab === "triageit" && (
         <div className="space-y-3">
-          {/* KB Drafts — shown after close review completes */}
+          {/* KB Drafts — collapsible dropdown after close review */}
           {kbDrafts.length > 0 && (
-            <div className="rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-4 space-y-3">
-              <div className="flex items-center gap-2">
+            <details className="group rounded-xl border border-blue-500/20 bg-blue-500/[0.04] overflow-hidden">
+              <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 select-none list-none">
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  className="text-blue-400 transition-transform group-open:rotate-90"
+                >
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
                 <span className="text-sm font-medium text-blue-400">Hudu KB Drafts</span>
                 <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">
-                  {kbDrafts.length} {kbDrafts.length === 1 ? "article" : "articles"}
+                  {kbDrafts.length}
                 </span>
-                <span className="text-xs text-white/30">Copy & paste into Hudu</span>
-              </div>
-              {kbDrafts.map((draft, i) => (
-                <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-semibold text-blue-300 uppercase">
-                        {draft.category}
-                      </span>
-                      <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
-                        → {draft.hudu_section}
-                      </span>
-                      <span className="text-sm font-medium text-white/80">{draft.title}</span>
+                <span className="ml-auto text-[10px] text-white/25">click to expand</span>
+              </summary>
+              <div className="space-y-2 px-4 pb-3">
+                {kbDrafts.map((draft, i) => (
+                  <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="shrink-0 rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-semibold text-blue-300 uppercase">
+                          {draft.category}
+                        </span>
+                        <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
+                          {draft.hudu_section}
+                        </span>
+                        <span className="truncate text-xs font-medium text-white/80">{draft.title}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          void navigator.clipboard.writeText(draft.content);
+                          setCopiedKb(i);
+                          setTimeout(() => setCopiedKb(null), 2000);
+                        }}
+                        className={cn(
+                          "ml-2 shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
+                          copiedKb === i
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70",
+                        )}
+                      >
+                        {copiedKb === i ? (
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            Copy
+                          </>
+                        )}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        void navigator.clipboard.writeText(draft.content);
-                        setCopiedKb(i);
-                        setTimeout(() => setCopiedKb(null), 2000);
-                      }}
-                      className={cn(
-                        "flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-                        copiedKb === i
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70",
-                      )}
-                    >
-                      {copiedKb === i ? (
-                        <>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                          Copy
-                        </>
-                      )}
-                    </button>
+                    <pre className="px-3 py-2 text-xs text-white/60 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto">
+                      {draft.content}
+                    </pre>
                   </div>
-                  <pre className="px-3 py-2 text-xs text-white/60 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
-                    {draft.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </details>
           )}
 
           {notesLoading ? (

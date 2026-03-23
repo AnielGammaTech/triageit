@@ -53,7 +53,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - Rate the tech honestly — great/good/needs_improvement/poor
 - If there were onsite visits, note them
 - Keep everything concise
-- For hudu_kb_drafts: Draft READY-TO-PASTE content for Hudu. Each draft should be a complete article/section the admin can copy directly into Hudu. Only draft if the ticket revealed permanent knowledge worth documenting. Categories: procedure (step-by-step fix), troubleshooting (diagnosis guide), environment (infra/config details), contact (vendor contacts discovered), network (network/DNS/firewall configs), password (credential notes — NO actual passwords, just what exists and where), general (other).
+- For hudu_kb_drafts: Draft READY-TO-PASTE content for Hudu. Each draft should be a complete article/section the admin can copy directly into Hudu. ONLY draft if the ticket revealed MEANINGFUL permanent knowledge — specific configs, non-obvious procedures, vendor contacts, network details, workarounds for known bugs, etc. Do NOT draft articles for trivial/obvious things like "how to restart a computer", "how to reset a password in M365 admin", "how to check email on Outlook" — only document things a tech wouldn't already know. Return an EMPTY array if nothing is worth documenting. Categories: procedure (step-by-step fix), troubleshooting (diagnosis guide), environment (infra/config details), contact (vendor contacts discovered), network (network/DNS/firewall configs), password (credential notes — NO actual passwords, just what exists and where), general (other).
 
 ## Output JSON:
 {
@@ -290,29 +290,6 @@ function buildCloseReviewNote(
     `${huduUpdates.length > 0 ? `<br/><strong>Update Hudu:</strong> ${huduUpdates.join(", ")}` : ""}` +
     `</td></tr>`,
   );
-
-  // KB Drafts
-  const kbDrafts = review.hudu_kb_drafts ?? [];
-  if (kbDrafts.length > 0) {
-    rows.push(
-      `<tr><td colspan="2" style="padding:10px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;font-size:14px;font-weight:700;">` +
-      `📘 Hudu KB Drafts — Copy & Paste into Hudu</td></tr>`,
-    );
-    for (const draft of kbDrafts) {
-      const categoryBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#3b82f6;color:white;font-size:11px;font-weight:600;margin-right:6px;">${draft.category}</span>`;
-      const sectionBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;background:#475569;color:#e2e8f0;font-size:11px;margin-right:6px;">→ ${draft.hudu_section}</span>`;
-      const formattedContent = draft.content
-        .replace(/\n/g, "<br/>")
-        .replace(/^## (.+)$/gm, '<strong style="font-size:13px;color:#93c5fd;">$1</strong>')
-        .replace(/^- (.+)$/gm, "• $1");
-      rows.push(
-        `<tr style="background:#1a1d24;"><td colspan="2" style="padding:10px 14px;${border}">` +
-        `<div style="margin-bottom:6px;">${categoryBadge}${sectionBadge}<strong style="color:#e2e8f0;font-size:14px;">${draft.title}</strong></div>` +
-        `<div style="background:#0f1117;border:1px solid #334155;border-radius:6px;padding:10px 12px;font-size:13px;color:#cbd5e1;line-height:1.6;">${formattedContent}</div>` +
-        `</td></tr>`,
-      );
-    }
-  }
 
   // Footer
   rows.push(

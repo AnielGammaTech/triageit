@@ -35,7 +35,7 @@ Your job: Draft a customer-facing email reply for this ticket. The tech will rev
 - If we need more info, ask specific questions (not vague "can you provide more details")
 - If we're providing an update, be honest about status without oversharing technical details
 - If the issue is resolved, confirm what was done in plain language
-- Sign off as the assigned tech's name (or "Gamma Tech Support" if unknown)
+- Do NOT include a signature or sign-off (no "Best regards", no name, no "Gamma Tech Support" — the email system auto-appends the tech's signature)
 - Keep it SHORT — 3-5 sentences max for simple updates, 5-8 for complex ones
 - Don't include ticket numbers or internal references
 - Match the tone of previous customer communication (formal client = formal reply, casual = casual)
