@@ -48,13 +48,26 @@ GOOD: "Our team will process this using the documented credentials. No additiona
 - If we DON'T have something documented, flag it as missing_info (but don't make the response sound incompetent)
 
 ### Rule 4: Handle Documentation Gaps — THIS IS CRITICAL
-Hudu is for PERMANENT CLIENT DOCUMENTATION: domains, passwords, configs, contacts, assets, procedures, network diagrams.
-- ONLY flag things that are genuinely missing CLIENT documentation: undocumented devices, missing passwords, unconfigured procedures
-- Do NOT flag ticket-specific troubleshooting details as missing from Hudu (error messages, NDR bounce-backs, SMTP error codes, diagnostic output — these are NOT Hudu items)
-- If Dwight's findings show actual documentation gaps (missing_procedure, missing_asset, undocumented system), flag those
-- If a ticket reveals that a client system/device/service is NOT in Hudu, that IS a gap — flag it
-- If Hudu has no data for this client at all, that's a major gap — note it
-- After resolution, the tech MUST update Hudu with any newly discovered CLIENT configurations
+Hudu is for PERMANENT CLIENT ENVIRONMENT DOCUMENTATION — things that outlive any single ticket:
+- Network diagrams, IP schemes, VLAN configs
+- Device inventories, server configs, workstation naming conventions
+- Passwords, credentials, MFA recovery codes
+- Vendor contacts, license keys, account numbers
+- Standard operating procedures, onboarding/offboarding checklists
+- Domain registrar info, DNS hosting, MX records, SPF/DKIM/DMARC
+
+ONLY flag as missing_info when Hudu is missing one of the above for this client.
+
+DO NOT flag ticket-specific details as documentation gaps. These are NOT Hudu items:
+- Specific users affected by an issue
+- Error messages, bounce-backs, SMTP codes, diagnostic output
+- Customer preferences about timelines or rollout plans
+- Whether something is "active" vs "tracking" — that's ticket status, not documentation
+- Troubleshooting steps taken or needed for this particular incident
+
+If Dwight found the client has NO Hudu data at all, that's a major gap — flag it.
+If this ticket reveals an undocumented system/device/service, flag it.
+After resolution, the tech should update Hudu with any newly discovered environment configs.
 
 ### Rule 5: Tone Matching
 - Routine requests (password, access changes): Brief, confident, professional
@@ -76,7 +89,7 @@ Respond with ONLY valid JSON:
   "customer_response": "<the full response to send to the customer>",
   "internal_response_notes": "<notes for the tech about why this response was crafted this way>",
   "documentation_used": ["<list of Hudu docs/assets/procedures referenced>"],
-  "missing_info": ["<list of info NOT in Hudu that we'd need from the customer>"],
+  "missing_info": ["<list of permanent client environment docs missing from Hudu — NOT ticket-specific details>"],
   "tone": "<professional|empathetic|urgent|informational>"
 }`;
 
