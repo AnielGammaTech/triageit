@@ -274,15 +274,20 @@ export async function startCronScheduler(): Promise<void> {
   for (const rep of existingRepeatables) {
     await cronQueue.removeRepeatableByKey(rep.key);
   }
+  // Also drain any stale delayed jobs left from old repeatables
+  await cronQueue.drain();
+  console.log(`[CRON] Cleared ${existingRepeatables.length} old repeatables and drained stale jobs`);
 
   // Register active jobs as BullMQ repeatables
+  // NOTE: Do NOT set jobId — BullMQ manages repeatable job IDs internally.
+  // Setting a static jobId can cause dedup conflicts across deploys.
   const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
 
   for (const job of activeJobs) {
     await cronQueue.add(
       `cron-${job.endpoint}`,
       { endpoint: job.endpoint, name: job.name },
-      { repeat: { pattern: job.schedule }, jobId: `cron-${job.endpoint}` },
+      { repeat: { pattern: job.schedule } },
     );
     console.log(`[CRON] Registered "${job.name}" — "${job.schedule}" -> ${job.endpoint} (BullMQ repeatable)`);
   }
@@ -309,11 +314,18 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
   ];
 
+  // Clear any stale state before registering defaults
+  const stale = await queue.getRepeatableJobs();
+  for (const rep of stale) {
+    await queue.removeRepeatableByKey(rep.key);
+  }
+  await queue.drain();
+
   for (const job of defaults) {
     await queue.add(
       `cron-${job.endpoint}`,
       { endpoint: job.endpoint, name: job.name },
-      { repeat: { pattern: job.schedule }, jobId: `cron-${job.endpoint}` },
+      { repeat: { pattern: job.schedule } },
     );
     console.log(`[CRON] Registered default "${job.name}" — "${job.schedule}" (BullMQ repeatable)`);
   }
