@@ -329,13 +329,13 @@ export default function TicketsPage() {
     <div className="space-y-4">
       {/* Tech filter banner */}
       {techFilter && (
-        <div className="flex items-center justify-between rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-4 py-2">
-          <span className="text-sm text-indigo-300">
+        <div className="flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2">
+          <span className="text-sm text-red-300">
             Filtering by technician: <strong>{techFilter}</strong>
           </span>
           <button
             onClick={() => router.push("/tickets")}
-            className="text-xs text-indigo-400 hover:text-indigo-300 underline"
+            className="text-xs text-red-400 hover:text-red-300 underline"
           >
             Clear filter
           </button>
@@ -343,13 +343,13 @@ export default function TicketsPage() {
       )}
       {/* Unassigned filter banner */}
       {filterParam === "unassigned" && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-2">
-          <span className="text-sm text-amber-300">
+        <div className="flex items-center justify-between rounded-lg border border-rose-500/20 bg-rose-500/10 px-4 py-2">
+          <span className="text-sm text-rose-300">
             Showing <strong>unassigned</strong> tickets only
           </span>
           <button
             onClick={() => router.push("/tickets?tab=open")}
-            className="text-xs text-amber-400 hover:text-amber-300 underline"
+            className="text-xs text-rose-400 hover:text-rose-300 underline"
           >
             Clear filter
           </button>
@@ -379,11 +379,11 @@ export default function TicketsPage() {
               type="button"
               onClick={(e) => { e.preventDefault(); triageByHaloId(); }}
               disabled={triagingHaloId || !haloIdInput.trim()}
-              className="border-l border-white/[0.06] px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:bg-amber-500/10 disabled:text-white/20 disabled:hover:bg-transparent"
+              className="border-l border-white/[0.06] px-3 py-1.5 text-xs font-medium text-rose-400 transition-colors hover:bg-rose-500/10 disabled:text-white/20 disabled:hover:bg-transparent"
             >
               {triagingHaloId ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="h-3 w-3 animate-spin rounded-full border border-amber-400/30 border-t-amber-400" />
+                  <span className="h-3 w-3 animate-spin rounded-full border border-rose-400/30 border-t-rose-400" />
                   Triaging
                 </span>
               ) : (
@@ -399,11 +399,11 @@ export default function TicketsPage() {
             type="button"
             onClick={(e) => { e.preventDefault(); pullFromHalo(); }}
             disabled={pulling}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-500/10 disabled:text-white/30"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:text-white/30"
           >
             {pulling ? (
               <>
-                <span className="h-3 w-3 animate-spin rounded-full border border-indigo-400/30 border-t-indigo-400" />
+                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/30 border-t-red-400" />
                 <span className="hidden sm:inline">Syncing</span>
               </>
             ) : (
@@ -421,12 +421,12 @@ export default function TicketsPage() {
             type="button"
             onClick={(e) => { e.preventDefault(); triageAll(); }}
             disabled={triagingAll}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/10 disabled:text-white/30"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 disabled:text-white/30"
             title="Run full AI triage on all open tickets (includes tech performance reviews)"
           >
             {triagingAll ? (
               <>
-                <span className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
+                <span className="h-3 w-3 animate-spin rounded-full border border-red-300/30 border-t-red-300" />
                 <span className="hidden sm:inline">Triaging All</span>
               </>
             ) : (
@@ -472,7 +472,7 @@ export default function TicketsPage() {
           onClick={() => setActiveTab("open")}
           label="Open"
           count={openTickets.length}
-          badgeClass="bg-amber-500/20 text-amber-400"
+          badgeClass="bg-red-500/15 text-red-300"
           pulse={false}
           hideZero={false}
         />
@@ -490,7 +490,7 @@ export default function TicketsPage() {
           onClick={() => setActiveTab("alerts")}
           label="Alerts"
           count={alertTickets.length}
-          badgeClass="bg-orange-500/20 text-orange-400"
+          badgeClass="bg-red-400/15 text-red-400/80"
           pulse={false}
           hideZero={true}
         />
@@ -499,7 +499,7 @@ export default function TicketsPage() {
           onClick={() => setActiveTab("stale")}
           label="Stale"
           count={staleTickets.length}
-          badgeClass="bg-orange-500/20 text-orange-400"
+          badgeClass="bg-red-400/15 text-red-400/80"
           pulse={false}
           hideZero={true}
         />
@@ -508,7 +508,7 @@ export default function TicketsPage() {
           onClick={() => setActiveTab("retriaged")}
           label="Re-triaged"
           count={retriagedTickets.length}
-          badgeClass="bg-violet-500/20 text-violet-400"
+          badgeClass="bg-rose-400/15 text-rose-300"
           pulse={false}
           hideZero={true}
         />
@@ -517,7 +517,7 @@ export default function TicketsPage() {
           onClick={() => setActiveTab("resolved")}
           label="Resolved"
           count={resolvedTickets.length}
-          badgeClass="bg-emerald-500/20 text-emerald-400"
+          badgeClass="bg-red-900/30 text-red-300/70"
           pulse={false}
           hideZero={false}
         />
@@ -536,7 +536,7 @@ export default function TicketsPage() {
             "rounded-lg border px-4 py-3 text-sm flex items-center justify-between",
             statusMessage.type === "error"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
-              : "border-green-500/30 bg-green-500/10 text-green-400",
+              : "border-red-300/30 bg-red-300/10 text-red-300",
           )}
         >
           <span>{statusMessage.text}</span>
@@ -549,7 +549,7 @@ export default function TicketsPage() {
       {/* Sync progress bar */}
       {pulling && (
         <div className="overflow-hidden rounded-full h-1 bg-white/5">
-          <div className="h-full w-1/3 bg-indigo-500/60 rounded-full animate-[pulse_1.5s_ease-in-out_infinite]" style={{ animation: "syncSlide 1.5s ease-in-out infinite" }} />
+          <div className="h-full w-1/3 bg-red-500/60 rounded-full animate-[pulse_1.5s_ease-in-out_infinite]" style={{ animation: "syncSlide 1.5s ease-in-out infinite" }} />
           <style>{`@keyframes syncSlide { 0% { transform: translateX(-100%); width: 33%; } 50% { transform: translateX(100%); width: 66%; } 100% { transform: translateX(300%); width: 33%; } }`}</style>
         </div>
       )}
@@ -585,7 +585,7 @@ export default function TicketsPage() {
           </div>
         ) : (
           <div>
-            <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-2.5 text-sm text-orange-300">
+            <div className="mb-3 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-sm text-red-300">
               These tickets have had no tech activity for 3+ days and may need follow-up.
             </div>
             <OpenTicketList tickets={staleTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
@@ -638,15 +638,15 @@ function IncomingTicketList({
             className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 cursor-pointer hover:bg-[var(--accent)] transition-colors"
           >
             <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-xs text-blue-400">#{ticket.halo_id}</span>
+              <span className="font-mono text-xs text-red-400">#{ticket.halo_id}</span>
               <span className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium",
                 ticket.status === "pending"
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : "bg-blue-500/20 text-blue-400",
+                  ? "bg-red-500/15 text-red-300"
+                  : "bg-red-500/20 text-red-400",
               )}>
                 {ticket.status === "triaging" && (
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
                 )}
                 {ticket.status}
               </span>
@@ -680,7 +680,7 @@ function IncomingTicketList({
                 onClick={() => onSelectTicket(ticket.id)}
                 className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--accent)]"
               >
-                <td className="px-4 py-3 font-mono text-xs text-blue-400">#{ticket.halo_id}</td>
+                <td className="px-4 py-3 font-mono text-xs text-red-400">#{ticket.halo_id}</td>
                 <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
                 <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</td>
                 <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.user_name ?? "—"}</td>
@@ -688,11 +688,11 @@ function IncomingTicketList({
                   <span className={cn(
                     "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
                     ticket.status === "pending"
-                      ? "bg-yellow-500/20 text-yellow-400"
-                      : "bg-blue-500/20 text-blue-400",
+                      ? "bg-red-500/15 text-red-300"
+                      : "bg-red-500/20 text-red-400",
                   )}>
                     {ticket.status === "triaging" && (
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
                     )}
                     {ticket.status}
                   </span>
@@ -731,8 +731,8 @@ function RetriagedTicketList({
             className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 cursor-pointer hover:bg-[var(--accent)] transition-colors"
           >
             <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-xs text-blue-400">#{ticket.halo_id}</span>
-              <span className="inline-flex items-center gap-1 text-xs text-violet-400">
+              <span className="font-mono text-xs text-red-400">#{ticket.halo_id}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-rose-400">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
                   <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.681.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-.908l.84.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44.908l-.84-.84v1.56a.75.75 0 0 1-1.5 0V9.446a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.681.75.75 0 0 1 1.025-.274Z" clipRule="evenodd" />
                 </svg>
@@ -782,7 +782,7 @@ function RetriagedTicketList({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="text-blue-400 hover:underline inline-flex items-center gap-1"
+                        className="text-red-400 hover:underline inline-flex items-center gap-1"
                       >
                         {ticket.halo_id}
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" className="h-2.5 w-2.5 opacity-40">
@@ -790,7 +790,7 @@ function RetriagedTicketList({
                         </svg>
                       </a>
                     ) : (
-                      <span className="text-blue-400">{ticket.halo_id}</span>
+                      <span className="text-red-400">{ticket.halo_id}</span>
                     )}
                   </td>
                   <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
@@ -802,7 +802,7 @@ function RetriagedTicketList({
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className="inline-flex items-center gap-1 text-violet-400"
+                      className="inline-flex items-center gap-1 text-rose-400"
                       title={retriageDate.toLocaleString()}
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -811,7 +811,7 @@ function RetriagedTicketList({
                       {timeAgo(ticket.last_retriage_at!)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-emerald-400/70">
+                  <td className="px-4 py-3 text-xs text-red-300/70">
                     {triageDate ? timeAgo(triageDate.toISOString()) : "—"}
                   </td>
                   <td className="px-4 py-3 text-[var(--muted-foreground)]">

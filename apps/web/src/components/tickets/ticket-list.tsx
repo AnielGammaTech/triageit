@@ -29,10 +29,10 @@ interface TicketListProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400",
-  triaging: "bg-blue-500/20 text-blue-400",
-  triaged: "bg-green-500/20 text-green-400",
-  approved: "bg-emerald-500/20 text-emerald-400",
+  pending: "bg-red-500/15 text-red-300",
+  triaging: "bg-red-500/20 text-red-400",
+  triaged: "bg-red-400/10 text-red-200",
+  approved: "bg-red-900/20 text-red-200",
   error: "bg-red-500/20 text-red-400",
 };
 
@@ -46,9 +46,9 @@ const PRIORITY_LABELS: Record<number, string> = {
 
 const PRIORITY_COLORS: Record<number, string> = {
   1: "text-red-400 font-bold",
-  2: "text-orange-400 font-semibold",
-  3: "text-yellow-400 font-medium",
-  4: "text-green-400 font-medium",
+  2: "text-red-300 font-semibold",
+  3: "text-rose-400 font-medium",
+  4: "text-rose-300 font-medium",
   5: "text-gray-400 font-normal",
 };
 
@@ -92,7 +92,7 @@ export function TicketList({
               className={cn(
                 "rounded-lg border border-[var(--border)] p-3 cursor-pointer transition-colors",
                 isSelected
-                  ? "bg-indigo-500/10 border-indigo-500/30"
+                  ? "bg-red-500/10 border-red-500/30"
                   : "bg-[var(--card)] hover:bg-[var(--accent)]",
               )}
             >
@@ -105,12 +105,12 @@ export function TicketList({
                       e.stopPropagation();
                       onToggleSelect(ticket.id);
                     }}
-                    className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                    className="h-4 w-4 rounded border-white/20 bg-white/5 text-red-500 focus:ring-red-500/50"
                   />
                 </div>
               )}
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="font-mono text-xs font-medium text-[#6366f1]">#{ticket.halo_id}</span>
+                <span className="font-mono text-xs font-medium text-[#dc2626]">#{ticket.halo_id}</span>
                 <span
                   className={cn(
                     "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
@@ -191,7 +191,7 @@ export function TicketList({
                   className={cn(
                     "border-b border-[var(--border)] transition-colors cursor-pointer",
                     isSelected
-                      ? "bg-indigo-500/10 hover:bg-indigo-500/15"
+                      ? "bg-red-500/10 hover:bg-red-500/15"
                       : "hover:bg-[var(--accent)]",
                   )}
                 >
@@ -204,12 +204,12 @@ export function TicketList({
                           e.stopPropagation();
                           onToggleSelect(ticket.id);
                         }}
-                        className="h-4 w-4 rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                        className="h-4 w-4 rounded border-white/20 bg-white/5 text-red-500 focus:ring-red-500/50"
                       />
                     </td>
                   )}
                   <td
-                    className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]"
+                    className="px-4 py-3 font-mono text-xs font-medium text-[#dc2626]"
                     onClick={() => onSelectTicket(ticket.id)}
                   >
                     #{ticket.halo_id}

@@ -14,7 +14,7 @@ const NAV_ITEMS = [
   { href: "/analytics", label: "Analytics" },
 ] as const;
 
-const PRIMARY_COLOR = "#6366f1";
+const PRIMARY_COLOR = "#dc2626";
 
 interface SidebarProps {
   readonly userEmail: string;
@@ -60,7 +60,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
     <>
       <header
         className="fixed top-0 left-0 right-0 z-40 h-14 text-white"
-        style={{ backgroundColor: "#13082E" }}
+        style={{ backgroundColor: "#1a0a0a" }}
       >
         <div className="mx-auto flex h-full max-w-full items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + hamburger */}
@@ -158,7 +158,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 bg-[#1a0f35] shadow-xl">
+              <div className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 bg-[#1a0a0a] shadow-xl">
                 <div className="border-b border-white/10 px-3 py-2.5">
                   <div className="flex items-center gap-3">
                     <div
@@ -229,7 +229,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
           {/* Menu panel */}
           <nav
             className="absolute top-14 left-0 right-0 border-b border-white/10 shadow-xl"
-            style={{ backgroundColor: "#13082E" }}
+            style={{ backgroundColor: "#1a0a0a" }}
           >
             <div className="flex flex-col py-2">
               {NAV_ITEMS.map((item) => {

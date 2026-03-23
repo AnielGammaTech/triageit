@@ -63,11 +63,11 @@ interface TicketDetailProps {
 // ── Constants ───────────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<string, { bg: string; text: string }> = {
-  pending: { bg: "bg-yellow-500/10", text: "text-yellow-400" },
-  triaging: { bg: "bg-blue-500/10", text: "text-blue-400" },
-  triaged: { bg: "bg-emerald-500/10", text: "text-emerald-400" },
-  "re-triaged": { bg: "bg-violet-500/10", text: "text-violet-400" },
-  approved: { bg: "bg-green-500/10", text: "text-green-400" },
+  pending: { bg: "bg-red-500/10", text: "text-red-400" },
+  triaging: { bg: "bg-red-400/10", text: "text-red-300" },
+  triaged: { bg: "bg-red-300/10", text: "text-red-200" },
+  "re-triaged": { bg: "bg-rose-500/10", text: "text-rose-400" },
+  approved: { bg: "bg-red-900/20", text: "text-red-200" },
   error: { bg: "bg-red-500/10", text: "text-red-400" },
 };
 
@@ -450,7 +450,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               retriaging || isTriaging
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#6366f1]/10 text-[#6366f1] hover:bg-[#6366f1]/20",
+                : "bg-[#dc2626]/10 text-[#dc2626] hover:bg-[#dc2626]/20",
             )}
           >
             {retriaging ? (
@@ -652,7 +652,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             className={cn(
               "px-4 py-2 text-sm font-medium capitalize transition-colors",
               activeTab === tab
-                ? "border-b-2 border-[#6366f1] text-white"
+                ? "border-b-2 border-[#dc2626] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
@@ -713,8 +713,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           )}
 
           {triage?.suggested_response && (
-            <div className="rounded-xl border border-[#6366f1]/20 bg-[#6366f1]/5 p-5">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#6366f1]/60">Suggested Client Response</h4>
+            <div className="rounded-xl border border-[#dc2626]/20 bg-[#dc2626]/5 p-5">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#dc2626]/60">Suggested Client Response</h4>
               <p className="whitespace-pre-wrap text-sm text-white/70">{triage.suggested_response}</p>
             </div>
           )}
@@ -770,7 +770,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                       isThinking
                         ? "border border-amber-500/10 bg-amber-500/[0.03]"
                         : "border border-white/10 bg-white/[0.02]",
-                      isLatest && "ring-1 ring-[#6366f1]/30",
+                      isLatest && "ring-1 ring-[#dc2626]/30",
                     )}
                   >
                     <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
@@ -886,7 +886,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 }
 
 const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  triage: { bg: "bg-[#6366f1]/10", text: "text-[#6366f1]", label: "Triage" },
+  triage: { bg: "bg-[#dc2626]/10", text: "text-[#dc2626]", label: "Triage" },
   retriage: { bg: "bg-violet-500/10", text: "text-violet-400", label: "Retriage" },
   "tech-review": { bg: "bg-emerald-500/10", text: "text-emerald-400", label: "Tech Review" },
   alert: { bg: "bg-amber-500/10", text: "text-amber-400", label: "Alert" },

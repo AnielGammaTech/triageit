@@ -8,7 +8,7 @@ export default function LoginPage() {
     >
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-white/10 bg-[#1a0f35] p-8 shadow-2xl">
         <div className="text-center">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#6366f1] text-sm font-bold text-white">
+          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-[#dc2626] text-sm font-bold text-white">
             T
           </div>
           <h1 className="text-2xl font-bold text-white">TriageIt</h1>

@@ -33,9 +33,9 @@ const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
 );
 
 const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; icon: string }> = {
-  triage: { label: "AI Triage", accent: "#6366f1", icon: "🔍" },
+  triage: { label: "AI Triage", accent: "#dc2626", icon: "🔍" },
   retriage: { label: "Re-Triage", accent: "#f59e0b", icon: "🔄" },
-  "tech-review": { label: "Tech Review", accent: "#10b981", icon: "📋" },
+  "tech-review": { label: "Tech Review", accent: "#ef4444", icon: "📋" },
   alert: { label: "Alert", accent: "#ef4444", icon: "🚨" },
   priority: { label: "Priority", accent: "#8b5cf6", icon: "⚡" },
   documentation: { label: "Documentation", accent: "#06b6d4", icon: "📝" },
@@ -101,9 +101,9 @@ function isTriageItNote(action: HaloAction): boolean {
     note.includes("TriageIt AI") ||
     note.includes("AI Triage") ||
     note.includes("triageit") ||
-    note.includes("linear-gradient(135deg,#6366f1") ||
-    note.includes("linear-gradient(135deg,#4f46e5") ||
-    note.includes("linear-gradient(135deg,#059669")
+    note.includes("linear-gradient(135deg,#dc2626") ||
+    note.includes("linear-gradient(135deg,#b91c1c") ||
+    note.includes("linear-gradient(135deg,#b91c1c")
   );
 }
 
@@ -260,7 +260,7 @@ export default async function EmbedTriagePage({
       <div style={s.page}>
         <SpinnerStyles />
         <div style={s.emptyWrap}>
-          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#6366f1" : "#52525b" }}>
+          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#dc2626" : "#52525b" }}>
             {ticket.status === "triaging" ? "\u23F3" : "\u2014"}
           </div>
           <p style={s.emptyText}>
@@ -375,7 +375,7 @@ export default async function EmbedTriagePage({
       )}
 
       {/* ── Urgency Analysis ────────────────────────────────── */}
-      <CollapsibleSection title="Urgency Analysis" accent="#6366f1" defaultOpen={triageItNotes.length === 0}>
+      <CollapsibleSection title="Urgency Analysis" accent="#dc2626" defaultOpen={triageItNotes.length === 0}>
         <p style={s.bodyText}>{latest.urgency_reasoning}</p>
       </CollapsibleSection>
 
@@ -559,7 +559,7 @@ const s = {
     width: "28px",
     height: "28px",
     borderRadius: "8px",
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    background: "linear-gradient(135deg, #dc2626, #b91c1c)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -710,7 +710,7 @@ const s = {
     width: "6px",
     height: "6px",
     borderRadius: "50%",
-    backgroundColor: "#6366f1",
+    backgroundColor: "#dc2626",
     boxShadow: "0 0 6px rgba(99, 102, 241, 0.5)",
   } as React.CSSProperties,
   notesSectionTitle: {
@@ -727,7 +727,7 @@ const s = {
     padding: "2px 8px",
     borderRadius: "10px",
     backgroundColor: "rgba(99, 102, 241, 0.1)",
-    color: "#6366f1",
+    color: "#dc2626",
     border: "1px solid rgba(99, 102, 241, 0.2)",
   } as React.CSSProperties,
   notesList: {

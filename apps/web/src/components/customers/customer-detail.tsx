@@ -48,16 +48,16 @@ interface CustomerDetailProps {
 type Tab = "tickets" | "history" | "agents";
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-amber-500/10 text-amber-400",
-  triaging: "bg-blue-500/10 text-blue-400",
-  triaged: "bg-emerald-500/10 text-emerald-400",
-  approved: "bg-green-500/10 text-green-400",
+  pending: "bg-red-500/10 text-red-400",
+  triaging: "bg-red-400/10 text-red-300",
+  triaged: "bg-red-300/10 text-red-200",
+  approved: "bg-red-900/20 text-red-200",
   error: "bg-red-500/10 text-red-400",
 };
 
 const PRIORITY_COLORS: Record<number, string> = {
   1: "text-red-400",
-  2: "text-orange-400",
+  2: "text-red-300",
   3: "text-amber-400",
   4: "text-blue-400",
   5: "text-white/40",

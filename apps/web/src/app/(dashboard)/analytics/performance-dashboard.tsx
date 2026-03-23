@@ -16,10 +16,10 @@ function formatHours(hours: number | null): string {
 
 function responseGrade(hours: number | null): { readonly label: string; readonly color: string } {
   if (hours === null) return { label: "N/A", color: "text-zinc-500" };
-  if (hours <= 2) return { label: "Excellent", color: "text-emerald-400" };
-  if (hours <= 8) return { label: "Good", color: "text-green-400" };
-  if (hours <= 24) return { label: "Fair", color: "text-amber-400" };
-  if (hours <= 48) return { label: "Slow", color: "text-orange-400" };
+  if (hours <= 2) return { label: "Excellent", color: "text-red-200" };
+  if (hours <= 8) return { label: "Good", color: "text-red-300" };
+  if (hours <= 24) return { label: "Fair", color: "text-rose-400" };
+  if (hours <= 48) return { label: "Slow", color: "text-rose-300" };
   return { label: "Critical", color: "text-red-400" };
 }
 
@@ -54,7 +54,7 @@ function StatCard({
       {subtitle && (
         subtitleHref ? (
           <p
-            className="mt-0.5 text-xs text-indigo-400 hover:text-indigo-300 cursor-pointer underline decoration-indigo-400/30"
+            className="mt-0.5 text-xs text-red-400 hover:text-red-300 cursor-pointer underline decoration-red-400/30"
             onClick={(e) => { e.stopPropagation(); router.push(subtitleHref); }}
           >
             {subtitle}
@@ -89,7 +89,7 @@ function TechRow({
             {rank}
           </span>
           <div>
-            <p className="font-medium text-zinc-200 hover:text-indigo-400 transition-colors">{tech.name}</p>
+            <p className="font-medium text-zinc-200 hover:text-red-400 transition-colors">{tech.name}</p>
             <p className="text-xs text-zinc-500">
               {tech.ticketsLastWeek} this week · {tech.ticketsLastMonth} this month
             </p>
@@ -133,7 +133,7 @@ function TechRow({
         )}
       </td>
       <td className="px-4 py-3.5 text-center">
-        <span className="font-semibold text-emerald-400">{tech.resolvedTickets}</span>
+        <span className="font-semibold text-red-200">{tech.resolvedTickets}</span>
       </td>
       <td className="px-4 py-3.5 text-center">
         {tech.oldestOpenDays !== null && tech.oldestOpenDays > 7 ? (
@@ -250,21 +250,21 @@ export function PerformanceDashboard({
           onClick={() => router.push("/tickets?tab=open")}
         >
           <span className="text-xs text-zinc-500">Triaged today</span>
-          <span className="ml-2 text-lg font-bold text-indigo-400">{teamOverview.ticketsTriagedToday}</span>
+          <span className="ml-2 text-lg font-bold text-red-400">{teamOverview.ticketsTriagedToday}</span>
         </div>
         <div
           className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
           onClick={() => router.push("/tickets?tab=open")}
         >
           <span className="text-xs text-zinc-500">Triaged this week</span>
-          <span className="ml-2 text-lg font-bold text-indigo-400">{teamOverview.ticketsTriagedThisWeek}</span>
+          <span className="ml-2 text-lg font-bold text-red-400">{teamOverview.ticketsTriagedThisWeek}</span>
         </div>
         <div
           className="cursor-pointer rounded-xl border border-white/5 bg-white/[0.02] px-5 py-3 transition-colors hover:border-white/15 hover:bg-white/[0.04]"
           onClick={() => router.push("/tickets?tab=resolved")}
         >
           <span className="text-xs text-zinc-500">Resolved</span>
-          <span className="ml-2 text-lg font-bold text-emerald-400">{teamOverview.totalResolved}</span>
+          <span className="ml-2 text-lg font-bold text-red-200">{teamOverview.totalResolved}</span>
         </div>
       </div>
 
@@ -326,7 +326,7 @@ export function PerformanceDashboard({
                       {tech.needsReviewTickets > 0 && (
                         <span className="text-rose-400 animate-pulse">{tech.needsReviewTickets} review</span>
                       )}
-                      <span className="text-emerald-400">{tech.resolvedTickets} resolved</span>
+                      <span className="text-red-200">{tech.resolvedTickets} resolved</span>
                     </div>
                   </div>
                 );
@@ -397,10 +397,10 @@ export function PerformanceDashboard({
       <div className="rounded-xl border border-white/5 bg-white/[0.02] px-5 py-4">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Response Grades</h4>
         <div className="mt-2 flex flex-wrap gap-4 text-xs">
-          <span className="text-emerald-400">● Excellent (&lt;2h)</span>
-          <span className="text-green-400">● Good (2-8h)</span>
-          <span className="text-amber-400">● Fair (8-24h)</span>
-          <span className="text-orange-400">● Slow (24-48h)</span>
+          <span className="text-red-200">● Excellent (&lt;2h)</span>
+          <span className="text-red-300">● Good (2-8h)</span>
+          <span className="text-rose-400">● Fair (8-24h)</span>
+          <span className="text-rose-300">● Slow (24-48h)</span>
           <span className="text-red-400">● Critical (&gt;48h)</span>
         </div>
         <p className="mt-2 text-xs text-zinc-600">

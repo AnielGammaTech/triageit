@@ -41,16 +41,16 @@ const STATUS_KEYWORDS: ReadonlyArray<{
   readonly match: string;
   readonly style: string;
 }> = [
-  { match: "new", style: "bg-blue-500/20 text-blue-400" },
-  { match: "in progress", style: "bg-emerald-500/20 text-emerald-400" },
-  { match: "scheduled", style: "bg-purple-500/20 text-purple-400" },
-  { match: "waiting on customer", style: "bg-yellow-500/20 text-yellow-400" },
-  { match: "customer reply", style: "bg-orange-500/20 text-orange-400" },
-  { match: "waiting on tech", style: "bg-red-500/20 text-red-400" },
-  { match: "waiting on parts", style: "bg-cyan-500/20 text-cyan-400" },
-  { match: "pending vendor", style: "bg-indigo-500/20 text-indigo-400" },
+  { match: "new", style: "bg-red-500/20 text-red-400" },
+  { match: "in progress", style: "bg-red-400/15 text-red-300" },
+  { match: "scheduled", style: "bg-rose-500/15 text-rose-300" },
+  { match: "waiting on customer", style: "bg-red-500/10 text-red-400/80" },
+  { match: "customer reply", style: "bg-red-600/20 text-red-300" },
+  { match: "waiting on tech", style: "bg-red-500/25 text-red-400" },
+  { match: "waiting on parts", style: "bg-rose-400/15 text-rose-300" },
+  { match: "pending vendor", style: "bg-red-400/10 text-red-400/70" },
   { match: "on hold", style: "bg-gray-500/20 text-gray-400" },
-  { match: "needs quote", style: "bg-pink-500/20 text-pink-400" },
+  { match: "needs quote", style: "bg-rose-500/15 text-rose-400" },
 ];
 
 function getStatusStyle(status: string): string {
@@ -61,9 +61,9 @@ function getStatusStyle(status: string): string {
 
 const PRIORITY_COLORS: Record<number, string> = {
   1: "text-red-400",
-  2: "text-orange-400",
-  3: "text-yellow-400",
-  4: "text-green-400",
+  2: "text-red-300",
+  3: "text-rose-400",
+  4: "text-rose-300",
   5: "text-gray-400",
 };
 
@@ -130,7 +130,7 @@ function getFlags(ticket: TicketRow): ReadonlyArray<Flag> {
 
 const FLAG_STYLES: Record<string, string> = {
   critical: "bg-red-500/20 text-red-400",
-  warning: "bg-yellow-500/20 text-yellow-400",
+  warning: "bg-rose-500/20 text-rose-400",
   info: "bg-white/5 text-white/30",
 };
 
@@ -178,12 +178,12 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="font-mono text-xs text-[#6366f1] hover:text-[#818cf8]"
+                      className="font-mono text-xs text-[#dc2626] hover:text-[#f87171]"
                     >
                       #{ticket.halo_id}
                     </a>
                   ) : (
-                    <span className="font-mono text-xs text-[#6366f1]">#{ticket.halo_id}</span>
+                    <span className="font-mono text-xs text-[#dc2626]">#{ticket.halo_id}</span>
                   )}
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
@@ -274,7 +274,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[#6366f1] hover:text-[#818cf8] transition-colors"
+                        className="inline-flex items-center gap-1 text-[#dc2626] hover:text-[#f87171] transition-colors"
                         title="Open in Halo"
                       >
                         {ticket.halo_id}
@@ -285,7 +285,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         </svg>
                       </a>
                     ) : (
-                      <span className="text-[#6366f1]">{ticket.halo_id}</span>
+                      <span className="text-[#dc2626]">{ticket.halo_id}</span>
                     )}
                   </td>
                   <td className="max-w-sm truncate px-3 py-2">
@@ -311,7 +311,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       const triageAt = ticket.triage_results[0]?.created_at;
                       if (retriageAt) {
                         return (
-                          <span className="inline-flex items-center gap-1 text-violet-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString()}`}>
+                          <span className="inline-flex items-center gap-1 text-rose-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString()}`}>
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
                             {timeAgo(retriageAt)}
                           </span>
@@ -319,7 +319,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       }
                       if (triageAt) {
                         return (
-                          <span className="text-emerald-400/70" title={`Triaged: ${new Date(triageAt).toLocaleString()}`}>
+                          <span className="text-red-400/70" title={`Triaged: ${new Date(triageAt).toLocaleString()}`}>
                             {timeAgo(triageAt)}
                           </span>
                         );

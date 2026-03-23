@@ -124,7 +124,7 @@ function ModelSelector({
             className={cn(
               "rounded-lg border px-2.5 py-2 text-left transition-all",
               value === model.id
-                ? "border-[#6366f1] bg-[#6366f1]/10"
+                ? "border-[#6366f1] bg-[#dc2626]/10"
                 : "border-white/10 hover:border-white/20 hover:bg-white/[0.04]",
             )}
           >
@@ -250,8 +250,8 @@ export function AgentConfigSection() {
           className={cn(
             "rounded-lg px-4 py-2 text-sm font-medium transition-all",
             saved
-              ? "bg-emerald-500/20 text-emerald-400"
-              : "bg-[#6366f1] text-white hover:bg-[#5558e6]",
+              ? "bg-red-500/20 text-red-300"
+              : "bg-[#dc2626] text-white hover:bg-[#b91c1c]",
             saving && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -294,7 +294,7 @@ export function AgentConfigSection() {
                 <div
                   className={cn(
                     "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white",
-                    config.enabled ? "bg-[#6366f1]" : "bg-white/10",
+                    config.enabled ? "bg-[#dc2626]" : "bg-white/10",
                   )}
                 >
                   {agent.character.split(" ").map((w) => w[0]).join("")}
@@ -352,7 +352,7 @@ export function AgentConfigSection() {
                       onClick={() => updateAgent(agent.name, { enabled: !config.enabled })}
                       className={cn(
                         "relative h-6 w-11 rounded-full transition-colors",
-                        config.enabled ? "bg-[#6366f1]" : "bg-white/10",
+                        config.enabled ? "bg-[#dc2626]" : "bg-white/10",
                       )}
                     >
                       <span
@@ -420,7 +420,7 @@ export function AgentConfigSection() {
                           className={cn(
                             "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
                             config.max_tokens === val
-                              ? "border-[#6366f1] bg-[#6366f1]/10 text-white"
+                              ? "border-[#6366f1] bg-[#dc2626]/10 text-white"
                               : "border-white/10 text-white/50 hover:border-white/20",
                           )}
                         >
