@@ -308,30 +308,75 @@ async function processPendingTickets(): Promise<void> {
   }
 }
 
+async function testRedisConnection(): Promise<boolean> {
+  const { getRedisConnectionOptions } = await import("./queue/connection.js");
+  const { default: Redis } = await import("ioredis");
+
+  const opts = getRedisConnectionOptions();
+  console.log(`[WORKER] Testing Redis connection: ${opts.host}:${opts.port}`);
+
+  const redis = new Redis({
+    host: opts.host,
+    port: opts.port,
+    username: opts.username,
+    password: opts.password,
+    maxRetriesPerRequest: 3,
+    connectTimeout: 10_000,
+    lazyConnect: true,
+  });
+
+  try {
+    await redis.connect();
+    const pong = await redis.ping();
+    console.log(`[WORKER] Redis connected — PING: ${pong}`);
+    await redis.quit();
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[WORKER] Redis connection FAILED: ${message}`);
+    await redis.quit().catch(() => {});
+    return false;
+  }
+}
+
 async function start() {
   const port = parseInt(process.env.PORT ?? "3001", 10);
   const host = process.env.HOST ?? "0.0.0.0";
 
-  // Start the BullMQ worker
+  // ── Step 1: Test Redis before anything else ──
+  const redisOk = await testRedisConnection();
+  if (!redisOk) {
+    console.error("[WORKER] Cannot start without Redis — check REDIS_URL env var");
+    process.exit(1);
+  }
+
+  // ── Step 2: Start BullMQ triage worker ──
   const worker = startTriageWorker();
   console.log("[WORKER] Triage worker started, waiting for jobs...");
 
-  // Start the cron scheduler for daily re-triage
-  await startCronScheduler();
-
-  // Start Fastify
+  // ── Step 3: Start Fastify FIRST (so health checks pass on Railway) ──
   await server.listen({ port, host });
   console.log(`[WORKER] Server listening on ${host}:${port}`);
 
-  // Process any tickets stuck in pending (missed while worker was down)
-  await processPendingTickets();
+  // ── Step 4: Start cron scheduler (non-blocking — don't hang startup) ──
+  try {
+    await startCronScheduler();
+    console.log("[WORKER] Cron scheduler initialized");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[WORKER] Cron scheduler failed to start: ${message}`);
+    // Continue running — manual triggers still work via API
+  }
 
-  // Catch up on any cron jobs that should have run while we were down
+  // ── Step 5: Background tasks — don't block server ──
+  processPendingTickets().catch((err) => {
+    console.error("[WORKER] Pending ticket processing failed:", err);
+  });
+
   catchUpMissedJobs().catch((err) => {
     console.error("[WORKER] Cron catch-up failed:", err);
   });
 
-  // Retroactive SLA scan — catch any breaching tickets on startup
   scanForSlaBreaches().catch((err) => {
     console.error("[WORKER] Startup SLA scan failed:", err);
   });
