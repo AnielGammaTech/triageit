@@ -259,41 +259,50 @@ export default function TicketsPage() {
     ? baseFiltered.filter((t) => !t.halo_agent)
     : baseFiltered;
 
-  // Incoming: tickets that just arrived and haven't been triaged yet
-  const incomingTickets = filteredTickets.filter(
-    (t) => t.status === "pending" || t.status === "triaging",
-  );
+  // ── Mutually exclusive tab assignment ──
+  // Each ticket goes into exactly ONE tab. Priority order:
+  // Resolved > Incoming > Alerts > Stale > Open
+  // (Review tab uses tech_reviews API, not ticket filtering)
 
-  // Alerts: automated alert tickets (non-resolved)
-  const alertTickets = filteredTickets.filter((t) => {
-    if (isResolved(t)) return false;
-    if (t.status === "pending" || t.status === "triaging") return false;
-    return isAlert(t);
-  });
-
-  // Open: non-resolved, non-alert, non-needs_review tickets
-  const openTickets = filteredTickets.filter((t) => {
-    if (isResolved(t)) return false;
-    if (t.status === "pending" || t.status === "triaging" || t.status === "needs_review") return false;
-    return !isAlert(t);
-  });
-
-  // Needs Review: re-triaged tickets flagged for manager attention
-  const needsReviewTickets = filteredTickets.filter(
-    (t) => t.status === "needs_review" && !isResolved(t),
-  );
-
-  // Stale: open tickets with no tech activity for 3+ days
-  const staleTickets = filteredTickets.filter((t) => {
-    if (isResolved(t)) return false;
-    if (t.status === "pending" || t.status === "triaging") return false;
+  const isStale = (t: TicketRow): boolean => {
     const lastAction = t.last_tech_action_at ?? t.created_at;
     const hoursSince = (Date.now() - new Date(lastAction).getTime()) / (1000 * 60 * 60);
     return hoursSince > 72;
-  });
+  };
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
+  const resolvedIds = new Set(resolvedTickets.map((t) => t.id));
+
+  // Incoming: tickets that just arrived and haven't been triaged yet
+  const incomingTickets = filteredTickets.filter(
+    (t) => !resolvedIds.has(t.id) && (t.status === "pending" || t.status === "triaging"),
+  );
+  const incomingIds = new Set(incomingTickets.map((t) => t.id));
+
+  // Alerts: automated alert tickets (non-resolved, non-incoming)
+  const alertTickets = filteredTickets.filter((t) => {
+    if (resolvedIds.has(t.id) || incomingIds.has(t.id)) return false;
+    return isAlert(t);
+  });
+  const alertIds = new Set(alertTickets.map((t) => t.id));
+
+  // Stale: no tech activity 3+ days (non-resolved, non-incoming, non-alert)
+  const staleTickets = filteredTickets.filter((t) => {
+    if (resolvedIds.has(t.id) || incomingIds.has(t.id) || alertIds.has(t.id)) return false;
+    return isStale(t);
+  });
+  const staleIds = new Set(staleTickets.map((t) => t.id));
+
+  // Open: everything else that's not resolved, incoming, alert, or stale
+  const openTickets = filteredTickets.filter((t) => {
+    return !resolvedIds.has(t.id) && !incomingIds.has(t.id) && !alertIds.has(t.id) && !staleIds.has(t.id);
+  });
+
+  // Needs Review: kept for backward compat but Review tab now uses ReviewList component
+  const needsReviewTickets = filteredTickets.filter(
+    (t) => t.status === "needs_review" && !isResolved(t),
+  );
 
   // Total non-resolved (should match Halo's open count)
   const totalNonResolved = filteredTickets.filter((t) => !isResolved(t)).length;

@@ -677,7 +677,7 @@ async function fetchAgentNameMap(
   const map = new Map<number, string>();
   try {
     const res = await fetch(
-      `${baseUrl}/api/agent?count=500&includeenabled=true`,
+      `${baseUrl}/api/agent?count=500`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
