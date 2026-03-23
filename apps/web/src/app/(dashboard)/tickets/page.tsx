@@ -9,6 +9,9 @@ import { ReviewList } from "@/components/tickets/review-list";
 import { cn } from "@/lib/utils/cn";
 import type { TicketStatus } from "@triageit/shared";
 
+// Halo ticket type IDs
+const HALO_ALERTS_TYPE_ID = 36;
+
 interface TicketRow {
   readonly id: string;
   readonly halo_id: number;
@@ -18,6 +21,7 @@ interface TicketRow {
   readonly original_priority: number | null;
   readonly status: TicketStatus;
   readonly created_at: string;
+  readonly tickettype_id?: number | null;
   readonly halo_status?: string | null;
   readonly halo_team?: string | null;
   readonly halo_agent?: string | null;
@@ -211,10 +215,13 @@ export default function TicketsPage() {
   const isResolved = (t: TicketRow) =>
     t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
 
+  // Exclude Alert tickets (tickettype_id=36) — only show Gamma Default
+  const nonAlertTickets = tickets.filter((t) => t.tickettype_id !== HALO_ALERTS_TYPE_ID);
+
   // Apply tech filter from query params (e.g. from Analytics page)
   const baseFiltered = techFilter
-    ? tickets.filter((t) => t.halo_agent === techFilter)
-    : tickets;
+    ? nonAlertTickets.filter((t) => t.halo_agent === techFilter)
+    : nonAlertTickets;
 
   // Apply unassigned filter
   const filteredTickets = filterParam === "unassigned"

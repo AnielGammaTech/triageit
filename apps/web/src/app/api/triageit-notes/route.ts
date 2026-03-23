@@ -18,6 +18,9 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly dateoccurred?: string;
+  readonly datetime?: string;
+  readonly when?: string;
 }
 
 export interface TriageITNote {
@@ -144,18 +147,31 @@ export async function POST(request: Request) {
     const config = haloIntegration.config as HaloConfig;
     const allActions = await fetchHaloActions(config, body.halo_id);
 
+    // Debug: log the first action's keys so we know which date field Halo uses
+    if (allActions.length > 0) {
+      const sample = allActions[0] as unknown as Record<string, unknown>;
+      const dateKeys = Object.keys(sample).filter((k) =>
+        k.toLowerCase().includes("date") || k.toLowerCase().includes("time") || k.toLowerCase().includes("when"),
+      );
+      console.log(`[TRIAGEIT-NOTES] Halo action date fields: ${dateKeys.join(", ")} (sample values: ${dateKeys.map((k) => `${k}=${sample[k]}`).join(", ")})`);
+    }
+
     // Filter to only TriageIT-posted notes
+    // Halo returns dates under various field names depending on version
+    const getActionDate = (a: HaloAction): string =>
+      a.datecreated ?? a.dateoccurred ?? a.datetime ?? a.when ?? "";
+
     const triageItNotes: ReadonlyArray<TriageITNote> = allActions
       .filter(isTriageITNote)
       .sort(
         (a, b) =>
-          new Date(a.datecreated ?? "").getTime() -
-          new Date(b.datecreated ?? "").getTime(),
+          new Date(getActionDate(a)).getTime() -
+          new Date(getActionDate(b)).getTime(),
       )
       .map((a) => ({
         id: a.id,
         note: a.note,
-        date: a.datecreated ?? "",
+        date: getActionDate(a),
         type: classifyNote(a.note),
       }));
 

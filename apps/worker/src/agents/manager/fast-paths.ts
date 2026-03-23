@@ -75,6 +75,11 @@ export async function tryNotificationFastPath(
     // Move notification tickets to "Alerts" type (id=36) in Halo
     try {
       await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
+      // Update local DB to match
+      await supabase
+        .from("tickets")
+        .update({ tickettype_id: HALO_ALERTS_TYPE_ID })
+        .eq("id", ticket.id);
       console.log(`[MICHAEL] Fast path: Changed ticket #${ticket.halo_id} to Alerts type`);
     } catch (error) {
       console.error(`[MICHAEL] Fast path: Failed to change ticket type for #${ticket.halo_id}:`, error);
@@ -187,6 +192,11 @@ export async function tryAlertFastPath(
     // Move ticket to "Alerts" type (id=36) in Halo so it doesn't clog the main queue
     try {
       await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
+      // Update local DB to match
+      await supabase
+        .from("tickets")
+        .update({ tickettype_id: HALO_ALERTS_TYPE_ID })
+        .eq("id", ticket.id);
       console.log(`[MICHAEL] Alert path: Changed ticket #${ticket.halo_id} to Alerts type`);
     } catch (error) {
       console.error(`[MICHAEL] Alert path: Failed to change ticket type for #${ticket.halo_id}:`, error);
