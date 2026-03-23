@@ -198,32 +198,34 @@ function buildCloseReviewNote(
   };
   const rc = ratingConfig[review.tech_performance.rating] ?? ratingConfig.good;
   const border = "border-bottom:1px solid #3a3f4b;";
+  const lbl = "padding:8px 14px;font-weight:600;width:120px;font-size:13px;";
+  const val = "padding:8px 14px;font-size:14px;color:#e2e8f0;line-height:1.5;";
   const rows: string[] = [];
 
   // Header
   rows.push(
-    `<tr><td colspan="2" style="padding:8px 12px;background:linear-gradient(135deg,#065f46,#059669);color:white;font-size:12px;font-weight:700;">` +
+    `<tr><td colspan="2" style="padding:12px 14px;background:linear-gradient(135deg,#065f46,#059669);color:white;font-size:15px;font-weight:700;">` +
     `📋 Close Review — Ticket #${haloId}</td></tr>`,
   );
 
   // Resolution summary
   rows.push(
-    `<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:100px;${border}font-size:11px;color:#94a3b8;">Summary</td>` +
-    `<td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${review.resolution_summary}</td></tr>`,
+    `<tr style="background:#252830;"><td style="${lbl}${border}color:#94a3b8;">Summary</td>` +
+    `<td style="${val}${border}">${review.resolution_summary}</td></tr>`,
   );
 
   // Lifecycle
   rows.push(
-    `<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:100px;${border}font-size:11px;color:#60a5fa;">Lifecycle</td>` +
-    `<td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;">` +
-    `Total: ${review.ticket_lifecycle.total_time} · First response: ${review.ticket_lifecycle.first_response_time} · Method: ${review.ticket_lifecycle.resolution_method}</td></tr>`,
+    `<tr style="background:#1a2332;"><td style="${lbl}${border}color:#60a5fa;">Lifecycle</td>` +
+    `<td style="${val}${border}color:#bfdbfe;">` +
+    `Total: <strong>${review.ticket_lifecycle.total_time}</strong> · First response: <strong>${review.ticket_lifecycle.first_response_time}</strong> · Method: <strong>${review.ticket_lifecycle.resolution_method}</strong></td></tr>`,
   );
 
   // Tech performance
   rows.push(
-    `<tr style="background:${rc.bg};"><td style="padding:5px 12px;font-weight:600;width:100px;${border}font-size:11px;color:${rc.color};">${rc.emoji} ${techName}</td>` +
-    `<td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">` +
-    `<strong style="color:${rc.color};">${review.tech_performance.rating.replace("_", " ").toUpperCase()}</strong> · ` +
+    `<tr style="background:${rc.bg};"><td style="${lbl}${border}color:${rc.color};">${rc.emoji} ${techName}</td>` +
+    `<td style="${val}${border}">` +
+    `<strong style="color:${rc.color};font-size:15px;">${review.tech_performance.rating.replace("_", " ").toUpperCase()}</strong> · ` +
     `Response: ${review.tech_performance.response_time} · ${review.tech_performance.communication}` +
     `${review.tech_performance.highlights ? `<br/>✅ ${review.tech_performance.highlights}` : ""}` +
     `${review.tech_performance.issues ? `<br/>⚠️ ${review.tech_performance.issues}` : ""}` +
@@ -233,8 +235,8 @@ function buildCloseReviewNote(
   // Onsite visits
   if (review.onsite_visits.length > 0) {
     rows.push(
-      `<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:100px;${border}font-size:11px;color:#a78bfa;">🚗 Onsite</td>` +
-      `<td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">${review.onsite_visits.join("<br/>")}</td></tr>`,
+      `<tr style="background:#252830;"><td style="${lbl}${border}color:#a78bfa;">🚗 Onsite</td>` +
+      `<td style="${val}${border}">${review.onsite_visits.join("<br/>")}</td></tr>`,
     );
   }
 
@@ -242,16 +244,16 @@ function buildCloseReviewNote(
   const docColor = review.documentation_action.quality_score >= 4 ? "#4ade80" : review.documentation_action.quality_score >= 3 ? "#fbbf24" : "#f87171";
   const huduUpdates = review.documentation_action.hudu_updates_needed;
   rows.push(
-    `<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:100px;${border}font-size:11px;color:${docColor};">📝 Docs</td>` +
-    `<td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">` +
-    `Quality: <strong style="color:${docColor};">${review.documentation_action.quality_score}/5</strong> · ${review.documentation_action.notes}` +
+    `<tr style="background:#1a2332;"><td style="${lbl}${border}color:${docColor};">📝 Docs</td>` +
+    `<td style="${val}${border}">` +
+    `Quality: <strong style="color:${docColor};font-size:15px;">${review.documentation_action.quality_score}/5</strong> · ${review.documentation_action.notes}` +
     `${huduUpdates.length > 0 ? `<br/><strong>Update Hudu:</strong> ${huduUpdates.join(", ")}` : ""}` +
     `</td></tr>`,
   );
 
   // Footer
   rows.push(
-    `<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">` +
+    `<tr style="background:#1E2028;"><td colspan="2" style="padding:4px 14px;color:#64748b;font-size:10px;text-align:right;">` +
     `TriageIt AI · close review</td></tr>`,
   );
 

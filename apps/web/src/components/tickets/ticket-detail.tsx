@@ -493,34 +493,6 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             )}
             {retriaging ? "Re-triaging..." : "Re-triage"}
           </button>
-          {ticket.halo_status && /resolved|closed|completed/i.test(ticket.halo_status) && (
-            <button
-              onClick={handleCloseReview}
-              disabled={closeReviewing || closeReviewDone}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                closeReviewDone
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : closeReviewing
-                    ? "cursor-not-allowed bg-white/5 text-white/20"
-                    : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
-              )}
-            >
-              {closeReviewing ? (
-                <div className="h-3 w-3 animate-spin rounded-full border border-emerald-400/30 border-t-emerald-400" />
-              ) : closeReviewDone ? (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-              ) : (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 11l3 3L22 4" />
-                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                </svg>
-              )}
-              {closeReviewing ? "Reviewing..." : closeReviewDone ? "Review Posted" : "Close Review"}
-            </button>
-          )}
         </div>
       </div>
 
@@ -910,6 +882,46 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {activeTab === "triageit" && (
         <div className="space-y-3">
+          {/* Close Review button — only for resolved tickets */}
+          {ticket.halo_status && /resolved|closed|completed/i.test(ticket.halo_status) && (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-emerald-400">Ticket Resolved</h3>
+                  <p className="mt-0.5 text-xs text-white/40">
+                    Generate a close-out review: resolution summary, tech performance, documentation quality, and onsite visits.
+                  </p>
+                </div>
+                <button
+                  onClick={handleCloseReview}
+                  disabled={closeReviewing || closeReviewDone}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                    closeReviewDone
+                      ? "bg-emerald-500/20 text-emerald-400"
+                      : closeReviewing
+                        ? "cursor-not-allowed bg-white/5 text-white/20"
+                        : "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25",
+                  )}
+                >
+                  {closeReviewing ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
+                  ) : closeReviewDone ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9 11l3 3L22 4" />
+                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                    </svg>
+                  )}
+                  {closeReviewing ? "Generating Review..." : closeReviewDone ? "Review Posted to Halo" : "Close Review"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {notesLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="flex items-center gap-2 text-sm text-white/40">
