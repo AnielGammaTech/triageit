@@ -50,6 +50,11 @@ interface TicketData {
   readonly status: TicketStatus;
   readonly error_message: string | null;
   readonly raw_data: Record<string, unknown> | null;
+  readonly halo_status: string | null;
+  readonly halo_status_id: number | null;
+  readonly halo_agent: string | null;
+  readonly halo_team: string | null;
+  readonly tickettype_id: number | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -469,7 +474,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       </div>
 
       {/* Info cards row */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <InfoCard label="Client" value={ticket.client_name ?? "Unknown"} />
         <InfoCard label="Reported By" value={ticket.user_name ?? ticket.user_email ?? "Unknown"} />
         <InfoCard
@@ -477,6 +482,18 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           value={ticket.original_priority ? PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}` : "—"}
         />
         <InfoCard label="Created" value={timeAgo(ticket.created_at)} />
+        <InfoCard
+          label="Halo Status"
+          value={ticket.halo_status ?? "Unknown"}
+          accent={getHaloStatusAccent(ticket.halo_status)}
+        />
+        <InfoCard
+          label="Tech Assigned"
+          value={ticket.halo_agent ?? "Unassigned"}
+          accent={ticket.halo_agent ? undefined : "warning"}
+        />
+        <InfoCard label="Team" value={ticket.halo_team ?? "—"} />
+        <InfoCard label="Ticket Type" value={resolveTicketTypeName(ticket.tickettype_id, ticket.raw_data)} />
       </div>
 
       {/* Error banner */}
@@ -975,11 +992,49 @@ function NoteTypeBadge({ type }: { readonly type: string }) {
   );
 }
 
-function InfoCard({ label, value }: { readonly label: string; readonly value: string }) {
+function InfoCard({
+  label,
+  value,
+  accent,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly accent?: "success" | "warning" | "info" | "danger";
+}) {
+  const accentColors: Record<string, string> = {
+    success: "text-emerald-400",
+    warning: "text-amber-400",
+    info: "text-blue-400",
+    danger: "text-red-400",
+  };
+
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
+      <p className={cn("mt-1 truncate text-sm font-medium", accent ? accentColors[accent] : "text-white")}>
+        {value}
+      </p>
     </div>
   );
+}
+
+function getHaloStatusAccent(status: string | null): "success" | "warning" | "info" | "danger" | undefined {
+  if (!status) return undefined;
+  const lower = status.toLowerCase();
+  if (lower.includes("new") || lower.includes("customer reply")) return "warning";
+  if (lower.includes("in progress") || lower.includes("waiting on tech")) return "info";
+  if (lower.includes("resolved") || lower.includes("closed")) return "success";
+  if (lower.includes("on hold") || lower.includes("pending vendor") || lower.includes("waiting on customer")) return undefined;
+  return undefined;
+}
+
+const TICKET_TYPE_NAMES: Record<number, string> = {
+  31: "Gamma Default",
+  36: "Alerts",
+};
+
+function resolveTicketTypeName(ticketTypeId: number | null, rawData: Record<string, unknown> | null): string {
+  const typeId = ticketTypeId ?? (rawData?.tickettype_id as number | undefined);
+  if (!typeId) return "—";
+  return TICKET_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
 }

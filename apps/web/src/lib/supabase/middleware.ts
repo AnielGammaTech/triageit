@@ -7,9 +7,7 @@ export async function updateSession(request: NextRequest) {
   const isPublicApi = request.nextUrl.pathname.startsWith("/api/stream");
   const isHealthCheck = request.nextUrl.pathname === "/api/health";
   const isEmbed = request.nextUrl.pathname.startsWith("/embed");
-  const isEmbedApi =
-    request.nextUrl.pathname === "/api/summarize" ||
-    request.nextUrl.pathname === "/api/triage";
+  const isEmbedApi = request.nextUrl.pathname.startsWith("/api/embed/");
 
   if (isWebhook || isPublicApi || isHealthCheck || isEmbedApi) {
     return NextResponse.next({ request });

@@ -51,10 +51,9 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const filterParam = searchParams.get("filter"); // "stale" | "unassigned" | null
-  const initialTab = (searchParams.get("tab") as "incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale") ?? "open";
-  const [activeTab, setActiveTab] = useState<"incoming" | "open" | "needs_review" | "alerts" | "resolved" | "stale">(
-    filterParam === "stale" ? "stale" : initialTab,
-  );
+  const initialTab = (searchParams.get("tab") as "open" | "needs_review" | "resolved") ?? "open";
+  const [activeTab, setActiveTab] = useState<"open" | "needs_review" | "resolved">(initialTab);
+  const [staleOnly, setStaleOnly] = useState(filterParam === "stale");
   const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -212,43 +211,6 @@ export default function TicketsPage() {
   const isResolved = (t: TicketRow) =>
     t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
 
-  const isAlert = (t: TicketRow): boolean => {
-    // Check triage notes for "Alert:" or notification fast-path
-    const latestTriage = t.triage_results[0];
-    if (latestTriage?.internal_notes?.startsWith("Alert:")) return true;
-    if (latestTriage?.internal_notes === "Notification/transactional ticket — no action required.") return true;
-
-    // Check classification type/subtype
-    const classType = latestTriage?.classification?.type?.toLowerCase() ?? "";
-    const subtype = latestTriage?.classification?.subtype?.toLowerCase() ?? "";
-    if (["alert", "notification", "monitoring", "automated_alert"].includes(subtype)) return true;
-    if (classType === "notification" || classType === "alert") return true;
-
-    // Check summary patterns for common alert/notification sources
-    const summary = t.summary.toLowerCase();
-    const alertKeywords = [
-      // Backup & monitoring systems
-      "spanning backup", "backup for office 365",
-      "datto alert", "datto rmm",
-      "monitoring alert", "system alert",
-      "backup fail", "backup error", "backup warning",
-      "device offline", "agent offline",
-      "threshold exceeded", "certificate expir",
-      "client-alert", "backupiq:", "backupiq ",
-      // Security/phishing alerts
-      "report domain:", "phish911", "phishalarm",
-      "risk detection", "o365 p2", "o365 p1",
-      "microsoft 365 alert",
-      // Phone system
-      "3cx",
-      // Notification/transactional (clearly automated only)
-      "alert:", "completion notice", "order confirmation",
-      "auto-replenishment", "low balance warning",
-      "nso request",
-    ];
-    return alertKeywords.some((kw) => summary.includes(kw));
-  };
-
   // Apply tech filter from query params (e.g. from Analytics page)
   const baseFiltered = techFilter
     ? tickets.filter((t) => t.halo_agent === techFilter)
@@ -259,10 +221,9 @@ export default function TicketsPage() {
     ? baseFiltered.filter((t) => !t.halo_agent)
     : baseFiltered;
 
-  // ── Mutually exclusive tab assignment ──
-  // Each ticket goes into exactly ONE tab. Priority order:
-  // Resolved > Incoming > Alerts > Stale > Open
-  // (Review tab uses tech_reviews API, not ticket filtering)
+  // ── Tab assignment ──
+  // Open = all non-resolved Gamma Default tickets (should match Halo's open count)
+  // Stale = sub-filter within Open (no tech activity 3+ days)
 
   const isStale = (t: TicketRow): boolean => {
     const lastAction = t.last_tech_action_at ?? t.created_at;
@@ -274,38 +235,21 @@ export default function TicketsPage() {
   const resolvedTickets = filteredTickets.filter((t) => isResolved(t));
   const resolvedIds = new Set(resolvedTickets.map((t) => t.id));
 
-  // Incoming: tickets that just arrived and haven't been triaged yet
-  const incomingTickets = filteredTickets.filter(
-    (t) => !resolvedIds.has(t.id) && (t.status === "pending" || t.status === "triaging"),
-  );
-  const incomingIds = new Set(incomingTickets.map((t) => t.id));
+  // Open: everything that's not resolved
+  const allOpenTickets = filteredTickets.filter((t) => !resolvedIds.has(t.id));
 
-  // Alerts: automated alert tickets (non-resolved, non-incoming)
-  const alertTickets = filteredTickets.filter((t) => {
-    if (resolvedIds.has(t.id) || incomingIds.has(t.id)) return false;
-    return isAlert(t);
-  });
-  const alertIds = new Set(alertTickets.map((t) => t.id));
+  // Stale count (for the filter badge)
+  const staleCount = allOpenTickets.filter((t) => isStale(t)).length;
 
-  // Stale: no tech activity 3+ days (non-resolved, non-incoming, non-alert)
-  const staleTickets = filteredTickets.filter((t) => {
-    if (resolvedIds.has(t.id) || incomingIds.has(t.id) || alertIds.has(t.id)) return false;
-    return isStale(t);
-  });
-  const staleIds = new Set(staleTickets.map((t) => t.id));
-
-  // Open: everything else that's not resolved, incoming, alert, or stale
-  const openTickets = filteredTickets.filter((t) => {
-    return !resolvedIds.has(t.id) && !incomingIds.has(t.id) && !alertIds.has(t.id) && !staleIds.has(t.id);
-  });
+  // Apply stale filter if toggled
+  const openTickets = staleOnly
+    ? allOpenTickets.filter((t) => isStale(t))
+    : allOpenTickets;
 
   // Needs Review: kept for backward compat but Review tab now uses ReviewList component
   const needsReviewTickets = filteredTickets.filter(
     (t) => t.status === "needs_review" && !isResolved(t),
   );
-
-  // Total non-resolved (should match Halo's open count)
-  const totalNonResolved = filteredTickets.filter((t) => !isResolved(t)).length;
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
@@ -463,19 +407,10 @@ export default function TicketsPage() {
       {/* Tab bar */}
       <div className="flex items-center gap-1 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
         <TabButton
-          active={activeTab === "incoming"}
-          onClick={() => setActiveTab("incoming")}
-          label="Incoming"
-          count={incomingTickets.length}
-          badgeClass="bg-red-500/20 text-red-400"
-          pulse={true}
-          hideZero={true}
-        />
-        <TabButton
           active={activeTab === "open"}
-          onClick={() => setActiveTab("open")}
+          onClick={() => { setActiveTab("open"); setStaleOnly(false); }}
           label="Open"
-          count={openTickets.length}
+          count={allOpenTickets.length}
           badgeClass="bg-amber-500/20 text-amber-400"
           pulse={false}
           hideZero={false}
@@ -487,24 +422,6 @@ export default function TicketsPage() {
           count={needsReviewTickets.length}
           badgeClass="bg-rose-500/20 text-rose-400"
           pulse={true}
-          hideZero={true}
-        />
-        <TabButton
-          active={activeTab === "alerts"}
-          onClick={() => setActiveTab("alerts")}
-          label="Alerts"
-          count={alertTickets.length}
-          badgeClass="bg-orange-500/20 text-orange-400"
-          pulse={false}
-          hideZero={true}
-        />
-        <TabButton
-          active={activeTab === "stale"}
-          onClick={() => setActiveTab("stale")}
-          label="Stale"
-          count={staleTickets.length}
-          badgeClass="bg-orange-500/20 text-orange-400"
-          pulse={false}
           hideZero={true}
         />
         <TabButton
@@ -521,7 +438,7 @@ export default function TicketsPage() {
         <span className="ml-auto text-xs text-white/25 tabular-nums">
           {error
             ? "Unable to load"
-            : `${totalNonResolved} open`}
+            : `${allOpenTickets.length} open · ${resolvedTickets.length} resolved`}
         </span>
       </div>
 
@@ -551,41 +468,6 @@ export default function TicketsPage() {
 
       {activeTab === "needs_review" ? (
         <ReviewList onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
-      ) : activeTab === "incoming" ? (
-        incomingTickets.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
-            <p className="text-[var(--muted-foreground)]">
-              No incoming tickets. New tickets from Halo webhooks will appear here automatically.
-            </p>
-          </div>
-        ) : (
-          <IncomingTicketList tickets={incomingTickets} onSelectTicket={handleSelectTicket} />
-        )
-      ) : activeTab === "alerts" ? (
-        alertTickets.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
-            <p className="text-[var(--muted-foreground)]">
-              No alert tickets. Automated alerts from Spanning, 3CX, Datto, etc. will appear here.
-            </p>
-          </div>
-        ) : (
-          <OpenTicketList tickets={alertTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
-        )
-      ) : activeTab === "stale" ? (
-        staleTickets.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
-            <p className="text-[var(--muted-foreground)]">
-              No stale tickets. All open tickets have had tech activity within the last 3 days.
-            </p>
-          </div>
-        ) : (
-          <div>
-            <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-2.5 text-sm text-orange-300">
-              These tickets have had no tech activity for 3+ days and may need follow-up.
-            </div>
-            <OpenTicketList tickets={staleTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
-          </div>
-        )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -597,112 +479,34 @@ export default function TicketsPage() {
           <OpenTicketList tickets={resolvedTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
         )
       ) : (
-        <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+        <div>
+          {/* Stale filter toggle */}
+          {staleCount > 0 && (
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                onClick={() => setStaleOnly(!staleOnly)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                  staleOnly
+                    ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                    : "bg-white/[0.03] text-white/40 border border-white/[0.06] hover:bg-white/[0.05] hover:text-white/60",
+                )}
+              >
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-orange-400" />
+                Stale ({staleCount})
+              </button>
+              {staleOnly && (
+                <span className="text-xs text-orange-300/60">
+                  Showing tickets with no tech activity for 3+ days
+                </span>
+              )}
+            </div>
+          )}
+          <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+        </div>
       )}
     </div>
   );
-}
-
-// ── Incoming tickets list (simple, clickable) ─────────────────────────
-
-function IncomingTicketList({
-  tickets,
-  onSelectTicket,
-}: {
-  readonly tickets: ReadonlyArray<TicketRow>;
-  readonly onSelectTicket: (id: string) => void;
-}) {
-  return (
-    <>
-      {/* Mobile: card layout */}
-      <div className="space-y-2 md:hidden">
-        {tickets.map((ticket) => (
-          <div
-            key={ticket.id}
-            onClick={() => onSelectTicket(ticket.id)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 cursor-pointer hover:bg-[var(--accent)] transition-colors"
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-xs text-blue-400">#{ticket.halo_id}</span>
-              <span className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                ticket.status === "pending"
-                  ? "bg-yellow-500/20 text-yellow-400"
-                  : "bg-blue-500/20 text-blue-400",
-              )}>
-                {ticket.status === "triaging" && (
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-                )}
-                {ticket.status}
-              </span>
-            </div>
-            <p className="text-sm text-white mb-1.5 line-clamp-2">{ticket.summary}</p>
-            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-              <span>{ticket.client_name ?? "—"}</span>
-              <span>{timeAgo(ticket.created_at)}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Desktop: table layout */}
-      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--card)]">
-            <tr className="border-b border-[var(--border)]">
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Ticket #</th>
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Summary</th>
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Client</th>
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Reported By</th>
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-[var(--muted-foreground)]">Received</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tickets.map((ticket) => (
-              <tr
-                key={ticket.id}
-                onClick={() => onSelectTicket(ticket.id)}
-                className="border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-[var(--accent)]"
-              >
-                <td className="px-4 py-3 font-mono text-xs text-blue-400">#{ticket.halo_id}</td>
-                <td className="max-w-md truncate px-4 py-3">{ticket.summary}</td>
-                <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.client_name ?? "—"}</td>
-                <td className="px-4 py-3 text-[var(--muted-foreground)]">{ticket.user_name ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <span className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
-                    ticket.status === "pending"
-                      ? "bg-yellow-500/20 text-yellow-400"
-                      : "bg-blue-500/20 text-blue-400",
-                  )}>
-                    {ticket.status === "triaging" && (
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
-                    )}
-                    {ticket.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-[var(--muted-foreground)]">
-                  {timeAgo(ticket.created_at)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 // ── Tab Button ──────────────────────────────────────────────────────

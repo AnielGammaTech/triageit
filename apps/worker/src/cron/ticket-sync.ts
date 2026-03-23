@@ -76,6 +76,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
       halo_status_id: ticket.status_id,
       halo_team: ticket.team_name ?? ticket.team ?? null,
       halo_agent: ticket.agent_name ?? null,
+      tickettype_id: ticket.tickettype_id ?? null,
       last_tech_action_at: ticket.lastactiondate ?? null,
       last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
       created_at: ticket.datecreated ?? now,

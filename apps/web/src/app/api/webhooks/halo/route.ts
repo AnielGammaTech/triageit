@@ -162,6 +162,7 @@ export async function POST(request: NextRequest) {
       halo_status_id: haloTicket.status_id ?? null,
       halo_agent: await resolveWebhookAgentName(haloTicket, config, token),
       halo_team: (haloTicket.team ?? null) as string | null,
+      tickettype_id: haloTicket.tickettype_id ?? null,
       raw_data: haloTicket,
     });
   } catch (error) {
@@ -242,6 +243,7 @@ interface TicketInsertData {
   readonly halo_status_id?: number | null;
   readonly halo_agent?: string | null;
   readonly halo_team?: string | null;
+  readonly tickettype_id?: number | null;
   readonly raw_data: unknown;
 }
 
@@ -270,6 +272,7 @@ async function upsertTicket(
         halo_status_id: data.halo_status_id ?? undefined,
         halo_agent: data.halo_agent ?? undefined,
         halo_team: data.halo_team ?? undefined,
+        tickettype_id: data.tickettype_id ?? undefined,
         raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
       })
@@ -307,6 +310,7 @@ async function upsertTicket(
       halo_status_id: data.halo_status_id ?? null,
       halo_agent: data.halo_agent ?? null,
       halo_team: data.halo_team ?? null,
+      tickettype_id: data.tickettype_id ?? null,
       status: "pending",
       raw_data: data.raw_data,
     })
