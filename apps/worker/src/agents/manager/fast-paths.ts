@@ -51,10 +51,11 @@ export async function tryNotificationFastPath(
     (classTypeLower === "billing" && classification.urgency_score <= 2) ||
     (classTypeLower === "other" && subtype.includes("email") && classification.urgency_score <= 2);
 
-  // Gamma Default tickets always get full triage, even if content looks like a notification
+  // Gamma Default tickets get full triage unless Ryan explicitly flags as automated
+  const isGammaDefault = ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID;
   if (
     !isNotification ||
-    ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID ||
+    (isGammaDefault && !classification.is_automated_alert) ||
     classification.urgency_score > 2 ||
     classification.security_flag ||
     context.slaBreached
@@ -131,11 +132,12 @@ export async function tryAlertFastPath(
     classification.classification.subtype ?? "",
   );
 
-  // Gamma Default tickets always get full triage, even if content looks like an alert.
+  // Gamma Default tickets get full triage unless Ryan explicitly flags as automated.
   // Skip fast path for SLA-breached tickets (need full analysis).
   // Allow security_flag through for alerts — DMARC reports, phishing alerts, etc.
   // are automated and should still use the alert fast path.
-  if (!isAlert || ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID || context.slaBreached) {
+  const isGammaDefault = ticket.tickettype_id === HALO_GAMMA_DEFAULT_TYPE_ID;
+  if (!isAlert || (isGammaDefault && !classification.is_automated_alert) || context.slaBreached) {
     return null;
   }
 
