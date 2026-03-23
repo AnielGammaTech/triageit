@@ -369,6 +369,57 @@ export async function POST(request: NextRequest) {
           result += `\nTech Review: ${review.rating} (response: ${review.response_time}) — ${review.summary ?? ""}`;
         }
 
+        // Pull live actions/notes from Halo API (includes internal notes)
+        const { data: haloInt } = await serviceClient
+          .from("integrations")
+          .select("config")
+          .eq("service", "halo")
+          .eq("is_active", true)
+          .single();
+
+        if (haloInt) {
+          try {
+            const haloCfg = haloInt.config as { base_url: string; client_id: string; client_secret: string; tenant?: string };
+            const tokUrl = haloCfg.tenant
+              ? `${haloCfg.base_url}/auth/token?tenant=${haloCfg.tenant}`
+              : `${haloCfg.base_url}/auth/token`;
+            const tokRes = await fetch(tokUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                grant_type: "client_credentials",
+                client_id: haloCfg.client_id,
+                client_secret: haloCfg.client_secret,
+                scope: "all",
+              }),
+            });
+
+            if (tokRes.ok) {
+              const { access_token } = await tokRes.json() as { access_token: string };
+              const actRes = await fetch(
+                `${haloCfg.base_url}/api/actions?ticket_id=${haloId}&excludesys=true&count=10&order=datecreated&orderdesc=true`,
+                { headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" } },
+              );
+
+              if (actRes.ok) {
+                const actData = await actRes.json() as { actions?: ReadonlyArray<{ note?: string; who?: string; hiddenfromuser?: boolean; datecreated?: string; outcome?: string }> };
+                const actions = (actData.actions ?? []).filter((a) => a.note && !a.note.toLowerCase().includes("triageit"));
+
+                if (actions.length > 0) {
+                  result += "\n\n## Ticket Actions/Notes (from Halo):\n";
+                  for (const a of actions) {
+                    const visibility = a.hiddenfromuser ? "[INTERNAL]" : "[VISIBLE]";
+                    const date = a.datecreated ? new Date(a.datecreated).toLocaleDateString() : "unknown";
+                    result += `- ${visibility} ${a.who ?? "Unknown"} (${date}): ${(a.note ?? "").slice(0, 500)}\n`;
+                  }
+                }
+              }
+            }
+          } catch {
+            // Non-critical — ticket data is still returned without actions
+          }
+        }
+
         return result;
       }
 
