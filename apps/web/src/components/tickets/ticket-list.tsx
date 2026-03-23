@@ -110,7 +110,7 @@ export function TicketList({
                 </div>
               )}
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="font-mono text-xs font-medium text-[#6366f1]">#{ticket.halo_id}</span>
+                <span className="font-mono text-xs font-medium text-[#b91c1c]">#{ticket.halo_id}</span>
                 <span
                   className={cn(
                     "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
@@ -209,7 +209,7 @@ export function TicketList({
                     </td>
                   )}
                   <td
-                    className="px-4 py-3 font-mono text-xs font-medium text-[#6366f1]"
+                    className="px-4 py-3 font-mono text-xs font-medium text-[#b91c1c]"
                     onClick={() => onSelectTicket(ticket.id)}
                   >
                     #{ticket.halo_id}

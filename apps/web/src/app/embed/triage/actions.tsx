@@ -122,8 +122,8 @@ function ReTriageButton({
   }, [haloId, token, state]);
 
   const config = {
-    idle: { label: "Re-Triage", bg: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "#fff" },
-    loading: { label: "Triaging...", bg: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "#fff" },
+    idle: { label: "Re-Triage", bg: "linear-gradient(135deg, #b91c1c, #4f46e5)", color: "#fff" },
+    loading: { label: "Triaging...", bg: "linear-gradient(135deg, #b91c1c, #4f46e5)", color: "#fff" },
     done: { label: "Queued!", bg: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" },
     error: { label: "Failed", bg: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff" },
   } as const;
@@ -546,7 +546,7 @@ export function QuickActions({
 
 export function CollapsibleSection({
   title,
-  accent = "#6366f1",
+  accent = "#b91c1c",
   defaultOpen = false,
   badge,
   children,
@@ -697,7 +697,7 @@ export function EmbedTriageButton({
             ? "linear-gradient(135deg, #10b981, #059669)"
             : state === "error"
               ? "linear-gradient(135deg, #ef4444, #dc2626)"
-              : "linear-gradient(135deg, #6366f1, #4f46e5)",
+              : "linear-gradient(135deg, #b91c1c, #4f46e5)",
           border: "none",
           borderRadius: "10px",
           cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
@@ -726,7 +726,7 @@ export function EmbedTriageButton({
         {state === "error" && "Failed — Try Again"}
       </button>
       {state === "done" && (
-        <span style={{ fontSize: "11px", color: "#6366f1", opacity: 0.7 }}>
+        <span style={{ fontSize: "11px", color: "#b91c1c", opacity: 0.7 }}>
           Page will refresh automatically when triage completes
         </span>
       )}
@@ -753,7 +753,7 @@ export function AutoRefresh() {
   }, []);
 
   return (
-    <span style={{ fontSize: "11px", color: "#6366f1", opacity: 0.7 }}>
+    <span style={{ fontSize: "11px", color: "#b91c1c", opacity: 0.7 }}>
       Auto-refreshing{dots}
     </span>
   );

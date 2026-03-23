@@ -178,12 +178,12 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="font-mono text-xs text-[#6366f1] hover:text-[#818cf8]"
+                      className="font-mono text-xs text-[#b91c1c] hover:text-[#818cf8]"
                     >
                       #{ticket.halo_id}
                     </a>
                   ) : (
-                    <span className="font-mono text-xs text-[#6366f1]">#{ticket.halo_id}</span>
+                    <span className="font-mono text-xs text-[#b91c1c]">#{ticket.halo_id}</span>
                   )}
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
@@ -274,7 +274,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[#6366f1] hover:text-[#818cf8] transition-colors"
+                        className="inline-flex items-center gap-1 text-[#b91c1c] hover:text-[#818cf8] transition-colors"
                         title="Open in Halo"
                       >
                         {ticket.halo_id}
@@ -285,7 +285,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         </svg>
                       </a>
                     ) : (
-                      <span className="text-[#6366f1]">{ticket.halo_id}</span>
+                      <span className="text-[#b91c1c]">{ticket.halo_id}</span>
                     )}
                   </td>
                   <td className="max-w-sm truncate px-3 py-2">

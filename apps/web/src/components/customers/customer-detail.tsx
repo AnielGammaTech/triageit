@@ -140,7 +140,7 @@ export function CustomerDetail({
       {/* Customer Header */}
       <div
         className="rounded-xl border border-white/10 p-6"
-        style={{ backgroundColor: "#1a0f35" }}
+        style={{ backgroundColor: "#241010" }}
       >
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-blue-500/10 text-lg font-bold text-blue-400">
@@ -203,7 +203,7 @@ export function CustomerDetail({
             className={cn(
               "px-4 py-2.5 text-sm font-medium capitalize transition-colors",
               activeTab === tab
-                ? "border-b-2 border-[#6366f1] text-white"
+                ? "border-b-2 border-[#b91c1c] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >

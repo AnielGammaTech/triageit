@@ -9,7 +9,7 @@ export interface BrandingConfig {
 
 const DEFAULT_BRANDING: BrandingConfig = {
   logo_url: null,
-  name: "TriageIt",
+  name: "TriageIT",
 };
 
 export async function GET() {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
     const config: BrandingConfig = {
       logo_url: body.logo_url ?? null,
-      name: body.name ?? "TriageIt",
+      name: body.name ?? "TriageIT",
     };
 
     if (existing) {

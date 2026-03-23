@@ -150,7 +150,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
-  const [triageItNotes, setTriageItNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
+  const [triageItNotes, setTriageITNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -203,7 +203,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
     }
   }, [ticketId, retriaging]);
 
-  const loadTriageItNotes = useCallback(async () => {
+  const loadTriageITNotes = useCallback(async () => {
     if (notesLoading || !ticket) return;
     setNotesLoading(true);
 
@@ -218,10 +218,10 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
         const data = (await response.json()) as {
           notes: ReadonlyArray<{ id: number; note: string; date: string; type: string }>;
         };
-        setTriageItNotes(data.notes);
+        setTriageITNotes(data.notes);
       }
     } catch (error) {
-      console.error("Failed to load TriageIt notes:", error);
+      console.error("Failed to load TriageIT notes:", error);
     } finally {
       setNotesLoading(false);
       setNotesLoaded(true);
@@ -343,12 +343,12 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
     }
   }, [ticket?.status, agentLogs.length]);
 
-  // Load TriageIt notes when tab is selected (lazy load)
+  // Load TriageIT notes when tab is selected (lazy load)
   useEffect(() => {
     if (activeTab === "triageit" && !notesLoaded && !notesLoading) {
-      loadTriageItNotes();
+      loadTriageITNotes();
     }
-  }, [activeTab, notesLoaded, notesLoading, loadTriageItNotes]);
+  }, [activeTab, notesLoaded, notesLoading, loadTriageITNotes]);
 
   if (loading) {
     return (
@@ -455,7 +455,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               retriaging || isTriaging
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#6366f1]/10 text-[#6366f1] hover:bg-[#6366f1]/20",
+                : "bg-[#b91c1c]/10 text-[#b91c1c] hover:bg-[#b91c1c]/20",
             )}
           >
             {retriaging ? (
@@ -669,7 +669,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             className={cn(
               "px-4 py-2 text-sm font-medium capitalize transition-colors",
               activeTab === tab
-                ? "border-b-2 border-[#6366f1] text-white"
+                ? "border-b-2 border-[#b91c1c] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
@@ -730,8 +730,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           )}
 
           {triage?.suggested_response && (
-            <div className="rounded-xl border border-[#6366f1]/20 bg-[#6366f1]/5 p-5">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#6366f1]/60">Suggested Client Response</h4>
+            <div className="rounded-xl border border-[#b91c1c]/20 bg-[#b91c1c]/5 p-5">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#b91c1c]/60">Suggested Client Response</h4>
               <p className="whitespace-pre-wrap text-sm text-white/70">{triage.suggested_response}</p>
             </div>
           )}
@@ -787,7 +787,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                       isThinking
                         ? "border border-amber-500/10 bg-amber-500/[0.03]"
                         : "border border-white/10 bg-white/[0.02]",
-                      isLatest && "ring-1 ring-[#6366f1]/30",
+                      isLatest && "ring-1 ring-[#b91c1c]/30",
                     )}
                   >
                     <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
@@ -863,21 +863,21 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             <div className="flex items-center justify-center py-12">
               <div className="flex items-center gap-2 text-sm text-white/40">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-                Loading TriageIt notes from Halo...
+                Loading TriageIT notes from Halo...
               </div>
             </div>
           ) : triageItNotes.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
-              <p className="text-sm text-white/40">No TriageIt notes found for this ticket.</p>
+              <p className="text-sm text-white/40">No TriageIT notes found for this ticket.</p>
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between">
                 <p className="text-xs text-white/30">
-                  {triageItNotes.length} note{triageItNotes.length !== 1 ? "s" : ""} posted by TriageIt
+                  {triageItNotes.length} note{triageItNotes.length !== 1 ? "s" : ""} posted by TriageIT
                 </p>
                 <button
-                  onClick={() => { setNotesLoaded(false); loadTriageItNotes(); }}
+                  onClick={() => { setNotesLoaded(false); loadTriageITNotes(); }}
                   className="text-xs text-white/30 hover:text-white/60 transition-colors"
                 >
                   Refresh
@@ -903,7 +903,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 }
 
 const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  triage: { bg: "bg-[#6366f1]/10", text: "text-[#6366f1]", label: "Triage" },
+  triage: { bg: "bg-[#b91c1c]/10", text: "text-[#b91c1c]", label: "Triage" },
   retriage: { bg: "bg-violet-500/10", text: "text-violet-400", label: "Retriage" },
   "tech-review": { bg: "bg-emerald-500/10", text: "text-emerald-400", label: "Tech Review" },
   alert: { bg: "bg-amber-500/10", text: "text-amber-400", label: "Alert" },

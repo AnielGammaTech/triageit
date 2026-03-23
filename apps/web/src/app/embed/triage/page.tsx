@@ -11,7 +11,7 @@ import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, Aut
  * Shows:
  * 1. Latest triage summary (priority, urgency, type, team)
  * 2. Quick actions (Copy Response, Copy Notes, SummarizeIT, Re-Triage)
- * 3. All TriageIt notes posted to the ticket (in chronological order)
+ * 3. All TriageIT notes posted to the ticket (in chronological order)
  * 4. Agent activity and triage history
  */
 
@@ -33,7 +33,7 @@ const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
 );
 
 const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; icon: string }> = {
-  triage: { label: "AI Triage", accent: "#6366f1", icon: "🔍" },
+  triage: { label: "AI Triage", accent: "#b91c1c", icon: "🔍" },
   retriage: { label: "Re-Triage", accent: "#f59e0b", icon: "🔄" },
   "tech-review": { label: "Tech Review", accent: "#10b981", icon: "📋" },
   alert: { label: "Alert", accent: "#ef4444", icon: "🚨" },
@@ -85,7 +85,7 @@ interface HaloAction {
   readonly datecreated?: string;
 }
 
-interface TriageItNote {
+interface TriageITNote {
   readonly id: number;
   readonly html: string;
   readonly date: string;
@@ -94,14 +94,14 @@ interface TriageItNote {
 
 // ── Halo Note Helpers ──────────────────────────────────────────────────
 
-function isTriageItNote(action: HaloAction): boolean {
+function isTriageITNote(action: HaloAction): boolean {
   const note = action.note ?? "";
   return (
-    note.includes("TriageIt") ||
-    note.includes("TriageIt AI") ||
+    note.includes("TriageIT") ||
+    note.includes("TriageIT AI") ||
     note.includes("AI Triage") ||
     note.includes("triageit") ||
-    note.includes("linear-gradient(135deg,#6366f1") ||
+    note.includes("linear-gradient(135deg,#b91c1c") ||
     note.includes("linear-gradient(135deg,#4f46e5") ||
     note.includes("linear-gradient(135deg,#059669")
   );
@@ -124,10 +124,10 @@ interface HaloConfig {
   readonly tenant?: string;
 }
 
-async function fetchTriageItNotes(
+async function fetchTriageITNotes(
   config: HaloConfig,
   haloId: number,
-): Promise<ReadonlyArray<TriageItNote>> {
+): Promise<ReadonlyArray<TriageITNote>> {
   try {
     // Get Halo token
     const tokenUrl = `${config.base_url}/auth/token`;
@@ -163,9 +163,9 @@ async function fetchTriageItNotes(
     const data = (await actionsRes.json()) as { actions: HaloAction[] };
     const actions = data.actions ?? [];
 
-    // Filter to TriageIt notes and sort chronologically (oldest first)
+    // Filter to TriageIT notes and sort chronologically (oldest first)
     return actions
-      .filter(isTriageItNote)
+      .filter(isTriageITNote)
       .sort(
         (a, b) =>
           new Date(a.datecreated ?? "").getTime() -
@@ -178,7 +178,7 @@ async function fetchTriageItNotes(
         type: classifyNote(a.note),
       }));
   } catch (err) {
-    console.error("[EMBED] Failed to fetch TriageIt notes:", err);
+    console.error("[EMBED] Failed to fetch TriageIT notes:", err);
     return [];
   }
 }
@@ -237,7 +237,7 @@ export default async function EmbedTriagePage({
     );
   }
 
-  // Fetch triage results, agent logs, and TriageIt notes in parallel
+  // Fetch triage results, agent logs, and TriageIT notes in parallel
   const [triageResultsRes, agentLogsRes, triageItNotes] = await Promise.all([
     supabase
       .from("triage_results")
@@ -249,7 +249,7 @@ export default async function EmbedTriagePage({
       .select("agent_name, agent_role, status, output_summary, tokens_used, duration_ms")
       .eq("ticket_id", ticket.id)
       .order("created_at", { ascending: true }),
-    haloConfig ? fetchTriageItNotes(haloConfig, ticket.halo_id) : Promise.resolve([]),
+    haloConfig ? fetchTriageITNotes(haloConfig, ticket.halo_id) : Promise.resolve([]),
   ]);
 
   const triageResults = (triageResultsRes.data ?? []) as ReadonlyArray<TriageData>;
@@ -260,7 +260,7 @@ export default async function EmbedTriagePage({
       <div style={s.page}>
         <SpinnerStyles />
         <div style={s.emptyWrap}>
-          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#6366f1" : "#52525b" }}>
+          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#b91c1c" : "#52525b" }}>
             {ticket.status === "triaging" ? "\u23F3" : "\u2014"}
           </div>
           <p style={s.emptyText}>
@@ -294,7 +294,7 @@ export default async function EmbedTriagePage({
         <div style={s.headerLeft}>
           <div style={s.logoMark}>T</div>
           <div>
-            <div style={s.headerTitle}>TriageIt</div>
+            <div style={s.headerTitle}>TriageIT</div>
             {ticket.client_name && (
               <div style={s.headerClient}>{ticket.client_name}</div>
             )}
@@ -358,12 +358,12 @@ export default async function EmbedTriagePage({
         </div>
       )}
 
-      {/* ── TriageIt Notes History ────────────────────────────── */}
+      {/* ── TriageIT Notes History ────────────────────────────── */}
       {triageItNotes.length > 0 && (
         <div style={s.notesSection}>
           <div style={s.notesSectionHeader}>
             <span style={s.notesSectionDot} />
-            <span style={s.notesSectionTitle}>TriageIt Notes</span>
+            <span style={s.notesSectionTitle}>TriageIT Notes</span>
             <span style={s.notesSectionBadge}>{triageItNotes.length} notes</span>
           </div>
           <div style={s.notesList}>
@@ -375,7 +375,7 @@ export default async function EmbedTriagePage({
       )}
 
       {/* ── Urgency Analysis ────────────────────────────────── */}
-      <CollapsibleSection title="Urgency Analysis" accent="#6366f1" defaultOpen={triageItNotes.length === 0}>
+      <CollapsibleSection title="Urgency Analysis" accent="#b91c1c" defaultOpen={triageItNotes.length === 0}>
         <p style={s.bodyText}>{latest.urgency_reasoning}</p>
       </CollapsibleSection>
 
@@ -437,12 +437,12 @@ export default async function EmbedTriagePage({
 
 // ── Sub Components ──────────────────────────────────────────────────────
 
-function NoteCard({ note }: { readonly note: TriageItNote }) {
+function NoteCard({ note }: { readonly note: TriageITNote }) {
   const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
 
   return (
     <CollapsibleSection
-      title={`${cfg.icon} ${cfg.label} — TriageIt`}
+      title={`${cfg.icon} ${cfg.label} — TriageIT`}
       accent={cfg.accent}
       defaultOpen={false}
       badge={formatTimestamp(note.date)}
@@ -557,7 +557,7 @@ const s = {
     width: "28px",
     height: "28px",
     borderRadius: "8px",
-    background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+    background: "linear-gradient(135deg, #b91c1c, #4f46e5)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -692,7 +692,7 @@ const s = {
     marginBottom: "4px",
   } as React.CSSProperties,
 
-  // TriageIt Notes section
+  // TriageIT Notes section
   notesSection: {
     marginBottom: "14px",
   } as React.CSSProperties,
@@ -708,7 +708,7 @@ const s = {
     width: "6px",
     height: "6px",
     borderRadius: "50%",
-    backgroundColor: "#6366f1",
+    backgroundColor: "#b91c1c",
     boxShadow: "0 0 6px rgba(99, 102, 241, 0.5)",
   } as React.CSSProperties,
   notesSectionTitle: {
@@ -725,7 +725,7 @@ const s = {
     padding: "2px 8px",
     borderRadius: "10px",
     backgroundColor: "rgba(99, 102, 241, 0.1)",
-    color: "#6366f1",
+    color: "#b91c1c",
     border: "1px solid rgba(99, 102, 241, 0.2)",
   } as React.CSSProperties,
   notesList: {

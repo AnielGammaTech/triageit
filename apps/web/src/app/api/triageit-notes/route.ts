@@ -20,7 +20,7 @@ interface HaloAction {
   readonly datecreated?: string;
 }
 
-export interface TriageItNote {
+export interface TriageITNote {
   readonly id: number;
   readonly note: string;
   readonly date: string;
@@ -28,9 +28,9 @@ export interface TriageItNote {
 }
 
 /**
- * Detect which type of TriageIt note this is based on HTML content.
+ * Detect which type of TriageIT note this is based on HTML content.
  */
-function classifyNote(html: string): TriageItNote["type"] {
+function classifyNote(html: string): TriageITNote["type"] {
   if (html.includes("Tech Performance Review")) return "tech-review";
   if (html.includes("Retriage Check") || html.includes("Re-Triage")) return "retriage";
   if (html.includes("alert path")) return "alert";
@@ -41,18 +41,18 @@ function classifyNote(html: string): TriageItNote["type"] {
 }
 
 /**
- * Check if an action was posted by TriageIt.
+ * Check if an action was posted by TriageIT.
  */
-function isTriageItNote(action: HaloAction): boolean {
+function isTriageITNote(action: HaloAction): boolean {
   const note = action.note ?? "";
-  // TriageIt notes contain our branding / signature markers
+  // TriageIT notes contain our branding / signature markers
   return (
-    note.includes("TriageIt") ||
-    note.includes("TriageIt AI") ||
+    note.includes("TriageIT") ||
+    note.includes("TriageIT AI") ||
     note.includes("AI Triage") ||
     note.includes("triageit") ||
     // Our HTML table notes always have this gradient
-    note.includes("linear-gradient(135deg,#6366f1") ||
+    note.includes("linear-gradient(135deg,#b91c1c") ||
     note.includes("linear-gradient(135deg,#4f46e5") ||
     note.includes("linear-gradient(135deg,#059669")
   );
@@ -144,9 +144,9 @@ export async function POST(request: Request) {
     const config = haloIntegration.config as HaloConfig;
     const allActions = await fetchHaloActions(config, body.halo_id);
 
-    // Filter to only TriageIt-posted notes
-    const triageItNotes: ReadonlyArray<TriageItNote> = allActions
-      .filter(isTriageItNote)
+    // Filter to only TriageIT-posted notes
+    const triageItNotes: ReadonlyArray<TriageITNote> = allActions
+      .filter(isTriageITNote)
       .sort(
         (a, b) =>
           new Date(a.datecreated ?? "").getTime() -
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("[TRIAGEIT-NOTES] Error:", err);
     return NextResponse.json(
-      { error: "Failed to fetch TriageIt notes" },
+      { error: "Failed to fetch TriageIT notes" },
       { status: 500 },
     );
   }

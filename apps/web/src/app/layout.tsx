@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TriageIt - AI Ticket Triage",
+  title: "TriageIT - AI Ticket Triage",
   description: "AI-powered MSP ticket triage system",
 };
 

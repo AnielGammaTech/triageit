@@ -14,7 +14,9 @@ const NAV_ITEMS = [
   { href: "/analytics", label: "Analytics" },
 ] as const;
 
-const PRIMARY_COLOR = "#6366f1";
+const PRIMARY_COLOR = "#b91c1c";
+const HEADER_BG = "#1a0a0a";
+const DROPDOWN_BG = "#241010";
 
 interface SidebarProps {
   readonly userEmail: string;
@@ -60,7 +62,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
     <>
       <header
         className="fixed top-0 left-0 right-0 z-40 h-14 text-white"
-        style={{ backgroundColor: "#13082E" }}
+        style={{ backgroundColor: HEADER_BG }}
       >
         <div className="mx-auto flex h-full max-w-full items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + hamburger */}
@@ -88,14 +90,19 @@ export function Sidebar({ userEmail }: SidebarProps) {
             </button>
 
             <Link href="/tickets" className="flex items-center gap-2.5">
+              {/* Logo: T with small dot */}
               <div
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white"
+                className="relative flex h-8 w-8 items-center justify-center rounded-lg text-sm font-extrabold text-white"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
                 T
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2"
+                  style={{ backgroundColor: "#ef4444", borderColor: HEADER_BG }}
+                />
               </div>
               <span className="hidden text-sm font-bold tracking-tight text-white sm:block">
-                TriageIt
+                Triage<span style={{ color: PRIMARY_COLOR }}>IT</span>
               </span>
             </Link>
           </div>
@@ -127,11 +134,11 @@ export function Sidebar({ userEmail }: SidebarProps) {
             })}
           </nav>
 
-          {/* Right: User dropdown */}
+          {/* Right: Small profile avatar */}
           <div className="flex items-center gap-2" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2.5 rounded-lg py-1 pl-2 pr-1 transition-colors hover:bg-white/5"
+              className="flex items-center rounded-full transition-colors hover:ring-2 hover:ring-white/20"
             >
               <div
                 className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white"
@@ -139,26 +146,13 @@ export function Sidebar({ userEmail }: SidebarProps) {
               >
                 {getUserInitials(userEmail)}
               </div>
-              <div className="hidden text-left sm:block">
-                <p className="text-sm font-medium leading-tight text-white">
-                  {userEmail}
-                </p>
-              </div>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="hidden text-white/40 sm:block"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 bg-[#1a0f35] shadow-xl">
+              <div
+                className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 shadow-xl"
+                style={{ backgroundColor: DROPDOWN_BG }}
+              >
                 <div className="border-b border-white/10 px-3 py-2.5">
                   <div className="flex items-center gap-3">
                     <div
@@ -221,15 +215,13 @@ export function Sidebar({ userEmail }: SidebarProps) {
       {/* Mobile navigation overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-30 lg:hidden">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/60"
             onClick={() => setMobileMenuOpen(false)}
           />
-          {/* Menu panel */}
           <nav
             className="absolute top-14 left-0 right-0 border-b border-white/10 shadow-xl"
-            style={{ backgroundColor: "#13082E" }}
+            style={{ backgroundColor: HEADER_BG }}
           >
             <div className="flex flex-col py-2">
               {NAV_ITEMS.map((item) => {

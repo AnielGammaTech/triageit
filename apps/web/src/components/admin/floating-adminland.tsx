@@ -6,7 +6,7 @@ export function FloatingAdminland() {
   return (
     <Link
       href="/adminland"
-      className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-[#6366f1] text-white shadow-lg shadow-[#6366f1]/25 transition-transform hover:scale-105 active:scale-95"
+      className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-[#b91c1c] text-white shadow-lg shadow-[#b91c1c]/25 transition-transform hover:scale-105 active:scale-95"
       title="Adminland"
     >
       <svg

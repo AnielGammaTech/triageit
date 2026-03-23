@@ -280,7 +280,7 @@ function CreateUserForm({
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           placeholder="Jane Smith"
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#b91c1c]"
           autoFocus
         />
       </div>
@@ -293,7 +293,7 @@ function CreateUserForm({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="jane@company.com"
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#b91c1c]"
         />
       </div>
 
@@ -308,7 +308,7 @@ function CreateUserForm({
               className={cn(
                 "rounded-lg border px-3 py-2.5 text-left transition-all",
                 role === r.value
-                  ? "border-[#6366f1] bg-[#6366f1]/10"
+                  ? "border-[#b91c1c] bg-[#b91c1c]/10"
                   : "border-white/10 hover:border-white/20 hover:bg-white/[0.04]",
               )}
             >
@@ -332,7 +332,7 @@ function CreateUserForm({
           disabled={saving}
           className={cn(
             "rounded-lg px-4 py-2 text-sm font-medium transition-all",
-            "bg-[#6366f1] text-white hover:bg-[#5558e6]",
+            "bg-[#b91c1c] text-white hover:bg-[#a31919]",
             saving && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -413,7 +413,7 @@ function EditUserPanel({
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#b91c1c]"
         />
       </div>
 
@@ -427,7 +427,7 @@ function EditUserPanel({
               className={cn(
                 "rounded-lg border px-2.5 py-2 text-left transition-all",
                 selectedRole === r.value
-                  ? "border-[#6366f1] bg-[#6366f1]/10"
+                  ? "border-[#b91c1c] bg-[#b91c1c]/10"
                   : "border-white/10 hover:border-white/20 hover:bg-white/[0.04]",
               )}
             >
@@ -449,7 +449,7 @@ function EditUserPanel({
           disabled={saving}
           className={cn(
             "rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-            "bg-[#6366f1] text-white hover:bg-[#5558e6]",
+            "bg-[#b91c1c] text-white hover:bg-[#a31919]",
             saving && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -634,7 +634,7 @@ function UserRow({
       >
         <div className="flex items-center gap-4">
           {/* Avatar */}
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6366f1]/20 text-sm font-bold text-[#6366f1]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#b91c1c]/20 text-sm font-bold text-[#b91c1c]">
             {initials || "?"}
           </div>
 
@@ -681,7 +681,7 @@ function UserRow({
             {!isCurrentUser && !editing && (
               <button
                 onClick={() => setEditing(true)}
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-[#6366f1]/30 hover:text-[#6366f1]"
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-[#b91c1c]/30 hover:text-[#b91c1c]"
               >
                 {ICONS.edit}
                 Edit User
@@ -805,7 +805,7 @@ export function UsersSecuritySection() {
         {!showCreateForm && (
           <button
             onClick={() => setShowCreateForm(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5558e6]"
+            className="flex items-center gap-1.5 rounded-lg bg-[#b91c1c] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#a31919]"
           >
             {ICONS.plus}
             <span>Add User</span>
@@ -863,7 +863,7 @@ export function UsersSecuritySection() {
       {users.length === 0 && !error ? (
         <div
           className="rounded-xl border border-white/10 p-8 text-center"
-          style={{ backgroundColor: "#1a0f35" }}
+          style={{ backgroundColor: "#241010" }}
         >
           <p className="text-sm text-white/50">No users found.</p>
           <p className="mt-1 text-xs text-white/30">

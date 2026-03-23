@@ -38,7 +38,7 @@ Rules:
 - Use plain language, no jargon
 - Include approximate dates/times when available
 - If the tech hasn't done much, say so honestly — e.g. "No tech activity recorded yet"
-- Skip any notes from "TriageIt" or automated systems — focus only on human tech activity
+- Skip any notes from "TriageIT" or automated systems — focus only on human tech activity
 - Do NOT include customer emails or customer replies — this is strictly about tech work
 - If there are scheduled appointments, mention them
 
@@ -137,7 +137,7 @@ async function fetchHaloActions(
 }
 
 /**
- * Filter actions to only private tech notes, excluding TriageIt automated notes.
+ * Filter actions to only private tech notes, excluding TriageIT automated notes.
  */
 function filterTechActions(
   actions: ReadonlyArray<HaloAction>,
@@ -150,7 +150,7 @@ function filterTechActions(
       if (who.includes("triageit") || who.includes("triage it")) return false;
 
       const noteText = stripHtml(a.note);
-      if (noteText.startsWith("TriageIt Analysis")) return false;
+      if (noteText.startsWith("TriageIT Analysis")) return false;
 
       return true;
     })

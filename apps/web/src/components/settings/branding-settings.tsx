@@ -9,12 +9,12 @@ interface BrandingConfig {
 }
 
 export function BrandingSettings() {
-  const [config, setConfig] = useState<BrandingConfig>({ logo_url: null, name: "TriageIt" });
+  const [config, setConfig] = useState<BrandingConfig>({ logo_url: null, name: "TriageIT" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [logoUrl, setLogoUrl] = useState("");
-  const [brandName, setBrandName] = useState("TriageIt");
+  const [brandName, setBrandName] = useState("TriageIT");
 
   useEffect(() => {
     async function load() {
@@ -45,7 +45,7 @@ export function BrandingSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           logo_url: logoUrl.trim() || null,
-          name: brandName.trim() || "TriageIt",
+          name: brandName.trim() || "TriageIT",
         }),
       });
 
@@ -76,7 +76,7 @@ export function BrandingSettings() {
     <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-6">
       <h3 className="text-lg font-semibold mb-1">Branding</h3>
       <p className="text-sm text-[var(--muted-foreground)] mb-5">
-        Customize how TriageIt notes appear in Halo. Add your company logo and name to the header of all AI-generated notes.
+        Customize how TriageIT notes appear in Halo. Add your company logo and name to the header of all AI-generated notes.
       </p>
 
       <div className="space-y-4">
@@ -90,8 +90,8 @@ export function BrandingSettings() {
             type="text"
             value={brandName}
             onChange={(e) => setBrandName(e.target.value)}
-            placeholder="TriageIt"
-            className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#6366f1] focus:outline-none focus:ring-1 focus:ring-[#6366f1]"
+            placeholder="TriageIT"
+            className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#b91c1c] focus:outline-none focus:ring-1 focus:ring-[#b91c1c]"
           />
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Appears in the header of all Halo notes (e.g. &quot;AI Triage — YourName&quot;)
@@ -109,7 +109,7 @@ export function BrandingSettings() {
             value={logoUrl}
             onChange={(e) => setLogoUrl(e.target.value)}
             placeholder="https://example.com/logo.png"
-            className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#6366f1] focus:outline-none focus:ring-1 focus:ring-[#6366f1]"
+            className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#b91c1c] focus:outline-none focus:ring-1 focus:ring-[#b91c1c]"
           />
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Direct URL to your logo image (PNG/SVG recommended, ~22px tall). Leave empty for the default emoji icon.
@@ -122,7 +122,7 @@ export function BrandingSettings() {
             <p className="text-xs font-medium text-[var(--muted-foreground)] mb-2">Preview</p>
             <div
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-white text-sm font-bold"
-              style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
+              style={{ background: "linear-gradient(135deg, #b91c1c, #8b5cf6)" }}
             >
               {logoUrl.trim() ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -135,7 +135,7 @@ export function BrandingSettings() {
               ) : (
                 <span>🤖</span>
               )}
-              <span>AI Triage — {brandName.trim() || "TriageIt"}</span>
+              <span>AI Triage — {brandName.trim() || "TriageIT"}</span>
             </div>
           </div>
         )}
@@ -149,7 +149,7 @@ export function BrandingSettings() {
               "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
               saving || !hasChanges
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#6366f1] text-white hover:bg-[#5558e6]",
+                : "bg-[#b91c1c] text-white hover:bg-[#a31919]",
             )}
           >
             {saving ? "Saving..." : "Save Branding"}

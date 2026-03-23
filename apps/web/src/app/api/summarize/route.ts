@@ -35,7 +35,7 @@ Rules:
 - Use plain language, no jargon
 - Include approximate dates/times when available
 - If the tech hasn't done much, say so honestly — e.g. "No tech activity recorded yet"
-- Skip any notes from "TriageIt" or automated systems — focus only on human tech activity
+- Skip any notes from "TriageIT" or automated systems — focus only on human tech activity
 - Do NOT include customer emails or customer replies — this is strictly about tech work
 - If there are scheduled appointments, mention them
 
@@ -195,13 +195,13 @@ export async function POST(request: Request) {
         // Only include private/internal notes (hiddenfromuser = true)
         if (!a.hiddenfromuser) return false;
 
-        // Exclude TriageIt automated notes
+        // Exclude TriageIT automated notes
         const who = (a.who ?? "").toLowerCase();
         if (who.includes("triageit") || who.includes("triage it")) return false;
 
-        // Exclude notes that look like TriageIt output
+        // Exclude notes that look like TriageIT output
         const noteText = stripHtml(a.note);
-        if (noteText.startsWith("🔍 TriageIt") || noteText.startsWith("TriageIt Analysis")) return false;
+        if (noteText.startsWith("🔍 TriageIT") || noteText.startsWith("TriageIT Analysis")) return false;
 
         return true;
       })

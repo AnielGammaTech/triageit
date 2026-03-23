@@ -95,7 +95,7 @@ function RuleEditor({
           <button
             onClick={handleSave}
             disabled={!name.trim()}
-            className="rounded-lg bg-[#6366f1] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5558e6] disabled:opacity-50"
+            className="rounded-lg bg-[#b91c1c] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#a31919] disabled:opacity-50"
           >
             {rule?.id ? "Update" : "Create"}
           </button>
@@ -115,7 +115,7 @@ function RuleEditor({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#b91c1c]"
           placeholder="Rule name"
         />
       </div>
@@ -127,7 +127,7 @@ function RuleEditor({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#b91c1c]"
           placeholder="What does this rule do?"
         />
       </div>
@@ -144,7 +144,7 @@ function RuleEditor({
                 className={cn(
                   "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
                   ruleType === t.value
-                    ? "border-[#6366f1] bg-[#6366f1]/10 text-white"
+                    ? "border-[#b91c1c] bg-[#b91c1c]/10 text-white"
                     : "border-white/10 text-white/50 hover:border-white/20",
                 )}
               >
@@ -161,7 +161,7 @@ function RuleEditor({
             max={10}
             value={priority}
             onChange={(e) => setPriority(parseInt(e.target.value, 10) || 1)}
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-[#6366f1]"
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-[#b91c1c]"
           />
         </div>
       </div>
@@ -176,7 +176,7 @@ function RuleEditor({
           onClick={() => setIsActive(!isActive)}
           className={cn(
             "relative h-6 w-11 rounded-full transition-colors",
-            isActive ? "bg-[#6366f1]" : "bg-white/10",
+            isActive ? "bg-[#b91c1c]" : "bg-white/10",
           )}
         >
           <span
@@ -196,7 +196,7 @@ function RuleEditor({
           onChange={(e) => setConditionsJson(e.target.value)}
           rows={4}
           spellCheck={false}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-white/30 outline-none focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-white/30 outline-none focus:border-[#b91c1c]"
         />
       </div>
 
@@ -208,7 +208,7 @@ function RuleEditor({
           onChange={(e) => setActionsJson(e.target.value)}
           rows={4}
           spellCheck={false}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-white/30 outline-none focus:border-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-white/30 outline-none focus:border-[#b91c1c]"
         />
       </div>
     </div>
@@ -324,7 +324,7 @@ export function TriageRulesSection() {
             setIsCreating(true);
             setEditingRule({});
           }}
-          className="rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white hover:bg-[#5558e6]"
+          className="rounded-lg bg-[#b91c1c] px-4 py-2 text-sm font-medium text-white hover:bg-[#a31919]"
         >
           + Add Rule
         </button>

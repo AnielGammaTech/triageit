@@ -183,7 +183,7 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
       <button
         onClick={runAutoMapper}
         disabled={loading}
-        className="flex items-center gap-2 rounded-lg bg-[#6366f1] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#5558e6] disabled:opacity-50"
+        className="flex items-center gap-2 rounded-lg bg-[#b91c1c] px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#a31919] disabled:opacity-50"
       >
         {loading ? (
           <>
@@ -310,7 +310,7 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
                       className={cn(
                         "border-b border-white/5 transition-colors cursor-pointer",
                         isSelected
-                          ? "bg-[#6366f1]/5"
+                          ? "bg-[#b91c1c]/5"
                           : "hover:bg-white/5",
                       )}
                     >

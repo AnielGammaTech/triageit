@@ -123,7 +123,7 @@ export function DiagnosticsSection() {
               "flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all",
               running
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#6366f1] text-white hover:bg-[#5558e6]",
+                : "bg-[#b91c1c] text-white hover:bg-[#a31919]",
             )}
           >
             {running ? (

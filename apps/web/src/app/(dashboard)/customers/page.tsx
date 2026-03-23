@@ -164,7 +164,7 @@ export default function CustomersPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search customers..."
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c] focus:ring-1 focus:ring-[#b91c1c]"
         />
       </div>
 
@@ -257,7 +257,7 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {triageCount > 0 ? (
-                        <span className="rounded-full bg-[#6366f1]/10 px-2 py-0.5 text-xs font-medium text-[#6366f1]">
+                        <span className="rounded-full bg-[#b91c1c]/10 px-2 py-0.5 text-xs font-medium text-[#b91c1c]">
                           {triageCount}
                         </span>
                       ) : (

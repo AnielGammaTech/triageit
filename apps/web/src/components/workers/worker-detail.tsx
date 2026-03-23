@@ -97,7 +97,7 @@ export function WorkerDetail({ agent }: WorkerDetailProps) {
       {/* Agent Header */}
       <div
         className="rounded-xl border border-white/10 p-6"
-        style={{ backgroundColor: "#1a0f35" }}
+        style={{ backgroundColor: "#241010" }}
       >
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-amber-500/10 text-lg font-bold text-amber-400">
@@ -157,13 +157,13 @@ export function WorkerDetail({ agent }: WorkerDetailProps) {
             className={cn(
               "px-4 py-2.5 text-sm font-medium capitalize transition-colors",
               activeTab === tab
-                ? "border-b-2 border-[#6366f1] text-white"
+                ? "border-b-2 border-[#b91c1c] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
             {tab}
             {tab === "skills" && skills.length > 0 && (
-              <span className="ml-2 rounded-full bg-[#6366f1]/20 px-2 py-0.5 text-xs text-[#6366f1]">
+              <span className="ml-2 rounded-full bg-[#b91c1c]/20 px-2 py-0.5 text-xs text-[#b91c1c]">
                 {skills.length}
               </span>
             )}
@@ -215,7 +215,7 @@ function OverviewTab({
           <div className="space-y-2">
             {topSkills.map((skill) => (
               <div key={skill.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
-                <span className="rounded bg-[#6366f1]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1]">
+                <span className="rounded bg-[#b91c1c]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#b91c1c]">
                   {skill.skill_type}
                 </span>
                 <p className="truncate text-xs text-white/70">{skill.title}</p>
@@ -324,7 +324,7 @@ function SkillsTab({
       <div className="flex gap-2">
         <button
           onClick={() => setShowForm(!showForm)}
-          className="rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5558e6]"
+          className="rounded-lg bg-[#b91c1c] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#a31919]"
         >
           {showForm ? "Cancel" : "Add Skill"}
         </button>
@@ -349,7 +349,7 @@ function SkillsTab({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Password Reset Procedure"
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1]"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
               />
             </div>
             <div>
@@ -357,7 +357,7 @@ function SkillsTab({
               <select
                 value={skillType}
                 onChange={(e) => setSkillType(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-[#6366f1]"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-[#b91c1c]"
               >
                 {SKILL_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -374,13 +374,13 @@ function SkillsTab({
               onChange={(e) => setContent(e.target.value)}
               placeholder="Paste the skill content here... (instructions, procedures, runbooks, etc.)"
               rows={8}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6366f1] font-mono"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c] font-mono"
             />
           </div>
           <button
             onClick={handleSave}
             disabled={saving || !title.trim() || !content.trim()}
-            className="rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5558e6] disabled:opacity-50"
+            className="rounded-lg bg-[#b91c1c] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#a31919] disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Skill"}
           </button>
@@ -408,7 +408,7 @@ function SkillsTab({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-white">{skill.title}</p>
-                    <span className="rounded bg-[#6366f1]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1]">
+                    <span className="rounded bg-[#b91c1c]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#b91c1c]">
                       {skill.skill_type}
                     </span>
                     {!skill.is_active && (
@@ -478,7 +478,7 @@ function MemoriesTab({
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors",
                 filterType === type
-                  ? "bg-[#6366f1] text-white"
+                  ? "bg-[#b91c1c] text-white"
                   : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white",
               )}
             >
