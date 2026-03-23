@@ -187,7 +187,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   // Build conversation context
-  const conversationHistory = actions
+  const conversationHistory = [...actions]
     .sort((a, b) => {
       const dateA = a.datecreated ? new Date(a.datecreated).getTime() : 0;
       const dateB = b.datecreated ? new Date(b.datecreated).getTime() : 0;
