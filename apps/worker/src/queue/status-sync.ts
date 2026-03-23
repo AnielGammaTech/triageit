@@ -32,12 +32,10 @@ export async function syncTicketStatusFromHalo(
       (haloTicket as unknown as Record<string, unknown>).status_name ??
       haloTicket.status ??
       null;
-    // Resolve agent name — prefer API field, then resolve ID via Halo API
-    let agentName =
-      ((haloTicket as unknown as Record<string, unknown>).agent_name as string | undefined) ?? null;
-    if (!agentName && haloTicket.agent_id) {
-      agentName = await halo.getAgentName(haloTicket.agent_id);
-    }
+    const agentName = await halo.resolveAgentName(
+      (haloTicket as unknown as Record<string, unknown>).agent_name as string | undefined,
+      haloTicket.agent_id,
+    );
 
     await supabase
       .from("tickets")

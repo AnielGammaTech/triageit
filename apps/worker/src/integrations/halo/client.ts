@@ -129,6 +129,25 @@ export class HaloClient {
     }
   }
 
+  /**
+   * Resolve a tech's display name from Halo data. Handles cases where
+   * agent_name is missing or is a generic placeholder like "Tech 1".
+   */
+  async resolveAgentName(agentName: string | null | undefined, agentId: number | null | undefined): Promise<string | null> {
+    const name = agentName ?? null;
+    const isPlaceholder = name !== null && /^(?:tech\s*)?\d+$/i.test(name.trim());
+
+    if (name && !isPlaceholder) return name;
+
+    if (agentId) {
+      const resolved = await this.getAgentName(agentId);
+      if (resolved) return resolved;
+    }
+
+    // Return the placeholder as-is if we couldn't resolve
+    return name;
+  }
+
   async updateCustomFields(
     ticketId: number,
     fields: ReadonlyArray<{ id: number; value: string }>,

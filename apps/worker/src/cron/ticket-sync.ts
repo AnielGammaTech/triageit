@@ -64,11 +64,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   if (newTickets.length > 0) {
     const insertRows = [];
     for (const ticket of newTickets) {
-      // Resolve agent name — prefer API field, then resolve ID via Halo API
-      let agentName: string | null = ticket.agent_name ?? null;
-      if (!agentName && ticket.agent_id) {
-        agentName = await halo.getAgentName(ticket.agent_id);
-      }
+      const agentName = await halo.resolveAgentName(ticket.agent_name, ticket.agent_id);
 
       insertRows.push({
         halo_id: ticket.id,
@@ -131,11 +127,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const existingToUpdate = openTickets.filter((t) => existingMap.has(t.id));
 
   for (const ticket of existingToUpdate) {
-    // Resolve agent name — prefer API field, then resolve ID via Halo API
-    let agentName: string | null = ticket.agent_name ?? null;
-    if (!agentName && ticket.agent_id) {
-      agentName = await halo.getAgentName(ticket.agent_id);
-    }
+    const agentName = await halo.resolveAgentName(ticket.agent_name, ticket.agent_id);
 
     const { error: updateError } = await supabase
       .from("tickets")

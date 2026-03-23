@@ -147,35 +147,21 @@ export async function runTriage(
       // (NOT from who left comments — that could be automations like "Triggr KTR API")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ticketRecord = ticket as any;
-      let assignedTechName: string | null =
-        ticketRecord.halo_agent ?? null;
+      const dbAgentName: string | null = ticketRecord.halo_agent ?? null;
 
-      // If DB doesn't have the agent name, or it looks like an ID (e.g. "27", "Tech 27"),
-      // try to resolve the real name from the Halo API
-      const looksLikeId = assignedTechName && /^(?:tech\s*)?\d+$/i.test(assignedTechName.trim());
-      if (!assignedTechName || looksLikeId) {
+      // Resolve placeholder names like "Tech 1" or raw IDs via the Halo API
+      let assignedTechName = dbAgentName;
+
+      // If still a placeholder, try fetching the full ticket for agent_id
+      if (!assignedTechName || /^(?:tech\s*)?\d+$/i.test(assignedTechName.trim())) {
         try {
-          const ticketWithSlaForAgent = await haloEarly.getTicketWithSLA(ticket.halo_id);
+          const fullTicket = await haloEarly.getTicketWithSLA(ticket.halo_id);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rawTicket = ticketWithSlaForAgent as any;
-          // Prefer agent_name if it looks like a real name (has letters, not just numbers)
-          const apiAgentName = rawTicket.agent_name;
-          if (apiAgentName && typeof apiAgentName === "string" && /[a-zA-Z]{2,}/.test(apiAgentName)) {
-            assignedTechName = apiAgentName;
-          } else {
-            assignedTechName = null;
-          }
+          const raw = fullTicket as any;
+          assignedTechName = await haloEarly.resolveAgentName(raw.agent_name, raw.agent_id);
 
-          // If still no name, look up by agent_id (try API field first, then extract from original DB value)
-          const originalIdStr = looksLikeId ? (ticketRecord.halo_agent ?? "").replace(/\D/g, "") : "";
-          const agentId = rawTicket.agent_id ?? (originalIdStr ? parseInt(originalIdStr, 10) : null);
-          if (!assignedTechName && agentId) {
-            const agentName = await haloEarly.getAgentName(agentId);
-            assignedTechName = agentName;
-          }
-
-          // Update the DB so future runs have it
-          if (assignedTechName) {
+          // Update the DB so future runs have the real name
+          if (assignedTechName && assignedTechName !== dbAgentName) {
             await supabase
               .from("tickets")
               .update({ halo_agent: assignedTechName })

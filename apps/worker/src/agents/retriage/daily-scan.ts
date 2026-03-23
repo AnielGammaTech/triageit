@@ -357,11 +357,9 @@ async function upsertTicketFromHalo(
 ): Promise<string> {
   const now = new Date().toISOString();
 
-  // Resolve agent name — prefer API field, then resolve ID via Halo API
-  let agentName = getAgentName(ticket);
-  if (!agentName && ticket.agent_id && halo) {
-    agentName = await halo.getAgentName(ticket.agent_id);
-  }
+  const agentName = halo
+    ? await halo.resolveAgentName(getAgentName(ticket), ticket.agent_id)
+    : getAgentName(ticket);
 
   const trackingData = {
     halo_status: getStatusName(ticket),
