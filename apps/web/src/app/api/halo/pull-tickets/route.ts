@@ -357,25 +357,32 @@ export async function POST() {
     // Use only the open tickets set (not recently closed) for this check
     const openHaloIds = new Set(openResult.tickets.map((t) => t.id));
 
-    const { data: localNonResolved } = await serviceClient
+    const resolvedStatuses = [
+      "closed", "resolved", "cancelled", "completed",
+      "resolved remotely", "resolved onsite",
+      "resolved - awaiting confirmation",
+    ];
+
+    // Get ALL local tickets — including ones with null halo_status
+    const { data: localAll } = await serviceClient
       .from("tickets")
-      .select("id, halo_id, halo_status")
-      .not("halo_status", "is", null);
+      .select("id, halo_id, halo_status");
 
-    if (localNonResolved) {
-      const resolvedStatuses = [
-        "closed", "resolved", "cancelled", "completed",
-        "resolved remotely", "resolved onsite",
-        "resolved - awaiting confirmation",
-      ];
-
-      const staleTickets = localNonResolved.filter((t) => {
+    if (localAll) {
+      const staleTickets = localAll.filter((t) => {
+        // Skip tickets already known to be resolved
         const statusLower = (t.halo_status ?? "").toLowerCase();
         const alreadyResolved = resolvedStatuses.some((s) => statusLower.includes(s));
-        return !alreadyResolved && !openHaloIds.has(t.halo_id);
+        if (alreadyResolved) return false;
+        // If ticket is NOT in Halo's open list, it was closed — needs status update
+        return !openHaloIds.has(t.halo_id);
       });
 
-      // Batch-fetch current status from Halo for these stale tickets
+      console.log(
+        `[HALO SYNC] ${staleTickets.length} local tickets not in Halo open list — checking status`,
+      );
+
+      // Fetch current status from Halo for these tickets
       for (const stale of staleTickets) {
         try {
           const res = await fetch(
@@ -391,12 +398,16 @@ export async function POST() {
           if (res.ok) {
             const ticketData = (await res.json()) as HaloTicket;
             const freshStatus = resolveStatusName(ticketData, statusNameMap);
+            const freshAgent = resolveAgentName(ticketData, agentNameMap);
 
             await serviceClient
               .from("tickets")
               .update({
                 halo_status: freshStatus,
                 halo_status_id: ticketData.status_id,
+                halo_agent: freshAgent,
+                halo_team: ticketData.team_name ?? ticketData.team ?? null,
+                tickettype_id: (ticketData.tickettype_id as number) ?? null,
                 updated_at: now,
               })
               .eq("id", stale.id);
