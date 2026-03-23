@@ -120,7 +120,9 @@ export async function POST() {
     const allTickets: HaloTicket[] = [];
     let totalRecordCount = 0;
 
-    const openResult = await fetchHaloTicketsPaginated(config.base_url, token, "open_only=true");
+    // Only pull "Gamma Default" ticket type (id=31) — alerts and other types are excluded
+    const GAMMA_DEFAULT_TYPE_ID = 31;
+    const openResult = await fetchHaloTicketsPaginated(config.base_url, token, `open_only=true&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}`);
     allTickets.push(...openResult.tickets);
     totalRecordCount = openResult.totalCount;
 
@@ -136,7 +138,7 @@ export async function POST() {
     const closedResult = await fetchHaloTicketsPaginated(
       config.base_url,
       token,
-      `open_only=false&dateoccurred_start=${thirtyDaysAgo}`,
+      `open_only=false&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${thirtyDaysAgo}`,
     );
 
     // Only add tickets we didn't already get from the open pull

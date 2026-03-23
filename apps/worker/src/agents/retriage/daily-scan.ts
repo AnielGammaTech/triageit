@@ -479,8 +479,9 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
   const halo = new HaloClient(haloIntegration.config as HaloConfig);
 
-  // Pull all open tickets from Halo
-  const openTickets = await halo.getOpenTickets();
+  // Pull open tickets from Halo — only "Gamma Default" type (id=31)
+  const GAMMA_DEFAULT_TYPE_ID = 31;
+  const openTickets = await halo.getOpenTickets(GAMMA_DEFAULT_TYPE_ID);
 
   const critical: ReTriageResult[] = [];
   const warnings: ReTriageResult[] = [];

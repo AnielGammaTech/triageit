@@ -33,8 +33,9 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
 
   const halo = new HaloClient(integration.config as HaloConfig);
 
-  console.log("[TICKET-SYNC] Fetching all open tickets from Halo...");
-  const openTickets = await halo.getOpenTickets();
+  // Only sync "Gamma Default" tickets (type id=31)
+  console.log("[TICKET-SYNC] Fetching Gamma Default open tickets from Halo...");
+  const openTickets = await halo.getOpenTickets(31);
   console.log(`[TICKET-SYNC] Got ${openTickets.length} open tickets from Halo`);
 
   if (openTickets.length === 0) {

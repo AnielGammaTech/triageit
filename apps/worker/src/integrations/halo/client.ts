@@ -88,17 +88,16 @@ export class HaloClient {
     ]);
   }
 
-  async getOpenTickets(): Promise<ReadonlyArray<HaloTicket>> {
-    // Halo API: status_id filtering — we get all tickets NOT in Resolved status
-    // pageinate through all results
+  async getOpenTickets(ticketTypeId?: number): Promise<ReadonlyArray<HaloTicket>> {
     const pageSize = 100;
     let page = 1;
     const allTickets: HaloTicket[] = [];
+    const typeFilter = ticketTypeId ? `&tickettype_id=${ticketTypeId}` : "";
 
     while (true) {
       const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
         "GET",
-        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true`,
+        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true${typeFilter}`,
       );
       const tickets = result.tickets ?? [];
       allTickets.push(...tickets);

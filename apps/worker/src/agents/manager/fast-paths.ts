@@ -11,6 +11,9 @@ import { findSimilarTickets } from "../similar-tickets.js";
 import type { SimilarTicket } from "../similar-tickets.js";
 import { buildFastPathNote, buildAlertPathNote } from "./halo-note-builder.js";
 
+// Halo ticket type IDs
+const HALO_ALERTS_TYPE_ID = 36;
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 async function getHaloConfig(
@@ -69,14 +72,10 @@ export async function tryNotificationFastPath(
       console.error(`[MICHAEL] Fast path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
 
-    // Move notification tickets to "Alerts" type in Halo too
+    // Move notification tickets to "Alerts" type (id=36) in Halo
     try {
-      const ticketTypes = await halo.getTicketTypes();
-      const alertTypeId = ticketTypes.get("alerts") ?? ticketTypes.get("alert");
-      if (alertTypeId) {
-        await halo.updateTicketType(ticket.halo_id, alertTypeId);
-        console.log(`[MICHAEL] Fast path: Changed ticket #${ticket.halo_id} to Alerts type (id=${alertTypeId})`);
-      }
+      await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
+      console.log(`[MICHAEL] Fast path: Changed ticket #${ticket.halo_id} to Alerts type`);
     } catch (error) {
       console.error(`[MICHAEL] Fast path: Failed to change ticket type for #${ticket.halo_id}:`, error);
     }
@@ -185,16 +184,10 @@ export async function tryAlertFastPath(
       console.error(`[MICHAEL] Alert path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
 
-    // Move ticket to "Alerts" ticket type in Halo so it doesn't clog the main queue
+    // Move ticket to "Alerts" type (id=36) in Halo so it doesn't clog the main queue
     try {
-      const ticketTypes = await halo.getTicketTypes();
-      const alertTypeId = ticketTypes.get("alerts") ?? ticketTypes.get("alert");
-      if (alertTypeId) {
-        await halo.updateTicketType(ticket.halo_id, alertTypeId);
-        console.log(`[MICHAEL] Alert path: Changed ticket #${ticket.halo_id} to Alerts type (id=${alertTypeId})`);
-      } else {
-        console.warn(`[MICHAEL] Alert path: No "Alerts" ticket type found in Halo (available: ${Array.from(ticketTypes.keys()).join(", ")})`);
-      }
+      await halo.updateTicketType(ticket.halo_id, HALO_ALERTS_TYPE_ID);
+      console.log(`[MICHAEL] Alert path: Changed ticket #${ticket.halo_id} to Alerts type`);
     } catch (error) {
       console.error(`[MICHAEL] Alert path: Failed to change ticket type for #${ticket.halo_id}:`, error);
     }

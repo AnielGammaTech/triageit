@@ -53,7 +53,8 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   let allOpenTickets: ReadonlyArray<Record<string, any>>;
 
   try {
-    const rawTickets = await halo.getOpenTickets();
+    // Only scan "Gamma Default" tickets (type id=31)
+    const rawTickets = await halo.getOpenTickets(31);
     allOpenTickets = rawTickets as unknown as typeof allOpenTickets;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
