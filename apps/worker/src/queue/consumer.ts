@@ -96,7 +96,7 @@ export function startTriageWorker(): Worker<TriageJobData> {
     },
     {
       connection: getRedisConnectionOptions(),
-      concurrency: 3,
+      concurrency: 5,
       limiter: {
         max: 10,
         duration: 60_000,
