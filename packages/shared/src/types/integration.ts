@@ -101,10 +101,11 @@ export interface CoveConfig {
 }
 
 export interface CippConfig {
-  readonly base_url: string;
-  readonly client_id: string;
-  readonly client_secret: string;
-  readonly tenant_id: string;
+  readonly cippApiUrl: string;
+  readonly cippAuthScope: string;
+  readonly cippAuthClientId: string;
+  readonly cippAuthTokenUrl: string;
+  readonly cippAuthClientSecret: string;
 }
 
 export type IntegrationConfig =
