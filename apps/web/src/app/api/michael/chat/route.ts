@@ -283,8 +283,9 @@ export async function POST(request: NextRequest) {
   // Stream response from Claude
   const client = new Anthropic();
 
+  const modelId = "claude-sonnet-4-20250514";
   const stream = await client.messages.stream({
-    model: "claude-sonnet-4-20250514",
+    model: modelId,
     max_tokens: 2048,
     system: systemPrompt,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -341,9 +342,21 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Send done event with conversation ID
+        // Get token usage from the final message
+        const finalMessage = await stream.finalMessage();
+        const inputTokens = finalMessage.usage?.input_tokens ?? 0;
+        const outputTokens = finalMessage.usage?.output_tokens ?? 0;
+        // Sonnet 4 pricing: $3/M input, $15/M output
+        const cost = (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+
+        // Send done event with conversation ID, model, and usage
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ done: true, conversation_id: convId })}\n\n`),
+          encoder.encode(`data: ${JSON.stringify({
+            done: true,
+            conversation_id: convId,
+            model: modelId,
+            usage: { input_tokens: inputTokens, output_tokens: outputTokens, cost_usd: Math.round(cost * 10000) / 10000 },
+          })}\n\n`),
         );
         controller.close();
       } catch (err) {

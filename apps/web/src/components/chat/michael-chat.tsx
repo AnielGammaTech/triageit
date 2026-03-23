@@ -3,11 +3,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils/cn";
 
+interface MessageMeta {
+  readonly model?: string;
+  readonly input_tokens?: number;
+  readonly output_tokens?: number;
+  readonly cost_usd?: number;
+}
+
 interface Message {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly created_at?: string;
+  readonly meta?: MessageMeta;
 }
 
 interface Conversation {
@@ -170,12 +178,20 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               setActiveConversationId(json.conversation_id);
             }
 
+            const meta: MessageMeta | undefined = json.model ? {
+              model: json.model,
+              input_tokens: json.usage?.input_tokens,
+              output_tokens: json.usage?.output_tokens,
+              cost_usd: json.usage?.cost_usd,
+            } : undefined;
+
             setMessages((prev) => [
               ...prev,
               {
                 id: `assistant-${Date.now()}`,
                 role: "assistant",
                 content: fullText,
+                meta,
               },
             ]);
             setStreamingText("");
@@ -364,15 +380,28 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                   M
                 </div>
               )}
-              <div
-                className={cn(
-                  "max-w-[75%] rounded-xl px-4 py-2.5 text-sm leading-relaxed",
-                  msg.role === "user"
-                    ? "bg-[#b91c1c] text-white"
-                    : "bg-white/[0.06] text-white/90",
+              <div className="max-w-[75%]">
+                <div
+                  className={cn(
+                    "rounded-xl px-4 py-2.5 text-sm leading-relaxed",
+                    msg.role === "user"
+                      ? "bg-[#b91c1c] text-white"
+                      : "bg-white/[0.06] text-white/90",
+                  )}
+                >
+                  <MessageContent content={msg.content} />
+                </div>
+                {msg.role === "assistant" && msg.meta && (
+                  <div className="mt-1 flex items-center gap-2 text-[10px] text-white/25 px-1">
+                    <span>{formatModelName(msg.meta.model)}</span>
+                    {msg.meta.input_tokens != null && msg.meta.output_tokens != null && (
+                      <span>· {(msg.meta.input_tokens + msg.meta.output_tokens).toLocaleString()} tokens</span>
+                    )}
+                    {msg.meta.cost_usd != null && (
+                      <span>· ${msg.meta.cost_usd < 0.01 ? msg.meta.cost_usd.toFixed(4) : msg.meta.cost_usd.toFixed(2)}</span>
+                    )}
+                  </div>
                 )}
-              >
-                <MessageContent content={msg.content} />
               </div>
             </div>
           ))}
@@ -440,6 +469,14 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
       </div>
     </div>
   );
+}
+
+function formatModelName(model?: string): string {
+  if (!model) return "Unknown";
+  if (model.includes("sonnet")) return "Sonnet 4";
+  if (model.includes("haiku")) return "Haiku 4.5";
+  if (model.includes("opus")) return "Opus 4";
+  return model;
 }
 
 /**
