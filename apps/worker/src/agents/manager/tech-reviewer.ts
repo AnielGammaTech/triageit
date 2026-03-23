@@ -101,8 +101,9 @@ export function checkReviewEligibility(
 
   // No tech assigned = nothing to review (that's a dispatch problem, not a tech problem)
   const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
-  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
-  const hasAssignedTech = !!(context.assignedTechName) && !NON_TECH_NAMES.includes(techName);
+  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", "none", "n/a", ""];
+  const looksLikeNumber = /^(?:tech\s*)?\d+$/i.test(techName);
+  const hasAssignedTech = !!(context.assignedTechName) && !NON_TECH_NAMES.includes(techName) && !looksLikeNumber;
 
   // Must have at least 1 business hour of ticket age before reviewing
   const ticketCreatedTime = new Date(ticketCreatedAt).getTime();

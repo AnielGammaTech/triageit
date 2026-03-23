@@ -160,7 +160,13 @@ export async function runTriage(
           const rawTicket = ticketWithSlaForAgent as any;
           // Prefer agent_name if it looks like a real name (has letters, not just numbers)
           const apiAgentName = rawTicket.agent_name;
-          if (apiAgentName && typeof apiAgentName === "string" && /[a-zA-Z]{2,}/.test(apiAgentName)) {
+          const NON_TECH_VALUES = ["unassigned", "dispatch", "triage", "none", "n/a", ""];
+          if (
+            apiAgentName &&
+            typeof apiAgentName === "string" &&
+            /[a-zA-Z]{2,}/.test(apiAgentName) &&
+            !NON_TECH_VALUES.includes(apiAgentName.trim().toLowerCase())
+          ) {
             assignedTechName = apiAgentName;
           } else {
             assignedTechName = null;
