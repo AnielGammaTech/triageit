@@ -153,8 +153,8 @@ async function runDailyRetriage(): Promise<void> {
             recentReviews.map((r) => ({
               techName: r.tech_name ?? "Unknown",
               haloId: r.halo_id,
-              summary: (r.tickets as { summary: string })?.summary ?? "",
-              clientName: (r.tickets as { client_name: string | null })?.client_name ?? null,
+              summary: ((r.tickets as unknown) as { summary: string })?.summary ?? "",
+              clientName: ((r.tickets as unknown) as { client_name: string | null })?.client_name ?? null,
               rating: r.rating,
               responseTime: r.response_time ?? "unknown",
               maxGapHours: r.max_gap_hours ?? 0,

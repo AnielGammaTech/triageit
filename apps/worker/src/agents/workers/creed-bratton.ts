@@ -304,8 +304,8 @@ Respond with ONLY valid JSON:
         .slice(0, 20)
         .map((a) => ({
           name: a.name,
-          type: a.asset_type ?? "Unknown",
-          fields: a.fields ?? {},
+          type: (a.asset_type ?? "Unknown") as string,
+          fields: (a.fields ?? {}) as Record<string, unknown>,
         }));
 
       // Filter for network-related articles

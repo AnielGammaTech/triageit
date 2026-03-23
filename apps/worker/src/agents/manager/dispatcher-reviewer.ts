@@ -326,7 +326,7 @@ export async function generateDispatcherReview(
 
 // ── Halo Note Builder ────────────────────────────────────────────────
 
-function buildDispatcherNote(review: DispatcherReview, haloId: number): string {
+function buildDispatcherNote(review: DispatcherReview, _haloId: number): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const ratingColor = review.rating === "poor" ? "#f87171" : review.rating === "needs_improvement" ? "#fbbf24" : "#4ade80";
   const ratingEmoji = review.rating === "poor" ? "🔴" : review.rating === "needs_improvement" ? "🟡" : "🟢";

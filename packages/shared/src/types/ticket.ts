@@ -27,6 +27,11 @@ export interface HaloTicket {
   readonly datecreated: string;
   readonly deadlinedate?: string;
   readonly customfields?: ReadonlyArray<HaloCustomField>;
+  readonly user_emailaddress?: string;
+  readonly lastactiondate?: string;
+  readonly lastcustomeractiondate?: string;
+  readonly status_name?: string;
+  readonly [key: string]: unknown;
 }
 
 export interface HaloCustomField {
