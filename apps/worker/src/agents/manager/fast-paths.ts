@@ -68,6 +68,18 @@ export async function tryNotificationFastPath(
     } catch (error) {
       console.error(`[MICHAEL] Fast path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
+
+    // Move notification tickets to "Alerts" type in Halo too
+    try {
+      const ticketTypes = await halo.getTicketTypes();
+      const alertTypeId = ticketTypes.get("alerts") ?? ticketTypes.get("alert");
+      if (alertTypeId) {
+        await halo.updateTicketType(ticket.halo_id, alertTypeId);
+        console.log(`[MICHAEL] Fast path: Changed ticket #${ticket.halo_id} to Alerts type (id=${alertTypeId})`);
+      }
+    } catch (error) {
+      console.error(`[MICHAEL] Fast path: Failed to change ticket type for #${ticket.halo_id}:`, error);
+    }
   }
 
   await supabase.from("agent_logs").insert({
@@ -171,6 +183,20 @@ export async function tryAlertFastPath(
       await halo.addInternalNote(ticket.halo_id, alertNote);
     } catch (error) {
       console.error(`[MICHAEL] Alert path: Failed to write Halo note for #${ticket.halo_id}:`, error);
+    }
+
+    // Move ticket to "Alerts" ticket type in Halo so it doesn't clog the main queue
+    try {
+      const ticketTypes = await halo.getTicketTypes();
+      const alertTypeId = ticketTypes.get("alerts") ?? ticketTypes.get("alert");
+      if (alertTypeId) {
+        await halo.updateTicketType(ticket.halo_id, alertTypeId);
+        console.log(`[MICHAEL] Alert path: Changed ticket #${ticket.halo_id} to Alerts type (id=${alertTypeId})`);
+      } else {
+        console.warn(`[MICHAEL] Alert path: No "Alerts" ticket type found in Halo (available: ${Array.from(ticketTypes.keys()).join(", ")})`);
+      }
+    } catch (error) {
+      console.error(`[MICHAEL] Alert path: Failed to change ticket type for #${ticket.halo_id}:`, error);
     }
   }
 

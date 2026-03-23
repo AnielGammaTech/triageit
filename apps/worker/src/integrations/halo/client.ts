@@ -152,6 +152,46 @@ export class HaloClient {
     ]);
   }
 
+  /**
+   * Update the ticket type in Halo (e.g. move an alert ticket to "Alerts" type).
+   */
+  async updateTicketType(
+    ticketId: number,
+    ticketTypeId: number,
+  ): Promise<void> {
+    await this.request("POST", "/tickets", [
+      { id: ticketId, tickettype_id: ticketTypeId },
+    ]);
+  }
+
+  /**
+   * Look up all ticket types from Halo and return as id→name map.
+   */
+  async getTicketTypes(): Promise<ReadonlyMap<string, number>> {
+    const map = new Map<string, number>();
+    try {
+      const result = await this.request<{ record_count?: number } & Record<string, unknown>>(
+        "GET",
+        "/tickettype?count=100",
+      );
+      // Halo may return array or { tickettypes: [...] }
+      const types: ReadonlyArray<{ id: number; name: string }> =
+        Array.isArray(result)
+          ? result
+          : ((result as Record<string, unknown>).tickettypes as ReadonlyArray<{ id: number; name: string }>) ??
+            ((result as Record<string, unknown>).records as ReadonlyArray<{ id: number; name: string }>) ??
+            [];
+      for (const t of types) {
+        if (t.id && t.name) {
+          map.set(t.name.toLowerCase(), t.id);
+        }
+      }
+    } catch (err) {
+      console.warn("[HALO] Failed to fetch ticket types:", err);
+    }
+    return map;
+  }
+
   // ── Asset / Printer Methods ──────────────────────────────────────────
 
   async getAssets(params?: {
