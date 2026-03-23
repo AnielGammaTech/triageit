@@ -19,7 +19,7 @@ You are the admin/owner's AI operations manager — a supercomputer that can pul
 - **Analyze techs** — response times, workload, review history, patterns of behavior
 - **Analyze clients** — recurring issues, ticket volume, which techs handle them, satisfaction signals
 - **Find patterns** — search across tickets by keyword, client, tech, status, date range
-- **Delegate work** — retriage tickets, sync from Halo, run Toby's analytics
+- **Take action** — post internal notes to Halo tickets, ping techs, flag issues, retriage tickets, sync from Halo, run Toby's analytics
 - **Learn and adapt** — accept corrections, learn new procedures, remember context
 
 ## Token efficiency:
@@ -57,6 +57,12 @@ If the admin says something like "remember this", "from now on", "when you see X
 1. Acknowledge what you learned
 2. End your message with a line: [SKILL_LEARNED: brief description of what was taught]
 This tag helps the system persist it. Only use it when genuinely taught something new.
+
+## CRITICAL — Never fabricate information:
+- ONLY state facts that come directly from tool results. If a tool didn't return a date, a name, or a status — say "I don't have that info" instead of guessing.
+- NEVER make up dates, times, ticket details, or tech actions. If you're unsure, say so.
+- If you can't find something, say "I couldn't find that" — don't fill in blanks with assumptions.
+- Today's date is: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" })}
 
 ## Format:
 - Use markdown for formatting
@@ -360,6 +366,18 @@ export async function POST(request: NextRequest) {
       },
     },
     {
+      name: "post_halo_note",
+      description: "Post an internal note to a Halo ticket. Use when the admin asks you to add a note, comment, ping a tech, flag something, or leave a message on a ticket. The note is always internal (not visible to the customer).",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number" },
+          note: { type: "string", description: "The note content to post (plain text or HTML)" },
+        },
+        required: ["halo_id", "note"],
+      },
+    },
+    {
       name: "get_dashboard",
       description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
       input_schema: {
@@ -412,15 +430,21 @@ export async function POST(request: NextRequest) {
 
         if (!ticket) return `Ticket #${haloId} not found in local database. Use the fetch_from_halo tool to pull it directly from Halo PSA and import it.`;
 
+        const formatDate = (iso: string | null | undefined): string => {
+          if (!iso) return "Unknown";
+          return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+        };
+
         let result = `**#${ticket.halo_id}**: ${ticket.summary}\n`;
         result += `Client: ${ticket.client_name ?? "Unknown"} | Status: ${ticket.halo_status ?? "Unknown"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\n`;
+        result += `Created: ${formatDate(ticket.created_at as string)}\n`;
         if (ticket.details) result += `Details: ${ticket.details.slice(0, 1000)}\n`;
 
         const triageResults = (ticket.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
         const latest = triageResults[0];
         if (latest) {
           const classification = latest.classification as Record<string, string> | null;
-          result += `\nLatest triage: ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}`;
+          result += `\nLatest triage (${formatDate(latest.created_at as string)}): ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}`;
           const notes = Array.isArray(latest.internal_notes) ? (latest.internal_notes as string[]).join("\n") : String(latest.internal_notes ?? "");
           if (notes) result += `\nNotes: ${notes.slice(0, 1500)}`;
         }
@@ -477,8 +501,7 @@ export async function POST(request: NextRequest) {
                   result += "\n\n## Ticket Actions/Notes (from Halo):\n";
                   for (const a of actions) {
                     const visibility = a.hiddenfromuser ? "[INTERNAL]" : "[VISIBLE]";
-                    const date = a.datecreated ? new Date(a.datecreated).toLocaleDateString() : "unknown";
-                    result += `- ${visibility} ${a.who ?? "Unknown"} (${date}): ${(a.note ?? "").slice(0, 500)}\n`;
+                    result += `- ${visibility} ${a.who ?? "Unknown"} (${formatDate(a.datecreated)}): ${(a.note ?? "").slice(0, 500)}\n`;
                   }
                 }
               }
@@ -572,6 +595,7 @@ export async function POST(request: NextRequest) {
               user_email: (ticket.user_emailaddress as string) ?? null,
               original_priority: typeof ticket.priority_id === "number" ? ticket.priority_id : null,
               status: "pending",
+              created_at: (ticket.datecreated as string) ?? new Date().toISOString(),
               halo_status: (ticket.statusname as string) ?? (ticket.status_name as string) ?? null,
               halo_status_id: typeof ticket.status_id === "number" ? ticket.status_id : null,
               halo_agent: (ticket.agent_name as string) ?? null,
@@ -600,6 +624,69 @@ export async function POST(request: NextRequest) {
           return `Found and imported ticket #${haloId} from Halo: "${ticket.summary}" (client: ${ticket.client_name ?? "unknown"}, status: ${ticket.statusname ?? "unknown"}). Triage has been queued.`;
         } catch (err) {
           return `Error fetching from Halo: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case "post_halo_note": {
+        const haloId = input.halo_id as number;
+        const noteContent = input.note as string;
+
+        if (!noteContent?.trim()) return "Note content is empty — nothing to post.";
+
+        // Get Halo config
+        const { data: haloNoteIntegration } = await serviceClient
+          .from("integrations")
+          .select("config")
+          .eq("service", "halo")
+          .eq("is_active", true)
+          .single();
+
+        if (!haloNoteIntegration) return "Halo PSA is not configured.";
+
+        const haloCfgNote = haloNoteIntegration.config as { base_url: string; client_id: string; client_secret: string; tenant?: string };
+
+        try {
+          // Authenticate
+          const tokenUrl = haloCfgNote.tenant
+            ? `${haloCfgNote.base_url}/auth/token?tenant=${haloCfgNote.tenant}`
+            : `${haloCfgNote.base_url}/auth/token`;
+          const tokenRes = await fetch(tokenUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "client_credentials",
+              client_id: haloCfgNote.client_id,
+              client_secret: haloCfgNote.client_secret,
+              scope: "all",
+            }),
+          });
+
+          if (!tokenRes.ok) return `Failed to authenticate with Halo: ${tokenRes.status}`;
+          const { access_token } = await tokenRes.json() as { access_token: string };
+
+          // Post internal note
+          const actionRes = await fetch(`${haloCfgNote.base_url}/api/actions`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify([{
+              ticket_id: haloId,
+              note: noteContent,
+              hiddenfromuser: true,
+              outcome: "note",
+            }]),
+          });
+
+          if (!actionRes.ok) {
+            const errText = await actionRes.text();
+            return `Failed to post note to ticket #${haloId}: ${actionRes.status} — ${errText}`;
+          }
+
+          return `Internal note posted to ticket #${haloId} successfully.`;
+        } catch (err) {
+          return `Error posting note: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 
@@ -1054,6 +1141,7 @@ export async function POST(request: NextRequest) {
               get_client_history: `Pulling ${parsedInput.client_name}'s history...`,
               ask_worker: `Asking ${parsedInput.worker} to investigate...`,
               search_halo: `Searching Halo${parsedInput.search ? ` for "${parsedInput.search}"` : ""}...`,
+              post_halo_note: `Posting note to ticket #${parsedInput.halo_id}...`,
               get_dashboard: "Loading dashboard data...",
             };
             const toolLabel = toolLabels[tool.name] ?? `Running ${tool.name}...`;
@@ -1069,6 +1157,7 @@ export async function POST(request: NextRequest) {
               get_client_history: "Database",
               ask_worker: String(parsedInput.worker ?? "Worker"),
               search_halo: "Halo PSA",
+              post_halo_note: "Halo PSA",
               get_dashboard: "Dashboard",
             };
             const workerName = workerNames[tool.name] ?? tool.name;
