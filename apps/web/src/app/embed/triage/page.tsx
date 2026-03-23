@@ -441,19 +441,17 @@ function NoteCard({ note }: { readonly note: TriageItNote }) {
   const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
 
   return (
-    <div style={s.noteCard}>
-      <div style={s.noteCardHeader}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px" }}>{cfg.icon}</span>
-          <span style={{ ...s.noteCardType, color: cfg.accent }}>{cfg.label}</span>
-        </div>
-        <span style={s.noteCardDate}>{formatTimestamp(note.date)}</span>
-      </div>
+    <CollapsibleSection
+      title={`${cfg.icon} ${cfg.label} — TriageIt`}
+      accent={cfg.accent}
+      defaultOpen={false}
+      badge={formatTimestamp(note.date)}
+    >
       <div
-        style={s.noteCardBody}
+        style={{ fontSize: "12px", lineHeight: 1.6, overflow: "auto", maxHeight: "500px" }}
         dangerouslySetInnerHTML={{ __html: note.html }}
       />
-    </div>
+    </CollapsibleSection>
   );
 }
 

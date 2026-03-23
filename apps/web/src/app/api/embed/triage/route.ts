@@ -194,13 +194,7 @@ export async function POST(request: Request) {
       ticketId = inserted.id;
     }
 
-    // Clear old triage data so the UI starts fresh
-    await Promise.all([
-      supabase.from("triage_results").delete().eq("ticket_id", ticketId),
-      supabase.from("agent_logs").delete().eq("ticket_id", ticketId),
-    ]);
-
-    // Reset status to pending
+    // Reset status to pending — keep old triage/agent data for history
     await supabase
       .from("tickets")
       .update({ status: "pending", updated_at: new Date().toISOString() })

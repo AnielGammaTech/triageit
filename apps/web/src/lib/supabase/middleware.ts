@@ -11,8 +11,18 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname === "/api/summarize" ||
     request.nextUrl.pathname === "/api/triage";
 
-  if (isWebhook || isPublicApi || isHealthCheck || isEmbed || isEmbedApi) {
+  if (isWebhook || isPublicApi || isHealthCheck || isEmbedApi) {
     return NextResponse.next({ request });
+  }
+
+  // Embed pages: allow framing (for Halo iframe) and clipboard access
+  if (isEmbed) {
+    const response = NextResponse.next({ request });
+    response.headers.set("X-Frame-Options", "ALLOWALL");
+    response.headers.delete("X-Frame-Options"); // Remove restrictive default
+    response.headers.set("Permissions-Policy", "clipboard-write=(self)");
+    response.headers.set("Content-Security-Policy", "frame-ancestors *;");
+    return response;
   }
 
   let supabaseResponse = NextResponse.next({ request });

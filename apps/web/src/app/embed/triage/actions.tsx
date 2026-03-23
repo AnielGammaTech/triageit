@@ -17,16 +17,28 @@ function CopyButton({
 
   const handleCopy = useCallback(async () => {
     try {
+      // Try clipboard API first (works in top-level and permitted iframes)
       await navigator.clipboard.writeText(text);
     } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
+      try {
+        // Fallback for iframes: use textarea + execCommand
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        // Last resort for cross-origin iframes: open a small window with copyable text
+        const w = window.open("", "_blank", "width=500,height=300");
+        if (w) {
+          w.document.write(`<pre style="white-space:pre-wrap;font-size:13px;padding:16px;">${text.replace(/</g, "&lt;")}</pre>`);
+          w.document.close();
+        }
+        return; // Don't show "Copied!" since user needs to manually copy
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -354,14 +366,23 @@ function SuggestReplyButton({
     try {
       await navigator.clipboard.writeText(reply);
     } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = reply;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = reply;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch {
+        const w = window.open("", "_blank", "width=500,height=300");
+        if (w) {
+          w.document.write(`<pre style="white-space:pre-wrap;font-size:13px;padding:16px;">${reply.replace(/</g, "&lt;")}</pre>`);
+          w.document.close();
+        }
+        return;
+      }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
