@@ -52,6 +52,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [statusText, setStatusText] = useState("");
+  const [activityLog, setActivityLog] = useState<ReadonlyArray<string>>([]);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
@@ -139,6 +140,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
     setStreaming(true);
     setStreamingText("");
     setStatusText("");
+    setActivityLog([]);
 
     try {
       const res = await fetch("/api/michael/chat", {
@@ -178,6 +180,10 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           if (json.status) {
             setStatusText(json.status);
+            setActivityLog((prev) => [
+              ...prev,
+              JSON.stringify({ text: json.status, worker: json.worker, phase: json.phase }),
+            ]);
           }
 
           if (json.done) {
@@ -430,14 +436,39 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-600/20 text-amber-400 text-xs font-bold mt-0.5">
                 M
               </div>
-              <div className="rounded-xl bg-white/[0.06] px-4 py-3">
+              <div className="rounded-xl bg-white/[0.06] px-4 py-3 min-w-[200px]">
+                {activityLog.length > 0 && (
+                  <div className="mb-2 space-y-1.5">
+                    {activityLog.map((entry, i) => {
+                      const parsed = JSON.parse(entry) as { text: string; worker?: string; phase?: string };
+                      const isCompleted = parsed.phase === "completed";
+                      return (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          {isCompleted ? (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          ) : (
+                            <div className="h-3 w-3 rounded-full border-2 border-amber-400/50 border-t-amber-400 animate-spin" />
+                          )}
+                          <span className={isCompleted ? "text-white/30 line-through" : "text-white/50"}>
+                            {parsed.text}
+                          </span>
+                          {parsed.worker && !isCompleted && (
+                            <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-400/70">{parsed.worker}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <div className="flex gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "0ms" }} />
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
-                  <span className="text-xs text-white/30">{statusText || "Michael is typing..."}</span>
+                  <span className="text-xs text-white/30">{statusText || "Michael is thinking..."}</span>
                 </div>
               </div>
             </div>

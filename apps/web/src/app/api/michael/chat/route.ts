@@ -492,24 +492,34 @@ export async function POST(request: NextRequest) {
 
           if (!hasToolUse || toolUseBlocks.length === 0) break;
 
-          // Execute tools and build tool results
-          // Notify the UI that Michael is delegating
-          for (const tool of toolUseBlocks) {
-            const delegateMsg = tool.name === "retriage_ticket" ? "Delegating retriage to the pipeline..."
-              : tool.name === "lookup_ticket" ? "Looking up ticket details..."
-              : tool.name === "run_toby_analysis" ? "Asking Toby to run his analysis..."
-              : tool.name === "pull_tickets" ? "Syncing tickets from Halo..."
-              : "Working on it...";
-
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ status: delegateMsg })}\n\n`),
-            );
-          }
-
+          // Execute tools with granular status updates
           const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
           for (const tool of toolUseBlocks) {
             const parsedInput = tool.input ? JSON.parse(tool.input) : {};
+
+            // Descriptive status for each tool
+            const toolLabel = tool.name === "retriage_ticket" ? `Retriaging ticket #${parsedInput.halo_id}...`
+              : tool.name === "lookup_ticket" ? `Looking up ticket #${parsedInput.halo_id}...`
+              : tool.name === "run_toby_analysis" ? "Running Toby's analytics..."
+              : tool.name === "pull_tickets" ? "Syncing tickets from Halo..."
+              : `Running ${tool.name}...`;
+
+            const workerName = tool.name === "retriage_ticket" ? "Ryan + specialist team"
+              : tool.name === "lookup_ticket" ? "Database"
+              : tool.name === "run_toby_analysis" ? "Toby Flenderson"
+              : tool.name === "pull_tickets" ? "Halo PSA"
+              : tool.name;
+
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ status: toolLabel, worker: workerName, phase: "started" })}\n\n`),
+            );
+
             const result = await executeTool(tool.name, parsedInput);
+
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ status: `Done: ${toolLabel.replace("...", "")}`, worker: workerName, phase: "completed" })}\n\n`),
+            );
+
             toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
           }
 
