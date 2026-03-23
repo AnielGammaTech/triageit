@@ -4,6 +4,23 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
+/**
+ * Record a login event (IP, device, browser) after successful auth.
+ * Fire-and-forget — never blocks the login flow.
+ */
+function recordLoginEvent(userId: string): void {
+  fetch("/api/auth/login-event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      user_agent: navigator.userAgent,
+    }),
+  }).catch(() => {
+    // Silently ignore — login tracking is best-effort
+  });
+}
+
 export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,7 +35,7 @@ export function LoginForm() {
 
     try {
       const supabase = createClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -26,6 +43,11 @@ export function LoginForm() {
       if (authError) {
         setError(authError.message);
         return;
+      }
+
+      // Record login event (fire-and-forget)
+      if (data.user) {
+        recordLoginEvent(data.user.id);
       }
 
       router.refresh();

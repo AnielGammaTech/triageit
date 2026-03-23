@@ -7,8 +7,9 @@ interface CreateUserBody {
   readonly role: "admin" | "manager" | "viewer";
 }
 
-interface UpdateRoleBody {
-  readonly role: "admin" | "manager" | "viewer";
+interface UpdateUserBody {
+  readonly role?: "admin" | "manager" | "viewer";
+  readonly full_name?: string;
 }
 
 const VALID_ROLES = new Set(["admin", "manager", "viewer"]);
@@ -23,7 +24,6 @@ function generatePassword(): string {
   const special = "!@#$%&*";
   const all = upper + lower + digits + special;
 
-  // Ensure at least one of each type
   const parts = [
     upper[Math.floor(Math.random() * upper.length)],
     lower[Math.floor(Math.random() * lower.length)],
@@ -31,12 +31,10 @@ function generatePassword(): string {
     special[Math.floor(Math.random() * special.length)],
   ];
 
-  // Fill remaining 8 chars randomly
   for (let i = 0; i < 8; i++) {
     parts.push(all[Math.floor(Math.random() * all.length)]);
   }
 
-  // Shuffle
   for (let i = parts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [parts[i], parts[j]] = [parts[j], parts[i]];
@@ -45,13 +43,19 @@ function generatePassword(): string {
   return parts.join("");
 }
 
-/**
- * GET /api/users
- * Returns all user profiles. Requires admin role.
- */
-export async function GET(): Promise<NextResponse> {
-  const supabase = await createClient();
+type ServiceClient = Awaited<ReturnType<typeof createServiceClient>>;
 
+interface AdminContext {
+  readonly serviceClient: ServiceClient;
+  readonly userId: string;
+}
+
+/**
+ * Verify the caller is an authenticated admin. Returns the service client
+ * and user on success, or a NextResponse error on failure.
+ */
+async function requireAdmin(): Promise<AdminContext | NextResponse> {
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -60,7 +64,6 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Use service client to read all profiles (bypasses RLS)
   const serviceClient = await createServiceClient();
 
   const { data: callerProfile } = await serviceClient
@@ -73,7 +76,21 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ error: "Forbidden: admin role required" }, { status: 403 });
   }
 
-  const { data, error } = await serviceClient
+  return { serviceClient, userId: user.id };
+}
+
+/**
+ * GET /api/users
+ * Returns all user profiles with MFA status and recent login events.
+ * Requires admin role.
+ */
+export async function GET(): Promise<NextResponse> {
+  const auth = await requireAdmin();
+  if (auth instanceof NextResponse) return auth;
+  const { serviceClient } = auth;
+
+  // Fetch profiles
+  const { data: profiles, error } = await serviceClient
     .from("profiles")
     .select("id, email, full_name, role, created_at, updated_at")
     .order("created_at", { ascending: true });
@@ -82,7 +99,52 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ users: data });
+  // Fetch MFA factors for all users via admin API
+  const userIds = (profiles ?? []).map((p: { id: string }) => p.id);
+  const mfaMap: Record<string, boolean> = {};
+
+  // Supabase admin listUsers returns factor info
+  // We'll check each user's MFA factors
+  for (const uid of userIds) {
+    try {
+      const { data: factors } = await serviceClient.auth.admin.mfa.listFactors({
+        userId: uid,
+      });
+      const verifiedFactors = (factors?.factors ?? []).filter(
+        (f: { status: string }) => f.status === "verified",
+      );
+      mfaMap[uid] = verifiedFactors.length > 0;
+    } catch {
+      mfaMap[uid] = false;
+    }
+  }
+
+  // Fetch recent login events (last 5 per user)
+  const { data: loginEvents } = await serviceClient
+    .from("login_events")
+    .select("id, user_id, ip_address, device_type, browser, os, created_at")
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  // Group login events by user_id (max 5 per user)
+  const loginMap: Record<string, ReadonlyArray<Record<string, unknown>>> = {};
+  for (const event of loginEvents ?? []) {
+    const uid = event.user_id as string;
+    const existing = loginMap[uid] ?? [];
+    if (existing.length < 5) {
+      loginMap[uid] = [...existing, event];
+    }
+  }
+
+  // Merge data
+  const users = (profiles ?? []).map((p: Record<string, unknown>) => ({
+    ...p,
+    mfa_enabled: mfaMap[p.id as string] ?? false,
+    login_events: loginMap[p.id as string] ?? [],
+  }));
+
+  return NextResponse.json({ users });
 }
 
 /**
@@ -91,27 +153,9 @@ export async function GET(): Promise<NextResponse> {
  * Requires admin role.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const serviceClient = await createServiceClient();
-
-  const { data: callerProfile } = await serviceClient
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (callerProfile?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin role required" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if (auth instanceof NextResponse) return auth;
+  const { serviceClient } = auth;
 
   const body = (await request.json()) as CreateUserBody;
 
@@ -129,13 +173,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate email format
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(body.email)) {
     return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
   }
 
-  // Create user in Supabase Auth with a generated temporary password
   const tempPassword = generatePassword();
 
   const { data: authData, error: authError } =
@@ -150,8 +192,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: authError.message }, { status: 400 });
   }
 
-  // The trigger should auto-create the profile, but update the role
-  // since the trigger defaults to 'admin'
   if (authData.user) {
     const { error: profileError } = await serviceClient
       .from("profiles")
@@ -163,7 +203,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Return the updated profile
   const { data: profile } = await serviceClient
     .from("profiles")
     .select("id, email, full_name, role, created_at, updated_at")
@@ -175,7 +214,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 /**
  * PATCH /api/users?id=<uuid>
- * Update a user's role. Requires admin role.
+ * Update a user's role and/or name. Requires admin role.
+ *
+ * PATCH /api/users?id=<uuid>&action=reset-password
+ * Reset a user's password. Returns the new temporary password.
  */
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   const id = request.nextUrl.searchParams.get("id");
@@ -183,31 +225,31 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Missing 'id' query parameter" }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  const auth = await requireAdmin();
+  if (auth instanceof NextResponse) return auth;
+  const { serviceClient, userId } = auth;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const action = request.nextUrl.searchParams.get("action");
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // ── Password Reset ──────────────────────────────────────────────────
+  if (action === "reset-password") {
+    const newPassword = generatePassword();
+
+    const { error: resetError } = await serviceClient.auth.admin.updateUserById(id, {
+      password: newPassword,
+    });
+
+    if (resetError) {
+      return NextResponse.json({ error: resetError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ temp_password: newPassword });
   }
 
-  const serviceClient = await createServiceClient();
+  // ── Update Profile (role / name) ────────────────────────────────────
+  const body = (await request.json()) as UpdateUserBody;
 
-  const { data: callerProfile } = await serviceClient
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (callerProfile?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden: admin role required" }, { status: 403 });
-  }
-
-  const body = (await request.json()) as UpdateRoleBody;
-
-  if (!body.role || !VALID_ROLES.has(body.role)) {
+  if (body.role && !VALID_ROLES.has(body.role)) {
     return NextResponse.json(
       { error: "Invalid role. Must be: admin, manager, or viewer" },
       { status: 400 },
@@ -215,16 +257,20 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   }
 
   // Prevent demoting yourself
-  if (id === user.id && body.role !== "admin") {
+  if (id === userId && body.role && body.role !== "admin") {
     return NextResponse.json(
       { error: "You cannot change your own role" },
       { status: 400 },
     );
   }
 
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.role) updates.role = body.role;
+  if (body.full_name !== undefined) updates.full_name = body.full_name;
+
   const { data, error } = await serviceClient
     .from("profiles")
-    .update({ role: body.role, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", id)
     .select("id, email, full_name, role, created_at, updated_at")
     .single();

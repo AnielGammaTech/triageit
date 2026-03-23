@@ -5,6 +5,15 @@ import { cn } from "@/lib/utils/cn";
 
 // ── Types ────────────────────────────────────────────────────────────
 
+interface LoginEvent {
+  readonly id: string;
+  readonly ip_address: string | null;
+  readonly device_type: string | null;
+  readonly browser: string | null;
+  readonly os: string | null;
+  readonly created_at: string;
+}
+
 interface UserProfile {
   readonly id: string;
   readonly email: string;
@@ -12,6 +21,8 @@ interface UserProfile {
   readonly role: "admin" | "manager" | "viewer";
   readonly created_at: string;
   readonly updated_at: string;
+  readonly mfa_enabled: boolean;
+  readonly login_events: ReadonlyArray<LoginEvent>;
 }
 
 type Role = "admin" | "manager" | "viewer";
@@ -30,23 +41,88 @@ const ROLE_COLORS: Record<Role, string> = {
 
 // ── Icons ────────────────────────────────────────────────────────────
 
-const PLUS_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 5v14" /><path d="M5 12h14" />
-  </svg>
-);
+const ICONS = {
+  plus: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 5v14" /><path d="M5 12h14" />
+    </svg>
+  ),
+  close: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+    </svg>
+  ),
+  user: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
+  chevronDown: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  ),
+  chevronUp: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  ),
+  shield: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  key: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </svg>
+  ),
+  monitor: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8" /><path d="M12 17v4" />
+    </svg>
+  ),
+  smartphone: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="2" width="14" height="20" rx="2" /><path d="M12 18h.01" />
+    </svg>
+  ),
+  check: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  ),
+  edit: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  ),
+} as const;
 
-const CLOSE_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-  </svg>
-);
+// ── Helpers ──────────────────────────────────────────────────────────
 
-const USER_ICON = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-  </svg>
-);
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function getDeviceIcon(type: string | null) {
+  if (type === "mobile" || type === "tablet") return ICONS.smartphone;
+  return ICONS.monitor;
+}
 
 // ── Create User Form ─────────────────────────────────────────────────
 
@@ -91,11 +167,9 @@ function CreateUserForm({
         return;
       }
 
-      // Show the temporary password before closing the form
       if (data.temp_password) {
         setTempPassword(data.temp_password as string);
         setSaving(false);
-        // Don't call onCreated yet — wait for user to copy the password
         return;
       }
 
@@ -106,14 +180,12 @@ function CreateUserForm({
     }
   }
 
-  async function handleCopyPassword() {
-    if (!tempPassword) return;
+  async function copyToClipboard(text: string) {
     try {
-      await navigator.clipboard.writeText(tempPassword);
+      await navigator.clipboard.writeText(text);
     } catch {
-      // Fallback
       const textarea = document.createElement("textarea");
-      textarea.value = tempPassword;
+      textarea.value = text;
       textarea.style.position = "fixed";
       textarea.style.opacity = "0";
       document.body.appendChild(textarea);
@@ -125,15 +197,12 @@ function CreateUserForm({
     setTimeout(() => setPasswordCopied(false), 2000);
   }
 
-  // Show password screen after successful creation
   if (tempPassword) {
     return (
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-5 space-y-4">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
+            {ICONS.check}
           </span>
           <h4 className="text-sm font-semibold text-emerald-400">User Created</h4>
         </div>
@@ -153,7 +222,7 @@ function CreateUserForm({
               <p className="text-sm font-mono text-white select-all">{tempPassword}</p>
               <button
                 type="button"
-                onClick={handleCopyPassword}
+                onClick={() => copyToClipboard(tempPassword)}
                 className={cn(
                   "shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors",
                   passwordCopied
@@ -170,7 +239,6 @@ function CreateUserForm({
         <button
           type="button"
           onClick={() => {
-            // Fetch the user profile to pass to onCreated
             fetch("/api/users")
               .then((r) => r.json())
               .then((d) => {
@@ -193,12 +261,8 @@ function CreateUserForm({
     <form onSubmit={handleSubmit} className="rounded-xl border border-white/10 bg-white/[0.02] p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-semibold text-white">New User</h4>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-white/40 hover:text-white transition-colors"
-        >
-          {CLOSE_ICON}
+        <button type="button" onClick={onCancel} className="text-white/40 hover:text-white transition-colors">
+          {ICONS.close}
         </button>
       </div>
 
@@ -209,9 +273,7 @@ function CreateUserForm({
       )}
 
       <div>
-        <label htmlFor="user-name" className="mb-1.5 block text-xs font-medium text-white/60">
-          Full Name
-        </label>
+        <label htmlFor="user-name" className="mb-1.5 block text-xs font-medium text-white/60">Full Name</label>
         <input
           id="user-name"
           type="text"
@@ -224,9 +286,7 @@ function CreateUserForm({
       </div>
 
       <div>
-        <label htmlFor="user-email" className="mb-1.5 block text-xs font-medium text-white/60">
-          Email
-        </label>
+        <label htmlFor="user-email" className="mb-1.5 block text-xs font-medium text-white/60">Email</label>
         <input
           id="user-email"
           type="email"
@@ -238,9 +298,7 @@ function CreateUserForm({
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs font-medium text-white/60">
-          Role
-        </label>
+        <label className="mb-1.5 block text-xs font-medium text-white/60">Role</label>
         <div className="grid grid-cols-3 gap-2">
           {ROLES.map((r) => (
             <button
@@ -285,23 +343,26 @@ function CreateUserForm({
   );
 }
 
-// ── Role Editor ──────────────────────────────────────────────────────
+// ── Edit User Panel ──────────────────────────────────────────────────
 
-function RoleEditor({
+function EditUserPanel({
   user,
   onUpdated,
   onCancel,
 }: {
   readonly user: UserProfile;
+  readonly isCurrentUser: boolean;
   readonly onUpdated: (user: UserProfile) => void;
   readonly onCancel: () => void;
 }) {
+  const [fullName, setFullName] = useState(user.full_name ?? "");
   const [selectedRole, setSelectedRole] = useState<Role>(user.role);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSave() {
-    if (selectedRole === user.role) {
+    const hasChanges = fullName !== (user.full_name ?? "") || selectedRole !== user.role;
+    if (!hasChanges) {
       onCancel();
       return;
     }
@@ -310,16 +371,20 @@ function RoleEditor({
     setSaving(true);
 
     try {
+      const body: Record<string, string> = {};
+      if (fullName !== (user.full_name ?? "")) body.full_name = fullName;
+      if (selectedRole !== user.role) body.role = selectedRole;
+
       const res = await fetch(`/api/users?id=${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: selectedRole }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error ?? "Failed to update role");
+        setError(data.error ?? "Failed to update user");
         setSaving(false);
         return;
       }
@@ -332,28 +397,46 @@ function RoleEditor({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+      <h5 className="text-xs font-semibold text-white/60 uppercase tracking-wider">Edit User</h5>
+
       {error && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
           {error}
         </div>
       )}
-      <div className="grid grid-cols-3 gap-1.5">
-        {ROLES.map((r) => (
-          <button
-            key={r.value}
-            onClick={() => setSelectedRole(r.value)}
-            className={cn(
-              "rounded-lg border px-2.5 py-2 text-left transition-all",
-              selectedRole === r.value
-                ? "border-[#6366f1] bg-[#6366f1]/10"
-                : "border-white/10 hover:border-white/20 hover:bg-white/[0.04]",
-            )}
-          >
-            <p className="text-[11px] font-medium text-white">{r.label}</p>
-          </button>
-        ))}
+
+      <div>
+        <label htmlFor={`edit-name-${user.id}`} className="mb-1 block text-[11px] text-white/50">Name</label>
+        <input
+          id={`edit-name-${user.id}`}
+          type="text"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white outline-none transition-colors focus:border-[#6366f1]"
+        />
       </div>
+
+      <div>
+        <label className="mb-1 block text-[11px] text-white/50">Role</label>
+        <div className="grid grid-cols-3 gap-1.5">
+          {ROLES.map((r) => (
+            <button
+              key={r.value}
+              onClick={() => setSelectedRole(r.value)}
+              className={cn(
+                "rounded-lg border px-2.5 py-2 text-left transition-all",
+                selectedRole === r.value
+                  ? "border-[#6366f1] bg-[#6366f1]/10"
+                  : "border-white/10 hover:border-white/20 hover:bg-white/[0.04]",
+              )}
+            >
+              <p className="text-[11px] font-medium text-white">{r.label}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex justify-end gap-2">
         <button
           onClick={onCancel}
@@ -377,7 +460,147 @@ function RoleEditor({
   );
 }
 
-// ── User Row ─────────────────────────────────────────────────────────
+// ── Password Reset ───────────────────────────────────────────────────
+
+function PasswordResetButton({ userId }: { readonly userId: string }) {
+  const [resetting, setResetting] = useState(false);
+  const [newPassword, setNewPassword] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleReset() {
+    setError(null);
+    setResetting(true);
+
+    try {
+      const res = await fetch(`/api/users?id=${userId}&action=reset-password`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error ?? "Failed to reset password");
+        setResetting(false);
+        return;
+      }
+
+      setNewPassword(data.temp_password as string);
+    } catch {
+      setError("Network error");
+    }
+    setResetting(false);
+  }
+
+  async function copyPassword() {
+    if (!newPassword) return;
+    try {
+      await navigator.clipboard.writeText(newPassword);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = newPassword;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (newPassword) {
+    return (
+      <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2 space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">New Password</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-mono text-white select-all">{newPassword}</p>
+          <button
+            type="button"
+            onClick={copyPassword}
+            className={cn(
+              "shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold transition-colors",
+              copied
+                ? "bg-emerald-500/20 text-emerald-400"
+                : "bg-white/10 text-white/60 hover:bg-white/15",
+            )}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => setNewPassword(null)}
+          className="text-[10px] text-white/40 hover:text-white/60 transition-colors"
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {error && (
+        <p className="text-[10px] text-red-400 mb-1">{error}</p>
+      )}
+      <button
+        onClick={handleReset}
+        disabled={resetting}
+        className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-amber-500/30 hover:text-amber-400"
+      >
+        {ICONS.key}
+        {resetting ? "Resetting..." : "Reset Password"}
+      </button>
+    </div>
+  );
+}
+
+// ── Login History ────────────────────────────────────────────────────
+
+function LoginHistory({ events }: { readonly events: ReadonlyArray<LoginEvent> }) {
+  if (events.length === 0) {
+    return (
+      <p className="text-xs text-white/30 italic">No login history recorded yet.</p>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {events.map((event) => (
+        <div
+          key={event.id}
+          className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+        >
+          <span className="text-white/30">{getDeviceIcon(event.device_type)}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/70">
+                {event.browser ?? "Unknown"} / {event.os ?? "Unknown"}
+              </span>
+              <span className="text-[10px] text-white/30 capitalize">
+                {event.device_type ?? "unknown"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] text-white/30 font-mono">
+                {event.ip_address ?? "—"}
+              </span>
+            </div>
+          </div>
+          <span className="shrink-0 text-[10px] text-white/30">
+            {formatDateTime(event.created_at)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── User Row (Expandable) ────────────────────────────────────────────
 
 function UserRow({
   user,
@@ -388,6 +611,7 @@ function UserRow({
   readonly isCurrentUser: boolean;
   readonly onUpdated: (updated: UserProfile) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const initials = (user.full_name ?? user.email)
@@ -396,63 +620,109 @@ function UserRow({
     .slice(0, 2)
     .join("");
 
-  const createdDate = new Date(user.created_at).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const lastLogin = user.login_events.length > 0
+    ? formatDateTime(user.login_events[0].created_at)
+    : "Never";
 
   return (
-    <div className="px-5 py-4">
-      <div className="flex items-center gap-4">
-        {/* Avatar */}
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6366f1]/20 text-sm font-bold text-[#6366f1]">
-          {initials || "?"}
-        </div>
+    <div>
+      {/* Main row — clickable to expand */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-5 py-4 text-left transition-colors hover:bg-white/[0.02]"
+      >
+        <div className="flex items-center gap-4">
+          {/* Avatar */}
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6366f1]/20 text-sm font-bold text-[#6366f1]">
+            {initials || "?"}
+          </div>
 
-        {/* Info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-white truncate">
-              {user.full_name || user.email}
-            </p>
-            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", ROLE_COLORS[user.role])}>
-              {user.role}
-            </span>
-            {isCurrentUser && (
-              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/30">
-                you
+          {/* Info */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-white truncate">
+                {user.full_name || user.email}
+              </p>
+              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", ROLE_COLORS[user.role])}>
+                {user.role}
               </span>
-            )}
+              {user.mfa_enabled && (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                  {ICONS.shield}
+                  MFA
+                </span>
+              )}
+              {isCurrentUser && (
+                <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/30">
+                  you
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 flex items-center gap-3">
+              <span className="text-xs text-white/40 truncate">{user.email}</span>
+              <span className="text-[10px] text-white/30">Joined {formatDate(user.created_at)}</span>
+              <span className="text-[10px] text-white/25">Last login: {lastLogin}</span>
+            </div>
           </div>
-          <div className="mt-0.5 flex items-center gap-3">
-            <span className="text-xs text-white/40 truncate">{user.email}</span>
-            <span className="text-[10px] text-white/30">Joined {createdDate}</span>
-          </div>
+
+          {/* Expand icon */}
+          <span className="shrink-0 text-white/30 transition-transform">
+            {expanded ? ICONS.chevronUp : ICONS.chevronDown}
+          </span>
         </div>
+      </button>
 
-        {/* Edit button */}
-        {!isCurrentUser && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-white/20 hover:text-white"
-          >
-            Edit role
-          </button>
-        )}
-      </div>
+      {/* Expanded panel */}
+      {expanded && (
+        <div className="px-5 pb-4 ml-14 space-y-4">
+          {/* Actions bar */}
+          <div className="flex items-center gap-3">
+            {!isCurrentUser && !editing && (
+              <button
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-[#6366f1]/30 hover:text-[#6366f1]"
+              >
+                {ICONS.edit}
+                Edit User
+              </button>
+            )}
+            {!isCurrentUser && (
+              <PasswordResetButton userId={user.id} />
+            )}
+            <div className="flex-1" />
+            <div className="flex items-center gap-1.5 text-white/30">
+              {ICONS.shield}
+              <span className="text-[10px]">
+                MFA: {user.mfa_enabled ? (
+                  <span className="text-emerald-400 font-semibold">Enabled</span>
+                ) : (
+                  <span className="text-white/40">Not enabled</span>
+                )}
+              </span>
+            </div>
+          </div>
 
-      {/* Inline role editor */}
-      {editing && (
-        <div className="mt-3 ml-14">
-          <RoleEditor
-            user={user}
-            onUpdated={(updated) => {
-              onUpdated(updated);
-              setEditing(false);
-            }}
-            onCancel={() => setEditing(false)}
-          />
+          {/* Edit panel */}
+          {editing && (
+            <EditUserPanel
+              user={user}
+              isCurrentUser={isCurrentUser}
+              onUpdated={(updated) => {
+                onUpdated(updated);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          )}
+
+          {/* Login history */}
+          <div>
+            <h5 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-2">
+              Recent Logins
+            </h5>
+            <LoginHistory events={user.login_events} />
+          </div>
         </div>
       )}
     </div>
@@ -491,7 +761,6 @@ export function UsersSecuritySection() {
     loadUsers();
   }, [loadUsers]);
 
-  // Get current user id from Supabase client
   useEffect(() => {
     async function getCurrentUser() {
       const { createClient } = await import("@/lib/supabase/client");
@@ -510,8 +779,10 @@ export function UsersSecuritySection() {
   }
 
   function handleUserUpdated(updated: UserProfile) {
-    setUsers(users.map((u) => (u.id === updated.id ? updated : u)));
+    setUsers(users.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)));
   }
+
+  const mfaCount = users.filter((u) => u.mfa_enabled).length;
 
   if (loading) {
     return (
@@ -528,7 +799,7 @@ export function UsersSecuritySection() {
         <div>
           <h3 className="text-lg font-semibold text-white">Users & Security</h3>
           <p className="mt-1 text-sm text-white/50">
-            Manage user accounts and their roles.
+            Manage accounts, passwords, MFA, and login activity.
           </p>
         </div>
         {!showCreateForm && (
@@ -536,7 +807,7 @@ export function UsersSecuritySection() {
             onClick={() => setShowCreateForm(true)}
             className="flex items-center gap-1.5 rounded-lg bg-[#6366f1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5558e6]"
           >
-            {PLUS_ICON}
+            {ICONS.plus}
             <span>Add User</span>
           </button>
         )}
@@ -560,7 +831,7 @@ export function UsersSecuritySection() {
       {/* Stats bar */}
       <div className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
         <div className="flex items-center gap-1.5 text-white/40">
-          {USER_ICON}
+          {ICONS.user}
           <span className="text-xs font-medium">{users.length} user{users.length !== 1 ? "s" : ""}</span>
         </div>
         <div className="h-3 w-px bg-white/10" />
@@ -575,6 +846,17 @@ export function UsersSecuritySection() {
             </div>
           );
         })}
+        <div className="h-3 w-px bg-white/10" />
+        <div className="flex items-center gap-1.5">
+          <span className={cn(
+            "flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+            mfaCount > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-white/10 text-white/40",
+          )}>
+            {ICONS.shield}
+            {mfaCount}
+          </span>
+          <span className="text-[10px] text-white/30">MFA enabled</span>
+        </div>
       </div>
 
       {/* User list */}
@@ -592,7 +874,7 @@ export function UsersSecuritySection() {
         <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
           <div className="border-b border-white/10 px-5 py-3">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-white/40">
-              All Users
+              All Users — click to expand
             </h4>
           </div>
           <div className="divide-y divide-white/5">
