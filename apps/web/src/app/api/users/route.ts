@@ -14,6 +14,38 @@ interface UpdateRoleBody {
 const VALID_ROLES = new Set(["admin", "manager", "viewer"]);
 
 /**
+ * Generate a secure random password for new users.
+ */
+function generatePassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghjkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const special = "!@#$%&*";
+  const all = upper + lower + digits + special;
+
+  // Ensure at least one of each type
+  const parts = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    special[Math.floor(Math.random() * special.length)],
+  ];
+
+  // Fill remaining 8 chars randomly
+  for (let i = 0; i < 8; i++) {
+    parts.push(all[Math.floor(Math.random() * all.length)]);
+  }
+
+  // Shuffle
+  for (let i = parts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [parts[i], parts[j]] = [parts[j], parts[i]];
+  }
+
+  return parts.join("");
+}
+
+/**
  * GET /api/users
  * Returns all user profiles. Requires admin role.
  */
@@ -103,10 +135,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
   }
 
-  // Create user in Supabase Auth using admin API
+  // Create user in Supabase Auth with a generated temporary password
+  const tempPassword = generatePassword();
+
   const { data: authData, error: authError } =
     await serviceClient.auth.admin.createUser({
       email: body.email,
+      password: tempPassword,
       email_confirm: true,
       user_metadata: { full_name: body.full_name },
     });
@@ -135,7 +170,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .eq("id", authData.user.id)
     .single();
 
-  return NextResponse.json({ user: profile }, { status: 201 });
+  return NextResponse.json({ user: profile, temp_password: tempPassword }, { status: 201 });
 }
 
 /**

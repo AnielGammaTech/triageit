@@ -62,6 +62,8 @@ function CreateUserForm({
   const [role, setRole] = useState<Role>("viewer");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [passwordCopied, setPasswordCopied] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,11 +91,102 @@ function CreateUserForm({
         return;
       }
 
+      // Show the temporary password before closing the form
+      if (data.temp_password) {
+        setTempPassword(data.temp_password as string);
+        setSaving(false);
+        // Don't call onCreated yet — wait for user to copy the password
+        return;
+      }
+
       onCreated(data.user as UserProfile);
     } catch {
       setError("Network error. Please try again.");
       setSaving(false);
     }
+  }
+
+  async function handleCopyPassword() {
+    if (!tempPassword) return;
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+    } catch {
+      // Fallback
+      const textarea = document.createElement("textarea");
+      textarea.value = tempPassword;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    setPasswordCopied(true);
+    setTimeout(() => setPasswordCopied(false), 2000);
+  }
+
+  // Show password screen after successful creation
+  if (tempPassword) {
+    return (
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+          <h4 className="text-sm font-semibold text-emerald-400">User Created</h4>
+        </div>
+
+        <p className="text-xs text-white/60">
+          Share these credentials with <strong className="text-white">{fullName || email}</strong>. The temporary password will not be shown again.
+        </p>
+
+        <div className="space-y-2">
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30 mb-1">Email</p>
+            <p className="text-sm font-mono text-white">{email}</p>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30 mb-1">Temporary Password</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-mono text-white select-all">{tempPassword}</p>
+              <button
+                type="button"
+                onClick={handleCopyPassword}
+                className={cn(
+                  "shrink-0 rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors",
+                  passwordCopied
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : "bg-white/10 text-white/60 hover:bg-white/15 hover:text-white",
+                )}
+              >
+                {passwordCopied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            // Fetch the user profile to pass to onCreated
+            fetch("/api/users")
+              .then((r) => r.json())
+              .then((d) => {
+                const users = (d.users ?? []) as UserProfile[];
+                const created = users.find((u) => u.email === email);
+                if (created) onCreated(created);
+                else onCancel();
+              })
+              .catch(() => onCancel());
+          }}
+          className="w-full rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/15"
+        >
+          Done
+        </button>
+      </div>
+    );
   }
 
   return (
