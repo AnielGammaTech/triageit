@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
 
 export async function POST(request: NextRequest) {
-  const authError = await requireAuth();
-  if (authError) return authError;
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
 
   const body = await request.json() as { halo_id?: number };
   if (!body.halo_id) {
