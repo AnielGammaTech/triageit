@@ -246,10 +246,20 @@ export default function TicketsPage() {
     ? allOpenTickets.filter((t) => isStale(t))
     : allOpenTickets;
 
-  // Needs Review: kept for backward compat but Review tab now uses ReviewList component
-  const needsReviewTickets = filteredTickets.filter(
-    (t) => t.status === "needs_review" && !isResolved(t),
-  );
+  // Tech review count (fetched separately since ReviewList has its own data source)
+  const [reviewCount, setReviewCount] = useState<number>(0);
+
+  useEffect(() => {
+    fetch("/api/tech-reviews")
+      .then((r) => r.json())
+      .then((d) => {
+        const reviews = (d.reviews ?? []) as ReadonlyArray<{ ticket_id: string }>;
+        // Count unique tickets with reviews
+        const uniqueTickets = new Set(reviews.map((r) => r.ticket_id));
+        setReviewCount(uniqueTickets.size);
+      })
+      .catch(() => setReviewCount(0));
+  }, []);
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
@@ -419,10 +429,10 @@ export default function TicketsPage() {
           active={activeTab === "needs_review"}
           onClick={() => setActiveTab("needs_review")}
           label="Review"
-          count={needsReviewTickets.length}
+          count={reviewCount}
           badgeClass="bg-rose-500/20 text-rose-400"
-          pulse={true}
-          hideZero={true}
+          pulse={false}
+          hideZero={false}
         />
         <TabButton
           active={activeTab === "resolved"}
