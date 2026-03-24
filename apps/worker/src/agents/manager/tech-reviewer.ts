@@ -79,20 +79,50 @@ export function checkReviewEligibility(
   const ticketAgeHours = ticketAgeMs / (1000 * 60 * 60);
   const actions = context.actions ?? [];
 
-  const customerActions = actions.filter((a) => !a.isInternal);
-  const techActions = actions.filter((a) => a.isInternal);
+  // Identify customer vs tech/staff actions by WHO sent them, not by visibility.
+  // A tech replying to a customer sends a PUBLIC (non-internal) action — that's still a tech action.
+  // Customer actions are those sent by the reporting user (userName/userEmail match).
+  const customerName = (context.userName ?? "").toLowerCase().trim();
+  const customerEmail = (context.userEmail ?? "").toLowerCase().trim();
+  const assignedTechLower = (context.assignedTechName ?? "").toLowerCase().trim();
 
-  // Find the longest BUSINESS HOURS gap between a customer reply and the next tech action
+  const isCustomerAction = (a: typeof actions[0]): boolean => {
+    const who = (a.who ?? "").toLowerCase().trim();
+    if (!who) return !a.isInternal; // fallback: public + unknown sender = likely customer
+    if (customerName && who.includes(customerName)) return true;
+    if (customerEmail && who.includes(customerEmail)) return true;
+    // If the action is public and the sender is NOT the assigned tech and NOT a known staff member,
+    // assume it's from the customer
+    if (!a.isInternal && assignedTechLower && !who.includes(assignedTechLower)) {
+      // Check if it's from some other staff (dispatchers etc.) — they usually post internal notes
+      // Public actions from non-tech people are most likely customer replies
+      return true;
+    }
+    return false;
+  };
+
+  const customerActions = actions.filter(isCustomerAction);
+  const techActions = actions.filter((a) => !isCustomerAction(a));
+
+  // Find the longest BUSINESS HOURS gap between a customer message and the next
+  // VISIBLE (external) tech response. Internal notes don't count — the customer
+  // only sees public replies.
+  const visibleTechActions = actions.filter((a) => {
+    if (a.isInternal) return false; // must be visible to customer
+    if (isCustomerAction(a)) return false; // must be from tech, not customer
+    return true;
+  });
+
   const maxResponseGapHours = (() => {
     let maxGap = 0;
     for (const custAction of customerActions) {
       if (!custAction.date) continue;
       const custTime = new Date(custAction.date).getTime();
-      const nextTech = techActions
+      const nextVisible = visibleTechActions
         .filter((t) => t.date && new Date(t.date).getTime() > custTime)
         .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
 
-      const endTime = nextTech?.date ? new Date(nextTech.date).getTime() : Date.now();
+      const endTime = nextVisible?.date ? new Date(nextVisible.date).getTime() : Date.now();
       const businessGap = calculateBusinessHoursGap(custTime, endTime);
       maxGap = Math.max(maxGap, businessGap);
     }

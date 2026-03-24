@@ -84,6 +84,13 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly dateoccurred?: string;
+  readonly datetime?: string;
+  readonly when?: string;
+}
+
+function getActionDate(a: HaloAction): string {
+  return a.datecreated ?? a.dateoccurred ?? a.datetime ?? a.when ?? "";
 }
 
 interface TriageITNote {
@@ -177,13 +184,13 @@ async function fetchTriageITNotes(
       .filter(isTriageITNote)
       .sort(
         (a, b) =>
-          new Date(a.datecreated ?? "").getTime() -
-          new Date(b.datecreated ?? "").getTime(),
+          new Date(getActionDate(a)).getTime() -
+          new Date(getActionDate(b)).getTime(),
       )
       .map((a) => ({
         id: a.id,
         html: a.note,
-        date: a.datecreated ?? "",
+        date: getActionDate(a),
         type: classifyNote(a.note),
       }));
   } catch (err) {

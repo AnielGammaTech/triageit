@@ -167,8 +167,26 @@ function TicketTags({ ticket }: { readonly ticket: TicketRow }) {
 
 export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTicketListProps) {
   const [page, setPage] = useState(0);
-  const totalPages = Math.ceil(tickets.length / PAGE_SIZE);
-  const pagedTickets = tickets.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [techFilter, setTechFilter] = useState("");
+
+  // Derive unique values for filters
+  const statuses = [...new Set(tickets.map((t) => t.halo_status ?? "Unknown").filter(Boolean))].sort();
+  const techs = [...new Set(tickets.map((t) => t.halo_agent).filter((a): a is string => !!a))].sort();
+
+  // Filter tickets
+  const filtered = tickets.filter((t) => {
+    const q = search.toLowerCase();
+    if (q && !t.summary.toLowerCase().includes(q) && !String(t.halo_id).includes(q) && !(t.client_name ?? "").toLowerCase().includes(q)) return false;
+    if (statusFilter && (t.halo_status ?? "Unknown") !== statusFilter) return false;
+    if (techFilter && t.halo_agent !== techFilter) return false;
+    return true;
+  });
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const safePage = Math.min(page, Math.max(totalPages - 1, 0));
+  const pagedTickets = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   if (tickets.length === 0) {
     return (
@@ -182,6 +200,42 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
 
   return (
     <>
+      {/* Search & Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+          placeholder="Search tickets..."
+          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#b91c1c]/50 focus:outline-none focus:ring-1 focus:ring-[#b91c1c]/30"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/70 focus:outline-none"
+        >
+          <option value="">All Statuses</option>
+          {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={techFilter}
+          onChange={(e) => { setTechFilter(e.target.value); setPage(0); }}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/70 focus:outline-none"
+        >
+          <option value="">All Techs</option>
+          {techs.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {(search || statusFilter || techFilter) && (
+          <button
+            onClick={() => { setSearch(""); setStatusFilter(""); setTechFilter(""); setPage(0); }}
+            className="rounded-lg px-2 py-1.5 text-xs text-white/30 hover:text-white/60 hover:bg-white/5"
+          >
+            Clear
+          </button>
+        )}
+        <span className="text-xs text-white/25 ml-auto">{filtered.length} ticket{filtered.length !== 1 ? "s" : ""}</span>
+      </div>
+
       {/* Mobile: card layout */}
       <div className="space-y-2 md:hidden">
         {pagedTickets.map((ticket) => {
@@ -386,7 +440,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-1 pt-3">
           <span className="text-xs text-white/30 tabular-nums">
-            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, tickets.length)} of {tickets.length}
+            {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
           </span>
           <div className="flex items-center gap-1">
             <button

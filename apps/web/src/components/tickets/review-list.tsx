@@ -90,6 +90,10 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<Record<string, number>>({});
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [techFilter, setTechFilter] = useState("");
+  const [ratingFilter, setRatingFilter] = useState("");
 
   const loadReviews = useCallback(async () => {
     try {
@@ -140,8 +144,24 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
     return bDate - aDate;
   });
 
-  // Stats
-  const latestReviews = ticketGroups.map(([, revs]) => revs[0]);
+  // Derive unique values for filters
+  const allStatuses = [...new Set(ticketGroups.map(([, revs]) => revs[0].tickets.halo_status ?? "Unknown"))].sort();
+  const allTechs = [...new Set(ticketGroups.map(([, revs]) => resolveTechName(revs[0]).name))].sort();
+
+  // Filter ticket groups
+  const filteredGroups = ticketGroups.filter(([, revs]) => {
+    const latest = revs[0];
+    const tech = resolveTechName(latest);
+    const q = search.toLowerCase();
+    if (q && !latest.tickets.summary.toLowerCase().includes(q) && !String(latest.halo_id).includes(q) && !(latest.tickets.client_name ?? "").toLowerCase().includes(q) && !tech.name.toLowerCase().includes(q)) return false;
+    if (statusFilter && (latest.tickets.halo_status ?? "Unknown") !== statusFilter) return false;
+    if (techFilter && tech.name !== techFilter) return false;
+    if (ratingFilter && latest.rating !== ratingFilter) return false;
+    return true;
+  });
+
+  // Stats (from filtered)
+  const latestReviews = filteredGroups.map(([, revs]) => revs[0]);
   const poorCount = latestReviews.filter((r) => r.rating === "poor").length;
   const needsImpCount = latestReviews.filter((r) => r.rating === "needs_improvement").length;
   const goodCount = latestReviews.filter((r) => r.rating === "good").length;
@@ -149,6 +169,52 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
 
   return (
     <div className="space-y-3">
+      {/* Search & Filter bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search reviews..."
+          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#b91c1c]/50 focus:outline-none focus:ring-1 focus:ring-[#b91c1c]/30"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/70 focus:outline-none"
+        >
+          <option value="">All Statuses</option>
+          {allStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={techFilter}
+          onChange={(e) => setTechFilter(e.target.value)}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/70 focus:outline-none"
+        >
+          <option value="">All Techs</option>
+          {allTechs.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select
+          value={ratingFilter}
+          onChange={(e) => setRatingFilter(e.target.value)}
+          className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white/70 focus:outline-none"
+        >
+          <option value="">All Ratings</option>
+          <option value="great">Great</option>
+          <option value="good">Good</option>
+          <option value="needs_improvement">Needs Improvement</option>
+          <option value="poor">Poor</option>
+        </select>
+        {(search || statusFilter || techFilter || ratingFilter) && (
+          <button
+            onClick={() => { setSearch(""); setStatusFilter(""); setTechFilter(""); setRatingFilter(""); }}
+            className="rounded-lg px-2 py-1.5 text-xs text-white/30 hover:text-white/60 hover:bg-white/5"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Summary bar */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-2.5">
         <span className="text-xs text-white/40">
@@ -183,7 +249,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
       </div>
 
       {/* Review cards */}
-      {ticketGroups.map(([ticketId, ticketReviews]) => {
+      {filteredGroups.map(([ticketId, ticketReviews]) => {
         const latest = ticketReviews[0];
         const style = RATING_STYLES[latest.rating] ?? RATING_STYLES.good;
         const isExpanded = expandedId === ticketId;

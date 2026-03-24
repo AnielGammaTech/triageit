@@ -18,6 +18,7 @@ export async function GET() {
 
   const supabase = await createServiceClient();
 
+  // Fetch reviews — exclude tickets that are closed/resolved
   const { data, error } = await supabase
     .from("tech_reviews")
     .select(`
@@ -41,6 +42,9 @@ export async function GET() {
         halo_agent
       )
     `)
+    .not("tickets.halo_status", "ilike", "%closed%")
+    .not("tickets.halo_status", "ilike", "%resolved%")
+    .not("tickets.halo_status", "ilike", "%completed%")
     .order("created_at", { ascending: false })
     .limit(200);
 
