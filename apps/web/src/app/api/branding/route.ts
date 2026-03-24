@@ -60,16 +60,32 @@ export async function POST(request: Request) {
     };
 
     if (existing) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("integrations")
         .update({ config, updated_at: new Date().toISOString() })
         .eq("service", "branding");
+
+      if (updateError) {
+        console.error("[BRANDING] Update failed:", updateError);
+        return NextResponse.json(
+          { error: `Failed to save: ${updateError.message}` },
+          { status: 500 },
+        );
+      }
     } else {
-      await supabase.from("integrations").insert({
+      const { error: insertError } = await supabase.from("integrations").insert({
         service: "branding",
         is_active: true,
         config,
       });
+
+      if (insertError) {
+        console.error("[BRANDING] Insert failed:", insertError);
+        return NextResponse.json(
+          { error: `Failed to save: ${insertError.message}` },
+          { status: 500 },
+        );
+      }
     }
 
     return NextResponse.json({ branding: config });

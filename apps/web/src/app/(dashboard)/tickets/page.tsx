@@ -41,9 +41,10 @@ interface TicketRow {
   readonly close_reviews?: ReadonlyArray<{ readonly id: string }>;
 }
 
+// Only statuses that Halo considers truly closed/done.
+// "Resolved Remotely" and "Resolved Onsite" are intermediate — ticket is still open in Halo.
 const RESOLVED_STATUSES = [
   "closed", "resolved", "cancelled", "completed",
-  "resolved remotely", "resolved onsite", "resolved - awaiting confirmation",
 ];
 
 export default function TicketsPage() {

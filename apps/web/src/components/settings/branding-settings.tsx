@@ -14,6 +14,7 @@ export function BrandingSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState("");
   const [brandName, setBrandName] = useState("TriageIT");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export function BrandingSettings() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
 
     try {
       const res = await fetch("/api/branding", {
@@ -54,14 +56,17 @@ export function BrandingSettings() {
         }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        const data = (await res.json()) as { branding: BrandingConfig };
-        setConfig(data.branding);
+        setConfig(data.branding as BrandingConfig);
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
+      } else {
+        setSaveError(data.error ?? `Save failed (${res.status})`);
       }
     } catch (err) {
-      console.error("Failed to save branding:", err);
+      setSaveError(`Failed to save: ${(err as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -224,6 +229,9 @@ export function BrandingSettings() {
           </button>
           {saved && (
             <span className="text-sm text-emerald-400">Saved!</span>
+          )}
+          {saveError && (
+            <span className="text-sm text-red-400">{saveError}</span>
           )}
         </div>
       </div>
