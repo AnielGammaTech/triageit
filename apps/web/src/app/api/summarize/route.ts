@@ -226,6 +226,7 @@ export async function POST(request: Request) {
             day: "numeric",
             hour: "numeric",
             minute: "2-digit",
+            timeZone: "America/New_York",
           })
         : "Unknown date";
       const noteText = stripHtml(a.note).substring(0, 500);
@@ -239,6 +240,7 @@ export async function POST(request: Request) {
             day: "numeric",
             hour: "numeric",
             minute: "2-digit",
+            timeZone: "America/New_York",
           })
         : "TBD";
       return `[Appointment] ${start} — ${a.who}: ${a.subject}`;

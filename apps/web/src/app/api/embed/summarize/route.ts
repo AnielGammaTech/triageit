@@ -172,6 +172,7 @@ function buildContext(actions: ReadonlyArray<HaloAction>): string {
           day: "numeric",
           hour: "numeric",
           minute: "2-digit",
+          timeZone: "America/New_York",
         })
       : "Unknown date";
     const noteText = stripHtml(a.note).substring(0, 500);

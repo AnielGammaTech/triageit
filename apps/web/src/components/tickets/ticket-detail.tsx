@@ -1291,7 +1291,10 @@ function CollapsibleNote({ note }: { readonly note: { readonly id: number; reado
         <div className="flex items-center gap-2">
           <NoteTypeBadge type={note.type} />
           <span className="text-[10px] text-white/30">
-            {note.date ? new Date(note.date).toLocaleString() : "Unknown date"}
+            {note.date ? new Date(note.date).toLocaleString("en-US", {
+              month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+              timeZone: "America/New_York",
+            }) : "Unknown date"}
           </span>
         </div>
         <svg
