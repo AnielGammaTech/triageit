@@ -129,32 +129,26 @@ export function checkReviewEligibility(
     return maxGap;
   })();
 
-  // No tech assigned = nothing to review (that's a dispatch problem, not a tech problem)
+  // Check if ticket has an assigned tech or if it's unassigned (dispatch issue)
   const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
   const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
-  const hasAssignedTech = !!(context.assignedTechName) && !NON_TECH_NAMES.includes(techName);
+  const isUnassigned = !context.assignedTechName || NON_TECH_NAMES.includes(techName);
 
   // Must have at least 1 business hour of ticket age before reviewing
   const ticketCreatedTime = new Date(ticketCreatedAt).getTime();
   const businessAgeHours = calculateBusinessHoursGap(ticketCreatedTime, Date.now());
   const hasMinimumAge = businessAgeHours >= MIN_TICKET_AGE_HOURS;
 
-  const eligible =
-    haloConfig !== null &&
-    hasAssignedTech &&
-    hasMinimumAge &&
-    actions.length > 0 &&
-    customerActions.length > 0;
+  // Always eligible as long as Halo is configured and ticket is old enough.
+  // Unassigned tickets get reviewed too — calls out the dispatch gap.
+  // Tickets with no customer actions still get reviewed — evaluates tech engagement.
+  const eligible = haloConfig !== null && hasMinimumAge;
 
   if (!eligible && haloConfig !== null) {
-    const reasons: string[] = [];
-    if (!hasAssignedTech) reasons.push("no assigned tech");
-    if (!hasMinimumAge) reasons.push(`ticket too new (${businessAgeHours.toFixed(1)} business hrs < ${MIN_TICKET_AGE_HOURS}hr minimum)`);
-    if (actions.length === 0) reasons.push("no actions");
-    if (customerActions.length === 0) reasons.push("no customer actions");
-    if (reasons.length > 0) {
-      console.log(`[TECH-REVIEW] Skipping review for #${context.haloId}: ${reasons.join(", ")}`);
-    }
+    console.log(`[TECH-REVIEW] Skipping review for #${context.haloId}: ticket too new (${businessAgeHours.toFixed(1)} business hrs < ${MIN_TICKET_AGE_HOURS}hr minimum)`);
+  }
+  if (eligible && isUnassigned) {
+    console.log(`[TECH-REVIEW] #${context.haloId} is UNASSIGNED — review will flag dispatch gap`);
   }
 
   return {
@@ -182,6 +176,11 @@ export async function generateTechReview(
   const assignedTech = context.assignedTechName ?? null;
   const { ticketAgeHours, maxResponseGapHours } = eligibility;
 
+  // Check if ticket is unassigned
+  const techNameLower = assignedTech?.trim().toLowerCase() ?? "";
+  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
+  const isUnassigned = !assignedTech || NON_TECH_NAMES.includes(techNameLower);
+
   // Identify who is the dispatcher vs the assigned tech
   // People who responded but aren't the assigned tech are dispatchers/triage
   const dispatcherNames = actions
@@ -196,11 +195,55 @@ export async function generateTechReview(
     .filter((name, i, arr) => arr.indexOf(name) === i);
 
   // Count actions specifically from the assigned tech
-  const assignedTechActions = assignedTech
+  const assignedTechActions = assignedTech && !isUnassigned
     ? actions.filter((a) => a.who?.toLowerCase().includes(assignedTech.toLowerCase()))
     : [];
 
-  const feedbackPrompt = [
+  const feedbackPrompt = isUnassigned
+    ? [
+        `You are an honest IT service delivery manager reviewing ticket handling.`,
+        `This ticket is **UNASSIGNED** — no technician has been assigned. The dispatcher (Bryanna) is responsible for assigning tickets.`,
+        ``,
+        `## YOUR JOB`,
+        `1. Flag that this ticket has NO assigned tech — this is a dispatch failure.`,
+        `2. Note how long the customer has been waiting with no one assigned.`,
+        `3. Suggest which type of tech should be assigned based on the ticket content.`,
+        `4. Rate as "poor" if the ticket has been unassigned for more than 1 business hour, "needs_improvement" otherwise.`,
+        `5. In suggestions, always include: "Bryanna: assign this ticket to a tech immediately."`,
+        ``,
+        `## BUSINESS HOURS CONTEXT`,
+        `- Business hours are **Mon-Fri, 7 AM - 6 PM Eastern** only.`,
+        ``,
+        `## FACTS`,
+        `- This ticket is **UNASSIGNED** — no tech has been assigned.`,
+        `- Ticket has been open for **${ticketAgeHours.toFixed(1)} total hours**.`,
+        `- **Dispatcher (Bryanna) must assign this ticket.**`,
+        ``,
+        `## Ticket: #${context.haloId} — ${context.summary}`,
+        `Client: ${context.clientName ?? "Unknown"}`,
+        `Type: ${classification.classification.type}/${classification.classification.subtype} | Urgency: ${classification.urgency_score}/5`,
+        ``,
+        `## Conversation History`,
+        ...actions.map((a) => {
+          const who = a.who ?? "Unknown";
+          const when = a.date ?? "";
+          const visibility = a.isInternal ? "[INTERNAL]" : "[VISIBLE]";
+          return `- ${visibility} **${who}** (${when}): ${a.note}`;
+        }),
+        ``,
+        `## Output — JSON only`,
+        `{`,
+        `  "rating": "great | good | needs_improvement | poor",`,
+        `  "communication_score": 1-5,`,
+        `  "response_time_assessment": "fast | adequate | slow | no_response",`,
+        `  "max_response_gap_hours": number,`,
+        `  "strengths": "what went well, or null",`,
+        `  "improvement_areas": "be direct — what failed, or null",`,
+        `  "suggestions": ["actionable, specific steps"],`,
+        `  "summary": "2-3 sentences. Flag the unassigned status. Call out Bryanna as dispatcher. Suggest the type of tech needed."`,
+        `}`,
+      ].filter(Boolean).join("\n")
+    : [
     `You are an honest IT service delivery manager reviewing tech performance.`,
     `Your job: evaluate how **${assignedTech ?? "the assigned technician"}** handled this ticket.`,
     ``,
@@ -294,7 +337,7 @@ export async function generateTechReview(
   await supabase.from("tech_reviews").insert({
     ticket_id: context.ticketId,
     halo_id: context.haloId,
-    tech_name: context.assignedTechName ?? null,
+    tech_name: isUnassigned ? "UNASSIGNED" : (context.assignedTechName ?? null),
     rating: feedback.rating,
     communication_score: feedback.communication_score,
     response_time: feedback.response_time_assessment,
