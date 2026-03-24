@@ -1236,6 +1236,7 @@ const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string
   triage: { bg: "bg-[#b91c1c]/10", text: "text-[#b91c1c]", label: "Triage" },
   retriage: { bg: "bg-violet-500/10", text: "text-violet-400", label: "Retriage" },
   "tech-review": { bg: "bg-emerald-500/10", text: "text-emerald-400", label: "Tech Review" },
+  "close-review": { bg: "bg-teal-500/10", text: "text-teal-400", label: "Close Review" },
   alert: { bg: "bg-amber-500/10", text: "text-amber-400", label: "Alert" },
   priority: { bg: "bg-orange-500/10", text: "text-orange-400", label: "Priority" },
   documentation: { bg: "bg-yellow-500/10", text: "text-yellow-400", label: "Doc Gap" },

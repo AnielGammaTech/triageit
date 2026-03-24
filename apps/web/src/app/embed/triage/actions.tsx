@@ -537,8 +537,106 @@ export function QuickActions({
       )}
       <SuggestReplyButton haloId={haloId} token={token} />
       <SummarizeITButton haloId={haloId} token={token} />
+      <CloseReviewButton haloId={haloId} token={token} />
       <ReTriageButton haloId={haloId} token={token} />
     </div>
+  );
+}
+
+// ── Close Review Button ──────────────────────────────────────────────────
+
+function CloseReviewButton({
+  haloId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly token: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
+
+  const handleCloseReview = useCallback(async () => {
+    if (state === "loading") return;
+    setState("loading");
+
+    try {
+      const response = await fetch("/api/embed/close-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId, token }),
+      });
+
+      if (response.ok) {
+        setState("done");
+        setTimeout(() => window.location.reload(), 3000);
+      } else {
+        setState("error");
+        setTimeout(() => setState("idle"), 3000);
+      }
+    } catch {
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
+    }
+  }, [haloId, token, state]);
+
+  const config = {
+    idle: { label: "Close Review", bg: "rgba(5, 150, 105, 0.08)", color: "#34d399", border: "rgba(52, 211, 153, 0.2)" },
+    loading: { label: "Reviewing...", bg: "rgba(5, 150, 105, 0.12)", color: "#34d399", border: "rgba(52, 211, 153, 0.25)" },
+    done: { label: "Posted!", bg: "rgba(5, 150, 105, 0.15)", color: "#34d399", border: "rgba(52, 211, 153, 0.3)" },
+    error: { label: "Failed", bg: "rgba(239, 68, 68, 0.1)", color: "#f87171", border: "rgba(239, 68, 68, 0.2)" },
+  } as const;
+
+  const c = config[state];
+
+  return (
+    <button
+      onClick={handleCloseReview}
+      disabled={state === "loading" || state === "done"}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "7px 14px",
+        fontSize: "11px",
+        fontWeight: 600,
+        fontFamily: "inherit",
+        color: c.color,
+        backgroundColor: c.bg,
+        border: `1px solid ${c.border}`,
+        borderRadius: "8px",
+        cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
+        transition: "all 0.2s ease",
+        whiteSpace: "nowrap" as const,
+        letterSpacing: "0.01em",
+      }}
+      onMouseEnter={(e) => {
+        if (state === "idle") {
+          e.currentTarget.style.backgroundColor = "rgba(5, 150, 105, 0.15)";
+          e.currentTarget.style.borderColor = "rgba(52, 211, 153, 0.35)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (state === "idle") {
+          e.currentTarget.style.backgroundColor = c.bg;
+          e.currentTarget.style.borderColor = c.border;
+        }
+      }}
+    >
+      {state === "loading" && (
+        <span
+          style={{
+            display: "inline-block",
+            width: "11px",
+            height: "11px",
+            border: "2px solid rgba(52, 211, 153, 0.3)",
+            borderTopColor: "#34d399",
+            borderRadius: "50%",
+            animation: "spin 0.6s linear infinite",
+          }}
+        />
+      )}
+      <span style={{ fontSize: "13px" }}>{state === "done" ? "✓" : "✅"}</span>
+      {c.label}
+    </button>
   );
 }
 

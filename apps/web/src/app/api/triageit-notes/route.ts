@@ -27,7 +27,7 @@ export interface TriageITNote {
   readonly id: number;
   readonly note: string;
   readonly date: string;
-  readonly type: "triage" | "retriage" | "tech-review" | "alert" | "priority" | "documentation" | "other";
+  readonly type: "triage" | "retriage" | "tech-review" | "close-review" | "alert" | "priority" | "documentation" | "other";
 }
 
 /**
@@ -35,8 +35,8 @@ export interface TriageITNote {
  */
 function classifyNote(html: string): TriageITNote["type"] {
   const lower = html.toLowerCase();
+  if (lower.includes("close review")) return "close-review";
   if (lower.includes("tech performance review")) return "tech-review";
-  if (lower.includes("close review")) return "tech-review";
   if (lower.includes("no progress since last review")) return "retriage";
   if (lower.includes("retriage") || lower.includes("re-triage")) return "retriage";
   if (lower.includes("alert path")) return "alert";

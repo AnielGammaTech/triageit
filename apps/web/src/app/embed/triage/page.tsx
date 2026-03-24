@@ -36,6 +36,7 @@ const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; icon: st
   triage: { label: "AI Triage", accent: "#b91c1c", icon: "🔍" },
   retriage: { label: "Re-Triage", accent: "#f59e0b", icon: "🔄" },
   "tech-review": { label: "Tech Review", accent: "#10b981", icon: "📋" },
+  "close-review": { label: "Close Review", accent: "#059669", icon: "✅" },
   alert: { label: "Alert", accent: "#ef4444", icon: "🚨" },
   priority: { label: "Priority", accent: "#8b5cf6", icon: "⚡" },
   documentation: { label: "Documentation", accent: "#06b6d4", icon: "📝" },
@@ -96,24 +97,32 @@ interface TriageITNote {
 
 function isTriageITNote(action: HaloAction): boolean {
   const note = action.note ?? "";
+  const lower = note.toLowerCase();
   return (
-    note.includes("TriageIT") ||
-    note.includes("TriageIT AI") ||
-    note.includes("AI Triage") ||
-    note.includes("triageit") ||
+    lower.includes("triageit") ||
+    lower.includes("ai triage") ||
+    lower.includes("tech performance review") ||
+    lower.includes("close review") ||
+    lower.includes("no progress since last review") ||
     note.includes("linear-gradient(135deg,#b91c1c") ||
     note.includes("linear-gradient(135deg,#4f46e5") ||
-    note.includes("linear-gradient(135deg,#059669")
+    note.includes("linear-gradient(135deg,#059669") ||
+    note.includes("linear-gradient(135deg,#6366f1") ||
+    note.includes("linear-gradient(135deg,#991b1b") ||
+    note.includes("linear-gradient(135deg,#065f46")
   );
 }
 
 function classifyNote(html: string): string {
-  if (html.includes("Tech Performance Review")) return "tech-review";
-  if (html.includes("Retriage Check") || html.includes("Re-Triage")) return "retriage";
-  if (html.includes("alert path") || html.includes("Alert Path")) return "alert";
-  if (html.includes("Priority Recommendation")) return "priority";
-  if (html.includes("Documentation Gap")) return "documentation";
-  if (html.includes("AI Triage")) return "triage";
+  const lower = html.toLowerCase();
+  if (lower.includes("close review")) return "close-review";
+  if (lower.includes("tech performance review")) return "tech-review";
+  if (lower.includes("no progress since last review")) return "retriage";
+  if (lower.includes("retriage") || lower.includes("re-triage")) return "retriage";
+  if (lower.includes("alert path")) return "alert";
+  if (lower.includes("priority recommendation")) return "priority";
+  if (lower.includes("documentation gap")) return "documentation";
+  if (lower.includes("ai triage")) return "triage";
   return "other";
 }
 
