@@ -593,6 +593,15 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         }
       }
 
+      // Resolve agent name from agent_id if agent_name is missing
+      // (Halo list API often returns agent_id but not agent_name)
+      if (!getAgentName(enrichedTicket) && enrichedTicket.agent_id) {
+        const resolvedName = await halo.resolveAgentName(null, enrichedTicket.agent_id);
+        if (resolvedName) {
+          enrichedTicket = { ...enrichedTicket, agent_name: resolvedName } as typeof enrichedTicket;
+        }
+      }
+
       // Quick rule-based check first (free, no tokens)
       const ruleResult = quickRuleCheck(enrichedTicket, actions);
       if (ruleResult) {

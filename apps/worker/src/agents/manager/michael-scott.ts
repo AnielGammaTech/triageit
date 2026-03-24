@@ -515,11 +515,10 @@ export async function runTriage(
 
   const haloConfig = await getHaloConfig(supabase);
   if (haloConfig && isIdenticalRetriage && techInactive) {
-    // Post accountability note — red flag that nothing has changed
+    // Post accountability note — red flag that nothing has changed AND no tech activity
     try {
       const halo = new HaloClient(haloConfig);
       const techName = context.assignedTechName ?? "Assigned tech";
-      // Resolve proper @mention so the tech gets notified in Halo
       const techMention = await halo.buildMention(techName);
       const accountabilityNote = buildAccountabilityNote(
         techMention,
@@ -532,7 +531,9 @@ export async function runTriage(
     } catch (error) {
       console.error(`[MICHAEL] Failed to post accountability note for #${ticket.halo_id}:`, error);
     }
-  } else if (haloConfig && !isIdenticalRetriage) {
+  } else if (haloConfig) {
+    // Always post a note — even if findings are identical but tech has acted.
+    // Every retriage must leave a visible trail in Halo for visibility.
     const branding = await getBrandingConfig(supabase);
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
