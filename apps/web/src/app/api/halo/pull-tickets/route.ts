@@ -210,6 +210,7 @@ export async function POST() {
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: resolveAgentName(ticket, agentNameMap),
         tickettype_id: (ticket.tickettype_id as number) ?? null,
+        halo_is_open: true,
         last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         created_at: ticket.datecreated ?? now,
@@ -284,6 +285,7 @@ export async function POST() {
           halo_team: ticket.team_name ?? ticket.team ?? null,
           halo_agent: resolvedAgent,
           tickettype_id: (ticket.tickettype_id as number) ?? null,
+          halo_is_open: true,
           last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
           last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
           updated_at: now,
@@ -408,6 +410,7 @@ export async function POST() {
                 halo_agent: freshAgent,
                 halo_team: ticketData.team_name ?? ticketData.team ?? null,
                 tickettype_id: (ticketData.tickettype_id as number) ?? null,
+                halo_is_open: false,
                 updated_at: now,
               })
               .eq("id", stale.id);

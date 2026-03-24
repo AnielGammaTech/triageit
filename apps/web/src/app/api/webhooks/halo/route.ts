@@ -311,6 +311,7 @@ async function upsertTicket(
       halo_agent: data.halo_agent ?? null,
       halo_team: data.halo_team ?? null,
       tickettype_id: data.tickettype_id ?? null,
+      halo_is_open: true,
       status: "pending",
       raw_data: data.raw_data,
     })

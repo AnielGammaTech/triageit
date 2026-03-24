@@ -25,6 +25,7 @@ interface TicketRow {
   readonly last_retriage_at?: string | null;
   readonly last_customer_reply_at?: string | null;
   readonly last_tech_action_at?: string | null;
+  readonly halo_is_open?: boolean | null;
   readonly triage_results: ReadonlyArray<{
     readonly urgency_score: number;
     readonly recommended_priority: number;
@@ -41,11 +42,9 @@ interface TicketRow {
   readonly close_reviews?: ReadonlyArray<{ readonly id: string }>;
 }
 
-// Only statuses Halo considers truly CLOSED (not open).
-// In Halo, "Resolved" / "Resolved Remotely" / "Resolved Onsite" are still open tickets.
-// Only "Closed" and "Cancelled" remove a ticket from Halo's open queue.
-const CLOSED_STATUSES = [
-  "closed", "cancelled",
+// Fallback for tickets without halo_is_open flag (legacy data)
+const CLOSED_STATUSES_FALLBACK = [
+  "closed", "cancelled", "completed",
 ];
 
 export default function TicketsPage() {
@@ -76,7 +75,7 @@ export default function TicketsPage() {
       .select(`
         id, halo_id, summary, client_name, user_name, original_priority,
         status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
-        last_retriage_at, last_customer_reply_at, last_tech_action_at,
+        halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
         triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
         tech_reviews(id),
         close_reviews(id)
@@ -225,8 +224,15 @@ export default function TicketsPage() {
     }
   }, [loading, pullFromHalo]);
 
-  const isClosed = (t: TicketRow) =>
-    t.halo_status && CLOSED_STATUSES.includes(t.halo_status.toLowerCase());
+  // Use Halo's own open/closed flag (set by pull-tickets sync).
+  // Falls back to status name matching for legacy tickets without the flag.
+  const isClosed = (t: TicketRow) => {
+    if (t.halo_is_open === true) return false;
+    if (t.halo_is_open === false) return true;
+    // Fallback for tickets synced before halo_is_open was added
+    if (!t.halo_status) return false;
+    return CLOSED_STATUSES_FALLBACK.includes(t.halo_status.toLowerCase());
+  };
 
   // Apply tech filter from query params (e.g. from Analytics page)
   // Note: pull-tickets already only syncs Gamma Default (type 31) from Halo,
