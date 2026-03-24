@@ -547,6 +547,51 @@ async function fetchCoveCustomers(
   }));
 }
 
+async function fetchCippTenants(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // CIPP OAuth2 client_credentials flow
+  const tokenRes = await fetch(config.cippAuthTokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.cippAuthClientId,
+      client_secret: config.cippAuthClientSecret,
+      scope: config.cippAuthScope,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text();
+    throw new Error(`CIPP auth failed (${tokenRes.status}): ${text.substring(0, 200)}`);
+  }
+
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+
+  const baseUrl = config.cippApiUrl.replace(/\/+$/, "");
+  const res = await fetch(`${baseUrl}/api/ListTenants`, {
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) throw new Error(`CIPP ListTenants error: ${res.status}`);
+
+  const data = (await res.json()) as ReadonlyArray<{
+    customerId?: string;
+    displayName?: string;
+    defaultDomainName?: string;
+  }>;
+
+  return data.map((t) => ({
+    id: t.customerId ?? t.defaultDomainName ?? "",
+    name: t.displayName ?? t.defaultDomainName ?? "Unknown",
+    is_active: true,
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
@@ -559,6 +604,7 @@ const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   vultr: fetchVultrInstances,
   unitrends: fetchUnitrendsCustomers,
   cove: fetchCoveCustomers,
+  cipp: fetchCippTenants,
 };
 
 // ── Halo helpers ─────────────────────────────────────────────────────
