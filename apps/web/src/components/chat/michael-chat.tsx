@@ -58,6 +58,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
   const [sessionCost, setSessionCost] = useState(0);
   const [sessionTokens, setSessionTokens] = useState(0);
+  const [agentAvatar, setAgentAvatar] = useState<string>("/prison-mike.png");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -78,6 +79,22 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   }, []);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
+
+  // Load agent avatar from branding config
+  useEffect(() => {
+    async function loadAvatar() {
+      try {
+        const res = await fetch("/api/branding");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.branding?.agent_avatar_url) {
+            setAgentAvatar(data.branding.agent_avatar_url);
+          }
+        }
+      } catch { /* fallback to default */ }
+    }
+    loadAvatar();
+  }, []);
 
   // Load messages for a conversation
   const loadMessages = useCallback(async (convId: string) => {
@@ -399,7 +416,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <img src="/prison-mike.png" alt="Prison Mike" className="h-8 w-8 rounded-full object-cover" />
+          <img src={agentAvatar} alt="Prison Mike" className="h-8 w-8 rounded-full object-cover" />
           <div>
             <h2 className="text-sm font-semibold text-white">Prison Mike</h2>
             <p className="text-[11px] text-white/40">The Worst Thing About Prison — AI Triage</p>
@@ -426,7 +443,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && !streaming && (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <img src="/prison-mike.png" alt="Prison Mike" className="h-16 w-16 rounded-full object-cover mb-4" />
+              <img src={agentAvatar} alt="Prison Mike" className="h-16 w-16 rounded-full object-cover mb-4" />
               <h3 className="text-lg font-semibold text-white/80 mb-1">Talk to Prison Mike</h3>
               <p className="text-sm text-white/40 max-w-md">
                 Ask about tickets, discuss triage decisions, teach him new skills, or get his take on client patterns.
@@ -453,7 +470,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           {messages.map((msg) => (
             <div key={msg.id} className={cn("flex gap-3", msg.role === "user" && "justify-end")}>
               {msg.role === "assistant" && (
-                <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+                <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               )}
               <div className="max-w-[75%]">
                 <div
@@ -483,7 +500,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && streamingText && (
             <div className="flex gap-3">
-              <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+              <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="max-w-[75%] rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
                 <MessageContent content={streamingText} />
                 <span className="inline-block w-1.5 h-4 bg-amber-400/60 animate-pulse ml-0.5" />
@@ -493,7 +510,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && !streamingText && (
             <div className="flex gap-3">
-              <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+              <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="rounded-xl bg-white/[0.06] px-4 py-3 min-w-[200px]">
                 {activityLog.length > 0 && (
                   <div className="mb-2 space-y-1.5">

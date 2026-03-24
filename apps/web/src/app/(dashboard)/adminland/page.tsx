@@ -15,6 +15,7 @@ import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
 import { CronJobsSection } from "@/components/admin/cron-jobs-config";
 import { DiagnosticsSection } from "@/components/admin/diagnostics-section";
+import { BrandingSettings } from "@/components/settings/branding-settings";
 
 type ActiveView =
   | { type: "menu" }
@@ -298,6 +299,8 @@ export default function AdminlandPage() {
           <CronJobsSection />
         ) : activeView.id === "diagnostics" ? (
           <DiagnosticsSection />
+        ) : activeView.id === "branding" ? (
+          <BrandingSettings />
         ) : (
           <div
             className="rounded-xl border border-white/10 p-8 text-center"

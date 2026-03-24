@@ -48,6 +48,7 @@ const AVAILABLE_ENDPOINTS: ReadonlyArray<{
 }> = [
   { value: "/retriage", label: "Daily Re-Triage Scan" },
   { value: "/sla-scan", label: "SLA Breach Scan" },
+  { value: "/toby/analyze", label: "Toby Learning Analysis" },
 ];
 
 function describeCron(expression: string): string {

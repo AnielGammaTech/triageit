@@ -5,11 +5,13 @@ import { requireAuth } from "@/lib/api/require-auth";
 export interface BrandingConfig {
   readonly logo_url: string | null;
   readonly name: string;
+  readonly agent_avatar_url: string | null;
 }
 
 const DEFAULT_BRANDING: BrandingConfig = {
   logo_url: null,
   name: "TriageIT",
+  agent_avatar_url: null,
 };
 
 export async function GET() {
@@ -37,20 +39,24 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       logo_url?: string | null;
       name?: string;
+      agent_avatar_url?: string | null;
     };
 
     const supabase = await createServiceClient();
 
-    // Get existing branding or create new
+    // Preserve existing config fields not included in this update
     const { data: existing } = await supabase
       .from("integrations")
-      .select("id")
+      .select("id, config")
       .eq("service", "branding")
       .single();
 
+    const current = existing?.config as BrandingConfig | null;
+
     const config: BrandingConfig = {
-      logo_url: body.logo_url ?? null,
-      name: body.name ?? "TriageIT",
+      logo_url: body.logo_url !== undefined ? body.logo_url : (current?.logo_url ?? null),
+      name: body.name ?? current?.name ?? "TriageIT",
+      agent_avatar_url: body.agent_avatar_url !== undefined ? body.agent_avatar_url : (current?.agent_avatar_url ?? null),
     };
 
     if (existing) {

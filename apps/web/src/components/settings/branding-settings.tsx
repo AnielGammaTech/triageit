@@ -6,15 +6,18 @@ import { cn } from "@/lib/utils/cn";
 interface BrandingConfig {
   readonly logo_url: string | null;
   readonly name: string;
+  readonly agent_avatar_url: string | null;
 }
 
 export function BrandingSettings() {
-  const [config, setConfig] = useState<BrandingConfig>({ logo_url: null, name: "TriageIT" });
+  const [config, setConfig] = useState<BrandingConfig>({ logo_url: null, name: "TriageIT", agent_avatar_url: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [logoUrl, setLogoUrl] = useState("");
   const [brandName, setBrandName] = useState("TriageIT");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -25,6 +28,7 @@ export function BrandingSettings() {
           setConfig(data.branding);
           setLogoUrl(data.branding.logo_url ?? "");
           setBrandName(data.branding.name);
+          setAvatarUrl(data.branding.agent_avatar_url ?? null);
         }
       } catch (err) {
         console.error("Failed to load branding:", err);
@@ -46,6 +50,7 @@ export function BrandingSettings() {
         body: JSON.stringify({
           logo_url: logoUrl.trim() || null,
           name: brandName.trim() || "TriageIT",
+          agent_avatar_url: avatarUrl,
         }),
       });
 
@@ -60,9 +65,26 @@ export function BrandingSettings() {
     } finally {
       setSaving(false);
     }
-  }, [logoUrl, brandName]);
+  }, [logoUrl, brandName, avatarUrl]);
 
-  const hasChanges = logoUrl !== (config.logo_url ?? "") || brandName !== config.name;
+  const hasChanges = logoUrl !== (config.logo_url ?? "") || brandName !== config.name || avatarUrl !== (config.agent_avatar_url ?? null);
+
+  function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 500_000) return; // 500KB max
+
+    setUploadingAvatar(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatarUrl(reader.result as string);
+      setUploadingAvatar(false);
+    };
+    reader.onerror = () => setUploadingAvatar(false);
+    reader.readAsDataURL(file);
+  }
 
   if (loading) {
     return (
@@ -114,6 +136,52 @@ export function BrandingSettings() {
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Direct URL to your logo image (PNG/SVG recommended, ~22px tall). Leave empty for the default emoji icon.
           </p>
+        </div>
+
+        {/* Agent Avatar */}
+        <div>
+          <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+            Prison Mike Avatar
+          </label>
+          <div className="flex items-center gap-4">
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-white/10 bg-white/5">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="Agent avatar" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-white/20 text-xl">?</div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label
+                className={cn(
+                  "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-all hover:border-[#b91c1c]/50 hover:text-white hover:bg-[#b91c1c]/10",
+                  uploadingAvatar && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleAvatarUpload}
+                  disabled={uploadingAvatar}
+                  className="hidden"
+                />
+                {uploadingAvatar ? "Uploading..." : "Upload Image"}
+              </label>
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => setAvatarUrl(null)}
+                  className="block text-[10px] text-red-400/60 hover:text-red-400 transition-colors"
+                >
+                  Remove avatar
+                </button>
+              )}
+              <p className="text-[10px] text-[var(--muted-foreground)]">
+                PNG/JPG, max 500KB. Used as the chat avatar.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Preview */}
