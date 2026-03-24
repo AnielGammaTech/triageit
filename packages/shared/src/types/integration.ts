@@ -113,6 +113,10 @@ export interface CippConfig {
   readonly cippAuthClientSecret: string;
 }
 
+export interface MxToolboxConfig {
+  readonly api_key: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig

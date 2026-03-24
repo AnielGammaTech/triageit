@@ -26,6 +26,23 @@ interface CronJobRecord {
   readonly schedule: string;
   readonly endpoint: string;
   readonly is_active: boolean;
+  readonly last_run_at?: string | null;
+}
+
+/**
+ * Estimate interval in ms from a cron pattern. Handles common patterns.
+ */
+function cronIntervalMs(pattern: string): number {
+  // "0 */3 * * *" -> every 3 hours
+  const hourlyMatch = /^\d+\s\*\/(\d+)\s/.exec(pattern);
+  if (hourlyMatch) return parseInt(hourlyMatch[1], 10) * 60 * 60 * 1000;
+  // "*/30 * * * *" -> every 30 minutes
+  const minuteMatch = /^\*\/(\d+)\s/.exec(pattern);
+  if (minuteMatch) return parseInt(minuteMatch[1], 10) * 60 * 1000;
+  // "0 7 * * *" -> daily
+  if (/^\d+\s\d+\s\*\s\*\s\*$/.test(pattern)) return 24 * 60 * 60 * 1000;
+  // Default: 3 hours
+  return 3 * 60 * 60 * 1000;
 }
 
 let cronQueue: Queue<CronJobData> | null = null;
@@ -255,7 +272,7 @@ export async function startCronScheduler(): Promise<void> {
   const supabase = createSupabaseClient();
   const { data: jobs, error } = await supabase
     .from("cron_jobs")
-    .select("id, name, schedule, endpoint, is_active");
+    .select("id, name, schedule, endpoint, is_active, last_run_at");
 
   if (error || !jobs || jobs.length === 0) {
     console.log(`[CRON] No cron_jobs found (error: ${error?.message ?? "none"}, rows: ${jobs?.length ?? 0}) — using default schedules`);
@@ -269,34 +286,73 @@ export async function startCronScheduler(): Promise<void> {
     return;
   }
 
-  // Remove any old repeatable jobs from previous deploys
-  const existingRepeatables = await cronQueue.getRepeatableJobs();
-  for (const rep of existingRepeatables) {
-    await cronQueue.removeRepeatableByKey(rep.key);
-  }
-  // Also drain any stale delayed jobs left from old repeatables
-  await cronQueue.drain();
-  console.log(`[CRON] Cleared ${existingRepeatables.length} old repeatables and drained stale jobs`);
-
-  // Register active jobs as BullMQ repeatables
-  // NOTE: Do NOT set jobId — BullMQ manages repeatable job IDs internally.
-  // Setting a static jobId can cause dedup conflicts across deploys.
   const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
 
-  for (const job of activeJobs) {
-    await cronQueue.add(
-      `cron-${job.endpoint}`,
-      { endpoint: job.endpoint, name: job.name },
-      { repeat: { pattern: job.schedule } },
-    );
-    console.log(`[CRON] Registered "${job.name}" — "${job.schedule}" -> ${job.endpoint} (BullMQ repeatable)`);
+  // Build a map of what SHOULD be registered
+  const desiredRepeatables = new Map(
+    activeJobs.map((j) => [`cron-${j.endpoint}`, { schedule: j.schedule, endpoint: j.endpoint, name: j.name }]),
+  );
+
+  // Check what's ALREADY registered in Redis
+  const existingRepeatables = await cronQueue.getRepeatableJobs();
+  const existingByName = new Map(existingRepeatables.map((r) => [r.name, r]));
+
+  // Only remove/re-add repeatables that changed (schedule mismatch or removed)
+  let removedCount = 0;
+  for (const rep of existingRepeatables) {
+    const desired = desiredRepeatables.get(rep.name);
+    if (!desired || desired.schedule !== rep.pattern) {
+      await cronQueue.removeRepeatableByKey(rep.key);
+      removedCount++;
+    }
   }
 
-  // Verify repeatables are actually registered in Redis
+  let addedCount = 0;
+  for (const [name, job] of desiredRepeatables) {
+    const existing = existingByName.get(name);
+    if (!existing || existing.pattern !== job.schedule) {
+      await cronQueue.add(
+        name,
+        { endpoint: job.endpoint, name: job.name },
+        { repeat: { pattern: job.schedule } },
+      );
+      addedCount++;
+      console.log(`[CRON] Registered "${job.name}" — "${job.schedule}" -> ${job.endpoint} (BullMQ repeatable)`);
+    } else {
+      console.log(`[CRON] Kept existing "${job.name}" — "${job.schedule}" (unchanged)`);
+    }
+  }
+
+  if (removedCount > 0) console.log(`[CRON] Removed ${removedCount} stale repeatables`);
+  if (addedCount > 0) console.log(`[CRON] Added ${addedCount} new repeatables`);
+
+  // Verify
   const registered = await cronQueue.getRepeatableJobs();
   for (const rep of registered) {
     const next = rep.next ? new Date(rep.next).toISOString() : "unknown";
     console.log(`[CRON] Verified repeatable: "${rep.name}" pattern="${rep.pattern}" next=${next}`);
+  }
+
+  // ── Catch-up: fire immediately if overdue ──
+  // If a job's last_run_at is older than its interval, run it now.
+  for (const job of activeJobs) {
+    const lastRun = (job as CronJobRecord & { last_run_at?: string }).last_run_at;
+    const intervalMs = cronIntervalMs(job.schedule);
+    const overdueMs = intervalMs + 10 * 60 * 1000; // interval + 10 min grace
+
+    if (!lastRun || Date.now() - new Date(lastRun).getTime() > overdueMs) {
+      console.log(`[CRON] Catch-up: "${job.name}" overdue (last run: ${lastRun ?? "never"}) — firing immediately`);
+      const handler = ENDPOINT_HANDLERS[job.endpoint];
+      if (handler) {
+        handler().then(() => {
+          console.log(`[CRON] Catch-up complete: "${job.name}"`);
+          updateJobStatus(job.id, "success");
+        }).catch((err) => {
+          console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
+          updateJobStatus(job.id, "error", (err as Error).message);
+        });
+      }
+    }
   }
 
   startHeartbeat();

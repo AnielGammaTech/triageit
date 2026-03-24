@@ -36,6 +36,7 @@ export type {
   CoveConfig,
   UnitrendsConfig,
   CippConfig,
+  MxToolboxConfig,
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,
