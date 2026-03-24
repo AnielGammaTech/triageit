@@ -193,6 +193,9 @@ export async function POST() {
     let updated = 0;
     const errors: string[] = [];
 
+    // Track which Halo IDs came from the open pull vs the closed pull
+    const openHaloIdSet = new Set(openResult.tickets.map((t) => t.id));
+
     // Batch insert new tickets
     if (newTickets.length > 0) {
       const insertRows = newTickets.map((ticket) => ({
@@ -210,7 +213,7 @@ export async function POST() {
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: resolveAgentName(ticket, agentNameMap),
         tickettype_id: (ticket.tickettype_id as number) ?? null,
-        halo_is_open: true,
+        halo_is_open: openHaloIdSet.has(ticket.id),
         last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         created_at: ticket.datecreated ?? now,
@@ -285,7 +288,7 @@ export async function POST() {
           halo_team: ticket.team_name ?? ticket.team ?? null,
           halo_agent: resolvedAgent,
           tickettype_id: (ticket.tickettype_id as number) ?? null,
-          halo_is_open: true,
+          halo_is_open: openHaloIdSet.has(ticket.id),
           last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
           last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
           updated_at: now,
@@ -356,8 +359,6 @@ export async function POST() {
     // Any local ticket NOT in the Halo open list and NOT already resolved
     // was closed/resolved in Halo since our last sync.
     let closedCount = 0;
-    // Use only the open tickets set (not recently closed) for this check
-    const openHaloIds = new Set(openResult.tickets.map((t) => t.id));
 
     const resolvedStatuses = [
       "closed", "resolved", "cancelled", "completed",
@@ -377,7 +378,7 @@ export async function POST() {
         const alreadyResolved = resolvedStatuses.some((s) => statusLower.includes(s));
         if (alreadyResolved) return false;
         // If ticket is NOT in Halo's open list, it was closed — needs status update
-        return !openHaloIds.has(t.halo_id);
+        return !openHaloIdSet.has(t.halo_id);
       });
 
       console.log(
