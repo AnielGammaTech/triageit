@@ -21,14 +21,12 @@ interface Pax8Data {
   readonly companyId: string | null;
   readonly companyName: string | null;
   readonly subscriptions: ReadonlyArray<Pax8Subscription>;
-  readonly productNames: ReadonlyMap<string, string>;
 }
 
 const EMPTY_PAX8: Pax8Data = {
   companyId: null,
   companyName: null,
   subscriptions: [],
-  productNames: new Map(),
 };
 
 export class HollyFlaxAgent extends BaseAgent {
@@ -147,33 +145,13 @@ Respond with ONLY valid JSON:
     const company = await this.findCompany(pax8, context.clientName, context.clientId);
     if (!company) return EMPTY_PAX8;
 
-    // Fetch subscriptions
+    // Fetch subscriptions — client auto-resolves product names via /products/:id
     const subscriptions = await this.fetchSubscriptions(pax8, company.id);
-
-    // Resolve product names for subscriptions that don't have embedded product info
-    const productNames = new Map<string, string>();
-    const missingProductIds = subscriptions
-      .filter((s) => !s.product?.name && s.productId)
-      .map((s) => s.productId);
-
-    // Deduplicate and fetch product names (limit to 20 to avoid rate limits)
-    const uniqueProductIds = [...new Set(missingProductIds)].slice(0, 20);
-    await Promise.all(
-      uniqueProductIds.map(async (productId) => {
-        try {
-          const product = await pax8.getProduct(productId);
-          productNames.set(productId, product.name);
-        } catch {
-          // Non-critical — product name will show as ID
-        }
-      }),
-    );
 
     return {
       companyId: company.id,
       companyName: company.name,
       subscriptions,
-      productNames,
     };
   }
 
@@ -322,7 +300,6 @@ Respond with ONLY valid JSON:
 
         for (const sub of active) {
           const productName = sub.product?.name ??
-            pax8Data.productNames.get(sub.productId) ??
             sub.productId;
           const vendor = sub.product?.vendorName ?? "";
           const billing = sub.billingTerm ?? "Unknown";
@@ -346,8 +323,7 @@ Respond with ONLY valid JSON:
           );
           for (const sub of other) {
             const productName = sub.product?.name ??
-              pax8Data.productNames.get(sub.productId) ??
-              sub.productId;
+                sub.productId;
             sections.push(
               `- **${productName}**: ${sub.quantity} seats | Status: **${sub.status}** | ${sub.billingTerm ?? "?"}`,
             );
@@ -356,11 +332,7 @@ Respond with ONLY valid JSON:
 
         // Summary stats
         const m365Subs = active.filter((s) => {
-          const name = (
-            s.product?.name ??
-            pax8Data.productNames.get(s.productId) ??
-            ""
-          ).toLowerCase();
+          const name = (s.product?.name ?? "").toLowerCase();
           return (
             name.includes("microsoft 365") ||
             name.includes("office 365") ||

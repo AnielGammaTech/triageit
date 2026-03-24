@@ -385,7 +385,7 @@ export async function POST() {
         `[HALO SYNC] ${staleTickets.length} local tickets not in Halo open list — checking status`,
       );
 
-      // Fetch current status from Halo for these tickets
+      // Fetch current status from Halo for these tickets and check if truly closed
       for (const stale of staleTickets) {
         try {
           const res = await fetch(
@@ -403,20 +403,45 @@ export async function POST() {
             const freshStatus = resolveStatusName(ticketData, statusNameMap);
             const freshAgent = resolveAgentName(ticketData, agentNameMap);
 
-            await serviceClient
-              .from("tickets")
-              .update({
-                halo_status: freshStatus,
-                halo_status_id: ticketData.status_id,
-                halo_agent: freshAgent,
-                halo_team: ticketData.team_name ?? ticketData.team ?? null,
-                tickettype_id: (ticketData.tickettype_id as number) ?? null,
-                halo_is_open: false,
-                updated_at: now,
-              })
-              .eq("id", stale.id);
+            // Only mark as closed if the fresh status is ACTUALLY a closed/resolved status.
+            // Halo's open_only=true endpoint can miss tickets that are still open
+            // (status filtering quirks, pagination, etc.)
+            const freshLower = freshStatus.toLowerCase();
+            const isActuallyClosed = resolvedStatuses.some((s) => freshLower.includes(s));
 
-            closedCount++;
+            if (isActuallyClosed) {
+              await serviceClient
+                .from("tickets")
+                .update({
+                  halo_status: freshStatus,
+                  halo_status_id: ticketData.status_id,
+                  halo_agent: freshAgent,
+                  halo_team: ticketData.team_name ?? ticketData.team ?? null,
+                  tickettype_id: (ticketData.tickettype_id as number) ?? null,
+                  halo_is_open: false,
+                  updated_at: now,
+                })
+                .eq("id", stale.id);
+
+              closedCount++;
+            } else {
+              // Ticket is still open in Halo — just update status/agent, keep open
+              console.log(
+                `[HALO SYNC] Ticket #${stale.halo_id} not in open list but status is "${freshStatus}" — keeping open`,
+              );
+              await serviceClient
+                .from("tickets")
+                .update({
+                  halo_status: freshStatus,
+                  halo_status_id: ticketData.status_id,
+                  halo_agent: freshAgent,
+                  halo_team: ticketData.team_name ?? ticketData.team ?? null,
+                  tickettype_id: (ticketData.tickettype_id as number) ?? null,
+                  halo_is_open: true,
+                  updated_at: now,
+                })
+                .eq("id", stale.id);
+            }
           }
         } catch {
           // Non-critical — skip if individual fetch fails

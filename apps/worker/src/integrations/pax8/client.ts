@@ -109,6 +109,11 @@ export class Pax8Client {
 
   // ── Subscriptions ───────────────────────────────────────────────────
 
+  /**
+   * Fetch all subscriptions for a company, with product names resolved.
+   * Pax8's list endpoint often returns only `productId` without the
+   * embedded `product` object — we resolve names via `/products/:id`.
+   */
   async getSubscriptions(companyId: string): Promise<ReadonlyArray<Pax8Subscription>> {
     const allSubs: Pax8Subscription[] = [];
     let page = 0;
@@ -131,7 +136,8 @@ export class Pax8Client {
       hasMore = page < totalPages;
     }
 
-    return allSubs;
+    // Resolve product names for subs missing the embedded product object
+    return this.enrichSubscriptionsWithProductNames(allSubs);
   }
 
   async getSubscription(subscriptionId: string): Promise<Pax8Subscription> {
@@ -142,6 +148,59 @@ export class Pax8Client {
 
   async getProduct(productId: string): Promise<Pax8Product> {
     return this.request<Pax8Product>(`/products/${productId}`);
+  }
+
+  // ── Product Name Resolution ─────────────────────────────────────────
+
+  /**
+   * Enrich subscriptions with product names from the /products endpoint.
+   * Caches results to avoid duplicate requests for the same product.
+   */
+  private async enrichSubscriptionsWithProductNames(
+    subs: ReadonlyArray<Pax8Subscription>,
+  ): Promise<ReadonlyArray<Pax8Subscription>> {
+    // Collect unique product IDs that need resolution
+    const needsResolution = subs.filter((s) => !s.product?.name && s.productId);
+    const uniqueProductIds = [...new Set(needsResolution.map((s) => s.productId))];
+
+    if (uniqueProductIds.length === 0) return subs;
+
+    // Fetch product details in parallel (batch of 10 at a time to avoid rate limits)
+    const productMap = new Map<string, Pax8Product>();
+    const batches: string[][] = [];
+    for (let i = 0; i < uniqueProductIds.length; i += 10) {
+      batches.push(uniqueProductIds.slice(i, i + 10));
+    }
+
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (id) => {
+          const product = await this.getProduct(id);
+          productMap.set(id, product);
+        }),
+      );
+      // Log failures but don't break
+      for (const r of results) {
+        if (r.status === "rejected") {
+          console.warn(`[PAX8] Failed to resolve product:`, r.reason);
+        }
+      }
+    }
+
+    // Return new subscription objects with product info attached
+    return subs.map((sub) => {
+      if (sub.product?.name) return sub;
+      const resolved = productMap.get(sub.productId);
+      if (!resolved) return sub;
+      return {
+        ...sub,
+        product: {
+          id: resolved.id,
+          name: resolved.name,
+          vendorName: resolved.vendorName,
+        },
+      };
+    });
   }
 }
 

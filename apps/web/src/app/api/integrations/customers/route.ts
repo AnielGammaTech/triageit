@@ -570,17 +570,23 @@ async function fetchCippTenants(
   const tokenData = (await tokenRes.json()) as { access_token: string };
 
   const baseUrl = config.cippApiUrl.replace(/\/+$/, "");
-  // CIPP-API may require the token as both Bearer and x-functions-key
-  const res = await fetch(`${baseUrl}/api/ListTenants`, {
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      "x-functions-key": tokenData.access_token,
-      "Content-Type": "application/json",
-    },
-  });
+  const authHeaders: Record<string, string> = {
+    Authorization: `Bearer ${tokenData.access_token}`,
+    "Content-Type": "application/json",
+  };
+
+  // Try ListTenants endpoint. On 403, give actionable error about CIPP permissions.
+  const res = await fetch(`${baseUrl}/api/ListTenants`, { headers: authHeaders });
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    if (res.status === 403) {
+      throw new Error(
+        `CIPP ListTenants error: 403 — ${errText.substring(0, 200)}. ` +
+        `Fix: In Azure AD go to Enterprise Applications → find your CIPP app → Permissions → Grant admin consent. ` +
+        `The app registration needs the CIPP API scope (e.g. api://<app-id>/CIPP.Exec or .default).`,
+      );
+    }
     throw new Error(`CIPP ListTenants error: ${res.status} — ${errText.substring(0, 200)}`);
   }
 
