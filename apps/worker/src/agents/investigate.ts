@@ -69,7 +69,9 @@ async function investigateDwight(
 
   const company = companies[0];
   const companyId = company.id;
-  let result = `**Hudu Company:** ${company.name} (ID: ${companyId})\n\n`;
+  const huduBaseUrl = config.base_url.replace(/\/+$/, "");
+  const companyUrl = `${huduBaseUrl}/companies/${companyId}`;
+  let result = `**Hudu Company:** ${company.name} (ID: ${companyId})\n**Direct Link:** ${companyUrl}\n\n`;
 
   // Pull assets, articles, passwords overview
   const [assets, articles, layouts] = await Promise.all([
@@ -83,15 +85,16 @@ async function investigateDwight(
   if (assets.length > 0) {
     result += `**Assets (${assets.length}):**\n`;
     // Group by layout
-    const byLayout: Record<string, string[]> = {};
+    const byLayout: Record<string, Array<{ name: string; id: number }>> = {};
     for (const a of assets) {
       const layoutName = (a.asset_layout_id != null ? layoutMap.get(a.asset_layout_id) : undefined) ?? "Other";
       const list = byLayout[layoutName] ?? [];
-      list.push(a.name);
+      list.push({ name: a.name, id: a.id });
       byLayout[layoutName] = list;
     }
-    for (const [layout, names] of Object.entries(byLayout)) {
-      result += `- **${layout}**: ${names.slice(0, 10).join(", ")}${names.length > 10 ? ` (+${names.length - 10} more)` : ""}\n`;
+    for (const [layout, items] of Object.entries(byLayout)) {
+      const names = items.slice(0, 10).map((i) => `[${i.name}](${huduBaseUrl}/a/${i.id})`);
+      result += `- **${layout}**: ${names.join(", ")}${items.length > 10 ? ` (+${items.length - 10} more)` : ""}\n`;
     }
     result += "\n";
   }
@@ -99,18 +102,35 @@ async function investigateDwight(
   if (articles.length > 0) {
     result += `**Knowledge Base Articles (${articles.length}):**\n`;
     for (const a of articles.slice(0, 10)) {
-      result += `- ${a.name}\n`;
+      const articleUrl = `${huduBaseUrl}/companies/${companyId}/articles/${a.id}`;
+      result += `- [${a.name}](${articleUrl})\n`;
     }
     result += "\n";
   }
 
   // If question mentions specific keywords, try to find relevant assets
   const lowerQ = question.toLowerCase();
-  if (lowerQ.includes("password") || lowerQ.includes("credential")) {
+  if (lowerQ.includes("password") || lowerQ.includes("credential") || lowerQ.includes("login")) {
     const passwords = await hudu.getPasswords({ company_id: companyId }).catch(() => []);
-    result += `**Passwords:** ${passwords.length} stored entries\n`;
-    for (const p of passwords.slice(0, 10)) {
-      result += `- ${p.name}\n`;
+    result += `**Passwords (${passwords.length} entries):** [View in Hudu](${companyUrl}/passwords)\n`;
+    for (const p of passwords.slice(0, 15)) {
+      result += `- ${p.name}${p.username ? ` (user: ${p.username})` : ""}\n`;
+    }
+    result += "\n";
+  }
+
+  // If question is about a specific asset/topic, search within assets
+  if (lowerQ.includes("network") || lowerQ.includes("wifi") || lowerQ.includes("switch") || lowerQ.includes("firewall")) {
+    const networkAssets = assets.filter((a) => {
+      const name = a.name.toLowerCase();
+      return name.includes("network") || name.includes("wifi") || name.includes("switch") || name.includes("firewall") || name.includes("router") || name.includes("ap ");
+    });
+    if (networkAssets.length > 0) {
+      result += `**Matching Network Assets:**\n`;
+      for (const a of networkAssets.slice(0, 10)) {
+        result += `- [${a.name}](${huduBaseUrl}/a/${a.id})\n`;
+      }
+      result += "\n";
     }
   }
 

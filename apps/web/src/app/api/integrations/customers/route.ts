@@ -570,14 +570,19 @@ async function fetchCippTenants(
   const tokenData = (await tokenRes.json()) as { access_token: string };
 
   const baseUrl = config.cippApiUrl.replace(/\/+$/, "");
+  // CIPP-API may require the token as both Bearer and x-functions-key
   const res = await fetch(`${baseUrl}/api/ListTenants`, {
     headers: {
       Authorization: `Bearer ${tokenData.access_token}`,
+      "x-functions-key": tokenData.access_token,
       "Content-Type": "application/json",
     },
   });
 
-  if (!res.ok) throw new Error(`CIPP ListTenants error: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`CIPP ListTenants error: ${res.status} — ${errText.substring(0, 200)}`);
+  }
 
   const data = (await res.json()) as ReadonlyArray<{
     customerId?: string;
