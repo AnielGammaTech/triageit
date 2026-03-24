@@ -377,7 +377,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                   </div>
                 ))}
                 {skills.filter((s) => s.is_active).length === 0 && (
-                  <p className="px-3 py-2 text-xs text-white/20">Teach Michael by saying &quot;remember this&quot; or &quot;from now on...&quot;</p>
+                  <p className="px-3 py-2 text-xs text-white/20">Teach Prison Mike by saying &quot;remember this&quot; or &quot;from now on...&quot;</p>
                 )}
               </div>
             )}
@@ -399,12 +399,10 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-600/20 text-amber-400 text-sm font-bold">
-            M
-          </div>
+          <img src="/prison-mike.png" alt="Prison Mike" className="h-8 w-8 rounded-full object-cover" />
           <div>
-            <h2 className="text-sm font-semibold text-white">Michael Scott</h2>
-            <p className="text-[11px] text-white/40">Regional Manager — AI Triage</p>
+            <h2 className="text-sm font-semibold text-white">Prison Mike</h2>
+            <p className="text-[11px] text-white/40">The Worst Thing About Prison — AI Triage</p>
           </div>
           <div className="ml-auto flex items-center gap-3">
             {sessionTokens > 0 && (
@@ -428,10 +426,8 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && !streaming && (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-600/10 text-amber-400 text-2xl font-bold mb-4">
-                M
-              </div>
-              <h3 className="text-lg font-semibold text-white/80 mb-1">Talk to Michael</h3>
+              <img src="/prison-mike.png" alt="Prison Mike" className="h-16 w-16 rounded-full object-cover mb-4" />
+              <h3 className="text-lg font-semibold text-white/80 mb-1">Talk to Prison Mike</h3>
               <p className="text-sm text-white/40 max-w-md">
                 Ask about tickets, discuss triage decisions, teach him new skills, or get his take on client patterns.
               </p>
@@ -457,9 +453,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           {messages.map((msg) => (
             <div key={msg.id} className={cn("flex gap-3", msg.role === "user" && "justify-end")}>
               {msg.role === "assistant" && (
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-600/20 text-amber-400 text-xs font-bold mt-0.5">
-                  M
-                </div>
+                <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               )}
               <div className="max-w-[75%]">
                 <div
@@ -489,9 +483,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && streamingText && (
             <div className="flex gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-600/20 text-amber-400 text-xs font-bold mt-0.5">
-                M
-              </div>
+              <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="max-w-[75%] rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
                 <MessageContent content={streamingText} />
                 <span className="inline-block w-1.5 h-4 bg-amber-400/60 animate-pulse ml-0.5" />
@@ -501,9 +493,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && !streamingText && (
             <div className="flex gap-3">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-600/20 text-amber-400 text-xs font-bold mt-0.5">
-                M
-              </div>
+              <img src="/prison-mike.png" alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="rounded-xl bg-white/[0.06] px-4 py-3 min-w-[200px]">
                 {activityLog.length > 0 && (
                   <div className="mb-2 space-y-1.5">
@@ -536,7 +526,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
-                  <span className="text-xs text-white/30">{statusText || "Michael is thinking..."}</span>
+                  <span className="text-xs text-white/30">{statusText || "Prison Mike is thinking..."}</span>
                 </div>
               </div>
             </div>
@@ -553,7 +543,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message Michael..."
+              placeholder="Message Prison Mike..."
               rows={1}
               className="flex-1 resize-none rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-colors"
               style={{ maxHeight: "120px" }}
