@@ -82,22 +82,25 @@ export default function TicketsPage() {
       setError(null);
     }
     setLoading(false);
+  }, []);
 
-    // Load Halo base URL for ticket links
-    if (!haloBaseUrl) {
-      const { data: haloConfig } = await supabase
-        .from("integrations")
-        .select("config")
-        .eq("service", "halo")
-        .single();
-
-      if (haloConfig?.config) {
-        const cfg = haloConfig.config as { base_url?: string };
-        if (cfg.base_url) {
-          setHaloBaseUrl(cfg.base_url.replace(/\/$/, ""));
+  // Load Halo base URL once (separate from ticket loading to avoid dependency loops)
+  useEffect(() => {
+    if (haloBaseUrl) return;
+    const supabase = createClient();
+    supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "halo")
+      .single()
+      .then(({ data: haloConfig }) => {
+        if (haloConfig?.config) {
+          const cfg = haloConfig.config as { base_url?: string };
+          if (cfg.base_url) {
+            setHaloBaseUrl(cfg.base_url.replace(/\/$/, ""));
+          }
         }
-      }
-    }
+      });
   }, [haloBaseUrl]);
 
   // Pull open tickets from Halo
