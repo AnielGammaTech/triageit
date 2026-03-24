@@ -298,6 +298,12 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                   )}
                   <span className="text-sm text-white/70 truncate">{latest.tickets.summary}</span>
                 </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] text-white/40 truncate">{latest.tickets.client_name ?? "—"}</span>
+                  <span className="shrink-0 rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[9px] text-white/50">
+                    {latest.tickets.halo_status ?? "Unknown"}
+                  </span>
+                </div>
                 <div className="flex items-center justify-between">
                   <span className={cn("text-xs", resolveTechName(latest).isDispatch ? "text-amber-400/70" : "text-white/50")}>
                     {resolveTechName(latest).name}
@@ -355,6 +361,16 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
                     <span className="text-sm text-white/70 truncate">{latest.tickets.summary}</span>
                   </div>
                 </div>
+
+                {/* Customer name */}
+                <span className="shrink-0 text-xs text-white/40 max-w-[140px] truncate" title={latest.tickets.client_name ?? undefined}>
+                  {latest.tickets.client_name ?? "—"}
+                </span>
+
+                {/* Halo status */}
+                <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-white/50">
+                  {latest.tickets.halo_status ?? "Unknown"}
+                </span>
 
                 {/* Version count */}
                 {ticketReviews.length > 1 && (
