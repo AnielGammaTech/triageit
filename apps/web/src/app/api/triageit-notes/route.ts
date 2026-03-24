@@ -34,12 +34,15 @@ export interface TriageITNote {
  * Detect which type of TriageIT note this is based on HTML content.
  */
 function classifyNote(html: string): TriageITNote["type"] {
-  if (html.includes("Tech Performance Review")) return "tech-review";
-  if (html.includes("Retriage Check") || html.includes("Re-Triage")) return "retriage";
-  if (html.includes("alert path")) return "alert";
-  if (html.includes("Priority Recommendation")) return "priority";
-  if (html.includes("Documentation Gap")) return "documentation";
-  if (html.includes("AI Triage")) return "triage";
+  const lower = html.toLowerCase();
+  if (lower.includes("tech performance review")) return "tech-review";
+  if (lower.includes("close review")) return "tech-review";
+  if (lower.includes("no progress since last review")) return "retriage";
+  if (lower.includes("retriage") || lower.includes("re-triage")) return "retriage";
+  if (lower.includes("alert path")) return "alert";
+  if (lower.includes("priority recommendation")) return "priority";
+  if (lower.includes("documentation gap")) return "documentation";
+  if (lower.includes("ai triage")) return "triage";
   return "other";
 }
 
@@ -48,16 +51,21 @@ function classifyNote(html: string): TriageITNote["type"] {
  */
 function isTriageITNote(action: HaloAction): boolean {
   const note = action.note ?? "";
+  const lower = note.toLowerCase();
   // TriageIT notes contain our branding / signature markers
   return (
-    note.includes("TriageIT") ||
-    note.includes("TriageIT AI") ||
-    note.includes("AI Triage") ||
-    note.includes("triageit") ||
-    // Our HTML table notes always have this gradient
+    lower.includes("triageit") ||
+    lower.includes("ai triage") ||
+    lower.includes("tech performance review") ||
+    lower.includes("close review") ||
+    lower.includes("no progress since last review") ||
+    // Our HTML table notes always have these gradients
     note.includes("linear-gradient(135deg,#b91c1c") ||
     note.includes("linear-gradient(135deg,#4f46e5") ||
-    note.includes("linear-gradient(135deg,#059669")
+    note.includes("linear-gradient(135deg,#059669") ||
+    note.includes("linear-gradient(135deg,#6366f1") ||
+    note.includes("linear-gradient(135deg,#991b1b") ||
+    note.includes("linear-gradient(135deg,#065f46")
   );
 }
 
