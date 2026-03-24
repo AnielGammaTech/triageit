@@ -71,7 +71,14 @@ export default function TicketsPage() {
     const supabase = createClient();
     const { data, error: dbError } = await supabase
       .from("tickets")
-      .select("*, triage_results(*), tech_reviews(id), close_reviews(id)")
+      .select(`
+        id, halo_id, summary, client_name, user_name, original_priority,
+        status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
+        last_retriage_at, last_customer_reply_at, last_tech_action_at,
+        triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
+        tech_reviews(id),
+        close_reviews(id)
+      `)
       .order("created_at", { ascending: false })
       .limit(2000);
 
