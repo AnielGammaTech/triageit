@@ -75,6 +75,7 @@ export async function POST(request: Request) {
     } else {
       const { error: insertError } = await supabase.from("integrations").insert({
         service: "branding",
+        display_name: "Branding",
         is_active: true,
         config,
       });

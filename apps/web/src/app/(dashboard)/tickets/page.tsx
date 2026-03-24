@@ -41,10 +41,11 @@ interface TicketRow {
   readonly close_reviews?: ReadonlyArray<{ readonly id: string }>;
 }
 
-// Only statuses that Halo considers truly closed/done.
-// "Resolved Remotely" and "Resolved Onsite" are intermediate — ticket is still open in Halo.
-const RESOLVED_STATUSES = [
-  "closed", "resolved", "cancelled", "completed",
+// Only statuses Halo considers truly CLOSED (not open).
+// In Halo, "Resolved" / "Resolved Remotely" / "Resolved Onsite" are still open tickets.
+// Only "Closed" and "Cancelled" remove a ticket from Halo's open queue.
+const CLOSED_STATUSES = [
+  "closed", "cancelled",
 ];
 
 export default function TicketsPage() {
@@ -224,8 +225,8 @@ export default function TicketsPage() {
     }
   }, [loading, pullFromHalo]);
 
-  const isResolved = (t: TicketRow) =>
-    t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
+  const isClosed = (t: TicketRow) =>
+    t.halo_status && CLOSED_STATUSES.includes(t.halo_status.toLowerCase());
 
   // Apply tech filter from query params (e.g. from Analytics page)
   // Note: pull-tickets already only syncs Gamma Default (type 31) from Halo,
@@ -249,17 +250,19 @@ export default function TicketsPage() {
     return hoursSince > 72;
   };
 
-  // Exclude known non-default ticket types (Alerts, etc.) from the dashboard.
-  // Tickets with null tickettype_id are assumed Gamma Default (older synced tickets).
+  // Only show Gamma Default (type 31) tickets on the dashboard.
+  // Null-type tickets are legacy data from before type tracking — show in Resolved only.
   const GAMMA_DEFAULT_TYPE_ID = 31;
-  const nonAlertTickets = filteredTickets.filter((t) => t.tickettype_id == null || t.tickettype_id === GAMMA_DEFAULT_TYPE_ID);
+  const gammaDefaultTickets = filteredTickets.filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID);
+  const legacyTickets = filteredTickets.filter((t) => t.tickettype_id == null);
 
-  // Resolved: tickets whose Halo status is resolved/closed/cancelled
-  const resolvedTickets = nonAlertTickets.filter((t) => isResolved(t));
-  const resolvedIds = new Set(resolvedTickets.map((t) => t.id));
+  // Open: Gamma Default tickets not closed/cancelled — matches Halo's "Agent Tickets" count
+  const allOpenTickets = gammaDefaultTickets.filter((t) => !isClosed(t));
 
-  // Open: everything that's not resolved (excludes alerts)
-  const allOpenTickets = nonAlertTickets.filter((t) => !resolvedIds.has(t.id));
+  // Resolved: closed Gamma Default + all legacy (null-type) tickets
+  const closedGamma = gammaDefaultTickets.filter((t) => isClosed(t));
+  const closedLegacy = legacyTickets;
+  const resolvedTickets = [...closedGamma, ...closedLegacy];
 
   // Stale count (for the filter badge)
   const staleCount = allOpenTickets.filter((t) => isStale(t)).length;
