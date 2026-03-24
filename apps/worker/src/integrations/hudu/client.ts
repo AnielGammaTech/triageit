@@ -176,6 +176,53 @@ export class HuduClient {
     return result.procedures ?? [];
   }
 
+  // ── Write Methods ──────────────────────────────────────────────────
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const url = `${this.config.base_url}/api/v1${path}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "x-api-key": this.config.api_key,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Hudu API POST ${path} failed (${response.status}): ${text}`);
+    }
+
+    return (await response.json()) as T;
+  }
+
+  async createArticle(params: {
+    readonly name: string;
+    readonly content: string;
+    readonly company_id?: number;
+    readonly folder_id?: number;
+  }): Promise<HuduArticle> {
+    const result = await this.post<{ article: HuduArticle }>(
+      "/articles",
+      { article: params },
+    );
+    return result.article;
+  }
+
+  async createAsset(params: {
+    readonly name: string;
+    readonly company_id: number;
+    readonly asset_layout_id: number;
+    readonly custom_fields?: ReadonlyArray<{ readonly value: string; readonly [key: string]: unknown }>;
+  }): Promise<HuduAsset> {
+    const result = await this.post<{ asset: HuduAsset }>(
+      "/assets",
+      { asset: params },
+    );
+    return result.asset;
+  }
+
   // ── Relations (linked items) ─────────────────────────────────────
 
   async getRelations(params?: {

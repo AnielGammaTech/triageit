@@ -1,5 +1,5 @@
 <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="32" rx="6" fill="#b91c1c" />
-  <text x="4" y="27" font-family="Inter, system-ui, sans-serif" font-size="28" font-weight="800" fill="white">T</text>
-  <circle cx="27" cy="6" r="4" fill="#ef4444" />
+  <rect width="32" height="32" rx="8" fill="#b91c1c" />
+  <path d="M8 8h16v4.5H19.2V24h-6.4V12.5H8V8z" fill="white" />
+  <circle cx="26" cy="6" r="3.5" fill="#ef4444" />
 </svg>

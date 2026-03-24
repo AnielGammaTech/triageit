@@ -96,9 +96,9 @@ export function Sidebar({ userEmail }: SidebarProps) {
                 className="flex h-7 w-7 items-center justify-center rounded-md"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <text x="2" y="14" fontFamily="Inter, system-ui, sans-serif" fontSize="15" fontWeight="800" fill="white">T</text>
-                  <circle cx="13.5" cy="3" r="2" fill="#ef4444" />
+                <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
+                  <path d="M8 8h16v4.5H19.2V24h-6.4V12.5H8V8z" fill="white" />
+                  <circle cx="26" cy="6" r="3.5" fill="#ef4444" />
                 </svg>
               </div>
               <span className="hidden text-sm font-bold tracking-tight text-white sm:block">

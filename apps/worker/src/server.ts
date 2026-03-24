@@ -26,6 +26,7 @@ import { MemoryManager } from "./memory/memory-manager.js";
 import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
+import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 
 const server = Fastify({ logger: true });
 
@@ -242,6 +243,76 @@ server.post<{ Body: { halo_id: number } }>(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[CLOSE-REVIEW] Failed for ticket #${halo_id}:`, message);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// ── KB Ideas endpoint ─────────────────────────────────────────────────
+server.post<{ Body: { halo_id: number } }>(
+  "/kb-ideas",
+  async (request, reply) => {
+    const { halo_id } = request.body;
+    if (!halo_id) {
+      return reply.status(400).send({ error: "halo_id is required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    try {
+      const result = await generateKbIdeas(halo_id, supabase);
+      return { status: "completed", ...result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[KB-IDEAS] Failed for ticket #${halo_id}:`, message);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// ── Create Hudu article endpoint ──────────────────────────────────────
+server.post<{ Body: { client_name: string; title: string; content: string; company_id?: number } }>(
+  "/hudu/create-article",
+  async (request, reply) => {
+    const { client_name, title, content, company_id } = request.body;
+    if (!title || !content) {
+      return reply.status(400).send({ error: "title and content are required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    const { data: huduIntegration } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "hudu")
+      .eq("is_active", true)
+      .single();
+
+    if (!huduIntegration) {
+      return reply.status(400).send({ error: "Hudu not configured" });
+    }
+
+    try {
+      const { HuduClient } = await import("./integrations/hudu/client.js");
+      const hudu = new HuduClient(huduIntegration.config as import("@triageit/shared").HuduConfig);
+
+      // Find company ID if not provided
+      let resolvedCompanyId = company_id;
+      if (!resolvedCompanyId && client_name) {
+        const companies = await hudu.searchCompanies(client_name);
+        resolvedCompanyId = companies[0]?.id;
+      }
+
+      const article = await hudu.createArticle({
+        name: title,
+        content,
+        company_id: resolvedCompanyId,
+      });
+
+      return { status: "created", article: { id: article.id, name: article.name, url: article.url } };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[HUDU] Failed to create article:`, message);
       return reply.status(500).send({ error: message });
     }
   },

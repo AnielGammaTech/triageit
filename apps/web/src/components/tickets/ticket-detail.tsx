@@ -153,8 +153,18 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [summarizing, setSummarizing] = useState(false);
   const [closeReviewing, setCloseReviewing] = useState(false);
   const [closeReviewDone, setCloseReviewDone] = useState(false);
-  const [kbDrafts, setKbDrafts] = useState<ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string }>>([]);
+  const [kbDrafts, setKbDrafts] = useState<ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string; why?: string; needs_info?: ReadonlyArray<string>; confidence?: string }>>([]);
   const [copiedKb, setCopiedKb] = useState<number | null>(null);
+  const [closeReviewData, setCloseReviewData] = useState<{
+    resolution_summary: string;
+    tech_performance: { rating: string; response_time: string; communication: string; highlights: string | null; issues: string | null };
+    ticket_lifecycle: { total_time: string; first_response_time: string; resolution_method: string };
+    onsite_visits: ReadonlyArray<string>;
+    documentation_action: { quality_score: number; notes: string; hudu_updates_needed: ReadonlyArray<string> };
+  } | null>(null);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [creatingKb, setCreatingKb] = useState<number | null>(null);
+  const [createdKb, setCreatedKb] = useState<Set<number>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<{ actions: number; appointments: number } | null>(null);
   const [triageItNotes, setTriageITNotes] = useState<ReadonlyArray<{ id: number; note: string; date: string; type: string }>>([]);
@@ -222,11 +232,13 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       });
 
       if (response.ok) {
-        const data = await response.json() as { review?: { hudu_kb_drafts?: ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string }> } };
+        const data = await response.json() as { review?: Record<string, unknown> };
         setCloseReviewDone(true);
-        if (data.review?.hudu_kb_drafts && data.review.hudu_kb_drafts.length > 0) {
-          setKbDrafts(data.review.hudu_kb_drafts);
+        if (data.review) {
+          setCloseReviewData(data.review as typeof closeReviewData);
         }
+        // Reload TriageIT notes to show the new close review note
+        setNotesLoaded(false);
       }
     } catch (error) {
       console.error("Failed to generate close review:", error);
@@ -234,6 +246,54 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setCloseReviewing(false);
     }
   }, [ticket, closeReviewing]);
+
+  const handleKbIdeas = useCallback(async () => {
+    if (kbLoading || !ticket) return;
+    setKbLoading(true);
+
+    try {
+      const response = await fetch("/api/kb-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: ticket.halo_id }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as { ideas?: ReadonlyArray<typeof kbDrafts[0]>; questions?: ReadonlyArray<string> };
+        if (data.ideas) setKbDrafts(data.ideas);
+      }
+    } catch (error) {
+      console.error("Failed to generate KB ideas:", error);
+    } finally {
+      setKbLoading(false);
+    }
+  }, [ticket, kbLoading]);
+
+  const handleCreateInHudu = useCallback(async (index: number) => {
+    const draft = kbDrafts[index];
+    if (!draft || !ticket) return;
+    setCreatingKb(index);
+
+    try {
+      const response = await fetch("/api/hudu/create-article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: ticket.client_name,
+          title: draft.title,
+          content: draft.content,
+        }),
+      });
+
+      if (response.ok) {
+        setCreatedKb((prev) => new Set([...prev, index]));
+      }
+    } catch (error) {
+      console.error("Failed to create Hudu article:", error);
+    } finally {
+      setCreatingKb(null);
+    }
+  }, [kbDrafts, ticket]);
 
   const loadTriageITNotes = useCallback(async () => {
     if (notesLoading || !ticket) return;
@@ -952,67 +1012,109 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {activeTab === "triageit" && (
         <div className="space-y-3">
-          {/* KB Drafts — collapsible dropdown after close review */}
-          {kbDrafts.length > 0 && (
-            <details className="group rounded-xl border border-blue-500/20 bg-blue-500/[0.04] overflow-hidden">
-              <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 select-none list-none">
-                <svg
-                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                  className="text-blue-400 transition-transform group-open:rotate-90"
-                >
-                  <path d="M9 18l6-6-6-6" />
+          {/* Close Review result — shown after review completes */}
+          {closeReviewData && (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400/70">Close Review</p>
+              <p className="text-sm text-white/70">{closeReviewData.resolution_summary}</p>
+              <div className="flex flex-wrap gap-3 text-xs">
+                <span className={cn("rounded px-2 py-0.5 font-semibold",
+                  closeReviewData.tech_performance.rating === "great" ? "bg-green-500/20 text-green-400" :
+                  closeReviewData.tech_performance.rating === "good" ? "bg-blue-500/20 text-blue-400" :
+                  closeReviewData.tech_performance.rating === "needs_improvement" ? "bg-yellow-500/20 text-yellow-400" :
+                  "bg-red-500/20 text-red-400"
+                )}>{closeReviewData.tech_performance.rating.replace("_", " ").toUpperCase()}</span>
+                <span className="text-white/40">Response: <strong className="text-white/60">{closeReviewData.tech_performance.response_time}</strong></span>
+                <span className="text-white/40">Total: <strong className="text-white/60">{closeReviewData.ticket_lifecycle.total_time}</strong></span>
+                <span className="text-white/40">Method: <strong className="text-white/60">{closeReviewData.ticket_lifecycle.resolution_method}</strong></span>
+                <span className="text-white/40">Docs: <strong className="text-white/60">{closeReviewData.documentation_action.quality_score}/5</strong></span>
+              </div>
+              {closeReviewData.tech_performance.highlights && (
+                <p className="text-xs text-emerald-400/60">{closeReviewData.tech_performance.highlights}</p>
+              )}
+              {closeReviewData.tech_performance.issues && (
+                <p className="text-xs text-amber-400/60">{closeReviewData.tech_performance.issues}</p>
+              )}
+            </div>
+          )}
+
+          {/* KB Ideas button */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleKbIdeas}
+              disabled={kbLoading}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                kbLoading
+                  ? "cursor-not-allowed bg-white/5 text-white/20"
+                  : "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20",
+              )}
+            >
+              {kbLoading ? (
+                <div className="h-3 w-3 animate-spin rounded-full border border-blue-400/30 border-t-blue-400" />
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
-                <span className="text-sm font-medium text-blue-400">Hudu KB Drafts</span>
-                <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-300">
-                  {kbDrafts.length}
-                </span>
-                <span className="ml-auto text-[10px] text-white/25">click to expand</span>
+              )}
+              {kbLoading ? "Analyzing..." : "KB Ideas"}
+            </button>
+            {kbDrafts.length > 0 && (
+              <span className="text-[10px] text-white/25">{kbDrafts.length} suggestion{kbDrafts.length !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+
+          {/* KB Ideas results — collapsible */}
+          {kbDrafts.length > 0 && (
+            <details open className="group rounded-xl border border-blue-500/20 bg-blue-500/[0.04] overflow-hidden">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 select-none list-none">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400 transition-transform group-open:rotate-90"><path d="M9 18l6-6-6-6" /></svg>
+                <span className="text-xs font-medium text-blue-400">KB Suggestions</span>
+                <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[10px] text-blue-300">{kbDrafts.length}</span>
               </summary>
-              <div className="space-y-2 px-4 pb-3">
+              <div className="space-y-2 px-3 pb-3">
                 {kbDrafts.map((draft, i) => (
                   <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="shrink-0 rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-semibold text-blue-300 uppercase">
-                          {draft.category}
-                        </span>
-                        <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
-                          {draft.hudu_section}
-                        </span>
-                        <span className="truncate text-xs font-medium text-white/80">{draft.title}</span>
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="shrink-0 rounded bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-blue-300 uppercase">{draft.category}</span>
+                        {draft.confidence && (
+                          <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium",
+                            draft.confidence === "high" ? "bg-green-500/20 text-green-400" :
+                            draft.confidence === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                            "bg-white/5 text-white/30"
+                          )}>{draft.confidence}</span>
+                        )}
+                        <span className="truncate text-xs text-white/80">{draft.title}</span>
                       </div>
-                      <button
-                        onClick={() => {
-                          void navigator.clipboard.writeText(draft.content);
-                          setCopiedKb(i);
-                          setTimeout(() => setCopiedKb(null), 2000);
-                        }}
-                        className={cn(
-                          "ml-2 shrink-0 flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-                          copiedKb === i
-                            ? "bg-emerald-500/20 text-emerald-400"
-                            : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70",
-                        )}
-                      >
-                        {copiedKb === i ? (
-                          <>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>
-                            Copied
-                          </>
-                        ) : (
-                          <>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                            Copy
-                          </>
-                        )}
-                      </button>
+                      <div className="ml-2 shrink-0 flex items-center gap-1">
+                        <button
+                          onClick={() => { void navigator.clipboard.writeText(draft.content); setCopiedKb(i); setTimeout(() => setCopiedKb(null), 2000); }}
+                          className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors", copiedKb === i ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/40 hover:bg-white/10")}
+                        >
+                          {copiedKb === i ? "Copied" : "Copy"}
+                        </button>
+                        <button
+                          onClick={() => handleCreateInHudu(i)}
+                          disabled={creatingKb === i || createdKb.has(i)}
+                          className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                            createdKb.has(i) ? "bg-emerald-500/20 text-emerald-400" :
+                            creatingKb === i ? "bg-white/5 text-white/20" :
+                            "bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25"
+                          )}
+                        >
+                          {createdKb.has(i) ? "Created" : creatingKb === i ? "..." : "Create in Hudu"}
+                        </button>
+                      </div>
                     </div>
-                    <pre className="px-3 py-2 text-xs text-white/60 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto">
-                      {draft.content}
-                    </pre>
+                    {draft.why && <p className="px-3 py-1 text-[10px] text-white/30 border-b border-white/5">{draft.why}</p>}
+                    <pre className="px-3 py-1.5 text-[11px] text-white/60 whitespace-pre-wrap font-mono leading-relaxed max-h-36 overflow-y-auto">{draft.content}</pre>
+                    {draft.needs_info && draft.needs_info.length > 0 && (
+                      <div className="px-3 py-1.5 border-t border-white/5 text-[10px] text-amber-400/60">
+                        Needs more info: {draft.needs_info.join(" · ")}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
