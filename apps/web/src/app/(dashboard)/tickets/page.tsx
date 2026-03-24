@@ -37,6 +37,8 @@ interface TicketRow {
     readonly internal_notes?: string;
     readonly created_at?: string;
   }>;
+  readonly tech_reviews?: ReadonlyArray<{ readonly id: string }>;
+  readonly close_reviews?: ReadonlyArray<{ readonly id: string }>;
 }
 
 const RESOLVED_STATUSES = [
@@ -69,7 +71,7 @@ export default function TicketsPage() {
     const supabase = createClient();
     const { data, error: dbError } = await supabase
       .from("tickets")
-      .select("*, triage_results(*)")
+      .select("*, triage_results(*), tech_reviews(id), close_reviews(id)")
       .order("created_at", { ascending: false })
       .limit(2000);
 

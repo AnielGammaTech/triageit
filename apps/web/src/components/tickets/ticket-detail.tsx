@@ -143,7 +143,10 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [ticket, setTicket] = useState<TicketData | null>(null);
   const [triage, setTriage] = useState<TriageResult | null>(null);
   const [agentLogs, setAgentLogs] = useState<ReadonlyArray<AgentLog>>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "agents" | "triageit" | "raw">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "agents" | "triageit" | "halo" | "raw">("overview");
+  const [haloActions, setHaloActions] = useState<ReadonlyArray<{ who: string; date: string; note: string; isInternal: boolean; outcome: string | null }>>([]);
+  const [haloActionsLoading, setHaloActionsLoading] = useState(false);
+  const [haloActionsLoaded, setHaloActionsLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [retriaging, setRetriaging] = useState(false);
@@ -256,6 +259,26 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setNotesLoaded(true);
     }
   }, [ticket, notesLoading]);
+
+  const loadHaloActions = useCallback(async () => {
+    if (haloActionsLoading || !ticket) return;
+    setHaloActionsLoading(true);
+
+    try {
+      const response = await fetch(`/api/halo/actions?halo_id=${ticket.halo_id}`);
+      if (response.ok) {
+        const data = (await response.json()) as {
+          actions: ReadonlyArray<{ who: string; date: string; note: string; isInternal: boolean; outcome: string | null }>;
+        };
+        setHaloActions(data.actions);
+      }
+    } catch (error) {
+      console.error("Failed to load Halo actions:", error);
+    } finally {
+      setHaloActionsLoading(false);
+      setHaloActionsLoaded(true);
+    }
+  }, [ticket, haloActionsLoading]);
 
   const handleSummarize = useCallback(async () => {
     if (summarizing || !ticket) return;
@@ -378,6 +401,12 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       loadTriageITNotes();
     }
   }, [activeTab, notesLoaded, notesLoading, loadTriageITNotes]);
+
+  useEffect(() => {
+    if (activeTab === "halo" && !haloActionsLoaded && !haloActionsLoading) {
+      loadHaloActions();
+    }
+  }, [activeTab, haloActionsLoaded, haloActionsLoading, loadHaloActions]);
 
   if (loading) {
     return (
@@ -717,12 +746,12 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-white/10 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
-        {(["overview", "agents", "triageit", "raw"] as const).map((tab) => (
+        {(["overview", "agents", "triageit", "halo", "raw"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "px-4 py-2 text-sm font-medium capitalize transition-colors",
+              "px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap",
               activeTab === tab
                 ? "border-b-2 border-[#b91c1c] text-white"
                 : "text-white/50 hover:text-white",
@@ -748,7 +777,16 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                         )}
                       </>
                     )
-                  : "Details"}
+                  : tab === "halo"
+                    ? (
+                        <>
+                          Halo Notes
+                          {haloActionsLoaded && haloActions.length > 0 && (
+                            <span className="ml-1.5 text-xs text-white/30">({haloActions.length})</span>
+                          )}
+                        </>
+                      )
+                    : "Details"}
           </button>
         ))}
       </div>
@@ -1007,6 +1045,74 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               </div>
               {triageItNotes.map((note) => (
                 <CollapsibleNote key={note.id} note={note} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === "halo" && (
+        <div className="space-y-3">
+          {haloActionsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="flex items-center gap-2 text-sm text-white/40">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+                Loading Halo notes...
+              </div>
+            </div>
+          ) : haloActions.length === 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
+              <p className="text-sm text-white/40">No actions found for this ticket in Halo.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-white/30">
+                  {haloActions.length} action{haloActions.length !== 1 ? "s" : ""} from Halo
+                </p>
+                <button
+                  onClick={() => { setHaloActionsLoaded(false); loadHaloActions(); }}
+                  className="text-xs text-white/30 hover:text-white/60 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+              {haloActions.map((action, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-xl border p-4",
+                    action.isInternal
+                      ? "border-amber-500/15 bg-amber-500/[0.03]"
+                      : "border-white/10 bg-white/[0.02]",
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-medium text-white/70">{action.who}</span>
+                    <span className={cn(
+                      "rounded px-1.5 py-0.5 text-[9px] font-semibold",
+                      action.isInternal
+                        ? "bg-amber-500/20 text-amber-400"
+                        : "bg-blue-500/20 text-blue-400",
+                    )}>
+                      {action.isInternal ? "INTERNAL" : "CUSTOMER"}
+                    </span>
+                    {action.outcome && (
+                      <span className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-white/5 text-white/30">
+                        {action.outcome}
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] text-white/25">
+                      {action.date ? new Date(action.date).toLocaleString("en-US", {
+                        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                        timeZone: "America/New_York",
+                      }) : "—"}
+                    </span>
+                  </div>
+                  <pre className="whitespace-pre-wrap text-xs text-white/60 leading-relaxed max-h-48 overflow-y-auto">
+                    {action.note || "(no content)"}
+                  </pre>
+                </div>
               ))}
             </>
           )}

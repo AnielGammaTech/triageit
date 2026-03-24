@@ -412,7 +412,14 @@ async function start() {
   // ── Step 4: Start cron scheduler (non-blocking — don't hang startup) ──
   try {
     await startCronScheduler();
-    console.log("[WORKER] Cron scheduler initialized");
+    const status = await getCronStatus();
+    console.log(`[WORKER] Cron scheduler initialized — ${status.jobCount} repeatable jobs in Redis`);
+    for (const job of status.jobs) {
+      console.log(`[WORKER]   → ${job.name}: ${job.schedule} (last: ${job.lastRun ?? "never"}, status: ${job.lastStatus ?? "none"})`);
+    }
+    if (status.jobCount === 0) {
+      console.warn("[WORKER] WARNING: No cron jobs registered in Redis! Check cron_jobs table or defaults.");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[WORKER] Cron scheduler failed to start: ${message}`);

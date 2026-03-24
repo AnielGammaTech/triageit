@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils/cn";
 
 interface TicketRow {
@@ -27,6 +28,8 @@ interface TicketRow {
     readonly internal_notes?: string;
     readonly created_at?: string;
   }>;
+  readonly tech_reviews?: ReadonlyArray<{ readonly id: string }>;
+  readonly close_reviews?: ReadonlyArray<{ readonly id: string }>;
 }
 
 interface OpenTicketListProps {
@@ -134,7 +137,39 @@ const FLAG_STYLES: Record<string, string> = {
   info: "bg-white/5 text-white/30",
 };
 
+const PAGE_SIZE = 25;
+
+function TicketTags({ ticket }: { readonly ticket: TicketRow }) {
+  const tags: Array<{ label: string; style: string }> = [];
+
+  if (ticket.last_retriage_at) {
+    tags.push({ label: "Re-triaged", style: "bg-violet-500/20 text-violet-400" });
+  }
+  if (ticket.tech_reviews && ticket.tech_reviews.length > 0) {
+    tags.push({ label: "Reviewed", style: "bg-sky-500/20 text-sky-400" });
+  }
+  if (ticket.close_reviews && ticket.close_reviews.length > 0) {
+    tags.push({ label: "Closed", style: "bg-emerald-500/20 text-emerald-400" });
+  }
+
+  if (tags.length === 0) return null;
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      {tags.map((t) => (
+        <span key={t.label} className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold", t.style)}>
+          {t.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTicketListProps) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(tickets.length / PAGE_SIZE);
+  const pagedTickets = tickets.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   if (tickets.length === 0) {
     return (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
@@ -149,7 +184,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
     <>
       {/* Mobile: card layout */}
       <div className="space-y-2 md:hidden">
-        {tickets.map((ticket) => {
+        {pagedTickets.map((ticket) => {
           const flags = getFlags(ticket);
           const hasCritical = flags.some((f) => f.severity === "critical");
           const statusStyle = getStatusStyle(ticket.halo_status ?? "");
@@ -188,6 +223,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
                   </span>
+                  <TicketTags ticket={ticket} />
                 </div>
                 <span className="text-xs text-[var(--muted-foreground)]">{activityLabel}</span>
               </div>
@@ -240,7 +276,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
             </tr>
           </thead>
           <tbody>
-            {tickets.map((ticket) => {
+            {pagedTickets.map((ticket) => {
               const flags = getFlags(ticket);
               const hasCritical = flags.some((f) => f.severity === "critical");
               const statusStyle = getStatusStyle(ticket.halo_status ?? "");
@@ -288,8 +324,11 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       <span className="text-[#b91c1c]">{ticket.halo_id}</span>
                     )}
                   </td>
-                  <td className="max-w-sm truncate px-3 py-2">
-                    {ticket.summary}
+                  <td className="max-w-sm px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate">{ticket.summary}</span>
+                      <TicketTags ticket={ticket} />
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
                     {ticket.client_name ?? "—"}
@@ -342,6 +381,48 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1 pt-3">
+          <span className="text-xs text-white/30 tabular-nums">
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, tickets.length)} of {tickets.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(0)}
+              disabled={page === 0}
+              className="rounded px-2 py-1 text-xs text-white/40 hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setPage(page - 1)}
+              disabled={page === 0}
+              className="rounded px-2 py-1 text-xs text-white/40 hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent"
+            >
+              Prev
+            </button>
+            <span className="px-2 text-xs text-white/50 tabular-nums">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= totalPages - 1}
+              className="rounded px-2 py-1 text-xs text-white/40 hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent"
+            >
+              Next
+            </button>
+            <button
+              onClick={() => setPage(totalPages - 1)}
+              disabled={page >= totalPages - 1}
+              className="rounded px-2 py-1 text-xs text-white/40 hover:bg-white/5 disabled:opacity-20 disabled:hover:bg-transparent"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
