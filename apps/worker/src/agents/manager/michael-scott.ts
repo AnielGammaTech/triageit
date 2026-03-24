@@ -543,8 +543,9 @@ export async function runTriage(
 
   // ── Step 7: Employee feedback — private coaching note ──────────────
 
-  if (haloConfig && !isIdenticalRetriage) {
-    // Use ticket.created_at directly — pull-tickets already sets this to Halo's datecreated
+  if (haloConfig) {
+    // Always run tech review on retriages — the tech's behavior since last triage matters
+    // regardless of whether findings changed
     const eligibility = checkReviewEligibility(
       context, classification, haloConfig, ticket.created_at,
     );
