@@ -751,6 +751,7 @@ interface MichaelSynthesis {
   readonly root_cause_hypothesis: string;
   readonly internal_notes: string | string[];
   readonly suggested_response: string | null;
+  readonly kb_suggestions: ReadonlyArray<string>;
   readonly escalation_needed: boolean;
   readonly escalation_reason: string | null;
   readonly _managerTokens: number;
@@ -890,6 +891,7 @@ async function synthesizeFindings(
     internal_notes: string | string[];
     customer_response: string | null;
     suggested_response: string | null;
+    kb_suggestions: string[] | null;
     adjustments: string | null;
     escalation_needed: boolean;
     escalation_reason: string | null;
@@ -900,6 +902,7 @@ async function synthesizeFindings(
     internal_notes: Array.isArray(rawResult.internal_notes)
       ? rawResult.internal_notes
       : rawResult.internal_notes ?? "",
+    kb_suggestions: Array.isArray(rawResult.kb_suggestions) ? rawResult.kb_suggestions : [],
     _managerTokens: response.usage.input_tokens + response.usage.output_tokens,
   };
 }
