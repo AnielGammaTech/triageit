@@ -494,7 +494,6 @@ function ExpandedReviewPanel({
               <span className="text-sm text-white/50">{formatDate(review.created_at)}</span>
               <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-4 text-xs sm:text-sm text-white/40">
                 <span>Response: <span className="text-white/60">{review.response_time}</span></span>
-                <span>Max gap: <span className="text-white/60">{review.max_gap_hours.toFixed(1)}h</span></span>
               </div>
             </div>
 

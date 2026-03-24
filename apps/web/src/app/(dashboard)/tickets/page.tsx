@@ -201,15 +201,17 @@ export default function TicketsPage() {
     setTriagingAll(false);
   }, [loadTickets]);
 
-  // On mount: load DB tickets, then auto-pull from Halo once
+  // On mount: load DB tickets immediately, then auto-pull from Halo in the background
   useEffect(() => {
-    loadTickets().then(() => {
-      if (!hasPulled.current) {
-        hasPulled.current = true;
-        pullFromHalo();
-      }
-    });
-  }, [loadTickets, pullFromHalo]);
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => {
+    if (!loading && !hasPulled.current) {
+      hasPulled.current = true;
+      pullFromHalo();
+    }
+  }, [loading, pullFromHalo]);
 
   const isResolved = (t: TicketRow) =>
     t.halo_status && RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
