@@ -414,7 +414,33 @@ async function postReTriageNote(
   halo: HaloClient,
   haloId: number,
   result: ReTriageResult,
+  supabase?: SupabaseClient,
 ): Promise<void> {
+  // Dedup: if a full triage (not daily-scan) was posted within the last 10 minutes, skip
+  if (supabase) {
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: localTicket } = await supabase
+      .from("tickets")
+      .select("id")
+      .eq("halo_id", haloId)
+      .maybeSingle();
+
+    if (localTicket) {
+      const { data: recentTriage } = await supabase
+        .from("triage_results")
+        .select("created_at")
+        .eq("ticket_id", localTicket.id)
+        .gte("created_at", tenMinAgo)
+        .is("triage_type", null)  // full triages have null triage_type; daily scan sets "retriage"
+        .limit(1)
+        .maybeSingle();
+
+      if (recentTriage) {
+        console.log(`[RETRIAGE] Skipping duplicate daily-scan note for #${haloId} — full triage posted at ${recentTriage.created_at}`);
+        return;
+      }
+    }
+  }
   const severityColors: Record<string, { bg: string; text: string; label: string }> = {
     critical: { bg: "#7f1d1d", text: "#fecaca", label: "🚨 CRITICAL" },
     warning: { bg: "#78350f", text: "#fef3c7", label: "⚠️ WARNING" },
@@ -579,7 +605,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
         // Post note to Halo and flag for manager review
         if (ruleResult.severity === "critical" || ruleResult.severity === "warning") {
-          await postReTriageNote(halo, enrichedTicket.id, ruleResult);
+          await postReTriageNote(halo, enrichedTicket.id, ruleResult, supabase);
 
           if (ruleTicketId) {
             await supabase
@@ -678,7 +704,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
         // Post note to Halo and flag for manager review
         if (parsed.severity === "critical" || parsed.severity === "warning") {
-          await postReTriageNote(halo, enrichedTicket.id, result);
+          await postReTriageNote(halo, enrichedTicket.id, result, supabase);
 
           await supabase
             .from("tickets")
