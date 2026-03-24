@@ -248,10 +248,10 @@ export default function TicketsPage() {
     return hoursSince > 72;
   };
 
-  // Only show Gamma Default tickets (type 31) to match Halo's open ticket count.
-  // Webhooks can insert other types (Alerts, etc.) — exclude them from the dashboard.
+  // Exclude known non-default ticket types (Alerts, etc.) from the dashboard.
+  // Tickets with null tickettype_id are assumed Gamma Default (older synced tickets).
   const GAMMA_DEFAULT_TYPE_ID = 31;
-  const nonAlertTickets = filteredTickets.filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID);
+  const nonAlertTickets = filteredTickets.filter((t) => t.tickettype_id == null || t.tickettype_id === GAMMA_DEFAULT_TYPE_ID);
 
   // Resolved: tickets whose Halo status is resolved/closed/cancelled
   const resolvedTickets = nonAlertTickets.filter((t) => isResolved(t));
