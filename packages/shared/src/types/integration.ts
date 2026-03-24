@@ -117,6 +117,11 @@ export interface MxToolboxConfig {
   readonly api_key: string;
 }
 
+export interface Pax8Config {
+  readonly client_id: string;
+  readonly client_secret: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig

@@ -3,10 +3,12 @@ import type {
   HuduConfig,
   DattoConfig,
   JumpCloudConfig,
+  Pax8Config,
 } from "@triageit/shared";
 import { HuduClient } from "../integrations/hudu/client.js";
 import { DattoClient } from "../integrations/datto/client.js";
 import { JumpCloudClient } from "../integrations/jumpcloud/client.js";
+import { Pax8Client } from "../integrations/pax8/client.js";
 
 /**
  * Run a lightweight investigation using a specialist worker's integration.
@@ -233,6 +235,67 @@ async function investigateJim(
   return result;
 }
 
+// ── Holly: Pax8 ─────────────────────────────────────────────────────
+
+async function investigateHolly(
+  supabase: SupabaseClient,
+  clientName: string,
+  _question: string,
+): Promise<string> {
+  const config = await getConfig<Pax8Config>(supabase, "pax8");
+  if (!config) return "Pax8 integration is not configured.";
+
+  const pax8 = new Pax8Client(config);
+
+  // Find company
+  const companies = await pax8.searchCompanies(clientName);
+  if (!companies || companies.length === 0) {
+    return `No company matching "${clientName}" found in Pax8.`;
+  }
+
+  const company = companies[0];
+  let result = `**Pax8 Company:** ${company.name} (ID: ${company.id})\n\n`;
+
+  // Fetch subscriptions
+  const subscriptions = await pax8.getSubscriptions(company.id);
+
+  if (subscriptions.length === 0) {
+    result += "*No subscriptions found.*\n";
+    return result;
+  }
+
+  const active = subscriptions.filter((s) => s.status === "Active");
+  const other = subscriptions.filter((s) => s.status !== "Active");
+
+  result += `**Active Subscriptions (${active.length}):**\n`;
+  for (const sub of active) {
+    const name = sub.product?.name ?? sub.productId;
+    const vendor = sub.product?.vendorName ? ` (${sub.product.vendorName})` : "";
+    const endDate = sub.endDate ? ` | Ends: ${new Date(sub.endDate).toLocaleDateString()}` : "";
+    result += `- **${name}**${vendor}: **${sub.quantity} seats** | ${sub.billingTerm ?? "?"}${endDate}\n`;
+  }
+
+  if (other.length > 0) {
+    result += `\n**Other Subscriptions (${other.length}):**\n`;
+    for (const sub of other) {
+      const name = sub.product?.name ?? sub.productId;
+      result += `- **${name}**: ${sub.quantity} seats | Status: **${sub.status}**\n`;
+    }
+  }
+
+  // M365 summary
+  const m365 = active.filter((s) => {
+    const name = (s.product?.name ?? "").toLowerCase();
+    return name.includes("microsoft 365") || name.includes("office 365") || name.includes("m365");
+  });
+  if (m365.length > 0) {
+    const totalSeats = m365.reduce((sum, s) => sum + s.quantity, 0);
+    result += `\n**M365 Total:** ${totalSeats} seats across ${m365.length} subscription(s)\n`;
+  }
+
+  return result;
+}
+
 // ── Stub handlers for integrations not yet live ──────────────────────
 
 function makeStubHandler(name: string, integration: string): InvestigationHandler {
@@ -256,4 +319,5 @@ const WORKER_HANDLERS: Record<string, InvestigationHandler> = {
   "oscar-martinez": makeStubHandler("Oscar (Cove/Unitrends)", "cove"),
   "darryl-philbin": makeStubHandler("Darryl (CIPP)", "cipp"),
   "creed-bratton": makeStubHandler("Creed (UniFi)", "unifi"),
+  "holly-flax": investigateHolly,
 };

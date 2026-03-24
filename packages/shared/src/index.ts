@@ -37,6 +37,7 @@ export type {
   UnitrendsConfig,
   CippConfig,
   MxToolboxConfig,
+  Pax8Config,
   IntegrationConfig,
   IntegrationConfigField,
   IntegrationDefinition,

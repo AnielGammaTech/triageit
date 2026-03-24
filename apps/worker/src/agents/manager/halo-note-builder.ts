@@ -43,6 +43,7 @@ export const AGENT_LABELS: Record<string, string> = {
   kelly_kapoor: "Kelly Kapoor (VoIP/Telephony)",
   erin_hannon: "Erin Hannon (Alert Specialist)",
   oscar_martinez: "Oscar Martinez (Backup/Cove/Unitrends)",
+  holly_flax: "Holly Flax (Licensing/Pax8)",
 };
 
 // ── Halo Priority Labels ─────────────────────────────────────────────

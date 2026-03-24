@@ -14,6 +14,7 @@ import { KellyKapoorAgent } from "./workers/kelly-kapoor.js";
 import { OscarMartinezAgent } from "./workers/oscar-martinez.js";
 import { DarrylPhilbinAgent } from "./workers/darryl-philbin.js";
 import { CreedBrattonAgent } from "./workers/creed-bratton.js";
+import { HollyFlaxAgent } from "./workers/holly-flax.js";
 
 /**
  * Agent Registry — maps agent names to their implementations.
@@ -44,6 +45,7 @@ const AGENT_IMPLEMENTATIONS: Record<string, AgentConstructor> = {
   oscar_martinez: OscarMartinezAgent,
   darryl_philbin: DarrylPhilbinAgent,
   creed_bratton: CreedBrattonAgent,
+  holly_flax: HollyFlaxAgent,
 };
 
 /**
@@ -59,6 +61,7 @@ const AGENT_REQUIRED_INTEGRATION: Record<string, string | ReadonlyArray<string>>
   oscar_martinez: ["cove", "unitrends"],
   darryl_philbin: "cipp",
   creed_bratton: "unifi",
+  holly_flax: "pax8",
 };
 
 /**
@@ -173,16 +176,16 @@ export async function getAgentsForClassification(
     telephony: ["kelly_kapoor", "dwight_schrute"],
     phone: ["kelly_kapoor", "dwight_schrute"],
     network: ["andy_bernard", "stanley_hudson", "creed_bratton", "dwight_schrute"],
-    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin"],
+    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin", "holly_flax"],
     endpoint: ["andy_bernard", "dwight_schrute"],
-    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute"],
+    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute", "holly_flax"],
     backup: ["meredith_palmer", "oscar_martinez", "dwight_schrute"],
     security: ["angela_martin", "jim_halpert", "phyllis_vance", "darryl_philbin", "dwight_schrute"],
-    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute"],
-    application: ["dwight_schrute", "andy_bernard"],
+    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute", "holly_flax"],
+    application: ["dwight_schrute", "andy_bernard", "holly_flax"],
     infrastructure: ["andy_bernard", "stanley_hudson", "dwight_schrute"],
-    onboarding: ["jim_halpert", "dwight_schrute"],
-    billing: ["dwight_schrute"],
+    onboarding: ["jim_halpert", "dwight_schrute", "holly_flax"],
+    billing: ["dwight_schrute", "holly_flax"],
     other: ["dwight_schrute"],
   };
 

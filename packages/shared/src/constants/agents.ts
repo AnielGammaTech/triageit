@@ -162,6 +162,16 @@ export const AGENTS: ReadonlyArray<AgentDefinition> = [
       "Queries UniFi Network Controller for site health, AP status, client connectivity, switch ports, and network topology.",
   },
   {
+    name: "holly_flax",
+    character: "Holly Flax",
+    role: "licensing",
+    specialty: "Cloud Licensing & Subscriptions (Pax8)",
+    integration: "pax8",
+    model: "haiku",
+    description:
+      "Queries Pax8 for the client's cloud subscriptions: Microsoft 365 seat counts, Exchange Online, Defender, Azure AD, and other license data. Identifies missing licenses, seat shortages, suspended subscriptions, and billing issues.",
+  },
+  {
     name: "erin_hannon",
     character: "Erin Hannon",
     role: "alert_specialist",
@@ -189,4 +199,5 @@ export const PHASE_3_AGENTS = [
   "kelly_kapoor",
   "darryl_philbin",
   "creed_bratton",
+  "holly_flax",
 ] as const;
