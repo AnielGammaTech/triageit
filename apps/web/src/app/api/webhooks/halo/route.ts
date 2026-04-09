@@ -136,14 +136,38 @@ export async function POST(request: NextRequest) {
 
     const haloTicket = (await ticketResponse.json()) as HaloApiTicket;
 
-    // Skip closed/resolved tickets — no need to triage old tickets
+    // If ticket is closed in Halo, update local status and skip triage
     if (isTicketClosed(haloTicket)) {
+      const statusName = (haloTicket.statusname ?? haloTicket.status_name ?? "closed") as string;
       console.log(
-        `[WEBHOOK] Skipping closed ticket #${ticketId} (status: ${haloTicket.statusname ?? haloTicket.status_id})`,
+        `[WEBHOOK] Ticket #${ticketId} is closed in Halo (status: ${statusName}) — syncing status`,
       );
+
+      const { data: existingTicket } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("halo_id", ticketId)
+        .single();
+
+      if (existingTicket) {
+        await supabase
+          .from("tickets")
+          .update({
+            halo_is_open: false,
+            halo_status: statusName,
+            halo_status_id: haloTicket.status_id ?? null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingTicket.id);
+
+        console.log(
+          `[WEBHOOK] Marked ticket #${ticketId} as closed in TriageIT`,
+        );
+      }
+
       return NextResponse.json({
-        status: "skipped",
-        reason: "Ticket is closed/resolved",
+        status: "closed",
+        reason: "Ticket closed in Halo — synced to TriageIT",
         halo_id: ticketId,
       });
     }
@@ -272,6 +296,7 @@ async function upsertTicket(
         halo_status_id: data.halo_status_id ?? undefined,
         halo_agent: data.halo_agent ?? undefined,
         halo_team: data.halo_team ?? undefined,
+        halo_is_open: true,
         tickettype_id: data.tickettype_id ?? undefined,
         raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
