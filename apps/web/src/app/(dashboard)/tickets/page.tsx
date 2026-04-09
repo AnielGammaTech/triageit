@@ -69,18 +69,47 @@ export default function TicketsPage() {
 
   const loadTickets = useCallback(async () => {
     const supabase = createClient();
-    const { data, error: dbError } = await supabase
-      .from("tickets")
-      .select(`
-        id, halo_id, summary, client_name, user_name, original_priority,
-        status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
-        halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
-        triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
-        tech_reviews(id),
-        close_reviews(id)
-      `)
-      .order("created_at", { ascending: false })
-      .limit(2000);
+
+    // Fetch open + recently closed Gamma Default tickets (last 90 days)
+    // Two queries to avoid Supabase's 1000-row default cap
+    const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [openResult, closedResult] = await Promise.all([
+      // All open Gamma Default tickets (no date limit)
+      supabase
+        .from("tickets")
+        .select(`
+          id, halo_id, summary, client_name, user_name, original_priority,
+          status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
+          halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
+          triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
+          tech_reviews(id),
+          close_reviews(id)
+        `)
+        .eq("tickettype_id", 31)
+        .eq("halo_is_open", true)
+        .order("created_at", { ascending: false })
+        .limit(500),
+      // Recently closed Gamma Default (last 90 days for Resolved tab)
+      supabase
+        .from("tickets")
+        .select(`
+          id, halo_id, summary, client_name, user_name, original_priority,
+          status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
+          halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
+          triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
+          tech_reviews(id),
+          close_reviews(id)
+        `)
+        .eq("tickettype_id", 31)
+        .eq("halo_is_open", false)
+        .gte("created_at", threeMonthsAgo)
+        .order("created_at", { ascending: false })
+        .limit(1000),
+    ]);
+
+    const dbError = openResult.error ?? closedResult.error;
+    const data = [...(openResult.data ?? []), ...(closedResult.data ?? [])];
 
     if (dbError) {
       setError(dbError.message);
