@@ -71,7 +71,7 @@ export async function POST() {
   let page = 1;
 
   while (true) {
-    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&open_only=true&order=id&orderdesc=true&includecolumns=true`;
+    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&order=id&orderdesc=true&includecolumns=true`;
     console.log(`[FORCE-SYNC] Fetching page ${page}`);
 
     const res = await fetch(url, {
@@ -137,14 +137,24 @@ export async function POST() {
     }
   } catch { /* non-critical */ }
 
-  // All these tickets are open in Halo (we used open_only=true).
-  // Build status breakdown for logging.
+  // Determine open vs closed by actual status name
+  const resolvedKeywords = ["closed", "resolved", "cancelled", "completed"];
   const statusBreakdown: Record<string, number> = {};
-  const openIds = allTickets.map((t) => {
-    const statusName = t.statusname ?? t.status_name ?? statusMap.get(t.status_id) ?? `Unknown-${t.status_id}`;
+  const openIds: number[] = [];
+  const closedIds: number[] = [];
+
+  for (const t of allTickets) {
+    const statusName = (t.statusname ?? t.status_name ?? statusMap.get(t.status_id) ?? `Unknown-${t.status_id}`);
     statusBreakdown[statusName] = (statusBreakdown[statusName] ?? 0) + 1;
-    return t.id;
-  });
+    const isResolved = resolvedKeywords.some((k) => statusName.toLowerCase().includes(k));
+    if (isResolved) {
+      closedIds.push(t.id);
+    } else {
+      openIds.push(t.id);
+    }
+  }
+
+  console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open, ${closedIds.length} resolved`);
 
   // First: close ALL Gamma Default in DB
   await supabase
@@ -174,8 +184,10 @@ export async function POST() {
 
   return NextResponse.json({
     success: true,
-    message: `Halo has ${openIds.length} open Gamma Default. Set ${openedCount} open in DB.${missingCount > 0 ? ` ${missingCount} missing from DB.` : ""}`,
+    message: `Halo: ${openIds.length} open, ${closedIds.length} resolved. DB: ${openedCount} set open.${missingCount > 0 ? ` ${missingCount} not in DB yet.` : ""}`,
+    halo_total: allTickets.length,
     halo_open: openIds.length,
+    halo_closed: closedIds.length,
     db_opened: openedCount,
     missing_from_db: missingCount,
     raw_fetched: rawTickets.length,
