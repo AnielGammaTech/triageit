@@ -70,9 +70,14 @@ export async function POST() {
   const allTickets: Array<{ id: number; status_id: number; tickettype_id: number }> = [];
   let page = 1;
 
+  const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
   while (true) {
-    const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&dateoccurred_start=${threeMonthsAgo}&order=id&orderdesc=true&includecolumns=true`;
+    // Use correct Halo API parameters:
+    // - requesttype_id (not tickettype_id) for ticket type filter
+    // - datesearch + startdate for date range
+    // - pageinate (Halo's typo, not paginate)
+    const url = `${config.base_url}/api/tickets?pageinate=true&page_size=50&page_no=${page}&requesttype_id=${GAMMA_DEFAULT_TYPE_ID}&open_only=true&datesearch=dateoccurred&startdate=${threeMonthsAgo}&order=id&orderdesc=true`;
 
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
