@@ -95,54 +95,79 @@ export async function POST() {
   console.log(`[FORCE-SYNC] Total fetched: ${allTickets.length} across ${page} pages`);
 
   const now = new Date().toISOString();
-  let typesFixed = 0;
+
+  // Group tickets: Gamma Default open, Gamma Default resolved, non-Gamma Default
+  const gammaOpenIds = allTickets
+    .filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID && t.status_id !== RESOLVED_STATUS_ID)
+    .map((t) => t.id);
+
+  const gammaClosedIds = allTickets
+    .filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID && t.status_id === RESOLVED_STATUS_ID)
+    .map((t) => t.id);
+
+  const nonGammaIds = allTickets
+    .filter((t) => t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID)
+    .map((t) => t.id);
+
+  console.log(`[FORCE-SYNC] Gamma open: ${gammaOpenIds.length}, Gamma resolved: ${gammaClosedIds.length}, Non-Gamma: ${nonGammaIds.length}`);
+
+  // Batch update: Gamma Default open → halo_is_open=true, tickettype_id=31
   let openedCount = 0;
-  let closedCount = 0;
-
-  // Process every ticket: fix tickettype_id AND set halo_is_open correctly
-  for (let i = 0; i < allTickets.length; i += 50) {
-    const chunk = allTickets.slice(i, i + 50);
-
-    for (const ticket of chunk) {
-      const isGammaDefault = ticket.tickettype_id === GAMMA_DEFAULT_TYPE_ID;
-      const isResolved = ticket.status_id === RESOLVED_STATUS_ID;
-      const shouldBeOpen = isGammaDefault && !isResolved;
-
-      const { data } = await supabase
-        .from("tickets")
-        .update({
-          tickettype_id: ticket.tickettype_id,
-          halo_is_open: shouldBeOpen,
-          updated_at: now,
-        })
-        .eq("halo_id", ticket.id)
-        .select("id, tickettype_id");
-
-      if (data && data.length > 0) {
-        typesFixed++;
-        if (shouldBeOpen) openedCount++;
-        else closedCount++;
-      }
-    }
-
-    console.log(`[FORCE-SYNC] Processed ${Math.min(i + 50, allTickets.length)}/${allTickets.length}`);
+  for (let i = 0; i < gammaOpenIds.length; i += 50) {
+    const chunk = gammaOpenIds.slice(i, i + 50);
+    const { data } = await supabase
+      .from("tickets")
+      .update({ halo_is_open: true, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
+      .in("halo_id", chunk)
+      .select("id");
+    openedCount += data?.length ?? 0;
   }
 
-  // Count final state
-  const { count: finalOpen } = await supabase
-    .from("tickets")
-    .select("id", { count: "exact", head: true })
-    .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
-    .eq("halo_is_open", true);
+  // Batch update: Gamma Default resolved → halo_is_open=false, tickettype_id=31
+  let closedCount = 0;
+  for (let i = 0; i < gammaClosedIds.length; i += 50) {
+    const chunk = gammaClosedIds.slice(i, i + 50);
+    const { data } = await supabase
+      .from("tickets")
+      .update({ halo_is_open: false, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
+      .in("halo_id", chunk)
+      .select("id");
+    closedCount += data?.length ?? 0;
+  }
+
+  // Batch update: Non-Gamma Default → halo_is_open=false, correct tickettype_id
+  // Group by tickettype_id for correct tagging
+  const nonGammaByType = new Map<number, number[]>();
+  for (const t of allTickets.filter((t) => t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID)) {
+    const existing = nonGammaByType.get(t.tickettype_id) ?? [];
+    nonGammaByType.set(t.tickettype_id, [...existing, t.id]);
+  }
+
+  let nonGammaFixed = 0;
+  for (const [typeId, ids] of nonGammaByType) {
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const { data } = await supabase
+        .from("tickets")
+        .update({ halo_is_open: false, tickettype_id: typeId, updated_at: now })
+        .in("halo_id", chunk)
+        .select("id");
+      nonGammaFixed += data?.length ?? 0;
+    }
+  }
+
+  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed`);
 
   return NextResponse.json({
     success: true,
-    message: `Synced ${typesFixed} tickets. ${openedCount} Gamma Default open, ${closedCount} closed/other. Dashboard should show ${finalOpen ?? 0}.`,
+    message: `Halo: ${gammaOpenIds.length} Gamma open, ${gammaClosedIds.length} Gamma resolved, ${nonGammaIds.length} other. DB: ${openedCount} set open, ${closedCount + nonGammaFixed} set closed.`,
     halo_fetched: allTickets.length,
-    db_updated: typesFixed,
-    gamma_open: openedCount,
-    closed_or_other: closedCount,
-    dashboard_count: finalOpen ?? 0,
+    gamma_open_halo: gammaOpenIds.length,
+    gamma_closed_halo: gammaClosedIds.length,
+    non_gamma_halo: nonGammaIds.length,
+    db_opened: openedCount,
+    db_closed: closedCount,
+    db_non_gamma_fixed: nonGammaFixed,
     pages_fetched: page,
   });
 }
