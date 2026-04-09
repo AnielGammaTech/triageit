@@ -120,33 +120,59 @@ export async function POST() {
     const allTickets: HaloTicket[] = [];
     let totalRecordCount = 0;
 
-    // Pull ALL Gamma Default tickets (open + recently closed) in one query.
-    // We determine open/closed ourselves using status, since Halo's open_only
-    // filter is unreliable and misses tickets in statuses like "Waiting on Customer".
+    // Two-pass pull from Halo to ensure we get ALL tickets:
+    // Pass 1: open_only=true (Halo's view of open tickets)
+    // Pass 2: all tickets from last 90 days (catches ones Halo's filter misses)
+    // Deduplicate by ticket ID, then determine open/closed by actual status.
     const GAMMA_DEFAULT_TYPE_ID = 31;
+
+    // Pass 1: Halo's "open" tickets
+    const openResult = await fetchHaloTicketsPaginated(
+      config.base_url, token,
+      `open_only=true&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}`,
+    );
+    console.log(`[HALO SYNC] Pass 1 (open_only): ${openResult.tickets.length} tickets, ${openResult.pages} pages, record_count=${openResult.totalCount}`);
+
+    const seenIds = new Set<number>();
+    for (const t of openResult.tickets) {
+      if (!seenIds.has(t.id)) {
+        seenIds.add(t.id);
+        allTickets.push(t);
+      }
+    }
+
+    // Pass 2: All Gamma Default from last 90 days (catches missed tickets)
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0];
 
     const allResult = await fetchHaloTicketsPaginated(
-      config.base_url,
-      token,
+      config.base_url, token,
       `tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${ninetyDaysAgo}`,
     );
-    allTickets.push(...allResult.tickets);
-    totalRecordCount = allResult.totalCount;
+    console.log(`[HALO SYNC] Pass 2 (all 90d): ${allResult.tickets.length} tickets, ${allResult.pages} pages, record_count=${allResult.totalCount}`);
 
-    // Determine which tickets Halo considers open (not resolved/closed/cancelled)
+    for (const t of allResult.tickets) {
+      if (!seenIds.has(t.id)) {
+        seenIds.add(t.id);
+        allTickets.push(t);
+      }
+    }
+
+    totalRecordCount = allTickets.length;
+
+    // Build lookup maps from Halo API
+    const [agentNameMap, statusNameMap] = await Promise.all([
+      fetchAgentNameMap(config.base_url, token),
+      fetchStatusNameMap(config.base_url, token),
+    ]);
+
+    // Determine open/closed by actual status — don't trust Halo's open_only filter
     const resolvedStatuses = [
       "closed", "resolved", "cancelled", "completed",
       "resolved remotely", "resolved onsite",
       "resolved - awaiting confirmation",
     ];
-
-    const [agentNameMap, statusNameMap] = await Promise.all([
-      fetchAgentNameMap(config.base_url, token),
-      fetchStatusNameMap(config.base_url, token),
-    ]);
 
     const openHaloIdSet = new Set(
       allTickets
@@ -158,7 +184,7 @@ export async function POST() {
     );
 
     console.log(
-      `[HALO SYNC] Fetched ${allTickets.length} Gamma Default tickets (last 90 days). ${openHaloIdSet.size} open, ${allTickets.length - openHaloIdSet.size} resolved.`,
+      `[HALO SYNC] Total unique: ${allTickets.length}. Open by status: ${openHaloIdSet.size}. Resolved: ${allTickets.length - openHaloIdSet.size}.`,
     );
 
     if (allTickets.length === 0) {
@@ -506,13 +532,15 @@ export async function POST() {
     }
 
     return NextResponse.json({
+      success: true,
+      message: `Synced ${allTickets.length} tickets. ${openHaloIdSet.size} open, ${closedCount} closed, ${reopenedCount} re-opened, ${created} new.`,
       pulled: allTickets.length,
-      open_count: openResult.tickets.length,
-      closed_synced: newClosed.length,
+      open_count: openHaloIdSet.size,
       halo_total: totalRecordCount || allTickets.length,
       created,
       updated,
       closed: closedCount,
+      reopened: reopenedCount,
       reset_to_pending: resetToPending,
       pending_retriaged: pendingTriaged,
       sla_breaching: slaBreachers.length,
