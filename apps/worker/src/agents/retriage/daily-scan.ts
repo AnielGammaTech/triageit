@@ -649,29 +649,36 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         .eq("halo_id", enrichedTicket.id)
         .maybeSingle();
 
+      let lastTriageAt: string | null = null;
       if (localTicketForUrgency) {
         const { data: lastTriage } = await supabase
           .from("triage_results")
-          .select("urgency_score")
+          .select("urgency_score, created_at")
           .eq("ticket_id", localTicketForUrgency.id)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
         urgencyScore = (lastTriage?.urgency_score as number) ?? null;
+        lastTriageAt = (lastTriage?.created_at as string) ?? null;
       }
 
       const intervalHours = getRetriageIntervalHours(urgencyScore);
-      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated);
-      const hoursSinceCustomerFacing =
-        (Date.now() - new Date(lastCustomerFacing).getTime()) / (1000 * 60 * 60);
 
-      // Skip if timer hasn't expired yet
-      if (hoursSinceCustomerFacing < intervalHours) {
+      // Check both: time since last customer-facing activity AND time since last triage
+      // Use whichever is MORE RECENT (don't retriage if we just triaged)
+      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated);
+      const customerFacingTime = new Date(lastCustomerFacing).getTime();
+      const lastTriageTime = lastTriageAt ? new Date(lastTriageAt).getTime() : 0;
+      const mostRecentEvent = Math.max(customerFacingTime, lastTriageTime);
+      const hoursSinceMostRecent = (Date.now() - mostRecentEvent) / (1000 * 60 * 60);
+
+      // Skip if timer hasn't expired since the most recent event
+      if (hoursSinceMostRecent < intervalHours) {
         await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
         continue;
       }
 
-      console.log(`[RETRIAGE] Timer expired for #${enrichedTicket.id}: ${hoursSinceCustomerFacing.toFixed(1)}h since customer-facing activity (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`);
+      console.log(`[RETRIAGE] Timer expired for #${enrichedTicket.id}: ${hoursSinceMostRecent.toFixed(1)}h since last event (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`);
 
       // Quick rule-based check first (free, no tokens)
       const ruleResult = quickRuleCheck(enrichedTicket, actions);

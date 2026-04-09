@@ -298,7 +298,6 @@ export default function TicketsPage() {
   const allOpenTickets = gammaDefaultTickets.filter((t) => !isClosed(t));
 
   // Alerts: non-Gamma Default tickets (type 36 and others) — separate tab, ignored by triage
-  const ALERT_TYPE_ID = 36;
   const alertTickets = filteredTickets.filter((t) =>
     t.tickettype_id != null && t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID,
   );
