@@ -97,9 +97,32 @@ export async function POST() {
     if (page > 100) break;
   }
 
-  // Filter to Gamma Default only (type 31)
-  const allTickets = rawTickets.filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID);
-  console.log(`[FORCE-SYNC] Total from Halo: ${rawTickets.length}. Gamma Default: ${allTickets.length}. Other types: ${rawTickets.length - allTickets.length}`);
+  // Log first ticket's fields to see what Halo actually sends
+  if (rawTickets.length > 0) {
+    const sample = rawTickets[0];
+    const typeFields = Object.entries(sample).filter(([k]) =>
+      k.toLowerCase().includes("type") || k.toLowerCase().includes("ticket")
+    );
+    console.log(`[FORCE-SYNC] Sample ticket #${sample.id} type-related fields:`, JSON.stringify(typeFields));
+    console.log(`[FORCE-SYNC] Sample ticket #${sample.id} tickettype_id=${(sample as Record<string, unknown>).tickettype_id}, ticket_type_id=${(sample as Record<string, unknown>).ticket_type_id}, tickettypeid=${(sample as Record<string, unknown>).tickettypeid}`);
+  }
+
+  // Filter to Gamma Default only — try multiple possible field names
+  const allTickets = rawTickets.filter((t) => {
+    const s = t as Record<string, unknown>;
+    const typeId = s.tickettype_id ?? s.ticket_type_id ?? s.tickettypeid ?? s.ticketTypeid;
+    return typeId === GAMMA_DEFAULT_TYPE_ID;
+  });
+
+  // Log type breakdown
+  const typeBreakdown: Record<string, number> = {};
+  for (const t of rawTickets) {
+    const s = t as Record<string, unknown>;
+    const typeId = String(s.tickettype_id ?? s.ticket_type_id ?? s.tickettypeid ?? "unknown");
+    typeBreakdown[typeId] = (typeBreakdown[typeId] ?? 0) + 1;
+  }
+  console.log(`[FORCE-SYNC] Type breakdown:`, JSON.stringify(typeBreakdown));
+  console.log(`[FORCE-SYNC] Total from Halo: ${rawTickets.length}. Gamma Default (type 31): ${allTickets.length}. Other types: ${rawTickets.length - allTickets.length}`);
 
   // Fetch status map
   const statusMap = new Map<number, string>();
