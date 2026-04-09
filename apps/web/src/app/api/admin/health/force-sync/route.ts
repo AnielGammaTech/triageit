@@ -64,141 +64,85 @@ export async function POST() {
 
   const { access_token: token } = (await tokenRes.json()) as { access_token: string };
 
-  // Fetch open tickets from Halo, then filter to Gamma Default client-side.
-  // Halo's tickettype_id filter is unreliable, so we fetch all open and filter.
+  // Fetch ALL tickets from Halo (all types) so we can fix tickettype_id on everything
   const GAMMA_DEFAULT_TYPE_ID = 31;
-  const rawTickets: Array<{ id: number; status_id: number; tickettype_id?: number; statusname?: string; status_name?: string }> = [];
+  const RESOLVED_STATUS_ID = 9;
+  const allTickets: Array<{ id: number; status_id: number; tickettype_id: number }> = [];
   let page = 1;
 
   while (true) {
-    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&order=id&orderdesc=true&includecolumns=true`;
-    console.log(`[FORCE-SYNC] Fetching page ${page}`);
+    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&order=id&orderdesc=true&includecolumns=true`;
 
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!res.ok) {
-      console.error(`[FORCE-SYNC] Page ${page} failed: ${res.status}`);
-      break;
-    }
+    if (!res.ok) break;
 
     const data = (await res.json()) as {
-      tickets?: Array<{ id: number; status_id: number; tickettype_id?: number; statusname?: string; status_name?: string }>;
-      record_count?: number;
+      tickets?: Array<{ id: number; status_id: number; tickettype_id: number }>;
     };
     const batch = data.tickets ?? [];
-    rawTickets.push(...batch);
+    allTickets.push(...batch);
 
-    console.log(`[FORCE-SYNC] Page ${page}: got ${batch.length} tickets (record_count: ${data.record_count ?? "N/A"})`);
+    console.log(`[FORCE-SYNC] Page ${page}: ${batch.length} tickets`);
 
     if (batch.length < 50) break;
     page++;
     if (page > 100) break;
   }
 
-  // Log first ticket's fields to see what Halo actually sends
-  if (rawTickets.length > 0) {
-    const sample = rawTickets[0];
-    const typeFields = Object.entries(sample).filter(([k]) =>
-      k.toLowerCase().includes("type") || k.toLowerCase().includes("ticket")
-    );
-    console.log(`[FORCE-SYNC] Sample ticket #${sample.id} type-related fields:`, JSON.stringify(typeFields));
-    console.log(`[FORCE-SYNC] Sample ticket #${sample.id} tickettype_id=${(sample as Record<string, unknown>).tickettype_id}, ticket_type_id=${(sample as Record<string, unknown>).ticket_type_id}, tickettypeid=${(sample as Record<string, unknown>).tickettypeid}`);
-  }
-
-  // Filter to Gamma Default only — Halo returns tickettype_id as string or number
-  const allTickets = rawTickets.filter((t) => {
-    const s = t as Record<string, unknown>;
-    const typeId = Number(s.tickettype_id ?? s.ticket_type_id ?? 0);
-    return typeId === GAMMA_DEFAULT_TYPE_ID;
-  });
-
-  // Log type breakdown
-  const typeBreakdown: Record<string, number> = {};
-  for (const t of rawTickets) {
-    const s = t as Record<string, unknown>;
-    const typeId = String(s.tickettype_id ?? s.ticket_type_id ?? s.tickettypeid ?? "unknown");
-    typeBreakdown[typeId] = (typeBreakdown[typeId] ?? 0) + 1;
-  }
-  console.log(`[FORCE-SYNC] Type breakdown:`, JSON.stringify(typeBreakdown));
-  console.log(`[FORCE-SYNC] Total from Halo: ${rawTickets.length}. Gamma Default (type 31): ${allTickets.length}. Other types: ${rawTickets.length - allTickets.length}`);
-
-  // Fetch status map
-  const statusMap = new Map<number, string>();
-  try {
-    const res = await fetch(`${config.base_url}/api/status?count=500`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const raw = await res.json();
-      const statuses: Array<{ id: number; name: string }> = Array.isArray(raw) ? raw : (raw.statuses ?? raw.records ?? []);
-      for (const s of statuses) statusMap.set(s.id, s.name);
-    }
-  } catch { /* non-critical */ }
-
-  // Halo status 9 = "Resolved" — the ONLY closed status in this Halo instance.
-  // Everything else is open (New, In Progress, Waiting on Customer, etc.)
-  const RESOLVED_STATUS_ID = 9;
-
-  const statusBreakdown: Record<string, number> = {};
-  const openIds: number[] = [];
-  const closedIds: number[] = [];
-
-  for (const t of allTickets) {
-    const statusName = statusMap.get(t.status_id) ?? `StatusID-${t.status_id}`;
-    statusBreakdown[statusName] = (statusBreakdown[statusName] ?? 0) + 1;
-
-    if (t.status_id === RESOLVED_STATUS_ID) {
-      closedIds.push(t.id);
-    } else {
-      openIds.push(t.id);
-    }
-  }
-
-  console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open (not status 9), ${closedIds.length} resolved (status 9)`);
-  console.log(`[FORCE-SYNC] Status breakdown:`, JSON.stringify(statusBreakdown));
+  console.log(`[FORCE-SYNC] Total fetched: ${allTickets.length} across ${page} pages`);
 
   const now = new Date().toISOString();
-
-  // Close tickets that are status 9 (Resolved) in Halo
-  for (let i = 0; i < closedIds.length; i += 50) {
-    const chunk = closedIds.slice(i, i + 50);
-    await supabase
-      .from("tickets")
-      .update({ halo_is_open: false, updated_at: now })
-      .in("halo_id", chunk);
-  }
-
-  // Open tickets that are NOT status 9 in Halo
+  let typesFixed = 0;
   let openedCount = 0;
+  let closedCount = 0;
 
-  for (let i = 0; i < openIds.length; i += 50) {
-    const chunk = openIds.slice(i, i + 50);
-    const { data, error } = await supabase
-      .from("tickets")
-      .update({ halo_is_open: true, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
-      .in("halo_id", chunk)
-      .select("id");
-    if (error) console.error(`[FORCE-SYNC] Batch ${i / 50 + 1} error:`, error.message);
-    const count = data?.length ?? 0;
-    openedCount += count;
-    console.log(`[FORCE-SYNC] Batch ${i / 50 + 1}: ${chunk.length} halo IDs → ${count} DB rows updated`);
+  // Process every ticket: fix tickettype_id AND set halo_is_open correctly
+  for (let i = 0; i < allTickets.length; i += 50) {
+    const chunk = allTickets.slice(i, i + 50);
+
+    for (const ticket of chunk) {
+      const isGammaDefault = ticket.tickettype_id === GAMMA_DEFAULT_TYPE_ID;
+      const isResolved = ticket.status_id === RESOLVED_STATUS_ID;
+      const shouldBeOpen = isGammaDefault && !isResolved;
+
+      const { data } = await supabase
+        .from("tickets")
+        .update({
+          tickettype_id: ticket.tickettype_id,
+          halo_is_open: shouldBeOpen,
+          updated_at: now,
+        })
+        .eq("halo_id", ticket.id)
+        .select("id, tickettype_id");
+
+      if (data && data.length > 0) {
+        typesFixed++;
+        if (shouldBeOpen) openedCount++;
+        else closedCount++;
+      }
+    }
+
+    console.log(`[FORCE-SYNC] Processed ${Math.min(i + 50, allTickets.length)}/${allTickets.length}`);
   }
 
-  // Count tickets in Halo but not in our DB (missing)
-  const missingCount = openIds.length - openedCount;
+  // Count final state
+  const { count: finalOpen } = await supabase
+    .from("tickets")
+    .select("id", { count: "exact", head: true })
+    .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+    .eq("halo_is_open", true);
 
   return NextResponse.json({
     success: true,
-    message: `Halo: ${openIds.length} open, ${closedIds.length} resolved. DB: ${openedCount} set open.${missingCount > 0 ? ` ${missingCount} not in DB yet.` : ""}`,
-    halo_total: allTickets.length,
-    halo_open: openIds.length,
-    halo_closed: closedIds.length,
-    db_opened: openedCount,
-    missing_from_db: missingCount,
-    raw_fetched: rawTickets.length,
-    status_breakdown: statusBreakdown,
+    message: `Synced ${typesFixed} tickets. ${openedCount} Gamma Default open, ${closedCount} closed/other. Dashboard should show ${finalOpen ?? 0}.`,
+    halo_fetched: allTickets.length,
+    db_updated: typesFixed,
+    gamma_open: openedCount,
+    closed_or_other: closedCount,
+    dashboard_count: finalOpen ?? 0,
     pages_fetched: page,
   });
 }
