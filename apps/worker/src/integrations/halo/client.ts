@@ -65,6 +65,15 @@ export class HaloClient {
     ]);
   }
 
+  async updateTicketStatus(
+    ticketId: number,
+    statusId: number,
+  ): Promise<void> {
+    await this.request("POST", "/tickets", [
+      { id: ticketId, status_id: statusId },
+    ]);
+  }
+
   async addInternalNote(ticketId: number, note: string): Promise<void> {
     await this.request("POST", "/actions", [
       {

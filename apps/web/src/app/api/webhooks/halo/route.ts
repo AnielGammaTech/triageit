@@ -163,11 +163,28 @@ export async function POST(request: NextRequest) {
         console.log(
           `[WEBHOOK] Marked ticket #${ticketId} as closed in TriageIT`,
         );
+
+        // Trigger close review for Gamma Default tickets only
+        if (haloTicket.tickettype_id === GAMMA_DEFAULT_TYPE_ID) {
+          const workerUrl = process.env.WORKER_URL;
+          if (workerUrl) {
+            try {
+              await fetch(`${workerUrl}/close-review`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ halo_id: ticketId }),
+              });
+              console.log(`[WEBHOOK] Close review triggered for #${ticketId}`);
+            } catch (err) {
+              console.error(`[WEBHOOK] Failed to trigger close review for #${ticketId}:`, err);
+            }
+          }
+        }
       }
 
       return NextResponse.json({
         status: "closed",
-        reason: "Ticket closed in Halo — synced to TriageIT",
+        reason: "Ticket closed in Halo — synced to TriageIT, close review triggered",
         halo_id: ticketId,
       });
     }

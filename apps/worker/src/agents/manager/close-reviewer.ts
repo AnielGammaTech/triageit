@@ -220,6 +220,73 @@ export async function generateCloseReview(
     review_data: review,
   });
 
+  // ── Reopen ticket if documentation is missing ──
+  // If the tech didn't document their resolution, or Hudu needs updates,
+  // reopen the ticket and assign to Bryanna for follow-up.
+  const AWAITING_TRIAGE_REVIEW_STATUS = 35;
+  const needsDocumentation =
+    review.documentation_action.quality_score <= 2 ||
+    review.documentation_action.hudu_updates_needed.length > 0 ||
+    review.tech_performance.rating === "poor" ||
+    review.hudu_kb_drafts.length > 0;
+
+  if (needsDocumentation) {
+    try {
+      // Build a checklist of what's needed
+      const todoItems: string[] = [];
+
+      if (review.documentation_action.quality_score <= 2) {
+        todoItems.push("Add internal notes documenting the resolution steps (what was done, what fixed it)");
+      }
+
+      for (const update of review.documentation_action.hudu_updates_needed) {
+        todoItems.push(`Update Hudu: ${update}`);
+      }
+
+      for (const draft of review.hudu_kb_drafts) {
+        todoItems.push(`Create KB article in Hudu: "${draft.title}" (${draft.category})`);
+      }
+
+      if (review.tech_performance.issues) {
+        todoItems.push(`Address: ${review.tech_performance.issues}`);
+      }
+
+      // Post checklist note to Halo
+      const checklistHtml = [
+        `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #f59e0b;border-radius:6px;overflow:hidden;">`,
+        `<tr><td colspan="2" style="padding:12px 14px;background:linear-gradient(135deg,#92400e,#b45309);color:white;font-size:15px;font-weight:700;">`,
+        `⚠️ Documentation Required Before Closing</td></tr>`,
+        `<tr><td style="padding:12px 14px;color:#fde68a;font-size:13px;line-height:1.8;">`,
+        `This ticket was closed but needs additional documentation. Please complete the following before re-closing:<br/><br/>`,
+        todoItems.map((item, i) => `<strong>${i + 1}.</strong> ${item}`).join("<br/>"),
+        `<br/><br/><span style="color:#94a3b8;font-size:11px;">Once completed, close this ticket again. TriageIt will re-review.</span>`,
+        `</td></tr></table>`,
+      ].join("");
+
+      await halo.addInternalNote(haloId, checklistHtml);
+
+      // Reopen the ticket: set status to "Awaiting Triage Review" (35)
+      await halo.updateTicketStatus(haloId, AWAITING_TRIAGE_REVIEW_STATUS);
+
+      // Update local DB
+      await supabase
+        .from("tickets")
+        .update({
+          halo_is_open: true,
+          halo_status: "Awaiting Triage Review",
+          halo_status_id: AWAITING_TRIAGE_REVIEW_STATUS,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ticket.id);
+
+      console.log(
+        `[CLOSE-REVIEW] Reopened #${haloId} — documentation needed (${todoItems.length} items)`,
+      );
+    } catch (err) {
+      console.error(`[CLOSE-REVIEW] Failed to reopen #${haloId}:`, err);
+    }
+  }
+
   return { review, noteHtml };
 }
 
