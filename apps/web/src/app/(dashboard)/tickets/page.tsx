@@ -55,8 +55,8 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const filterParam = searchParams.get("filter"); // "stale" | "unassigned" | null
-  const initialTab = (searchParams.get("tab") as "open" | "needs_review" | "resolved") ?? "open";
-  const [activeTab, setActiveTab] = useState<"open" | "needs_review" | "resolved">(initialTab);
+  const initialTab = (searchParams.get("tab") as "open" | "needs_review" | "alerts" | "resolved") ?? "open";
+  const [activeTab, setActiveTab] = useState<"open" | "needs_review" | "alerts" | "resolved">(initialTab);
   const [staleOnly, setStaleOnly] = useState(filterParam === "stale");
   const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
@@ -74,18 +74,20 @@ export default function TicketsPage() {
     // Two queries to avoid Supabase's 1000-row default cap
     const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [openResult, closedResult] = await Promise.all([
+    const ticketFields = `
+      id, halo_id, summary, client_name, user_name, original_priority,
+      status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
+      halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
+      triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
+      tech_reviews(id),
+      close_reviews(id)
+    `;
+
+    const [openResult, closedResult, alertsResult] = await Promise.all([
       // All open Gamma Default tickets (no date limit)
       supabase
         .from("tickets")
-        .select(`
-          id, halo_id, summary, client_name, user_name, original_priority,
-          status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
-          halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
-          triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
-          tech_reviews(id),
-          close_reviews(id)
-        `)
+        .select(ticketFields)
         .eq("tickettype_id", 31)
         .eq("halo_is_open", true)
         .order("created_at", { ascending: false })
@@ -93,23 +95,24 @@ export default function TicketsPage() {
       // Recently closed Gamma Default (last 90 days for Resolved tab)
       supabase
         .from("tickets")
-        .select(`
-          id, halo_id, summary, client_name, user_name, original_priority,
-          status, created_at, tickettype_id, halo_status, halo_team, halo_agent,
-          halo_is_open, last_retriage_at, last_customer_reply_at, last_tech_action_at,
-          triage_results(urgency_score, recommended_priority, triage_type, classification, urgency_reasoning, internal_notes, created_at),
-          tech_reviews(id),
-          close_reviews(id)
-        `)
+        .select(ticketFields)
         .eq("tickettype_id", 31)
         .eq("halo_is_open", false)
         .gte("created_at", threeMonthsAgo)
         .order("created_at", { ascending: false })
         .limit(1000),
+      // Alert tickets (type 36) — recent, for Alerts tab
+      supabase
+        .from("tickets")
+        .select(ticketFields)
+        .eq("tickettype_id", 36)
+        .gte("created_at", threeMonthsAgo)
+        .order("created_at", { ascending: false })
+        .limit(500),
     ]);
 
-    const dbError = openResult.error ?? closedResult.error;
-    const data = [...(openResult.data ?? []), ...(closedResult.data ?? [])];
+    const dbError = openResult.error ?? closedResult.error ?? alertsResult.error;
+    const data = [...(openResult.data ?? []), ...(closedResult.data ?? []), ...(alertsResult.data ?? [])];
 
     if (dbError) {
       setError(dbError.message);
@@ -293,6 +296,12 @@ export default function TicketsPage() {
 
   // Open: Gamma Default tickets not closed/cancelled — matches Halo's "Agent Tickets" count
   const allOpenTickets = gammaDefaultTickets.filter((t) => !isClosed(t));
+
+  // Alerts: non-Gamma Default tickets (type 36 and others) — separate tab, ignored by triage
+  const ALERT_TYPE_ID = 36;
+  const alertTickets = filteredTickets.filter((t) =>
+    t.tickettype_id != null && t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID,
+  );
 
   // Resolved: closed Gamma Default + all legacy (null-type) tickets
   const closedGamma = gammaDefaultTickets.filter((t) => isClosed(t));
@@ -496,6 +505,15 @@ export default function TicketsPage() {
           hideZero={false}
         />
         <TabButton
+          active={activeTab === "alerts"}
+          onClick={() => setActiveTab("alerts")}
+          label="Alerts"
+          count={alertTickets.length}
+          badgeClass="bg-orange-500/20 text-orange-400"
+          pulse={false}
+          hideZero
+        />
+        <TabButton
           active={activeTab === "resolved"}
           onClick={() => setActiveTab("resolved")}
           label="Resolved"
@@ -539,6 +557,14 @@ export default function TicketsPage() {
 
       {activeTab === "needs_review" ? (
         <ReviewList onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+      ) : activeTab === "alerts" ? (
+        alertTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">No alert tickets found.</p>
+          </div>
+        ) : (
+          <OpenTicketList tickets={alertTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+        )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
