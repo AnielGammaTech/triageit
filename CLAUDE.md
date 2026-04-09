@@ -75,8 +75,19 @@ When a customer asks "any update?", "status?", "following up", etc:
 - Haiku: Simple tickets (urgency 1-2, high confidence, few specialists)
 - Sonnet: Complex tickets (urgency 3+, security flags, low confidence, 4+ specialists)
 
+### Agent Intelligence Tier
+Every specialist agent runs through this flow (handled by BaseAgent):
+1. **Recall** — Check memories for similar past tickets (embedding search)
+2. **Validate** — Verify memory accuracy (URL liveness, staleness checks)
+3. **Skills** — Apply learned procedures if pattern matches
+4. **Research** — Web search only when memory + skills don't cover it (Google Custom Search)
+5. **Learn** — Save new `<remember>` memories + write `<skill>` tags for reusable procedures
+
+### Self-Writing Skills
+Agents create reusable skills via `<skill>` tags in their output. Unlike memories (episodic, client-specific), skills are reusable across any client. Skills are deduplicated by title — repeated learnings update the existing skill rather than creating duplicates. Skills table: `agent_skills` with `metadata.auto_generated = true`.
+
 ### Dead Code
-- **Pam Beesly** (`pam-beesly.ts`): Customer response generation is dead code. Only `missing_info` (doc gaps) is used. The `customer_response` field is never posted. Can be removed.
+- **Pam Beesly** (`pam-beesly.ts`): Slimmed down to doc gap detection only (Haiku). Customer response drafting removed.
 
 ### Tech Reviews
 - Working well, actively used by the team
@@ -109,7 +120,7 @@ When a customer asks "any update?", "status?", "following up", etc:
 
 ### Support Roles
 - **Erin Hannon**: Alert summarizer (fast path for automated alerts)
-- **Pam Beesly**: Dead code — customer response drafting (remove)
+- **Pam Beesly**: Documentation gap detector (Haiku — lightweight)
 
 ## Integration Mapping
 Agents only run when their integration is active AND has a customer mapping for the ticket's client. Dwight (Hudu) and Angela (security) always run.
