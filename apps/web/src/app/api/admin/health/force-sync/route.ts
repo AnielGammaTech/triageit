@@ -64,10 +64,27 @@ export async function POST() {
 
   const { access_token: token } = (await tokenRes.json()) as { access_token: string };
 
-  // Fetch ALL tickets from Halo (all types) so we can fix tickettype_id on everything
+  // Fetch open Gamma Default tickets from Halo
   const GAMMA_DEFAULT_TYPE_ID = 31;
   const RESOLVED_STATUS_ID = 9;
-  const allTickets: Array<{ id: number; status_id: number; tickettype_id: number }> = [];
+
+  interface HaloTicket {
+    readonly id: number;
+    readonly summary: string;
+    readonly details?: string;
+    readonly client_name?: string;
+    readonly client_id?: number;
+    readonly user_name?: string;
+    readonly user_emailaddress?: string;
+    readonly agent_name?: string;
+    readonly team?: string;
+    readonly status_id: number;
+    readonly priority_id?: number;
+    readonly tickettype_id: number;
+    readonly datecreated?: string;
+  }
+
+  const allTickets: HaloTicket[] = [];
   let page = 1;
 
   const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -85,9 +102,7 @@ export async function POST() {
 
     if (!res.ok) break;
 
-    const data = (await res.json()) as {
-      tickets?: Array<{ id: number; status_id: number; tickettype_id: number }>;
-    };
+    const data = (await res.json()) as { tickets?: HaloTicket[] };
     const batch = data.tickets ?? [];
     allTickets.push(...batch);
 
@@ -179,16 +194,72 @@ export async function POST() {
     }
   }
 
-  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed`);
+  // Find tickets in Halo that don't exist in our DB and create them
+  const allHaloIds = recentTickets.map((t) => t.id);
+  const existingHaloIds = new Set<number>();
+
+  for (let i = 0; i < allHaloIds.length; i += 50) {
+    const chunk = allHaloIds.slice(i, i + 50);
+    const { data } = await supabase
+      .from("tickets")
+      .select("halo_id")
+      .in("halo_id", chunk);
+    for (const row of data ?? []) {
+      existingHaloIds.add(row.halo_id as number);
+    }
+  }
+
+  const missingTickets = recentTickets.filter(
+    (t) => !existingHaloIds.has(t.id) && t.tickettype_id === GAMMA_DEFAULT_TYPE_ID,
+  );
+
+  let createdCount = 0;
+  if (missingTickets.length > 0) {
+    const insertRows = missingTickets.map((t) => ({
+      halo_id: t.id,
+      summary: t.summary ?? "No subject",
+      details: t.details ?? null,
+      client_name: t.client_name ?? null,
+      client_id: t.client_id ?? null,
+      user_name: t.user_name ?? null,
+      user_email: t.user_emailaddress ?? null,
+      original_priority: t.priority_id ?? null,
+      halo_agent: t.agent_name ?? null,
+      halo_team: t.team ?? null,
+      tickettype_id: GAMMA_DEFAULT_TYPE_ID,
+      halo_is_open: t.status_id !== RESOLVED_STATUS_ID,
+      status: "pending" as const,
+      created_at: t.datecreated ?? now,
+      updated_at: now,
+    }));
+
+    // Insert in batches of 50
+    for (let i = 0; i < insertRows.length; i += 50) {
+      const chunk = insertRows.slice(i, i + 50);
+      const { error, count } = await supabase
+        .from("tickets")
+        .insert(chunk, { count: "exact" });
+      if (error) {
+        console.error(`[FORCE-SYNC] Insert batch error:`, error.message);
+      } else {
+        createdCount += count ?? chunk.length;
+      }
+    }
+
+    console.log(`[FORCE-SYNC] Created ${createdCount} missing tickets`);
+  }
+
+  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created`);
 
   return NextResponse.json({
     success: true,
-    message: `Halo: ${gammaOpenIds.length} Gamma open, ${gammaClosedIds.length} Gamma resolved, ${nonGammaIds.length} other. DB: ${openedCount} set open, ${closedCount + nonGammaFixed} set closed.`,
+    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} updated open, ${createdCount} created, ${closedCount + nonGammaFixed} closed.`,
     halo_fetched: allTickets.length,
     gamma_open_halo: gammaOpenIds.length,
     gamma_closed_halo: gammaClosedIds.length,
     non_gamma_halo: nonGammaIds.length,
     db_opened: openedCount,
+    db_created: createdCount,
     db_closed: closedCount,
     db_non_gamma_fixed: nonGammaFixed,
     pages_fetched: page,
