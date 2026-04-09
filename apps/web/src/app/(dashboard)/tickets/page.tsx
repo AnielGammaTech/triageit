@@ -115,7 +115,7 @@ export default function TicketsPage() {
     setPulling(true);
     setStatusMessage(null);
     try {
-      const res = await fetch("/api/halo/pull-tickets", { method: "POST" });
+      const res = await fetch("/api/admin/health/force-sync", { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         setStatusMessage({ type: "error", text: body.error ?? `Pull failed: ${res.status}` });
