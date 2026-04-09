@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { TicketDetail } from "@/components/tickets/ticket-detail";
@@ -66,7 +66,6 @@ export default function TicketsPage() {
   const [haloIdInput, setHaloIdInput] = useState("");
   const [triagingHaloId, setTriagingHaloId] = useState(false);
   const [triagingAll, setTriagingAll] = useState(false);
-  const hasPulled = useRef(false);
 
   const loadTickets = useCallback(async () => {
     const supabase = createClient();
