@@ -31,8 +31,12 @@ TriageIt is an AI-powered ticket triage system for **Gamma Tech Services LLC**, 
 
 ### Retriage Triggers
 1. **Customer reply webhook**: When Halo status changes to "Customer Reply", auto-retriage immediately
-2. **Hourly cron**: Check for customer replies with no tech response within 1 hour (business hours only)
-3. **Every-3-hour cron**: Full scan of all open tickets — flags stale, unassigned, SLA-breached, no-documentation tickets
+2. **Urgency-based scan (every 30 min)**: Checks each open ticket's timer based on urgency:
+   - Urgency 4-5 (critical): retriage every 1 hour
+   - Urgency 3 (medium): retriage every 2 hours
+   - Urgency 1-2 (low): retriage every 3 hours
+   - Clock resets only on **customer-facing activity** (visible replies), not internal notes
+3. **SLA scan (every 3 hours)**: Flags SLA-breached tickets for immediate triage
 4. **Manual**: From the web UI — single ticket or bulk retriage
 
 ### Update Request Detection
@@ -57,8 +61,10 @@ When a customer asks "any update?", "status?", "following up", etc:
 - One webhook channel for now (both critical alerts and daily summaries)
 
 ### Teams Notifications
+- **New triage**: Only for urgency 3+ tickets — routine tickets (urgency 1-2) don't alert
 - **Real-time**: Individual cards per critical ticket (customer waiting, SLA breach, update requests)
-- **Daily**: Combined summary card with all flagged tickets grouped by severity
+- **Tech reviews**: Only send when rating is poor or needs_improvement — good/great reviews don't alert
+- **Daily**: Combined summary card with flagged tickets grouped by severity (no "all clear" messages)
 - Update request alerts should be visually distinct and include: ticket #, customer name, client company, assigned tech name, what the customer is asking for
 
 ### People

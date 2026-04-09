@@ -12,6 +12,12 @@ import type { TeamsConfig } from "@triageit/shared";
 // Uses BullMQ repeatable jobs instead of node-cron.
 // Repeat configs are stored in Redis, so they survive container restarts
 // on Railway (unlike node-cron which dies with the process).
+//
+// Default schedules (configured in cron_jobs DB table):
+// - /retriage: */30 * * * * (every 30 min — urgency-based timer decides which tickets to process)
+// - /sla-scan: 0 */3 * * * (every 3 hours)
+// - /toby/analyze: 0 7 * * * (daily at 2 AM ET)
+// - /ticket-sync: */30 * * * * (every 30 minutes)
 
 const CRON_QUEUE_NAME = "cron-jobs";
 
