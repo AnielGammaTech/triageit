@@ -937,27 +937,13 @@ async function postHaloNotes(
       }
     : undefined;
 
-  // ── Customer Response — Pam Beesly (run first to get doc gaps for inline note) ──
-  let docGaps: ReadonlyArray<string> = [];
-  try {
-    const pamResult = await generateCustomerResponse(
-      context, classification, findings, michaelResult, similarTickets,
-    );
-    if (pamResult.missing_info.length > 0) {
-      docGaps = pamResult.missing_info;
-    }
-    console.log(`[MICHAEL] Pam response for #${ticket.halo_id}: tone=${pamResult.tone}, gaps=${pamResult.missing_info.length}`);
-  } catch (error) {
-    console.error(`[MICHAEL] Pam Beesly response generation failed for #${ticket.halo_id}:`, error);
-  }
-
+  // KB Ideas and Doc Gaps are NOT included in initial triage — only in closing review.
   // On retriage, post a compact review — not the full triage table
-  // Priority recommendation + doc gaps are inline (no separate comments)
   if (isRetriage) {
     try {
       const compactNote = buildCompactRetriageNote(
         classification, michaelResult, findings, processingTime, slaInfo,
-        ticket.original_priority, docGaps.length > 0 ? docGaps : undefined,
+        ticket.original_priority,
       );
       await halo.addInternalNote(ticket.halo_id, compactNote);
     } catch (error) {
@@ -968,7 +954,7 @@ async function postHaloNotes(
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
         similarTickets, duplicates, slaInfo, branding,
-        ticket.original_priority, docGaps.length > 0 ? docGaps : undefined,
+        ticket.original_priority,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {

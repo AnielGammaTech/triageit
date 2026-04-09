@@ -21,6 +21,7 @@ import {
 
 interface HuduData {
   readonly companyId: number | null;
+  readonly companySlug: string | null;
   readonly companyName: string | null;
   readonly huduBaseUrl: string | null;
   readonly articles: ReadonlyArray<HuduArticle>;
@@ -219,6 +220,7 @@ Respond with ONLY valid JSON:
   private async fetchHuduData(context: TriageContext): Promise<HuduData> {
     const emptyResult: HuduData = {
       companyId: null,
+      companySlug: null,
       companyName: null,
       huduBaseUrl: null,
       articles: [],
@@ -234,8 +236,9 @@ Respond with ONLY valid JSON:
 
     const hudu = new HuduClient(huduConfig);
 
-    const companyId = await this.findCompanyId(hudu, context.clientName);
-    if (!companyId) return emptyResult;
+    const company = await this.findCompany(hudu, context.clientName);
+    if (!company) return emptyResult;
+    const companyId = company.id;
 
     const keywords = extractKeywords(context.summary, context.details);
 
@@ -268,6 +271,7 @@ Respond with ONLY valid JSON:
 
     return {
       companyId,
+      companySlug: company.slug,
       companyName: context.clientName,
       huduBaseUrl: huduConfig.base_url,
       articles,
@@ -279,20 +283,26 @@ Respond with ONLY valid JSON:
     };
   }
 
-  private async findCompanyId(
+  private async findCompany(
     hudu: HuduClient,
     clientName: string | null,
-  ): Promise<number | null> {
+  ): Promise<{ readonly id: number; readonly slug: string | null } | null> {
     if (!clientName) return null;
 
     try {
       const companies = await hudu.searchCompanies(clientName);
-      if (companies.length > 0) return companies[0].id;
+      if (companies.length > 0) {
+        const c = companies[0] as Record<string, unknown>;
+        return { id: companies[0].id, slug: (c.slug as string) ?? null };
+      }
 
       const firstWord = clientName.split(/\s+/)[0];
       if (firstWord && firstWord.length > 2) {
         const partialMatch = await hudu.searchCompanies(firstWord);
-        if (partialMatch.length > 0) return partialMatch[0].id;
+        if (partialMatch.length > 0) {
+          const c = partialMatch[0] as Record<string, unknown>;
+          return { id: partialMatch[0].id, slug: (c.slug as string) ?? null };
+        }
       }
 
       return null;
@@ -558,12 +568,26 @@ function buildLayoutNameMap(layouts: ReadonlyArray<HuduAssetLayout>): Map<number
 function buildHuduLinks(huduData: HuduData): ReadonlyArray<{ readonly label: string; readonly url: string }> {
   const links: Array<{ readonly label: string; readonly url: string }> = [];
 
-  if (huduData.huduBaseUrl && huduData.companyId) {
+  if (huduData.huduBaseUrl) {
     const baseUrl = huduData.huduBaseUrl.replace(/\/+$/, "");
-    links.push({
-      label: `${huduData.companyName ?? "Customer"} in Hudu`,
-      url: `${baseUrl}/a/${huduData.companyId}`,
-    });
+    if (huduData.companySlug) {
+      // Hudu uses /c/{slug} for company pages
+      links.push({
+        label: `${huduData.companyName ?? "Customer"} in Hudu`,
+        url: `${baseUrl}/c/${huduData.companySlug}`,
+      });
+      // Passwords page
+      links.push({
+        label: `${huduData.companyName ?? "Customer"} Passwords`,
+        url: `${baseUrl}/c/${huduData.companySlug}/passwords`,
+      });
+    } else if (huduData.companyId) {
+      // Fallback to ID-based URL
+      links.push({
+        label: `${huduData.companyName ?? "Customer"} in Hudu`,
+        url: `${baseUrl}/companies/${huduData.companyId}`,
+      });
+    }
   }
 
   // Priority assets first (max 2)
