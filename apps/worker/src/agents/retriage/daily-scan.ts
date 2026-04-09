@@ -31,33 +31,36 @@ interface DailyScanResult {
   readonly tokensUsed: number;
 }
 
-const RETRIAGE_PROMPT = `You are a ticket status reviewer for an MSP help desk. Analyze this open ticket and its action history.
+const RETRIAGE_PROMPT = `You are Michael Scott, Regional Manager at Gamma Tech Services. You're reviewing an open support ticket to determine if the assigned technician is handling it properly.
 
-Your job is to identify BOTH problems AND good practices:
+You are the MANAGER. These are YOUR employees. You hold them to YOUR standards. Be honest, fair, but firm.
 
-**Problems to flag:**
-1. Is this ticket stale? (no activity in a while)
-2. Is there a communication gap? (customer replied but tech hasn't responded, or vice versa)
-3. Is this ticket at SLA risk?
-4. Should it be escalated or reassigned?
-5. Has the tech documented their work? (internal notes showing what was tried, next steps, etc.)
-6. Is the tech making real progress or just touching the ticket without advancing it?
-7. For long-running tickets (7+ days): is the tech blocked, waiting on something, or just not prioritizing?
+## What You're Evaluating
 
-**Positive behaviors to recognize:**
-1. Fast response times (tech responding within 1-2 hours of customer replies)
-2. Consistent engagement (regular updates and follow-ups)
-3. Good documentation (internal notes documenting steps taken, next steps)
-4. Active customer communication (keeping customer informed)
-5. Proactive work (scheduling follow-ups, setting reminders)
-6. Thorough troubleshooting (systematic approach, multiple steps tried)
+1. **Customer Communication** — Has the tech communicated with the customer? If the customer is waiting and hasn't heard anything, that's a failure. Internal notes don't count — the CUSTOMER needs to know what's happening.
 
+2. **Response Time** — How fast did the tech respond to the customer's messages? Over 1 hour during business hours is concerning. Over 4 hours is unacceptable for urgent tickets.
+
+3. **Documentation** — Is the tech documenting their work? If the ticket gets resolved with no notes about what they did, that's a red flag. We need this for Hudu and for the team to learn.
+
+4. **Progress** — Is the tech actually making progress, or just touching the ticket without advancing it? Look at the conversation — is the issue getting closer to resolution?
+
+5. **Ticket Hygiene** — If the ticket was resolved and reopened, is there a reason? If it's been open for days with no movement, why?
+
+## Your Judgment Calls
+
+Use what you've learned from past tickets (your memories) to inform your assessment. If you've seen this tech handle similar tickets well before, note it. If they have a pattern of slow responses, call it out.
+
+When you're not sure if something is acceptable, err on the side of flagging it. It's better to ask than to let a customer wait.
+
+## Output Format
 Respond with ONLY valid JSON:
 {
-  "flags": ["list of problem flags: wot_overdue, customer_waiting, sla_risk, stale, unassigned, needs_escalation, no_tech_notes, low_progress, high_priority_aging, no_documentation"],
-  "positives": ["list of positive flags: fast_response, consistent_engagement, well_documented, good_communication, proactive_followup, thorough_troubleshooting"],
+  "flags": ["list any issues — use: customer_waiting_no_reply, no_documentation, slow_response, stale_no_progress, reopened_no_explanation, unassigned, sla_at_risk, closed_without_documentation"],
+  "positives": ["list good behaviors — use: fast_response, good_communication, well_documented, proactive_followup, thorough_troubleshooting"],
   "severity": "critical|warning|info",
-  "recommendation": "Brief actionable recommendation — MAX 2 sentences. If things are going well, acknowledge it."
+  "recommendation": "What should the tech do RIGHT NOW? Be specific and direct. Address the tech by name. Max 3 sentences.",
+  "customer_impact": "How is the customer being affected? Is someone waiting? Is their business impacted?"
 }`;
 
 // Common Halo status ID → name map (fallback when API doesn't return status name)
@@ -135,6 +138,41 @@ function getLastTechAction(actions: ReadonlyArray<HaloAction>): string | null {
       new Date(a.datecreated ?? "").getTime(),
   );
   return sorted[0]?.datecreated ?? null;
+}
+
+/**
+ * Get the retriage interval in hours based on ticket urgency.
+ * Critical tickets get checked more frequently.
+ */
+function getRetriageIntervalHours(urgencyScore: number | null): number {
+  if (urgencyScore === null) return 3;
+  if (urgencyScore >= 4) return 1;    // critical: every hour
+  if (urgencyScore === 3) return 2;   // medium: every 2 hours
+  return 3;                           // low: every 3 hours
+}
+
+/**
+ * Get the last customer-facing activity timestamp.
+ * Only visible replies count — internal notes do NOT reset the clock.
+ * Falls back to ticket creation date if no customer-facing activity exists.
+ */
+function getLastCustomerFacingActivity(
+  actions: ReadonlyArray<HaloAction>,
+  ticketCreatedAt: string | undefined,
+): string {
+  const customerFacing = actions.filter(
+    (a) => !a.hiddenfromuser && a.who && !a.who.toLowerCase().includes("triageit"),
+  );
+
+  if (customerFacing.length === 0) return ticketCreatedAt ?? new Date().toISOString();
+
+  const sorted = [...customerFacing].sort(
+    (a, b) =>
+      new Date(b.datecreated ?? "").getTime() -
+      new Date(a.datecreated ?? "").getTime(),
+  );
+
+  return sorted[0]?.datecreated ?? ticketCreatedAt ?? new Date().toISOString();
 }
 
 const POSITIVE_LABELS: Record<string, string> = {
@@ -601,6 +639,39 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
           enrichedTicket = { ...enrichedTicket, agent_name: resolvedName } as typeof enrichedTicket;
         }
       }
+
+      // ── Urgency-based timer check ──
+      // Look up the last triage's urgency score for this ticket
+      let urgencyScore: number | null = null;
+      const { data: localTicketForUrgency } = await supabase
+        .from("tickets")
+        .select("id")
+        .eq("halo_id", enrichedTicket.id)
+        .maybeSingle();
+
+      if (localTicketForUrgency) {
+        const { data: lastTriage } = await supabase
+          .from("triage_results")
+          .select("urgency_score")
+          .eq("ticket_id", localTicketForUrgency.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        urgencyScore = (lastTriage?.urgency_score as number) ?? null;
+      }
+
+      const intervalHours = getRetriageIntervalHours(urgencyScore);
+      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated);
+      const hoursSinceCustomerFacing =
+        (Date.now() - new Date(lastCustomerFacing).getTime()) / (1000 * 60 * 60);
+
+      // Skip if timer hasn't expired yet
+      if (hoursSinceCustomerFacing < intervalHours) {
+        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        continue;
+      }
+
+      console.log(`[RETRIAGE] Timer expired for #${enrichedTicket.id}: ${hoursSinceCustomerFacing.toFixed(1)}h since customer-facing activity (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`);
 
       // Quick rule-based check first (free, no tokens)
       const ruleResult = quickRuleCheck(enrichedTicket, actions);
