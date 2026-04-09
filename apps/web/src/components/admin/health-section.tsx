@@ -29,10 +29,10 @@ interface HealthAction {
 
 const HEALTH_ACTIONS: ReadonlyArray<HealthAction> = [
   {
-    id: "sync-tickets",
+    id: "force-sync",
     label: "Sync Tickets from Halo",
-    desc: "Full reconciliation — pulls open tickets, closes resolved ones, catches missed webhooks",
-    endpoint: "/api/halo/pull-tickets",
+    desc: "Fetches all Gamma Default tickets from Halo and sets open/closed by actual status",
+    endpoint: "/api/admin/health/force-sync",
     buttonLabel: "Sync Now",
     loadingLabel: "Syncing...",
     iconColor: "text-indigo-400",
