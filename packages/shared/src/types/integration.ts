@@ -18,7 +18,8 @@ export type ServiceType =
   | "twilio"
   | "ai-provider"
   | "teams"
-  | "cipp";
+  | "cipp"
+  | "web-search";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 
