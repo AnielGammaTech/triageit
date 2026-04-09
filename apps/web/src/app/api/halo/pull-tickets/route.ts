@@ -120,37 +120,45 @@ export async function POST() {
     const allTickets: HaloTicket[] = [];
     let totalRecordCount = 0;
 
-    // Only pull "Gamma Default" ticket type (id=31) — alerts and other types are excluded
+    // Pull ALL Gamma Default tickets (open + recently closed) in one query.
+    // We determine open/closed ourselves using status, since Halo's open_only
+    // filter is unreliable and misses tickets in statuses like "Waiting on Customer".
     const GAMMA_DEFAULT_TYPE_ID = 31;
-    const openResult = await fetchHaloTicketsPaginated(config.base_url, token, `open_only=true&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}`);
-    allTickets.push(...openResult.tickets);
-    totalRecordCount = openResult.totalCount;
-
-    console.log(
-      `[HALO SYNC] Open tickets: ${openResult.tickets.length} across ${openResult.pages} pages (Halo record_count: ${totalRecordCount})`,
-    );
-
-    // ── Also pull recently closed/resolved tickets (last 30 days) ──
-    // so the Resolved tab stays up-to-date
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split("T")[0];
-    const closedResult = await fetchHaloTicketsPaginated(
+
+    const allResult = await fetchHaloTicketsPaginated(
       config.base_url,
       token,
-      `open_only=false&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${thirtyDaysAgo}`,
+      `tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${ninetyDaysAgo}`,
+    );
+    allTickets.push(...allResult.tickets);
+    totalRecordCount = allResult.totalCount;
+
+    // Determine which tickets Halo considers open (not resolved/closed/cancelled)
+    const resolvedStatuses = [
+      "closed", "resolved", "cancelled", "completed",
+      "resolved remotely", "resolved onsite",
+      "resolved - awaiting confirmation",
+    ];
+
+    const [agentNameMap, statusNameMap] = await Promise.all([
+      fetchAgentNameMap(config.base_url, token),
+      fetchStatusNameMap(config.base_url, token),
+    ]);
+
+    const openHaloIdSet = new Set(
+      allTickets
+        .filter((t) => {
+          const status = resolveStatusName(t, statusNameMap).toLowerCase();
+          return !resolvedStatuses.some((s) => status.includes(s));
+        })
+        .map((t) => t.id),
     );
 
-    // Only add tickets we didn't already get from the open pull
-    const openIds = new Set(allTickets.map((t) => t.id));
-    const newClosed = closedResult.tickets.filter((t) => !openIds.has(t.id));
-    allTickets.push(...newClosed);
-
     console.log(
-      `[HALO SYNC] Recently closed: ${newClosed.length} new (${closedResult.tickets.length} total in last 30 days)`,
-    );
-    console.log(
-      `[HALO SYNC] Total unique tickets to sync: ${allTickets.length}`,
+      `[HALO SYNC] Fetched ${allTickets.length} Gamma Default tickets (last 90 days). ${openHaloIdSet.size} open, ${allTickets.length - openHaloIdSet.size} resolved.`,
     );
 
     if (allTickets.length === 0) {
@@ -161,12 +169,6 @@ export async function POST() {
         message: "No open tickets found in Halo.",
       });
     }
-
-    // Build lookup maps from Halo API
-    const [agentNameMap, statusNameMap] = await Promise.all([
-      fetchAgentNameMap(config.base_url, token),
-      fetchStatusNameMap(config.base_url, token),
-    ]);
 
     const now = new Date().toISOString();
 
@@ -355,31 +357,56 @@ export async function POST() {
       }
     }
 
-    // ── Sync closed status from Halo open list ─────────────────────
-    // Tickets in our DB that ARE in Halo's open list → ensure halo_is_open = true
-    // Tickets NOT in the open list → leave alone (webhook handles closing)
-    // This is conservative — we only OPEN tickets here, never close them.
-    // Closing is handled by the webhook when Halo sends a status change.
+    // ── Reconcile open/closed status with Halo ─────────────────────
+    // We have the full list of open Halo IDs from the status check above.
+    // Set halo_is_open based on whether the ticket is in the open set.
     let reopenedCount = 0;
+    let closedCount = 0;
 
-    const { data: localClosed } = await serviceClient
-      .from("tickets")
-      .select("id, halo_id")
-      .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
-      .eq("halo_is_open", false)
-      .in("halo_id", [...openHaloIdSet]);
-
-    if (localClosed && localClosed.length > 0) {
-      const reopenIds = localClosed.map((t) => t.id as string);
-      await serviceClient
+    // Re-open tickets that Halo says are open but we have as closed
+    const openHaloIds = [...openHaloIdSet];
+    if (openHaloIds.length > 0) {
+      const { data: localClosed } = await serviceClient
         .from("tickets")
-        .update({ halo_is_open: true, updated_at: now })
-        .in("id", reopenIds);
-      reopenedCount = reopenIds.length;
-      console.log(`[HALO SYNC] Re-opened ${reopenedCount} tickets that are open in Halo`);
+        .select("id, halo_id")
+        .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+        .eq("halo_is_open", false)
+        .in("halo_id", openHaloIds);
+
+      if (localClosed && localClosed.length > 0) {
+        const reopenIds = localClosed.map((t) => t.id as string);
+        await serviceClient
+          .from("tickets")
+          .update({ halo_is_open: true, updated_at: now })
+          .in("id", reopenIds);
+        reopenedCount = reopenIds.length;
+        console.log(`[HALO SYNC] Re-opened ${reopenedCount} tickets that are open in Halo`);
+      }
     }
 
-    const closedCount = 0;
+    // Close tickets that Halo says are resolved but we have as open
+    const resolvedHaloIds = allTickets
+      .filter((t) => !openHaloIdSet.has(t.id))
+      .map((t) => t.id);
+
+    if (resolvedHaloIds.length > 0) {
+      const { data: localOpen } = await serviceClient
+        .from("tickets")
+        .select("id, halo_id")
+        .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+        .eq("halo_is_open", true)
+        .in("halo_id", resolvedHaloIds);
+
+      if (localOpen && localOpen.length > 0) {
+        const closeIds = localOpen.map((t) => t.id as string);
+        await serviceClient
+          .from("tickets")
+          .update({ halo_is_open: false, updated_at: now })
+          .in("id", closeIds);
+        closedCount = closeIds.length;
+        console.log(`[HALO SYNC] Closed ${closedCount} tickets that are resolved in Halo`);
+      }
+    }
 
     // ── Auto-triage pending tickets that were never triaged ──────────
     // Tickets stuck in "pending" status missed their initial triage.
