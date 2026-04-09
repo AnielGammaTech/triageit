@@ -159,6 +159,8 @@ export async function POST() {
   console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open (not status 9), ${closedIds.length} resolved (status 9)`);
   console.log(`[FORCE-SYNC] Status breakdown:`, JSON.stringify(statusBreakdown));
 
+  const now = new Date().toISOString();
+
   // Close tickets that are status 9 (Resolved) in Halo
   for (let i = 0; i < closedIds.length; i += 50) {
     const chunk = closedIds.slice(i, i + 50);
@@ -170,7 +172,6 @@ export async function POST() {
 
   // Open tickets that are NOT status 9 in Halo
   let openedCount = 0;
-  const now = new Date().toISOString();
 
   for (let i = 0; i < openIds.length; i += 50) {
     const chunk = openIds.slice(i, i + 50);
