@@ -168,24 +168,34 @@ export async function POST() {
     ]);
 
     // Determine open/closed by actual status — don't trust Halo's open_only filter
+    // Simple rule: anything with a resolved/closed/cancelled status is closed.
+    // EVERYTHING else is open (including Unknown, New, null status, etc.)
     const resolvedStatuses = [
       "closed", "resolved", "cancelled", "completed",
       "resolved remotely", "resolved onsite",
       "resolved - awaiting confirmation",
     ];
 
+    const isResolved = (t: HaloTicket): boolean => {
+      const status = resolveStatusName(t, statusNameMap).toLowerCase();
+      return resolvedStatuses.some((s) => status.includes(s));
+    };
+
     const openHaloIdSet = new Set(
-      allTickets
-        .filter((t) => {
-          const status = resolveStatusName(t, statusNameMap).toLowerCase();
-          return !resolvedStatuses.some((s) => status.includes(s));
-        })
-        .map((t) => t.id),
+      allTickets.filter((t) => !isResolved(t)).map((t) => t.id),
     );
 
     console.log(
       `[HALO SYNC] Total unique: ${allTickets.length}. Open by status: ${openHaloIdSet.size}. Resolved: ${allTickets.length - openHaloIdSet.size}.`,
     );
+
+    // Log status breakdown for debugging
+    const statusBreakdown: Record<string, number> = {};
+    for (const t of allTickets) {
+      const s = resolveStatusName(t, statusNameMap);
+      statusBreakdown[s] = (statusBreakdown[s] ?? 0) + 1;
+    }
+    console.log(`[HALO SYNC] Status breakdown:`, JSON.stringify(statusBreakdown));
 
     if (allTickets.length === 0) {
       return NextResponse.json({
