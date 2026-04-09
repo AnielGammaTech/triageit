@@ -137,11 +137,9 @@ export async function POST() {
     }
   } catch { /* non-critical */ }
 
-  // Determine open vs closed by status_id (Halo doesn't return statusname in list endpoint)
-  // Resolved status IDs from Halo — matches the webhook handler's CLOSED_STATUS_IDS
-  const RESOLVED_STATUS_IDS = new Set([9, 10, 24, 26, 27]);
-  // Also check status name from our map as backup
-  const resolvedKeywords = ["closed", "resolved", "cancelled", "completed"];
+  // Halo status 9 = "Resolved" — the ONLY closed status in this Halo instance.
+  // Everything else is open (New, In Progress, Waiting on Customer, etc.)
+  const RESOLVED_STATUS_ID = 9;
 
   const statusBreakdown: Record<string, number> = {};
   const openIds: number[] = [];
@@ -151,26 +149,26 @@ export async function POST() {
     const statusName = statusMap.get(t.status_id) ?? `StatusID-${t.status_id}`;
     statusBreakdown[statusName] = (statusBreakdown[statusName] ?? 0) + 1;
 
-    const isResolvedById = RESOLVED_STATUS_IDS.has(t.status_id);
-    const isResolvedByName = resolvedKeywords.some((k) => statusName.toLowerCase().includes(k));
-
-    if (isResolvedById || isResolvedByName) {
+    if (t.status_id === RESOLVED_STATUS_ID) {
       closedIds.push(t.id);
     } else {
       openIds.push(t.id);
     }
   }
 
-  console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open, ${closedIds.length} resolved`);
+  console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open (not status 9), ${closedIds.length} resolved (status 9)`);
   console.log(`[FORCE-SYNC] Status breakdown:`, JSON.stringify(statusBreakdown));
 
-  // First: close ALL Gamma Default in DB
-  await supabase
-    .from("tickets")
-    .update({ halo_is_open: false })
-    .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID);
+  // Close tickets that are status 9 (Resolved) in Halo
+  for (let i = 0; i < closedIds.length; i += 50) {
+    const chunk = closedIds.slice(i, i + 50);
+    await supabase
+      .from("tickets")
+      .update({ halo_is_open: false, updated_at: now })
+      .in("halo_id", chunk);
+  }
 
-  // Then: open only the ones Halo says are open, in batches
+  // Open tickets that are NOT status 9 in Halo
   let openedCount = 0;
   const now = new Date().toISOString();
 
