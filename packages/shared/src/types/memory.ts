@@ -14,7 +14,13 @@ export interface AgentSkill {
   readonly content: string;
   readonly skill_type: SkillType;
   readonly is_active: boolean;
-  readonly metadata: Record<string, unknown>;
+  readonly metadata: {
+    readonly times_used?: number;
+    readonly source_agent?: string;
+    readonly source_ticket?: string;
+    readonly auto_generated?: boolean;
+    readonly [key: string]: unknown;
+  };
   readonly created_at: string;
   readonly updated_at: string;
 }
