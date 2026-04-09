@@ -217,12 +217,13 @@ export default function TicketsPage() {
     loadTickets();
   }, [loadTickets]);
 
-  useEffect(() => {
-    if (!loading && !hasPulled.current) {
-      hasPulled.current = true;
-      pullFromHalo();
-    }
-  }, [loading, pullFromHalo]);
+  // Auto-pull disabled — use Health & Maintenance > Sync Now instead
+  // useEffect(() => {
+  //   if (!loading && !hasPulled.current) {
+  //     hasPulled.current = true;
+  //     pullFromHalo();
+  //   }
+  // }, [loading, pullFromHalo]);
 
   // Use Halo's own open/closed flag (set by pull-tickets sync).
   // Falls back to status name matching for legacy tickets without the flag.
