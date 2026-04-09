@@ -115,6 +115,29 @@ export async function POST() {
 
   console.log(`[FORCE-SYNC] Total fetched: ${allTickets.length} across ${page} pages`);
 
+  // Fetch status name map from Halo
+  const statusMap = new Map<number, string>();
+  try {
+    const sRes = await fetch(`${config.base_url}/api/status?count=500`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (sRes.ok) {
+      const sRaw = await sRes.json();
+      const items = Array.isArray(sRaw) ? sRaw : ((sRaw as Record<string, unknown>).statuses ?? (sRaw as Record<string, unknown>).records ?? []);
+      for (const s of items as Array<{ id: number; name: string }>) {
+        statusMap.set(s.id, s.name);
+      }
+    }
+  } catch { /* non-critical */ }
+  console.log(`[FORCE-SYNC] Loaded ${statusMap.size} status names from Halo`);
+
+  // Build halo_id → status_name lookup for batch updates
+  const ticketStatusMap = new Map<number, string>();
+  for (const t of allTickets) {
+    const name = statusMap.get(t.status_id) ?? null;
+    if (name) ticketStatusMap.set(t.id, name);
+  }
+
   const now = new Date().toISOString();
   const threeMonthsCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -226,6 +249,8 @@ export async function POST() {
       original_priority: t.priority_id ?? null,
       halo_agent: t.agent_name ?? null,
       halo_team: t.team ?? null,
+      halo_status: ticketStatusMap.get(t.id) ?? null,
+      halo_status_id: t.status_id,
       tickettype_id: GAMMA_DEFAULT_TYPE_ID,
       halo_is_open: t.status_id !== RESOLVED_STATUS_ID,
       status: "pending" as const,
@@ -249,11 +274,48 @@ export async function POST() {
     console.log(`[FORCE-SYNC] Created ${createdCount} missing tickets`);
   }
 
-  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created`);
+  // Update halo_status for all tickets that have Unknown/NULL status
+  // Group by status_id so we can batch update
+  let statusFixed = 0;
+  const statusGroups = new Map<number, number[]>();
+  for (const t of recentTickets) {
+    const existing = statusGroups.get(t.status_id) ?? [];
+    statusGroups.set(t.status_id, [...existing, t.id]);
+  }
+
+  for (const [statusId, haloIds] of statusGroups) {
+    const statusName = statusMap.get(statusId);
+    if (!statusName) continue;
+
+    for (let i = 0; i < haloIds.length; i += 50) {
+      const chunk = haloIds.slice(i, i + 50);
+      const { data } = await supabase
+        .from("tickets")
+        .update({ halo_status: statusName, halo_status_id: statusId, updated_at: now })
+        .in("halo_id", chunk)
+        .is("halo_status", null)
+        .select("id");
+      statusFixed += data?.length ?? 0;
+    }
+
+    // Also fix "Unknown" statuses
+    for (let i = 0; i < haloIds.length; i += 50) {
+      const chunk = haloIds.slice(i, i + 50);
+      const { data } = await supabase
+        .from("tickets")
+        .update({ halo_status: statusName, halo_status_id: statusId, updated_at: now })
+        .in("halo_id", chunk)
+        .ilike("halo_status", "Unknown%")
+        .select("id");
+      statusFixed += data?.length ?? 0;
+    }
+  }
+
+  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created, ${statusFixed} statuses fixed`);
 
   return NextResponse.json({
     success: true,
-    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} updated open, ${createdCount} created, ${closedCount + nonGammaFixed} closed.`,
+    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} open, ${createdCount} created, ${closedCount + nonGammaFixed} closed, ${statusFixed} statuses fixed.`,
     halo_fetched: allTickets.length,
     gamma_open_halo: gammaOpenIds.length,
     gamma_closed_halo: gammaClosedIds.length,
@@ -262,6 +324,7 @@ export async function POST() {
     db_created: createdCount,
     db_closed: closedCount,
     db_non_gamma_fixed: nonGammaFixed,
+    db_statuses_fixed: statusFixed,
     pages_fetched: page,
   });
 }
