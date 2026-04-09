@@ -596,9 +596,10 @@ export async function runTriage(
   // Teams alert fires only for real triage changes.
   const skipTeams = isIdenticalRetriage;
 
+  // Only notify Teams for urgent tickets (3+) — routine tickets don't need alerts
   try {
     const teamsConfig = await getTeamsConfig(supabase);
-    if (teamsConfig && !skipTeams) {
+    if (teamsConfig && !skipTeams && classification.urgency_score >= 3) {
       const teams = new TeamsClient(teamsConfig);
       await teams.sendTriageSummary({
         haloId: ticket.halo_id,
