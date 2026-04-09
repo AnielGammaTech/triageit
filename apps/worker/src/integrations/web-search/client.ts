@@ -43,47 +43,55 @@ export class WebSearchClient {
     url.searchParams.set("q", query);
     url.searchParams.set("num", String(Math.min(maxResults, 10)));
 
-    const response = await fetch(url.toString(), {
-      signal: AbortSignal.timeout(8000),
-    });
+    try {
+      const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(8000),
+      });
 
-    if (!response.ok) {
-      const text = await response.text();
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(
+          `[WEB-SEARCH] Google API failed (${response.status}): ${text}`,
+        );
+        return { results: [], totalResults: 0, query };
+      }
+
+      const data = (await response.json()) as {
+        readonly items?: ReadonlyArray<{
+          readonly title: string;
+          readonly link: string;
+          readonly snippet: string;
+          readonly displayLink: string;
+        }>;
+        readonly searchInformation?: {
+          readonly totalResults: string;
+        };
+      };
+
+      const results: ReadonlyArray<SearchResult> = (data.items ?? []).map(
+        (item) => ({
+          title: item.title,
+          link: item.link,
+          snippet: item.snippet,
+          displayLink: item.displayLink,
+        }),
+      );
+
+      return {
+        results,
+        totalResults: parseInt(
+          data.searchInformation?.totalResults ?? "0",
+          10,
+        ),
+        query,
+      };
+    } catch (error) {
       console.error(
-        `[WEB-SEARCH] Google API failed (${response.status}): ${text}`,
+        `[WEB-SEARCH] Search failed for "${query}":`,
+        error,
       );
       return { results: [], totalResults: 0, query };
     }
-
-    const data = (await response.json()) as {
-      readonly items?: ReadonlyArray<{
-        readonly title: string;
-        readonly link: string;
-        readonly snippet: string;
-        readonly displayLink: string;
-      }>;
-      readonly searchInformation?: {
-        readonly totalResults: string;
-      };
-    };
-
-    const results: ReadonlyArray<SearchResult> = (data.items ?? []).map(
-      (item) => ({
-        title: item.title,
-        link: item.link,
-        snippet: item.snippet,
-        displayLink: item.displayLink,
-      }),
-    );
-
-    return {
-      results,
-      totalResults: parseInt(
-        data.searchInformation?.totalResults ?? "0",
-        10,
-      ),
-      query,
-    };
   }
 
   /**
