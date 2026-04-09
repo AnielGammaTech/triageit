@@ -15,6 +15,7 @@ import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
 import { CronJobsSection } from "@/components/admin/cron-jobs-config";
 import { DiagnosticsSection } from "@/components/admin/diagnostics-section";
+import { HealthSection } from "@/components/admin/health-section";
 import { BrandingSettings } from "@/components/settings/branding-settings";
 
 type ActiveView =
@@ -63,6 +64,11 @@ const ICONS: Record<string, React.ReactNode> = {
   diagnostics: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  ),
+  health: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   ),
 };
@@ -299,6 +305,8 @@ export default function AdminlandPage() {
           <CronJobsSection />
         ) : activeView.id === "diagnostics" ? (
           <DiagnosticsSection />
+        ) : activeView.id === "health" ? (
+          <HealthSection />
         ) : activeView.id === "branding" ? (
           <BrandingSettings />
         ) : (
