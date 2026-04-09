@@ -70,20 +70,30 @@ export async function POST() {
   let page = 1;
 
   while (true) {
-    const res = await fetch(
-      `${config.base_url}/api/tickets?page_size=100&page_no=${page}&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&order=id&orderdesc=true&includecolumns=true`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&order=id&orderdesc=true&includecolumns=true`;
+    console.log(`[FORCE-SYNC] Fetching page ${page}: ${url}`);
 
-    if (!res.ok) break;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-    const data = (await res.json()) as { tickets?: Array<{ id: number; status_id: number; statusname?: string; status_name?: string }> };
+    if (!res.ok) {
+      console.error(`[FORCE-SYNC] Page ${page} failed: ${res.status}`);
+      break;
+    }
+
+    const data = (await res.json()) as {
+      tickets?: Array<{ id: number; status_id: number; statusname?: string; status_name?: string }>;
+      record_count?: number;
+    };
     const batch = data.tickets ?? [];
     allTickets.push(...batch);
 
-    if (batch.length < 100) break;
+    console.log(`[FORCE-SYNC] Page ${page}: got ${batch.length} tickets (record_count: ${data.record_count ?? "N/A"})`);
+
+    if (batch.length < 50) break;
     page++;
-    if (page > 50) break;
+    if (page > 100) break; // 5000 ticket safety cap
   }
 
   // Fetch status map
@@ -129,21 +139,23 @@ export async function POST() {
 
   for (let i = 0; i < openIds.length; i += 50) {
     const chunk = openIds.slice(i, i + 50);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("tickets")
-      .update({ halo_is_open: true, updated_at: now })
+      .update({ halo_is_open: true, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
       .in("halo_id", chunk)
       .select("id");
+    if (error) console.error(`[FORCE-SYNC] Open batch error:`, error.message);
     openedCount += data?.length ?? 0;
   }
 
   for (let i = 0; i < closedIds.length; i += 50) {
     const chunk = closedIds.slice(i, i + 50);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("tickets")
-      .update({ halo_is_open: false, updated_at: now })
+      .update({ halo_is_open: false, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
       .in("halo_id", chunk)
       .select("id");
+    if (error) console.error(`[FORCE-SYNC] Close batch error:`, error.message);
     closedCount += data?.length ?? 0;
   }
 
