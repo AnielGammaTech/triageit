@@ -107,10 +107,10 @@ export async function POST() {
     console.log(`[FORCE-SYNC] Sample ticket #${sample.id} tickettype_id=${(sample as Record<string, unknown>).tickettype_id}, ticket_type_id=${(sample as Record<string, unknown>).ticket_type_id}, tickettypeid=${(sample as Record<string, unknown>).tickettypeid}`);
   }
 
-  // Filter to Gamma Default only — try multiple possible field names
+  // Filter to Gamma Default only — Halo returns tickettype_id as string or number
   const allTickets = rawTickets.filter((t) => {
     const s = t as Record<string, unknown>;
-    const typeId = s.tickettype_id ?? s.ticket_type_id ?? s.tickettypeid ?? s.ticketTypeid;
+    const typeId = Number(s.tickettype_id ?? s.ticket_type_id ?? 0);
     return typeId === GAMMA_DEFAULT_TYPE_ID;
   });
 
