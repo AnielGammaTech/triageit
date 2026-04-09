@@ -88,6 +88,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconBg: "bg-sky-500/10",
         iconColor: "text-sky-400",
       },
+      {
+        id: "health",
+        label: "Health & Maintenance",
+        desc: "Sync tickets, clean up memories, and run system tasks",
+        iconBg: "bg-green-500/10",
+        iconColor: "text-green-400",
+      },
     ],
   },
 ];
