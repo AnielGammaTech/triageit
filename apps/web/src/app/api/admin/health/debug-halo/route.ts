@@ -98,6 +98,21 @@ export async function GET() {
     tickettypename: t.tickettypename,
   }));
 
+  // Fetch ALL statuses from Halo
+  const statusList: Array<{ id: number; name: string }> = [];
+  try {
+    const sRes = await fetch(`${config.base_url}/api/status?count=500`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (sRes.ok) {
+      const sRaw = await sRes.json();
+      const items = Array.isArray(sRaw) ? sRaw : (sRaw.statuses ?? sRaw.records ?? []);
+      for (const s of items) {
+        statusList.push({ id: s.id, name: s.name });
+      }
+    }
+  } catch { /* */ }
+
   return NextResponse.json({
     filtered_url: url,
     filtered_record_count: raw.record_count,
@@ -106,5 +121,6 @@ export async function GET() {
     unfiltered_url: url2,
     unfiltered_record_count: raw2.record_count,
     unfiltered_samples: unfiltered,
+    all_halo_statuses: statusList,
   });
 }
