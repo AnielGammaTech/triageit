@@ -137,17 +137,24 @@ export async function POST() {
     }
   } catch { /* non-critical */ }
 
-  // Determine open vs closed by actual status name
+  // Determine open vs closed by status_id (Halo doesn't return statusname in list endpoint)
+  // Resolved status IDs from Halo — matches the webhook handler's CLOSED_STATUS_IDS
+  const RESOLVED_STATUS_IDS = new Set([9, 10, 24, 26, 27]);
+  // Also check status name from our map as backup
   const resolvedKeywords = ["closed", "resolved", "cancelled", "completed"];
+
   const statusBreakdown: Record<string, number> = {};
   const openIds: number[] = [];
   const closedIds: number[] = [];
 
   for (const t of allTickets) {
-    const statusName = (t.statusname ?? t.status_name ?? statusMap.get(t.status_id) ?? `Unknown-${t.status_id}`);
+    const statusName = statusMap.get(t.status_id) ?? `StatusID-${t.status_id}`;
     statusBreakdown[statusName] = (statusBreakdown[statusName] ?? 0) + 1;
-    const isResolved = resolvedKeywords.some((k) => statusName.toLowerCase().includes(k));
-    if (isResolved) {
+
+    const isResolvedById = RESOLVED_STATUS_IDS.has(t.status_id);
+    const isResolvedByName = resolvedKeywords.some((k) => statusName.toLowerCase().includes(k));
+
+    if (isResolvedById || isResolvedByName) {
       closedIds.push(t.id);
     } else {
       openIds.push(t.id);
@@ -155,6 +162,7 @@ export async function POST() {
   }
 
   console.log(`[FORCE-SYNC] Gamma Default: ${allTickets.length} total, ${openIds.length} open, ${closedIds.length} resolved`);
+  console.log(`[FORCE-SYNC] Status breakdown:`, JSON.stringify(statusBreakdown));
 
   // First: close ALL Gamma Default in DB
   await supabase
