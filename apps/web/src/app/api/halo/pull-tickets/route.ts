@@ -366,10 +366,12 @@ export async function POST() {
       "resolved - awaiting confirmation",
     ];
 
-    // Get ALL local tickets — including ones with null halo_status
+    // Get local Gamma Default tickets only — no point checking Alerts
     const { data: localAll } = await serviceClient
       .from("tickets")
-      .select("id, halo_id, halo_status");
+      .select("id, halo_id, halo_status")
+      .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+      .eq("halo_is_open", true);
 
     if (localAll) {
       const staleTickets = localAll.filter((t) => {
@@ -377,16 +379,25 @@ export async function POST() {
         const statusLower = (t.halo_status ?? "").toLowerCase();
         const alreadyResolved = resolvedStatuses.some((s) => statusLower.includes(s));
         if (alreadyResolved) return false;
-        // If ticket is NOT in Halo's open list, it was closed — needs status update
+        // If ticket is NOT in Halo's open list, it may have been closed
         return !openHaloIdSet.has(t.halo_id);
       });
 
       console.log(
-        `[HALO SYNC] ${staleTickets.length} local tickets not in Halo open list — checking status`,
+        `[HALO SYNC] ${staleTickets.length} Gamma Default tickets not in Halo open list — checking status`,
       );
 
+      // Cap individual checks to avoid timeout — process most recent first
+      const MAX_STALE_CHECKS = 50;
+      const staleToCheck = staleTickets.slice(0, MAX_STALE_CHECKS);
+      if (staleTickets.length > MAX_STALE_CHECKS) {
+        console.log(
+          `[HALO SYNC] Capped stale checks at ${MAX_STALE_CHECKS} (${staleTickets.length} total — run again to process more)`,
+        );
+      }
+
       // Fetch current status from Halo for these tickets and check if truly closed
-      for (const stale of staleTickets) {
+      for (const stale of staleToCheck) {
         try {
           const res = await fetch(
             `${config.base_url}/api/tickets/${stale.halo_id}?includecolumns=true`,
