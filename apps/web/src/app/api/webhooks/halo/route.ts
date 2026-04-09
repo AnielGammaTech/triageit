@@ -172,6 +172,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Only process Gamma Default tickets (type 31) — skip Alerts and other types
+    const GAMMA_DEFAULT_TYPE_ID = 31;
+    if (haloTicket.tickettype_id && haloTicket.tickettype_id !== GAMMA_DEFAULT_TYPE_ID) {
+      console.log(
+        `[WEBHOOK] Skipping non-Gamma Default ticket #${ticketId} (type: ${haloTicket.tickettype_id})`,
+      );
+      return NextResponse.json({
+        status: "skipped",
+        reason: `Not Gamma Default (type ${haloTicket.tickettype_id})`,
+        halo_id: ticketId,
+      });
+    }
+
     // Upsert into our tickets table — include Halo status for live tracking
     return await upsertTicket(supabase, {
       halo_id: haloTicket.id,
