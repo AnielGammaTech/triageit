@@ -105,16 +105,25 @@ export async function POST() {
     .eq("halo_is_open", true)
     .lt("created_at", threeMonthsCutoff);
 
+  // Filter to last 3 months only (Halo's date filter is unreliable)
+  const recentTickets = allTickets.filter((t) => {
+    const created = (t as unknown as Record<string, unknown>).datecreated as string | undefined;
+    if (!created) return true; // keep if no date (safer)
+    return new Date(created).getTime() > Date.now() - 90 * 24 * 60 * 60 * 1000;
+  });
+
+  console.log(`[FORCE-SYNC] After 3-month filter: ${recentTickets.length} (filtered out ${allTickets.length - recentTickets.length} old tickets)`);
+
   // Group tickets: Gamma Default open, Gamma Default resolved, non-Gamma Default
-  const gammaOpenIds = allTickets
+  const gammaOpenIds = recentTickets
     .filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID && t.status_id !== RESOLVED_STATUS_ID)
     .map((t) => t.id);
 
-  const gammaClosedIds = allTickets
+  const gammaClosedIds = recentTickets
     .filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID && t.status_id === RESOLVED_STATUS_ID)
     .map((t) => t.id);
 
-  const nonGammaIds = allTickets
+  const nonGammaIds = recentTickets
     .filter((t) => t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID)
     .map((t) => t.id);
 
@@ -147,7 +156,7 @@ export async function POST() {
   // Batch update: Non-Gamma Default → halo_is_open=false, correct tickettype_id
   // Group by tickettype_id for correct tagging
   const nonGammaByType = new Map<number, number[]>();
-  for (const t of allTickets.filter((t) => t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID)) {
+  for (const t of recentTickets.filter((t) => t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID)) {
     const existing = nonGammaByType.get(t.tickettype_id) ?? [];
     nonGammaByType.set(t.tickettype_id, [...existing, t.id]);
   }
