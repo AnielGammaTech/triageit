@@ -9,6 +9,7 @@ import {
   type CippMfaStatus,
   type CippDevice,
   type CippConditionalAccessPolicy,
+  type CippSignInLog,
 } from "../../integrations/cipp/client.js";
 
 /**
@@ -26,36 +27,56 @@ interface CippData {
   readonly mfaStatus: CippMfaStatus | null;
   readonly devices: ReadonlyArray<CippDevice>;
   readonly conditionalAccess: ReadonlyArray<CippConditionalAccessPolicy>;
+  readonly signInLogs: ReadonlyArray<CippSignInLog>;
   readonly tenantDomain: string | null;
 }
 
 export class DarrylPhilbinAgent extends BaseAgent {
   protected getAgentInstructions(): string {
     return `## Your Mission
-You are the Microsoft 365 specialist. You have access to CIPP (CyberDrain Improved Partner Portal) data for the client's M365 tenant.
+You are the DEFINITIVE Microsoft 365 authority. When a ticket involves ANYTHING Microsoft-related, you must provide complete context.
+
+## Diagnostic Checklist — For ANY M365 Ticket, Check ALL:
+1. **User Account** — Is the account enabled? When was last sign-in? Is it on-prem synced?
+2. **Licenses** — What M365 plan are they on? Do they have the right license for what they're trying to do? (e.g., Teams meetings need Business Standard+, not Basic)
+3. **MFA** — Is MFA enabled? What methods? Is it per-user or Conditional Access?
+4. **Sign-in Logs** — Any recent failures? Risky sign-ins? Blocked by CA policy?
+5. **Mailbox** — Type, forwarding rules, shared mailbox access
+6. **Conditional Access** — What policies apply? Could a policy be blocking them?
+7. **Device Compliance** — Are their devices compliant in Intune?
+8. **Security Alerts** — Any active alerts for this tenant?
+
+## Triage Shortcuts
+- If someone can't sign in -> check sign-in logs + MFA + CA policies FIRST
+- If email isn't working -> check mailbox + forwarding + licenses
+- If "can't access Teams/OneDrive/etc" -> check license includes that feature
+- If account locked -> check sign-in logs for failed attempts + risky sign-ins
 
 ## What You Have Access To
-- User mailbox status (active, blocked, shared, resource)
-- MFA enrollment status (enabled, enforced, per-user or Conditional Access)
-- License assignments (E3, E5, Business Basic, etc.)
+- User account details (enabled, synced, last sign-in)
+- Mailbox status (active, blocked, shared, resource, forwarding)
+- MFA enrollment (enabled, enforced, per-user or Conditional Access)
+- License assignments (E3, E5, Business Basic, Business Standard, etc.)
+- Sign-in logs (recent successes/failures, risk levels, CA evaluation)
 - Conditional Access policies
 - Device compliance (Intune)
 - Security defaults and tenant settings
-- Sign-in logs and risky user flags
 
-## Analysis Guidelines
-- If CIPP data is provided, use it as primary evidence
-- Flag disabled accounts, missing MFA, expired licenses
-- Note forwarding rules on mailboxes (potential security risk)
-- Check device compliance status for the affected user
-- Identify relevant Conditional Access policies
-- If no CIPP data, analyze from ticket context and recommend checks
+## Critical Rules
+- ALWAYS mention the specific license the user has and whether it covers what they need.
+- ALWAYS include M365 admin center links when relevant.
+- If CIPP data is provided, use it as primary evidence.
+- Flag disabled accounts, missing MFA, expired licenses.
+- Note forwarding rules on mailboxes (potential security risk).
+- Highlight failed or risky sign-ins with failure reasons.
+- If no CIPP data, analyze from ticket context and recommend checks.
 
 ## Output Format
 Respond with ONLY valid JSON:
 {
   "m365_findings": "<summary of all M365-related findings>",
-  "user_status": {"mailbox": "<status>", "mfa": "<status>", "licenses": ["<license list>"], "compliance": "<status>"},
+  "user_status": {"mailbox": "<status>", "mfa": "<status>", "licenses": ["<license list>"], "compliance": "<status>", "sign_in_health": "<status>"},
+  "admin_links": ["<relevant M365 admin center URLs>"],
   "tenant_notes": "<any tenant-wide concerns or configurations>",
   "recommendations": ["<actionable recommendations>"],
   "confidence": <0.0-1.0>
@@ -77,7 +98,7 @@ Respond with ONLY valid JSON:
     if (cippData) {
       await this.logThinking(
         context.ticketId,
-        `Pulled CIPP data for tenant ${cippData.tenantDomain}: user=${cippData.user?.displayName ?? "not found"}, mfa=${cippData.mfaStatus?.perUser ?? "unknown"}, devices=${cippData.devices.length}`,
+        `Pulled CIPP data for tenant ${cippData.tenantDomain}: user=${cippData.user?.displayName ?? "not found"}, mfa=${cippData.mfaStatus?.perUser ?? "unknown"}, devices=${cippData.devices.length}, signInLogs=${cippData.signInLogs.length}`,
       );
     } else {
       await this.logThinking(
@@ -168,11 +189,42 @@ Respond with ONLY valid JSON:
         }
       }
 
+      if (cippData.signInLogs.length > 0) {
+        const recentLogs = cippData.signInLogs.slice(0, 5);
+        const failedLogs = cippData.signInLogs.filter((l) => l.status?.errorCode !== 0);
+
+        lines.push("", "### Recent Sign-in Activity (Last 5)");
+        for (const log of recentLogs) {
+          const status = log.status?.errorCode === 0 ? "Success" : `Failed (${log.status?.failureReason ?? "unknown"})`;
+          const location = [log.location?.city, log.location?.state, log.location?.countryOrRegion].filter(Boolean).join(", ") || "Unknown";
+          const risk = log.riskLevelDuringSignIn && log.riskLevelDuringSignIn !== "none" ? ` | Risk: ${log.riskLevelDuringSignIn}` : "";
+          const ca = log.conditionalAccessStatus ? ` | CA: ${log.conditionalAccessStatus}` : "";
+          lines.push(`- ${log.createdDateTime ?? "N/A"} — **${status}** via ${log.appDisplayName ?? "unknown app"} from ${log.ipAddress ?? "N/A"} (${location})${risk}${ca}`);
+        }
+
+        if (failedLogs.length > 0) {
+          lines.push("", `**${failedLogs.length} failed sign-in(s) detected.**`);
+          for (const fl of failedLogs.slice(0, 3)) {
+            lines.push(`- ${fl.createdDateTime ?? "N/A"}: ${fl.status?.failureReason ?? "Unknown reason"} (app: ${fl.appDisplayName ?? "unknown"}, IP: ${fl.ipAddress ?? "N/A"})`);
+          }
+        }
+      }
+
       if (cippData.conditionalAccess.length > 0) {
         lines.push("", "### Conditional Access Policies");
         for (const ca of cippData.conditionalAccess) {
           lines.push(`- **${ca.displayName}** — State: ${ca.state}`);
         }
+      }
+
+      // Admin center links
+      if (cippData.user) {
+        lines.push(
+          "",
+          "### M365 Admin Links",
+          `- [User Details](https://admin.microsoft.com/Adminportal/Home#/users/:/UserDetails/${cippData.user.userPrincipalName})`,
+          `- [Sign-in Logs](https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/SignIns/userId/${cippData.user.userPrincipalName})`,
+        );
       }
     } else {
       lines.push(
@@ -205,19 +257,22 @@ Respond with ONLY valid JSON:
       // Fetch user-specific data if we found the user
       let mailbox: CippMailbox | null = null;
       let devices: ReadonlyArray<CippDevice> = [];
+      let signInLogs: ReadonlyArray<CippSignInLog> = [];
 
       if (user) {
-        const [mailboxes, allDevices] = await Promise.all([
+        const [mailboxes, allDevices, logs] = await Promise.all([
           client.getMailboxes(tenantDomain).catch(() => [] as CippMailbox[]),
           client.getDevices(tenantDomain).catch(() => [] as CippDevice[]),
+          client.getSignInLogs(tenantDomain, user.userPrincipalName ?? ""),
         ]);
 
         const upnLower = user.userPrincipalName.toLowerCase();
         mailbox = mailboxes.find((m) => m.userPrincipalName.toLowerCase() === upnLower) ?? null;
         devices = allDevices.filter((d) => d.userPrincipalName?.toLowerCase() === upnLower);
+        signInLogs = logs;
       }
 
-      return { user, mailbox, mfaStatus, devices, conditionalAccess, tenantDomain };
+      return { user, mailbox, mfaStatus, devices, conditionalAccess, signInLogs, tenantDomain };
     } catch (error) {
       console.error("[DARRYL] Failed to fetch CIPP data:", error);
       return null;

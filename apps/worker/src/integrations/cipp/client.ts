@@ -73,6 +73,26 @@ export interface CippAlert {
   readonly tenantId: string;
 }
 
+export interface CippSignInLog {
+  readonly createdDateTime?: string;
+  readonly userPrincipalName?: string;
+  readonly appDisplayName?: string;
+  readonly ipAddress?: string;
+  readonly clientAppUsed?: string;
+  readonly status?: {
+    readonly errorCode?: number;
+    readonly failureReason?: string;
+  };
+  readonly location?: {
+    readonly city?: string;
+    readonly state?: string;
+    readonly countryOrRegion?: string;
+  };
+  readonly riskState?: string;
+  readonly riskLevelDuringSignIn?: string;
+  readonly conditionalAccessStatus?: string;
+}
+
 export class CippClient {
   private readonly config: CippConfig;
   private accessToken: string | null = null;
@@ -170,6 +190,24 @@ export class CippClient {
   /** Get recent alerts for a tenant */
   async getAlerts(tenantFilter: string): Promise<ReadonlyArray<CippAlert>> {
     return this.request("/ListAlertsQueue", { TenantFilter: tenantFilter });
+  }
+
+  /**
+   * Get recent sign-in logs for a specific user.
+   */
+  async getSignInLogs(
+    tenantFilter: string,
+    userId: string,
+  ): Promise<ReadonlyArray<CippSignInLog>> {
+    try {
+      const data = await this.request<ReadonlyArray<CippSignInLog>>(
+        "/ListSignIns",
+        { tenantFilter, userId },
+      );
+      return data ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /** Health check — verifies auth and basic API access */
