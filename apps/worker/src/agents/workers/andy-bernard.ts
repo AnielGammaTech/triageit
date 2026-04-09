@@ -20,8 +20,10 @@ interface DattoData {
   readonly siteId: number | null;
   readonly siteName: string | null;
   readonly devices: ReadonlyArray<DattoDevice>;
+  readonly userDevices: ReadonlyArray<DattoDevice>;
   readonly alerts: ReadonlyArray<DattoAlert>;
   readonly siteStatus: DattoSite | null;
+  readonly baseUrl: string | null;
 }
 
 export class AndyBernardAgent extends BaseAgent {
@@ -75,19 +77,28 @@ Your audience is IT technicians — be specific, technical, and actionable.
 - **Schedule Reboot**: Use maintenance window to schedule off-hours reboot for patch application
 - **Remote Access**: Use Datto RMM Splashtop integration for direct remote control
 
+## User-Device Matching
+When listing devices, ALWAYS include:
+- The Datto RMM console link so the tech can click straight to the device
+- The last logged-in user to help identify which device belongs to which person
+- If the ticket mentions a user, find ALL their devices and list each one
+- If "User Devices" section is provided, these are devices matched to the ticket reporter — highlight them first
+
 ## Your Job
 1. Review ALL provided Datto data carefully
 2. Identify which devices are relevant to the ticket
-3. Flag any open alerts that might be related
-4. Check if offline devices or patch issues could be the cause
-5. Note any patterns (multiple devices affected, specific OS issues, etc.)
-6. Suggest specific Datto RMM actions the tech should take (Quick Jobs, components, etc.)
-7. Include relevant KB links from https://rmm.datto.com/help/ in your endpoint_notes
+3. Match the ticket user to their devices via lastLoggedInUser
+4. Flag any open alerts that might be related
+5. Check if offline devices or patch issues could be the cause
+6. Note any patterns (multiple devices affected, specific OS issues, etc.)
+7. Suggest specific Datto RMM actions the tech should take (Quick Jobs, components, etc.)
+8. Include relevant KB links from https://rmm.datto.com/help/ in your endpoint_notes
 
 ## Output Format
 Respond with ONLY valid JSON:
 {
-  "devices_found": [{"hostname": "<name>", "status": "<online/offline>", "os": "<os>", "last_seen": "<when>", "relevance": "<why this device matters>"}],
+  "devices_found": [{"hostname": "<name>", "status": "<online/offline>", "os": "<os>", "last_seen": "<when>", "last_user": "<lastLoggedInUser>", "console_url": "<Datto RMM link>", "relevance": "<why this device matters>"}],
+  "user_devices": [{"hostname": "<name>", "status": "<online/offline>", "os": "<os>", "last_seen": "<when>", "console_url": "<Datto RMM link>"}],
   "open_alerts": [{"device": "<hostname>", "alert": "<description>", "severity": "<critical/warning/info>", "timestamp": "<when>"}],
   "patch_status": "<summary of patch compliance across relevant devices>",
   "site_health": "<overall site device health summary>",
@@ -113,7 +124,7 @@ Respond with ONLY valid JSON:
     await this.logThinking(
       context.ticketId,
       dattoData.siteId
-        ? `Found site "${dattoData.siteName}" in Datto RMM (ID: ${dattoData.siteId}). Retrieved ${dattoData.devices.length} devices, ${dattoData.alerts.length} open alerts. Analyzing endpoint data now.`
+        ? `Found site "${dattoData.siteName}" in Datto RMM (ID: ${dattoData.siteId}). Retrieved ${dattoData.devices.length} devices (${dattoData.userDevices.length} matched to user), ${dattoData.alerts.length} open alerts. Analyzing endpoint data now.`
         : `Could not find client "${context.clientName}" in Datto RMM. Running analysis with ticket info only.`,
     );
 
@@ -143,18 +154,21 @@ Respond with ONLY valid JSON:
       siteId: null,
       siteName: null,
       devices: [],
+      userDevices: [],
       alerts: [],
       siteStatus: null,
+      baseUrl: null,
     };
 
     const config = await this.getDattoConfig();
     if (!config) return emptyResult;
 
     const datto = new DattoClient(config);
+    const baseUrl = config.api_url.replace(/\/$/, "");
 
     // Find the site by client name/ID
     const site = await this.findSite(datto, context.clientName, context.clientId);
-    if (!site) return emptyResult;
+    if (!site) return { ...emptyResult, baseUrl };
 
     // Fetch devices and alerts in parallel
     const [devices, alerts] = await Promise.all([
@@ -162,12 +176,29 @@ Respond with ONLY valid JSON:
       this.fetchAlerts(datto, site.id),
     ]);
 
+    // Try to find devices belonging to the ticket reporter
+    let userDevices: ReadonlyArray<DattoDevice> = [];
+    if (context.userName) {
+      try {
+        userDevices = await datto.findDevicesByUser(context.userName, site.id);
+        if (userDevices.length > 0) {
+          console.log(
+            `[ANDY] Found ${userDevices.length} device(s) for user "${context.userName}" at site "${site.name}"`,
+          );
+        }
+      } catch (error) {
+        console.error("[ANDY] Failed to search devices by user:", error);
+      }
+    }
+
     return {
       siteId: site.id,
       siteName: site.name,
       devices,
+      userDevices,
       alerts,
       siteStatus: site,
+      baseUrl,
     };
   }
 
@@ -387,7 +418,27 @@ Respond with ONLY valid JSON:
         );
       }
 
-      // Devices
+      // User-matched devices (ticket reporter's devices)
+      if (dattoData.userDevices.length > 0) {
+        sections.push("");
+        sections.push(
+          `### User Devices for "${context.userName}" (${dattoData.userDevices.length} found)`,
+        );
+        for (const device of dattoData.userDevices) {
+          const status = device.online ? "🟢 Online" : "🔴 Offline";
+          const patches = device.patchStatus
+            ? `Missing: ${device.patchStatus.patchesMissing ?? 0}`
+            : "";
+          const consoleUrl = dattoData.baseUrl
+            ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
+            : "N/A";
+          sections.push(
+            `- **${device.hostname ?? "Unknown"}** — ${status} | OS: ${device.operatingSystem ?? "N/A"} | Last Seen: ${device.lastSeen ?? "N/A"} | Last User: ${device.lastLoggedInUser ?? device.lastUser ?? "Unknown"} | Console: ${consoleUrl} ${patches ? `| Patches ${patches}` : ""}`,
+          );
+        }
+      }
+
+      // All site devices
       if (dattoData.devices.length > 0) {
         sections.push("");
         sections.push(`### Devices (${dattoData.devices.length} found)`);
@@ -396,8 +447,12 @@ Respond with ONLY valid JSON:
           const patches = device.patchStatus
             ? `Missing: ${device.patchStatus.patchesMissing ?? 0}`
             : "";
+          const lastUser = device.lastLoggedInUser ?? device.lastUser ?? "Unknown";
+          const consoleUrl = dattoData.baseUrl
+            ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
+            : "N/A";
           sections.push(
-            `- **${device.hostname ?? "Unknown"}** — ${status} | OS: ${device.operatingSystem ?? "N/A"} | Last Seen: ${device.lastSeen ?? "N/A"} | IP: ${device.intIpAddress ?? "N/A"} ${patches ? `| Patches ${patches}` : ""}`,
+            `- **${device.hostname ?? "Unknown"}** — ${status} | OS: ${device.operatingSystem ?? "N/A"} | Last Seen: ${device.lastSeen ?? "N/A"} | Last User: ${lastUser} | IP: ${device.intIpAddress ?? "N/A"} | Console: ${consoleUrl} ${patches ? `| Patches ${patches}` : ""}`,
           );
         }
       }

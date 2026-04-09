@@ -121,6 +121,29 @@ export class DattoClient {
     );
   }
 
+  /**
+   * Find devices where the last logged-in user matches (partial, case-insensitive).
+   */
+  async findDevicesByUser(
+    userName: string,
+    siteId?: number,
+  ): Promise<ReadonlyArray<DattoDevice>> {
+    const devices = await this.getDevices(siteId);
+    const nameLower = userName.toLowerCase();
+    return devices.filter((d) => {
+      const lastUser = (d.lastLoggedInUser ?? d.lastUser ?? "").toLowerCase();
+      return lastUser.includes(nameLower) || nameLower.includes(lastUser);
+    });
+  }
+
+  /**
+   * Build a direct link to a device in the Datto RMM console.
+   */
+  static deviceUrl(baseUrl: string, deviceUid: string): string {
+    // Datto RMM web console URL pattern
+    return `${baseUrl.replace('/api/v2', '')}/device/${deviceUid}/quickview`;
+  }
+
   // ── Alerts ────────────────────────────────────────────────────────
 
   async getAlerts(params?: {
@@ -208,6 +231,8 @@ export interface DattoDevice {
     readonly patchesInstalled?: number;
     readonly patchesFailed?: number;
   };
+  readonly lastLoggedInUser?: string;
+  readonly lastUser?: string;
   readonly antivirusProduct?: string;
   readonly [key: string]: unknown;
 }
