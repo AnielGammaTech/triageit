@@ -265,22 +265,18 @@ export async function generateCloseReview(
 
       await halo.addInternalNote(haloId, checklistHtml);
 
-      // Reopen the ticket: set status to "Awaiting Triage Review" (35)
-      await halo.updateTicketStatus(haloId, AWAITING_TRIAGE_REVIEW_STATUS);
-
-      // Update local DB
-      await supabase
-        .from("tickets")
-        .update({
-          halo_is_open: true,
-          halo_status: "Awaiting Triage Review",
-          halo_status_id: AWAITING_TRIAGE_REVIEW_STATUS,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", ticket.id);
+      // Assign to Bryanna (dispatcher) for follow-up — don't change status
+      // to avoid triggering Halo's customer email notifications
+      const BRYANNA_AGENT_ID = 4; // Bryanna's Halo agent ID
+      try {
+        await halo.assignTicket(haloId, BRYANNA_AGENT_ID);
+        console.log(`[CLOSE-REVIEW] Assigned #${haloId} to Bryanna for documentation follow-up`);
+      } catch (assignErr) {
+        console.error(`[CLOSE-REVIEW] Failed to assign #${haloId} to Bryanna:`, assignErr);
+      }
 
       console.log(
-        `[CLOSE-REVIEW] Reopened #${haloId} — documentation needed (${todoItems.length} items)`,
+        `[CLOSE-REVIEW] #${haloId} needs documentation (${todoItems.length} items) — checklist posted, assigned to Bryanna`,
       );
     } catch (err) {
       console.error(`[CLOSE-REVIEW] Failed to reopen #${haloId}:`, err);

@@ -164,8 +164,8 @@ export async function POST(request: NextRequest) {
           `[WEBHOOK] Marked ticket #${ticketId} as closed in TriageIT`,
         );
 
-        // Trigger close review for Gamma Default tickets only
-        if (haloTicket.tickettype_id === GAMMA_DEFAULT_TYPE_ID) {
+        // Trigger close review for Gamma Default tickets only (type 31)
+        if (haloTicket.tickettype_id === 31) {
           const workerUrl = process.env.WORKER_URL;
           if (workerUrl) {
             try {

@@ -14,7 +14,6 @@ import {
 import { findSimilarTickets, storeTicketEmbedding } from "../similar-tickets.js";
 import { detectDuplicates } from "../duplicate-detector.js";
 import { selectManagerModel } from "../model-router.js";
-import { generateCustomerResponse } from "../workers/pam-beesly.js";
 import type { SimilarTicket } from "../similar-tickets.js";
 import type { DuplicateCandidate } from "../duplicate-detector.js";
 
