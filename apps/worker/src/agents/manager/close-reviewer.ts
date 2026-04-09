@@ -222,8 +222,7 @@ export async function generateCloseReview(
 
   // ── Reopen ticket if documentation is missing ──
   // If the tech didn't document their resolution, or Hudu needs updates,
-  // reopen the ticket and assign to Bryanna for follow-up.
-  const AWAITING_TRIAGE_REVIEW_STATUS = 35;
+  // assign to Bryanna for follow-up (don't change status to avoid customer emails).
   const needsDocumentation =
     review.documentation_action.quality_score <= 2 ||
     review.documentation_action.hudu_updates_needed.length > 0 ||
