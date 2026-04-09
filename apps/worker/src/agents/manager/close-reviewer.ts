@@ -267,7 +267,7 @@ export async function generateCloseReview(
 
       // Assign to Bryanna (dispatcher) for follow-up — don't change status
       // to avoid triggering Halo's customer email notifications
-      const BRYANNA_AGENT_ID = 4; // Bryanna's Halo agent ID
+      const BRYANNA_AGENT_ID = 31; // Bryanna's Halo agent ID
       try {
         await halo.assignTicket(haloId, BRYANNA_AGENT_ID);
         console.log(`[CLOSE-REVIEW] Assigned #${haloId} to Bryanna for documentation follow-up`);
