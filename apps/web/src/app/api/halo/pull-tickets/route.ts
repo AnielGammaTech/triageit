@@ -221,9 +221,6 @@ export async function POST() {
     let updated = 0;
     const errors: string[] = [];
 
-    // Track which Halo IDs came from the open pull vs the closed pull
-    const openHaloIdSet = new Set(openResult.tickets.map((t) => t.id));
-
     // Batch insert new tickets
     if (newTickets.length > 0) {
       const insertRows = newTickets.map((ticket) => ({
