@@ -8,6 +8,16 @@ import {
   REMEMBER_INSTRUCTIONS,
 } from "../memory/memory-extractor.js";
 import type { TriageContext } from "./types.js";
+import {
+  validateMemories,
+  formatValidatedMemories,
+} from "../memory/memory-validator.js";
+import { SkillWriter } from "../memory/skill-writer.js";
+import {
+  extractSkillTags,
+  SKILL_INSTRUCTIONS,
+} from "../memory/skill-extractor.js";
+import { WebSearchClient } from "../integrations/web-search/client.js";
 
 /**
  * BaseAgent — Foundation for all specialist worker agents.
@@ -31,6 +41,8 @@ export abstract class BaseAgent {
   protected readonly anthropic: Anthropic;
   protected readonly memoryManager: MemoryManager;
   protected readonly skillLoader: SkillLoader;
+  protected readonly skillWriter: SkillWriter;
+  protected readonly webSearch: WebSearchClient | null;
 
   constructor(
     definition: AgentDefinition,
@@ -43,6 +55,8 @@ export abstract class BaseAgent {
     this.anthropic = new Anthropic();
     this.memoryManager = memoryManager;
     this.skillLoader = skillLoader;
+    this.skillWriter = new SkillWriter(supabase);
+    this.webSearch = WebSearchClient.fromEnv();
   }
 
   /**
@@ -73,21 +87,27 @@ export abstract class BaseAgent {
 
       // Merge and deduplicate by id, agent-specific first
       const allMemories = this.mergeMemories(agentMemories, sharedMemories);
-      const memoriesPrompt = this.formatMemoriesForPrompt(allMemories);
 
-      // 3. Build the full system prompt (now includes <remember> instructions)
+      // 3. Validate recalled memories (check URLs, staleness)
+      const validatedMemories = await validateMemories(allMemories);
+      const memoriesPrompt = formatValidatedMemories(validatedMemories);
+
+      // 4. Build the full system prompt (now includes <remember> instructions)
       const systemPrompt = this.buildSystemPrompt(skillsPrompt, memoriesPrompt);
 
-      // 4. Execute the agent's specific logic
+      // 5. Execute the agent's specific logic
       const result = await this.process(context, systemPrompt, allMemories);
 
-      // 5. Extract <remember> tags from agent output and store as memories
+      // 6. Extract <remember> tags from agent output and store as memories
       await this.extractAndStoreMemories(context, result);
 
-      // 6. Create a memory from this resolution
+      // 7. Extract <skill> tags and write as reusable skills
+      await this.extractAndWriteSkills(context, result);
+
+      // 8. Create a memory from this resolution
       await this.createResolutionMemory(context, result);
 
-      // 7. Log completion
+      // 9. Log completion
       const duration = Date.now() - startTime;
       await this.log(context.ticketId, "completed", {
         output: result.summary,
@@ -123,19 +143,45 @@ export abstract class BaseAgent {
     skillsPrompt: string,
     memoriesPrompt: string,
   ): string {
+    const searchNote = this.webSearch
+      ? "\n\nYou have access to web search. If your memories and skills don't fully cover this issue, the orchestrator can search the web for you. Include specific search queries in your response if you need live information (driver downloads, firmware updates, vendor KB articles)."
+      : "";
+
     return [
       `You are ${this.definition.character}, the ${this.definition.specialty} at Dunder Mifflin IT Triage.`,
       "",
       `Your role: ${this.definition.description}`,
+      searchNote,
       "",
       this.getAgentInstructions(),
       skillsPrompt,
       memoriesPrompt,
       "",
       REMEMBER_INSTRUCTIONS,
+      "",
+      SKILL_INSTRUCTIONS,
     ]
       .filter(Boolean)
       .join("\n");
+  }
+
+  /**
+   * Search the web for information relevant to the current ticket.
+   * Returns formatted results for prompt injection, or empty string if unavailable.
+   */
+  protected async searchWeb(query: string): Promise<string> {
+    if (!this.webSearch) return "";
+
+    try {
+      const results = await this.webSearch.search(query);
+      return WebSearchClient.formatForPrompt(results);
+    } catch (error) {
+      console.error(
+        `[${this.definition.name}] Web search failed for "${query}":`,
+        error,
+      );
+      return "";
+    }
   }
 
   /**
@@ -224,21 +270,32 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Format recalled memories into a prompt section.
+   * Extract <skill> tags from agent output and write as reusable skills.
+   * Skills are deduplicated by title similarity before writing.
    */
-  private formatMemoriesForPrompt(
-    memories: ReadonlyArray<MemoryMatch>,
-  ): string {
-    if (memories.length === 0) return "";
+  private async extractAndWriteSkills(
+    context: TriageContext,
+    result: AgentResult,
+  ): Promise<void> {
+    const textToScan = [
+      result.summary,
+      typeof result.data === "object" ? JSON.stringify(result.data) : "",
+    ].join("\n");
 
-    const items = memories
-      .map(
-        (m, i) =>
-          `${i + 1}. [${m.memory_type}] ${m.summary} (confidence: ${(m.confidence * 100).toFixed(0)}%, relevance: ${(m.similarity * 100).toFixed(0)}%)`,
-      )
-      .join("\n");
+    const extracted = extractSkillTags(textToScan);
+    if (extracted.length === 0) return;
 
-    return `\n---\n# Relevant Past Experiences\nYou've handled similar tickets before. Use these memories to inform your analysis:\n\n${items}\n---\n`;
+    console.log(
+      `[${this.definition.name}] Extracted ${extracted.length} <skill> tag(s) from ticket #${context.haloId}`,
+    );
+
+    await this.skillWriter.writeSkills(this.definition.name, extracted, {
+      ticketId: context.ticketId,
+      haloId: context.haloId,
+    });
+
+    // Clear the skill cache so the new skill is available immediately
+    this.skillLoader.clearCache(this.definition.name);
   }
 
   /**
