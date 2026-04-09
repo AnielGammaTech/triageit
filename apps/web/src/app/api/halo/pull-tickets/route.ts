@@ -208,12 +208,24 @@ export async function POST() {
 
     const now = new Date().toISOString();
 
-    // Find which tickets already exist locally
+    // Find which tickets already exist locally (batch in chunks of 50 to avoid Supabase .in() limits)
     const haloIds = allTickets.map((t) => t.id);
-    const { data: existingTickets, error: lookupError } = await serviceClient
-      .from("tickets")
-      .select("id, halo_id")
-      .in("halo_id", haloIds);
+    const existingTickets: Array<{ id: string; halo_id: number }> = [];
+    let lookupError: { message: string } | null = null;
+
+    for (let i = 0; i < haloIds.length; i += 50) {
+      const chunk = haloIds.slice(i, i + 50);
+      const { data, error } = await serviceClient
+        .from("tickets")
+        .select("id, halo_id")
+        .in("halo_id", chunk);
+
+      if (error) {
+        lookupError = error;
+        break;
+      }
+      if (data) existingTickets.push(...(data as Array<{ id: string; halo_id: number }>));
+    }
 
     if (lookupError) {
       return NextResponse.json(
@@ -396,15 +408,16 @@ export async function POST() {
     let reopenedCount = 0;
     let closedCount = 0;
 
-    // Re-open tickets that Halo says are open but we have as closed
+    // Re-open tickets that Halo says are open but we have as closed (batched)
     const openHaloIds = [...openHaloIdSet];
-    if (openHaloIds.length > 0) {
+    for (let i = 0; i < openHaloIds.length; i += 50) {
+      const chunk = openHaloIds.slice(i, i + 50);
       const { data: localClosed } = await serviceClient
         .from("tickets")
         .select("id, halo_id")
         .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
         .eq("halo_is_open", false)
-        .in("halo_id", openHaloIds);
+        .in("halo_id", chunk);
 
       if (localClosed && localClosed.length > 0) {
         const reopenIds = localClosed.map((t) => t.id as string);
@@ -412,23 +425,26 @@ export async function POST() {
           .from("tickets")
           .update({ halo_is_open: true, updated_at: now })
           .in("id", reopenIds);
-        reopenedCount = reopenIds.length;
-        console.log(`[HALO SYNC] Re-opened ${reopenedCount} tickets that are open in Halo`);
+        reopenedCount += reopenIds.length;
       }
     }
+    if (reopenedCount > 0) {
+      console.log(`[HALO SYNC] Re-opened ${reopenedCount} tickets that are open in Halo`);
+    }
 
-    // Close tickets that Halo says are resolved but we have as open
+    // Close tickets that Halo says are resolved but we have as open (batched)
     const resolvedHaloIds = allTickets
       .filter((t) => !openHaloIdSet.has(t.id))
       .map((t) => t.id);
 
-    if (resolvedHaloIds.length > 0) {
+    for (let i = 0; i < resolvedHaloIds.length; i += 50) {
+      const chunk = resolvedHaloIds.slice(i, i + 50);
       const { data: localOpen } = await serviceClient
         .from("tickets")
         .select("id, halo_id")
         .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
         .eq("halo_is_open", true)
-        .in("halo_id", resolvedHaloIds);
+        .in("halo_id", chunk);
 
       if (localOpen && localOpen.length > 0) {
         const closeIds = localOpen.map((t) => t.id as string);
@@ -436,9 +452,11 @@ export async function POST() {
           .from("tickets")
           .update({ halo_is_open: false, updated_at: now })
           .in("id", closeIds);
-        closedCount = closeIds.length;
-        console.log(`[HALO SYNC] Closed ${closedCount} tickets that are resolved in Halo`);
+        closedCount += closeIds.length;
       }
+    }
+    if (closedCount > 0) {
+      console.log(`[HALO SYNC] Closed ${closedCount} tickets that are resolved in Halo`);
     }
 
     // ── Auto-triage pending tickets that were never triaged ──────────
