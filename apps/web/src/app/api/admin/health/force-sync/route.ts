@@ -71,7 +71,8 @@ export async function POST() {
   let page = 1;
 
   while (true) {
-    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&order=id&orderdesc=true&includecolumns=true`;
+    const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const url = `${config.base_url}/api/tickets?page_size=50&page_no=${page}&dateoccurred_start=${threeMonthsAgo}&order=id&orderdesc=true&includecolumns=true`;
 
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -95,6 +96,14 @@ export async function POST() {
   console.log(`[FORCE-SYNC] Total fetched: ${allTickets.length} across ${page} pages`);
 
   const now = new Date().toISOString();
+  const threeMonthsCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
+  // Close any tickets older than 3 months that are still marked open
+  await supabase
+    .from("tickets")
+    .update({ halo_is_open: false, updated_at: now })
+    .eq("halo_is_open", true)
+    .lt("created_at", threeMonthsCutoff);
 
   // Group tickets: Gamma Default open, Gamma Default resolved, non-Gamma Default
   const gammaOpenIds = allTickets
