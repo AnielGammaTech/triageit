@@ -535,6 +535,19 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   const startTime = Date.now();
   let tokensUsed = 0;
 
+  // Only run during business hours: Mon-Fri, 7 AM - 6 PM Eastern
+  const now = new Date();
+  const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const hour = eastern.getHours();
+  const day = eastern.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6 || hour < 7 || hour >= 18) {
+    console.log(`[RETRIAGE] Outside business hours (${eastern.toLocaleString("en-US")} ET) — skipping scan`);
+    return {
+      totalOpen: 0, scanned: 0, critical: [], warnings: [], info: [],
+      processingTimeMs: Date.now() - startTime, tokensUsed: 0,
+    };
+  }
+
   // Get Halo config
   const { data: haloIntegration } = await supabase
     .from("integrations")
