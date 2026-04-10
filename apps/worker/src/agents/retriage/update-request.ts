@@ -76,7 +76,7 @@ export async function handleUpdateRequest(
       .from("agent_logs")
       .select("id")
       .eq("agent_name", "update_request_handler")
-      .eq("ticket_id", localTicket.id)
+      .eq("ticket_id", dedupTicket.id)
       .gte("created_at", thirtyMinAgo)
       .limit(1)
       .maybeSingle();
