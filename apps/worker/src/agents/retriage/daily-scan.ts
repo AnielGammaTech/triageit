@@ -404,7 +404,8 @@ async function upsertTicketFromHalo(
     halo_status_id: ticket.status_id,
     halo_team: ticket.team ?? null,
     halo_agent: agentName,
-    last_retriage_at: now,
+    // NOTE: Do NOT set last_retriage_at here — only set it when we actually post a retriage note.
+    // Setting it on every scan pass prevents the timer from ever firing.
     last_customer_reply_at: getLastCustomerReply(actions),
     last_tech_action_at: getLastTechAction(actions),
     updated_at: now,
@@ -712,10 +713,17 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
               .from("tickets")
               .update({
                 status: "needs_review",
+                last_retriage_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               })
               .eq("id", ruleTicketId);
           }
+        } else if (ruleTicketId) {
+          // Even for info-level results, mark that we actually reviewed it
+          await supabase
+            .from("tickets")
+            .update({ last_retriage_at: new Date().toISOString() })
+            .eq("id", ruleTicketId);
         }
 
         continue;
@@ -810,8 +818,15 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
             .from("tickets")
             .update({
               status: "needs_review",
+              last_retriage_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
+            .eq("id", localTicketId);
+        } else {
+          // Mark that we reviewed it even if no issues found
+          await supabase
+            .from("tickets")
+            .update({ last_retriage_at: new Date().toISOString() })
             .eq("id", localTicketId);
         }
       }
