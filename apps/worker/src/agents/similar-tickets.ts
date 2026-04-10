@@ -59,8 +59,12 @@ export async function findSimilarTickets(
     return findSimilarByText(supabase, params.currentTicketId, params.summary, params.clientName, maxResults);
   }
 
-  // Re-rank: boost same-client matches
-  const ranked = (data as ReadonlyArray<SimilarTicket & { readonly similarity: number }>)
+  // Filter: same-client matches always shown, cross-client only if very high similarity (>0.92)
+  const filtered = (data as ReadonlyArray<SimilarTicket & { readonly similarity: number }>)
+    .filter((t) => {
+      const sameClient = t.clientName === params.clientName;
+      return sameClient || t.similarity > 0.92;
+    })
     .map((t) => ({
       ...t,
       similarity: t.clientName === params.clientName
@@ -70,7 +74,7 @@ export async function findSimilarTickets(
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, maxResults);
 
-  return ranked;
+  return filtered;
 }
 
 /**

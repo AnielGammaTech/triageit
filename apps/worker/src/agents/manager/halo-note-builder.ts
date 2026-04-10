@@ -250,11 +250,7 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#38bdf8;">💬 Reply</td><td style="padding:8px 12px;${border}font-size:13px;color:#bae6fd;line-height:1.5;word-break:break-word;"><em style="color:#7dd3fc;">"${linkifyUrls(michaelResult.suggested_response)}"</em><br/><span style="font-size:10px;color:#64748b;">Suggestion only — edit before sending</span></td></tr>`);
   }
 
-  // KB Article Suggestions
-  if (michaelResult.kb_suggestions.length > 0) {
-    const kbItems = michaelResult.kb_suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("");
-    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📚 KB Ideas</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;">Create in Hudu after resolution:<ul style="margin:4px 0;padding-left:18px;list-style:none;">${kbItems}</ul><span style="font-size:10px;color:#64748b;">Generate from Hudu → New Article</span></td></tr>`);
-  }
+  // KB Ideas removed from initial triage — they belong in the close review only
 
   if (docGaps && docGaps.length > 0) {
     const gapItems = docGaps.map((g) => `<li>${g}</li>`).join("");
@@ -331,16 +327,7 @@ export function buildCompactRetriageNote(
   }
 
   // KB Article Suggestions
-  if (michaelResult.kb_suggestions.length > 0) {
-    const kbItems = michaelResult.kb_suggestions.map((s) => `• ${s}`).join("<br/>");
-    rows.push(`<tr style="background:#162216;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#4ade80;">📚 KB</td><td style="padding:5px 12px;${border}font-size:11px;color:#bbf7d0;line-height:1.4;">${kbItems}<br/><span style="font-size:9px;color:#64748b;">Create in Hudu after resolution</span></td></tr>`);
-  }
-
-  // Documentation Gap — inline
-  if (docGaps && docGaps.length > 0) {
-    const gapItems = docGaps.map((g) => `• ${g}`).join("<br/>");
-    rows.push(`<tr style="background:#332b1a;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#fbbf24;">Doc Gap</td><td style="padding:5px 12px;${border}font-size:11px;color:#fde68a;line-height:1.5;">${gapItems}</td></tr>`);
-  }
+  // KB Ideas and Doc Gaps removed from retriage — they belong in the close review only
 
   // Priority Recommendation — inline
   if (originalPriority && classification.recommended_priority !== originalPriority) {
