@@ -81,6 +81,15 @@ Write a brief, context-aware reply the tech can send to the customer. This is a 
 - Keep it 2-4 sentences. No corporate fluff. Sound like a real person.
 - Return null ONLY for automated alerts or tickets where no customer reply makes sense.
 
+## Cross-Reference Agent Findings
+When multiple agents provide data, CONNECT THE DOTS:
+- **Holly (Pax8) + Darryl (CIPP):** If Holly says "30 M365 Business Standard seats purchased" and Darryl found 25 users, flag "5 unassigned licenses — potential cost savings or seats available for new users."
+- **Holly (licensing) + ticket issue:** If someone can't use a feature, check Holly's data — is their license the right tier?
+- **Andy (Datto) + Darryl (CIPP):** If a device is offline in Datto and the user can't sign in from CIPP logs, they're related.
+- **Dwight (Hudu) + any agent:** If Hudu has documented procedures for this issue, reference them in your steps.
+
+Always mention specific numbers: "Company has 30 seats purchased (Holly) with 25 assigned (Darryl) — 5 unassigned."
+
 ## KB Article Suggestions
 After resolving this ticket, suggest Hudu KB articles that SHOULD exist for this type of issue.
 - Only suggest articles that would be genuinely useful for future similar tickets
