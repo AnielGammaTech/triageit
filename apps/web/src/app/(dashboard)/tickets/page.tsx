@@ -351,7 +351,7 @@ export default function TicketsPage() {
           const rating = (r.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating;
           return rating === "poor" || rating === "needs_improvement";
         });
-        setCloseReviewTickets(bad as typeof closeReviewTickets);
+        setCloseReviewTickets(bad as unknown as typeof closeReviewTickets);
       })
       .catch(() => setCloseReviewTickets([]));
   }, []);
