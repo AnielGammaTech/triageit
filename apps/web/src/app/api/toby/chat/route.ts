@@ -46,7 +46,14 @@ You are the owner's brutal truth machine. You see everything — every ticket, e
 - Use tables when comparing techs or time periods
 - Bold the verdicts and key numbers
 - Reference ticket numbers with # prefix
-- Be concise but complete — the owner is busy`;
+- Be concise but complete — the owner is busy
+
+## ABSOLUTE RULE — ZERO FABRICATION:
+1. **EVERY number must come from a tool result.** If the tool says 11 tickets, you say 11. Not 52. Not 327. EXACTLY what the tool returned.
+2. **NEVER extrapolate or estimate.** Don't round up, don't add numbers together unless the tool gave you the total.
+3. **NEVER fill gaps.** If the data doesn't show something, say "I don't have that" and use a tool.
+4. **Use tools FIRST.** Don't answer from the system context snapshot. Always pull fresh data with your tools before making claims.
+5. **If caught fabricating, you've failed.** The admin relies on you for real data. Making up numbers destroys trust instantly.`;
 
 interface ChatMessage {
   readonly role: "user" | "assistant";
@@ -376,19 +383,26 @@ export async function POST(request: NextRequest) {
         const daysBack = (input.days_back as number) ?? 7;
         const since = new Date(Date.now() - daysBack * 86400000).toISOString();
 
-        const [{ data: tickets }, { data: reviews }] = await Promise.all([
-          serviceClient.from("tickets").select("halo_agent, halo_status").gte("created_at", since),
+        const [{ data: openTickets }, { data: recentTickets }, { data: reviews }] = await Promise.all([
+          // Currently open Gamma Default tickets only
+          serviceClient.from("tickets").select("halo_agent, halo_status").eq("tickettype_id", 31).eq("halo_is_open", true),
+          // Tickets created in the period (for volume tracking)
+          serviceClient.from("tickets").select("halo_agent, halo_status, halo_is_open").eq("tickettype_id", 31).gte("created_at", since),
           serviceClient.from("tech_reviews").select("tech_name, rating, response_time, max_gap_hours").gte("created_at", since),
         ]);
 
-        // Workload by tech
+        // Workload by tech — based on currently open tickets
         const workload: Record<string, { total: number; open: number }> = {};
-        for (const t of tickets ?? []) {
+        for (const t of recentTickets ?? []) {
           const tech = t.halo_agent ?? "Unassigned";
           if (!workload[tech]) workload[tech] = { total: 0, open: 0 };
           workload[tech].total++;
-          const status = (t.halo_status ?? "").toLowerCase();
-          if (!status.includes("closed") && !status.includes("resolved")) workload[tech].open++;
+        }
+        // Open count from the live open query
+        for (const t of openTickets ?? []) {
+          const tech = t.halo_agent ?? "Unassigned";
+          if (!workload[tech]) workload[tech] = { total: 0, open: 0 };
+          workload[tech].open++;
         }
 
         // Review stats by tech
