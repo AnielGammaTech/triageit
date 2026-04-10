@@ -133,23 +133,24 @@ export async function POST(request: NextRequest) {
   systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
 
   if (techProfiles && techProfiles.length > 0) {
-    systemPrompt += `\n### Tech Profiles:\n`;
+    systemPrompt += "\n### Tech Profiles:\n";
     for (const tp of techProfiles) {
-      systemPrompt += `- **${tp.tech_name}**: ${tp.ticket_count} tickets, avg response ${tp.avg_response_hours?.toFixed(1) ?? "?"}h, strong: ${tp.strong_categories ?? "?"}, weak: ${tp.weak_categories ?? "?"}\n`;
+      const avgH = typeof tp.avg_response_hours === "number" ? tp.avg_response_hours.toFixed(1) : "?";
+      systemPrompt += `- **${String(tp.tech_name ?? "?")}**: ${String(tp.ticket_count ?? "?")} tickets, avg response ${avgH}h, strong: ${String(tp.strong_categories ?? "?")}, weak: ${String(tp.weak_categories ?? "?")}\n`;
     }
   }
 
   if (customerInsights && customerInsights.length > 0) {
-    systemPrompt += `\n### Top Clients:\n`;
+    systemPrompt += "\n### Top Clients:\n";
     for (const ci of customerInsights) {
-      systemPrompt += `- **${ci.client_name}**: ${ci.ticket_count} tickets, top issues: ${ci.top_issue_types ?? "?"}, update requests: ${ci.update_request_count ?? 0}\n`;
+      systemPrompt += `- **${String(ci.client_name ?? "?")}**: ${String(ci.ticket_count ?? "?")} tickets, top issues: ${String(ci.top_issue_types ?? "?")}, update requests: ${String(ci.update_request_count ?? 0)}\n`;
     }
   }
 
   if (recentTrends && recentTrends.length > 0) {
-    systemPrompt += `\n### Recent Trends:\n`;
+    systemPrompt += "\n### Recent Trends:\n";
     for (const t of recentTrends) {
-      systemPrompt += `- [${t.severity}] ${t.trend_type}: ${t.description}\n`;
+      systemPrompt += `- [${String(t.severity ?? "?")}] ${String(t.trend_type ?? "?")}: ${String(t.description ?? "?")}\n`;
     }
   }
 

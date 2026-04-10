@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
       user_name: haloTicket.user_name ?? null,
       user_email: haloTicket.user_emailaddress ?? null,
       original_priority: haloTicket.priority_id ?? null,
-      halo_status: (haloTicket.statusname ?? haloTicket.status_name ?? null) as string | null,
+      halo_status: resolveStatusName(haloTicket),
       halo_status_id: haloTicket.status_id ?? null,
       halo_agent: await resolveWebhookAgentName(haloTicket, config, token),
       halo_team: (haloTicket.team ?? null) as string | null,
@@ -227,6 +227,40 @@ export async function POST(request: NextRequest) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+// Common Halo status ID → name map (fallback when API omits statusname)
+const STATUS_ID_MAP: Record<number, string> = {
+  1: "New",
+  2: "In Progress",
+  3: "Waiting on Customer",
+  4: "Customer Reply",
+  5: "Scheduled",
+  6: "On Hold",
+  7: "Pending Vendor",
+  8: "Waiting on Tech",
+  9: "Resolved",
+  10: "Closed",
+  23: "In Progress",
+  24: "Resolved Remotely",
+  25: "Waiting on Parts",
+  26: "Resolved Onsite",
+  27: "Cancelled",
+  29: "Waiting on Customer",
+  30: "Waiting on Customer",
+  31: "PAST-DUE",
+  32: "New",
+  33: "Waiting on Parts",
+  35: "Awaiting Triage Review",
+};
+
+function resolveStatusName(ticket: HaloApiTicket): string | null {
+  const name = (ticket.statusname ?? ticket.status_name ?? "") as string;
+  if (name && name.trim()) return name;
+  if (typeof ticket.status_id === "number") {
+    return STATUS_ID_MAP[ticket.status_id] ?? `Status ${ticket.status_id}`;
+  }
+  return null;
+}
 
 function isTicketClosed(ticket: HaloApiTicket): boolean {
   // Check by status name (most reliable when present)
