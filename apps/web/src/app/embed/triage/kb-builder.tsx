@@ -486,6 +486,13 @@ const panelTitle: React.CSSProperties = {
   flex: 1,
 };
 
+const ideaCard: React.CSSProperties = {
+  padding: "10px 12px",
+  background: "#0c0d10",
+  border: "1px solid #1e2028",
+  borderRadius: "4px",
+};
+
 const dismissBtn: React.CSSProperties = {
   padding: "2px 6px",
   fontSize: "9px",
