@@ -311,11 +311,38 @@ export async function POST() {
     }
   }
 
-  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created, ${statusFixed} statuses fixed`);
+  // ── Close tickets in DB that are NOT in Halo's open list ──
+  // These were resolved in Halo but our DB still has them as open.
+  const haloOpenSet = new Set(gammaOpenIds);
+  let extraClosed = 0;
+
+  const { data: dbOpenTickets } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+    .eq("halo_is_open", true);
+
+  if (dbOpenTickets) {
+    const toClose = dbOpenTickets.filter((t) => !haloOpenSet.has(t.halo_id as number));
+    if (toClose.length > 0) {
+      const closeIds = toClose.map((t) => t.id as string);
+      for (let i = 0; i < closeIds.length; i += 50) {
+        const chunk = closeIds.slice(i, i + 50);
+        await supabase
+          .from("tickets")
+          .update({ halo_is_open: false, updated_at: now })
+          .in("id", chunk);
+      }
+      extraClosed = toClose.length;
+      console.log(`[FORCE-SYNC] Closed ${extraClosed} tickets not in Halo's open list`);
+    }
+  }
+
+  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount + extraClosed} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created, ${statusFixed} statuses fixed`);
 
   return NextResponse.json({
     success: true,
-    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} open, ${createdCount} created, ${closedCount + nonGammaFixed} closed, ${statusFixed} statuses fixed.`,
+    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} open, ${createdCount} created, ${closedCount + nonGammaFixed + extraClosed} closed, ${statusFixed} statuses fixed.`,
     halo_fetched: allTickets.length,
     gamma_open_halo: gammaOpenIds.length,
     gamma_closed_halo: gammaClosedIds.length,
