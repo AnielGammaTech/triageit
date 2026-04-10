@@ -198,3 +198,88 @@ export async function generateKbIdeas(
 
   return parseLlmJson<KbIdeasResult>(text);
 }
+
+// ── Refine a single KB idea with tech's answers ──────────────────────
+
+const REFINE_PROMPT = `You are Dwight Schrute, documentation specialist for Gamma Tech Services LLC.
+A technician has selected a KB idea to turn into a full Hudu article. They may have answered clarifying questions.
+
+Take the draft content, the tech's answers, and the ticket context to produce a POLISHED, COMPLETE KB article ready to paste into Hudu.
+
+## Rules:
+- Use clear markdown formatting: ## headers, numbered steps, bullet lists, code blocks for commands/configs
+- Be specific and actionable — a tech reading this should be able to follow it without guessing
+- Include any details from the tech's answers
+- If the tech skipped questions, work with what you have and note "[NEEDS VERIFICATION]" for uncertain details
+- Keep it professional but practical — MSP techs are your audience
+- Include a "Last Updated" line at the bottom with today's date
+
+Respond with ONLY valid JSON:
+{
+  "title": "<final article title>",
+  "content": "<complete markdown article>",
+  "hudu_section": "<where in Hudu this belongs>",
+  "summary": "<1 sentence description for the Halo note>"
+}`;
+
+export interface RefinedArticle {
+  readonly title: string;
+  readonly content: string;
+  readonly hudu_section: string;
+  readonly summary: string;
+}
+
+export async function refineKbArticle(
+  haloId: number,
+  idea: {
+    readonly title: string;
+    readonly category: string;
+    readonly content: string;
+    readonly hudu_section: string;
+    readonly needs_info: ReadonlyArray<string>;
+  },
+  answers: Record<string, string>,
+  supabase: SupabaseClient,
+): Promise<RefinedArticle> {
+  // Get ticket context
+  const { data: ticket } = await supabase
+    .from("tickets")
+    .select("summary, client_name, halo_agent, details")
+    .eq("halo_id", haloId)
+    .single();
+
+  const answersText = Object.entries(answers)
+    .filter(([, v]) => v.trim())
+    .map(([q, a]) => `Q: ${q}\nA: ${a}`)
+    .join("\n\n");
+
+  const context = [
+    `## Ticket #${haloId}`,
+    `Client: ${ticket?.client_name ?? "Unknown"}`,
+    `Summary: ${ticket?.summary ?? "Unknown"}`,
+    "",
+    `## KB Idea to Refine`,
+    `Title: ${idea.title}`,
+    `Category: ${idea.category}`,
+    `Hudu Section: ${idea.hudu_section}`,
+    `Draft Content:\n${idea.content}`,
+    "",
+    answersText ? `## Tech's Answers to Clarifying Questions\n${answersText}` : "## No additional answers provided",
+  ].join("\n");
+
+  const anthropic = new Anthropic();
+  const response = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 4000,
+    messages: [
+      { role: "user", content: `${REFINE_PROMPT}\n\n${context}` },
+    ],
+  });
+
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
+  return parseLlmJson<RefinedArticle>(text);
+}

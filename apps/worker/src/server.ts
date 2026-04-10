@@ -335,6 +335,35 @@ server.post<{ Body: { halo_id: number } }>(
   },
 );
 
+// ── KB Refine endpoint — takes an idea + tech's answers, returns polished article
+server.post<{
+  Body: {
+    halo_id: number;
+    idea: { title: string; category: string; content: string; hudu_section: string; needs_info: string[] };
+    answers: Record<string, string>;
+  };
+}>(
+  "/kb-ideas/refine",
+  async (request, reply) => {
+    const { halo_id, idea, answers } = request.body;
+    if (!halo_id || !idea) {
+      return reply.status(400).send({ error: "halo_id and idea are required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    try {
+      const { refineKbArticle } = await import("./agents/manager/kb-ideas.js");
+      const result = await refineKbArticle(halo_id, idea, answers, supabase);
+      return { status: "completed", article: result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[KB-REFINE] Failed for ticket #${halo_id}:`, message);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
 // ── Create Hudu article endpoint ──────────────────────────────────────
 server.post<{ Body: { client_name: string; title: string; content: string; company_id?: number } }>(
   "/hudu/create-article",

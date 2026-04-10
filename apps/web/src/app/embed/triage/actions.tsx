@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, type ReactNode } from "react";
+import { KBBuilder } from "./kb-builder";
 
 // ── Shared Button Style Helper ─────────────────────────────────────────
 
@@ -464,82 +465,6 @@ function SuggestReplyButton({
   );
 }
 
-// ── Generate KB Button ──────────────────────────────────────────────────
-
-function GenerateKBButton({
-  haloId,
-  token,
-}: {
-  readonly haloId: number;
-  readonly token: string;
-}) {
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle");
-
-  const handleGenerate = useCallback(async () => {
-    if (state === "loading") return;
-    setState("loading");
-
-    try {
-      const response = await fetch("/api/embed/kb-ideas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ halo_id: haloId, token }),
-      });
-
-      if (response.ok) {
-        setState("done");
-        setTimeout(() => window.location.reload(), 2000);
-      } else {
-        setState("error");
-        setTimeout(() => setState("idle"), 3000);
-      }
-    } catch {
-      setState("error");
-      setTimeout(() => setState("idle"), 3000);
-    }
-  }, [haloId, token, state]);
-
-  const styles: Record<string, BtnStyle> = {
-    idle: { color: "#636e72", bg: "#12131a", border: "#1e2028" },
-    loading: { color: "#74b9ff", bg: "rgba(116,185,255,0.08)", border: "rgba(116,185,255,0.2)" },
-    done: { color: "#00b894", bg: "rgba(0,184,148,0.08)", border: "rgba(0,184,148,0.2)" },
-    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
-  };
-
-  const labels: Record<string, string> = {
-    idle: "Gen KB",
-    loading: "Generating...",
-    done: "KB Done",
-    error: "Failed",
-  };
-
-  return (
-    <button
-      onClick={handleGenerate}
-      disabled={state === "loading"}
-      style={{
-        ...btnBase(styles[state]),
-        cursor: state === "loading" ? "not-allowed" : "pointer",
-      }}
-      onMouseEnter={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "#2d3040";
-          e.currentTarget.style.color = "#8b8fa3";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "#1e2028";
-          e.currentTarget.style.color = "#636e72";
-        }
-      }}
-    >
-      {state === "loading" && <Spinner color="#74b9ff" />}
-      {labels[state]}
-    </button>
-  );
-}
-
 // ── Ask Agent Dropdown Button ──────────────────────────────────────────
 
 const INVOKABLE_AGENTS = [
@@ -815,7 +740,7 @@ export function QuickActions({
       {suggestedResponse && <CopyButton text={suggestedResponse} label="Copy Resp" />}
       {internalNotes && <CopyButton text={internalNotes} label="Copy Notes" />}
       <SuggestReplyButton haloId={haloId} token={token} />
-      <GenerateKBButton haloId={haloId} token={token} />
+      <KBBuilder haloId={haloId} token={token} />
       <AskAgentButton haloId={haloId} token={token} />
     </div>
   );
