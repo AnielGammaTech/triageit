@@ -527,7 +527,7 @@ function GenerateKBButton({
     setState("loading");
 
     try {
-      const response = await fetch("/api/kb-ideas", {
+      const response = await fetch("/api/embed/kb-ideas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ halo_id: haloId, token }),
@@ -639,7 +639,7 @@ function AskAgentButton({
     setOpen(false);
 
     try {
-      const response = await fetch("/api/agent/invoke", {
+      const response = await fetch("/api/embed/agent-invoke", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ halo_id: haloId, agent_name: agentId, token }),
