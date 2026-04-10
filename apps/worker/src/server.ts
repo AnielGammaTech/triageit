@@ -33,15 +33,19 @@ import type { TriageContext } from "./agents/types.js";
 const server = Fastify({ logger: true });
 
 // ── Teams Bot endpoint ────────────────────────────────────────────────
-// Azure Bot Service sends messages here. Registered as the bot's messaging endpoint.
+// Azure Bot Service sends activities here as JSON.
 server.post("/api/teams/messages", async (request, reply) => {
   try {
-    const { botAdapter, handleTeamsMessage } = await import("./integrations/teams/bot.js");
-    // Bot Framework expects raw Node req/res
-    await botAdapter.process(request.raw, reply.raw, handleTeamsMessage);
+    const { handleBotMessage } = await import("./integrations/teams/bot.js");
+    const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string } };
+    // Fire and forget — respond 200 immediately, process async
+    handleBotMessage(activity).catch((err) => {
+      console.error("[TEAMS-BOT] Async error:", err);
+    });
+    return reply.status(200).send();
   } catch (err) {
     console.error("[TEAMS-BOT] Error:", err);
-    if (!reply.sent) reply.status(500).send({ error: "Bot error" });
+    return reply.status(200).send();
   }
 });
 

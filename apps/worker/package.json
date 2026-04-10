@@ -13,7 +13,6 @@
     "@anthropic-ai/sdk": "^0.52.0",
     "@supabase/supabase-js": "^2.49.0",
     "@triageit/shared": "*",
-    "botbuilder": "^4.23.3",
     "bullmq": "^5.34.0",
     "fastify": "^5.2.0",
     "ioredis": "^5.10.0",

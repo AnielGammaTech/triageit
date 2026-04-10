@@ -1,65 +1,99 @@
-import {
-  CloudAdapter,
-  ConfigurationBotFrameworkAuthentication,
-  type TurnContext,
-  ActivityTypes,
-  MessageFactory,
-} from "botbuilder";
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseClient } from "../../db/supabase.js";
 
-// ── Config ──────────────────────────────────────────────────────────────
+/**
+ * Lightweight Teams bot — no botbuilder SDK dependency.
+ * Handles Bot Framework messages directly via HTTP.
+ * Azure Bot Service sends Activity objects; we respond inline.
+ */
 
-const botAuth = new ConfigurationBotFrameworkAuthentication({
-  MicrosoftAppId: process.env.TEAMS_BOT_APP_ID ?? "",
-  MicrosoftAppPassword: process.env.TEAMS_BOT_APP_SECRET ?? "",
-  MicrosoftAppType: "SingleTenant",
-  MicrosoftAppTenantId: process.env.TEAMS_BOT_TENANT_ID ?? "",
-});
+// ── Auth — validate tokens from Azure Bot Service ──────────────────────
 
-export const botAdapter = new CloudAdapter(botAuth);
+let cachedToken: { token: string; expires: number } | null = null;
 
-// Error handler
-botAdapter.onTurnError = async (context: TurnContext, error: Error) => {
-  console.error(`[TEAMS-BOT] Error: ${error.message}`);
-  await context.sendActivity("Sorry, something went wrong. Try again.");
-};
+async function getBotToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expires) return cachedToken.token;
 
-// ── Agent configs ───────────────────────────────────────────────────────
+  const appId = process.env.TEAMS_BOT_APP_ID ?? "";
+  const appSecret = process.env.TEAMS_BOT_APP_SECRET ?? "";
+  const tenantId = process.env.TEAMS_BOT_TENANT_ID ?? "";
 
-const MICHAEL_PROMPT = `You are Prison Mike (Michael Scott), the Regional Manager at Gamma Tech Services LLC, an MSP in Naples, FL. You're chatting via Microsoft Teams with the admin/owner.
+  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: appId,
+      client_secret: appSecret,
+      scope: "https://api.botframework.com/.default",
+    }),
+  });
 
-Be concise — Teams messages should be shorter than web chat. Use markdown (Teams supports it).
+  if (!res.ok) throw new Error(`Bot auth failed: ${res.status}`);
+  const data = (await res.json()) as { access_token: string; expires_in: number };
+  cachedToken = { token: data.access_token, expires: Date.now() + (data.expires_in - 60) * 1000 };
+  return data.access_token;
+}
 
-## Team Roster:
-Techs: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier
-Dispatcher: Bryanna | Manager: David | Projects: Jonathan | Sales: Roman, Todd
+// ── Send reply to Teams ─────────────────────────────────────────────────
 
-## Rules:
-- Use your tools to look up real data before answering. NEVER make up numbers.
-- Keep responses under 500 words for Teams readability.
-- Reference ticket numbers with #.
-- Today: ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" })}`;
+async function sendTeamsReply(serviceUrl: string, conversationId: string, activityId: string, text: string): Promise<void> {
+  const token = await getBotToken();
+  const url = `${serviceUrl}v3/conversations/${conversationId}/activities/${activityId}`;
 
-const TOBY_PROMPT = `You are Toby Flenderson, the analytics agent at Gamma Tech Services LLC, an MSP in Naples, FL. You're chatting via Microsoft Teams with the admin/owner.
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "message",
+      text,
+      textFormat: "markdown",
+    }),
+  });
+}
 
-You're the brutal truth machine. Every claim backed by data. If a tech is failing, you say it with numbers.
+async function sendTypingIndicator(serviceUrl: string, conversationId: string): Promise<void> {
+  const token = await getBotToken();
+  const url = `${serviceUrl}v3/conversations/${conversationId}/activities`;
 
-## Standards:
-- First response: under 1 hour
-- Customer update: every 4 hours
-- No ticket in "New" for more than 2 hours
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type: "typing" }),
+  }).catch(() => { /* non-critical */ });
+}
 
-## Team Roster:
-Techs: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier
-Dispatcher: Bryanna | Manager: David | Projects: Jonathan | Sales: Roman, Todd (NOT techs — don't evaluate them)
+// ── Agent prompts ───────────────────────────────────────────────────────
 
-## Rules:
-- Use tools FIRST. NEVER fabricate numbers.
-- Keep responses under 500 words for Teams readability.
-- Today: ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" })}`;
+function getMichaelPrompt(): string {
+  const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  return `You are Prison Mike (Michael Scott), the Regional Manager at Gamma Tech Services LLC, an MSP in Naples, FL. Chatting via Teams.
 
-// ── Tools (shared between both agents) ──────────────────────────────────
+Be concise — Teams messages should be short. Use markdown.
+
+Team: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier (techs). Bryanna (dispatcher). David (manager). Roman, Todd (sales — NOT techs).
+
+RULES: Use tools for data. NEVER make up numbers. Every number must come from a tool. Today: ${today}`;
+}
+
+function getTobyPrompt(): string {
+  const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  return `You are Toby Flenderson, analytics agent at Gamma Tech Services LLC. Chatting via Teams. Brutally honest, data-driven.
+
+Standards: first response under 1hr, customer update every 4hr, no ticket in New over 2hr.
+
+Team: Dylan, Raul, Jarid, Matthew, Ryan, Darren (techs). Roman/Todd are sales — don't evaluate them.
+
+RULES: Use tools FIRST. NEVER fabricate. Every number from tool results only. Today: ${today}`;
+}
+
+// ── Tools ───────────────────────────────────────────────────────────────
 
 function getTools(): Anthropic.Messages.Tool[] {
   return [
@@ -74,19 +108,16 @@ function getTools(): Anthropic.Messages.Tool[] {
           status: { type: "string" },
           keyword: { type: "string" },
           days_back: { type: "number" },
-          limit: { type: "number" },
         },
         required: [],
       },
     },
     {
       name: "lookup_ticket",
-      description: "Get full details on a specific ticket.",
+      description: "Get full details on a specific ticket by Halo ID.",
       input_schema: {
         type: "object" as const,
-        properties: {
-          halo_id: { type: "number", description: "Halo ticket number" },
-        },
+        properties: { halo_id: { type: "number" } },
         required: ["halo_id"],
       },
     },
@@ -95,21 +126,16 @@ function getTools(): Anthropic.Messages.Tool[] {
       description: "Workload and review stats for all techs.",
       input_schema: {
         type: "object" as const,
-        properties: {
-          days_back: { type: "number" },
-        },
+        properties: { days_back: { type: "number" } },
         required: [],
       },
     },
     {
       name: "get_tech_performance",
-      description: "Deep dive on a specific tech's tickets, reviews, and patterns.",
+      description: "Deep dive on a specific tech.",
       input_schema: {
         type: "object" as const,
-        properties: {
-          tech_name: { type: "string" },
-          days_back: { type: "number" },
-        },
+        properties: { tech_name: { type: "string" } },
         required: ["tech_name"],
       },
     },
@@ -120,239 +146,142 @@ function getTools(): Anthropic.Messages.Tool[] {
 
 async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
   const supabase = createSupabaseClient();
-  const formatDate = (iso: string | null | undefined): string => {
+  const fmt = (iso: string | null | undefined): string => {
     if (!iso) return "?";
     return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   };
 
   switch (name) {
     case "search_tickets": {
-      const daysBack = (input.days_back as number) ?? 14;
-      const limit = Math.min((input.limit as number) ?? 15, 30);
-      const since = new Date(Date.now() - daysBack * 86400000).toISOString();
-
-      let query = supabase.from("tickets").select("halo_id, summary, client_name, halo_status, halo_agent, created_at").eq("tickettype_id", 31).gte("created_at", since).order("created_at", { ascending: false }).limit(limit);
-      if (input.client_name) query = query.ilike("client_name", `%${input.client_name}%`);
-      if (input.tech_name) query = query.ilike("halo_agent", `%${input.tech_name}%`);
-      if (input.status) query = query.ilike("halo_status", `%${input.status}%`);
-      if (input.keyword) query = query.or(`summary.ilike.%${input.keyword}%,details.ilike.%${input.keyword}%`);
-
-      const { data: tickets } = await query;
-      let result = `Found ${tickets?.length ?? 0} tickets:\n`;
-      for (const t of tickets ?? []) {
-        result += `- #${t.halo_id}: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${formatDate(t.created_at)}\n`;
-      }
-      return result;
+      const days = (input.days_back as number) ?? 14;
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      let q = supabase.from("tickets").select("halo_id, summary, client_name, halo_status, halo_agent, created_at").eq("tickettype_id", 31).gte("created_at", since).order("created_at", { ascending: false }).limit(15);
+      if (input.client_name) q = q.ilike("client_name", `%${input.client_name}%`);
+      if (input.tech_name) q = q.ilike("halo_agent", `%${input.tech_name}%`);
+      if (input.status) q = q.ilike("halo_status", `%${input.status}%`);
+      if (input.keyword) q = q.or(`summary.ilike.%${input.keyword}%,details.ilike.%${input.keyword}%`);
+      const { data } = await q;
+      return (data ?? []).map((t) => `#${t.halo_id}: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "?"} | ${fmt(t.created_at)}`).join("\n") || "No tickets found.";
     }
-
     case "lookup_ticket": {
-      const haloId = input.halo_id as number;
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("halo_id, summary, client_name, details, halo_status, halo_agent, created_at, triage_results(internal_notes, classification, urgency_score, recommended_priority, created_at)")
-        .eq("halo_id", haloId)
-        .order("created_at", { referencedTable: "triage_results", ascending: false })
-        .single();
-
-      if (!ticket) return `Ticket #${haloId} not found.`;
-
-      let result = `**#${ticket.halo_id}**: ${ticket.summary}\nClient: ${ticket.client_name ?? "?"} | Status: ${ticket.halo_status ?? "?"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\n`;
-      if (ticket.details) result += `Details: ${ticket.details.slice(0, 500)}\n`;
-
-      const triageResults = (ticket.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
-      const latest = triageResults[0];
-      if (latest) {
-        const classification = latest.classification as Record<string, string> | null;
-        result += `\nTriage: ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5\n`;
-        const notes = String(latest.internal_notes ?? "");
-        if (notes) result += `Notes: ${notes.slice(0, 800)}\n`;
-      }
-      return result;
+      const { data: t } = await supabase.from("tickets").select("halo_id, summary, client_name, details, halo_status, halo_agent, triage_results(internal_notes, urgency_score, classification)").eq("halo_id", input.halo_id as number).order("created_at", { referencedTable: "triage_results", ascending: false }).single();
+      if (!t) return `#${input.halo_id} not found.`;
+      const tr = (t.triage_results as ReadonlyArray<Record<string, unknown>>)?.[0];
+      return `#${t.halo_id}: ${t.summary}\nClient: ${t.client_name ?? "?"} | Status: ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "?"}\n${t.details ? `Details: ${t.details.slice(0, 500)}` : ""}\n${tr ? `Triage: urgency ${tr.urgency_score}/5\nNotes: ${String(tr.internal_notes ?? "").slice(0, 800)}` : ""}`;
     }
-
     case "get_team_overview": {
-      const daysBack = (input.days_back as number) ?? 7;
-      const since = new Date(Date.now() - daysBack * 86400000).toISOString();
-
-      const [{ data: openTickets }, { data: recentTickets }, { data: reviews }] = await Promise.all([
+      const days = (input.days_back as number) ?? 7;
+      const TECHS = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
+      const [{ data: open }, { data: reviews }] = await Promise.all([
         supabase.from("tickets").select("halo_agent").eq("tickettype_id", 31).eq("halo_is_open", true),
-        supabase.from("tickets").select("halo_agent").eq("tickettype_id", 31).gte("created_at", since),
-        supabase.from("tech_reviews").select("tech_name, rating").gte("created_at", since),
+        supabase.from("tech_reviews").select("tech_name, rating").gte("created_at", new Date(Date.now() - days * 86400000).toISOString()),
       ]);
-
-      const TECH_NAMES = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
-      const stats: Record<string, { open: number; recent: number; ratings: Record<string, number> }> = {};
-      for (const n of TECH_NAMES) stats[n] = { open: 0, recent: 0, ratings: {} };
-
-      for (const t of openTickets ?? []) {
-        const match = TECH_NAMES.find((n) => (t.halo_agent ?? "").toLowerCase().includes(n.split(" ")[0].toLowerCase()));
-        if (match) stats[match].open++;
-      }
-      for (const t of recentTickets ?? []) {
-        const match = TECH_NAMES.find((n) => (t.halo_agent ?? "").toLowerCase().includes(n.split(" ")[0].toLowerCase()));
-        if (match) stats[match].recent++;
-      }
-      for (const r of reviews ?? []) {
-        const match = TECH_NAMES.find((n) => (r.tech_name ?? "").toLowerCase().includes(n.split(" ")[0].toLowerCase()));
-        if (match) stats[match].ratings[r.rating] = (stats[match].ratings[r.rating] ?? 0) + 1;
-      }
-
-      let result = `## Team Overview (last ${daysBack} days)\n| Tech | Open | Recent | Reviews |\n|------|------|--------|---------|\n`;
-      for (const [name, s] of Object.entries(stats).sort((a, b) => b[1].open - a[1].open)) {
-        result += `| ${name} | ${s.open} | ${s.recent} | ${JSON.stringify(s.ratings)} |\n`;
-      }
-      return result;
+      const stats: Record<string, { open: number; ratings: Record<string, number> }> = {};
+      for (const n of TECHS) stats[n] = { open: 0, ratings: {} };
+      for (const t of open ?? []) { const m = TECHS.find((n) => (t.halo_agent ?? "").toLowerCase().includes(n.split(" ")[0].toLowerCase())); if (m) stats[m].open++; }
+      for (const r of reviews ?? []) { const m = TECHS.find((n) => (r.tech_name ?? "").toLowerCase().includes(n.split(" ")[0].toLowerCase())); if (m) stats[m].ratings[r.rating] = (stats[m].ratings[r.rating] ?? 0) + 1; }
+      return Object.entries(stats).sort((a, b) => b[1].open - a[1].open).map(([n, s]) => `${n}: ${s.open} open | reviews: ${JSON.stringify(s.ratings)}`).join("\n");
     }
-
     case "get_tech_performance": {
-      const techName = input.tech_name as string;
-      const daysBack = (input.days_back as number) ?? 14;
-      const since = new Date(Date.now() - daysBack * 86400000).toISOString();
-
+      const name = input.tech_name as string;
+      const since = new Date(Date.now() - 14 * 86400000).toISOString();
       const [{ data: tickets }, { data: reviews }] = await Promise.all([
-        supabase.from("tickets").select("halo_id, summary, halo_status, created_at").ilike("halo_agent", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(20),
-        supabase.from("tech_reviews").select("halo_id, rating, response_time, summary, max_gap_hours").ilike("tech_name", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(15),
+        supabase.from("tickets").select("halo_id, summary, halo_status, created_at").ilike("halo_agent", `%${name}%`).gte("created_at", since).limit(15),
+        supabase.from("tech_reviews").select("halo_id, rating, response_time, max_gap_hours").ilike("tech_name", `%${name}%`).gte("created_at", since).limit(10),
       ]);
-
-      let result = `## ${techName} (last ${daysBack} days)\n`;
-      result += `**Tickets (${tickets?.length ?? 0}):**\n`;
-      for (const t of tickets ?? []) {
-        result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] ${formatDate(t.created_at)}\n`;
-      }
-      result += `\n**Reviews (${reviews?.length ?? 0}):**\n`;
-      const ratingCounts: Record<string, number> = {};
-      for (const r of reviews ?? []) {
-        ratingCounts[r.rating] = (ratingCounts[r.rating] ?? 0) + 1;
-        result += `- #${r.halo_id}: ${r.rating} (response: ${r.response_time}, gap: ${r.max_gap_hours?.toFixed(1) ?? "?"}h)\n`;
-      }
-      result += `\nRatings: ${JSON.stringify(ratingCounts)}\n`;
-      return result;
+      let r = `Tickets (${tickets?.length ?? 0}):\n`;
+      for (const t of tickets ?? []) r += `#${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] ${fmt(t.created_at)}\n`;
+      r += `\nReviews (${reviews?.length ?? 0}):\n`;
+      for (const rv of reviews ?? []) r += `#${rv.halo_id}: ${rv.rating} (resp: ${rv.response_time}, gap: ${rv.max_gap_hours?.toFixed(1) ?? "?"}h)\n`;
+      return r;
     }
-
-    default:
-      return `Unknown tool: ${name}`;
+    default: return `Unknown tool: ${name}`;
   }
 }
 
-// ── Chat handler ────────────────────────────────────────────────────────
+// ── Chat with agent ─────────────────────────────────────────────────────
 
-// Conversation history (in-memory, keyed by Teams conversation ID)
-const conversationHistory = new Map<string, Array<{ role: "user" | "assistant"; content: string }>>();
+const history = new Map<string, Array<{ role: "user" | "assistant"; content: string }>>();
 
-async function chat(
-  agentName: "michael" | "toby",
-  message: string,
-  conversationId: string,
-): Promise<string> {
-  const systemPrompt = agentName === "michael" ? MICHAEL_PROMPT : TOBY_PROMPT;
-  const tools = getTools();
+async function chat(agent: "michael" | "toby", message: string, convKey: string): Promise<string> {
+  const system = agent === "michael" ? getMichaelPrompt() : getTobyPrompt();
   const anthropic = new Anthropic();
 
-  // Get or create conversation history
-  if (!conversationHistory.has(conversationId)) {
-    conversationHistory.set(conversationId, []);
-  }
-  const history = conversationHistory.get(conversationId)!;
-  history.push({ role: "user", content: message });
+  if (!history.has(convKey)) history.set(convKey, []);
+  const h = history.get(convKey)!;
+  h.push({ role: "user", content: message });
+  if (h.length > 20) h.splice(0, h.length - 20);
 
-  // Keep last 20 messages to manage context
-  if (history.length > 20) {
-    history.splice(0, history.length - 20);
-  }
-
-  // Tool use loop
-  let currentMessages: Anthropic.Messages.MessageParam[] = history.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  let msgs: Anthropic.Messages.MessageParam[] = h.map((m) => ({ role: m.role, content: m.content }));
 
   for (let i = 0; i < 5; i++) {
-    const response = await anthropic.messages.create({
+    const res = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
-      system: systemPrompt,
-      tools,
-      messages: currentMessages,
+      system,
+      tools: getTools(),
+      messages: msgs,
     });
 
     const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-
-    for (const block of response.content) {
-      if (block.type === "tool_use") {
-        const result = await executeTool(block.name, block.input as Record<string, unknown>);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result.slice(0, 8000),
-        });
+    for (const b of res.content) {
+      if (b.type === "tool_use") {
+        const result = await executeTool(b.name, b.input as Record<string, unknown>);
+        toolResults.push({ type: "tool_result", tool_use_id: b.id, content: result.slice(0, 8000) });
       }
     }
 
     if (toolResults.length > 0) {
-      currentMessages = [
-        ...currentMessages,
-        { role: "assistant", content: response.content },
-        { role: "user", content: toolResults },
-      ];
+      msgs = [...msgs, { role: "assistant", content: res.content }, { role: "user", content: toolResults }];
       continue;
     }
 
-    // Done — extract text
-    const fullText = response.content
-      .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
-
-    history.push({ role: "assistant", content: fullText });
-    return fullText;
+    const text = res.content.filter((b): b is Anthropic.Messages.TextBlock => b.type === "text").map((b) => b.text).join("");
+    h.push({ role: "assistant", content: text });
+    return text;
   }
 
-  return "I ran out of thinking steps. Try a simpler question.";
+  return "Ran out of thinking steps. Try a simpler question.";
 }
 
-// ── Bot message handler ─────────────────────────────────────────────────
+// ── Handle incoming Bot Framework activity ──────────────────────────────
 
-export async function handleTeamsMessage(context: TurnContext): Promise<void> {
-  if (context.activity.type !== ActivityTypes.Message) return;
+interface BotActivity {
+  readonly type: string;
+  readonly text?: string;
+  readonly serviceUrl: string;
+  readonly conversation: { readonly id: string };
+  readonly id: string;
+  readonly from?: { readonly name?: string };
+}
 
-  const text = (context.activity.text ?? "").trim();
-  const conversationId = context.activity.conversation?.id ?? "default";
+export async function handleBotMessage(activity: BotActivity): Promise<void> {
+  if (activity.type !== "message" || !activity.text) return;
 
-  // Determine which agent to use based on mention or prefix
-  // @Prison Mike or /mike → Michael
-  // @Toby or /toby → Toby
-  // Default → Michael
-  const removedMentions = text.replace(/<at>[^<]*<\/at>/g, "").trim();
-  const lower = removedMentions.toLowerCase();
+  const text = activity.text.replace(/<at>[^<]*<\/at>/g, "").trim();
+  const lower = text.toLowerCase();
+  const convId = activity.conversation.id;
 
   let agent: "michael" | "toby" = "michael";
-  let cleanMessage = removedMentions;
+  let cleanMsg = text;
 
-  if (lower.startsWith("/toby ") || lower.startsWith("toby ") || lower.startsWith("toby,")) {
+  if (lower.startsWith("toby ") || lower.startsWith("toby,") || lower === "toby") {
     agent = "toby";
-    cleanMessage = removedMentions.replace(/^\/?(toby)\s*,?\s*/i, "");
-  } else if (lower.startsWith("/mike ") || lower.startsWith("mike ") || lower.startsWith("michael ")) {
-    agent = "michael";
-    cleanMessage = removedMentions.replace(/^\/?(mike|michael)\s*,?\s*/i, "");
+    cleanMsg = text.replace(/^toby\s*,?\s*/i, "") || "What should I look at?";
   }
 
-  if (!cleanMessage) {
-    await context.sendActivity("What do you need? Start with `toby` for analytics or just ask me (Prison Mike) anything.");
+  if (!cleanMsg) {
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "What do you need? Start with `toby` for analytics, or just ask me anything.");
     return;
   }
 
-  // Show typing indicator
-  await context.sendActivity({ type: ActivityTypes.Typing });
+  await sendTypingIndicator(activity.serviceUrl, convId);
 
   try {
-    // Use conversation ID + agent name for separate histories
-    const historyKey = `${conversationId}:${agent}`;
-    const response = await chat(agent, cleanMessage, historyKey);
-
-    // Send response (Teams supports markdown)
-    await context.sendActivity(MessageFactory.text(response));
+    const response = await chat(agent, cleanMsg, `${convId}:${agent}`);
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, response);
   } catch (err) {
-    console.error(`[TEAMS-BOT] Chat error:`, err);
-    await context.sendActivity("Something went wrong. Try again.");
+    console.error("[TEAMS-BOT] Error:", err);
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "Something went wrong. Try again.");
   }
 }
