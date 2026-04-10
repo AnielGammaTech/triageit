@@ -256,80 +256,9 @@ async function _generateCloseReview(
     review_data: review,
   });
 
-  // ── Documentation gate: approve or hold ──
-  // If documentation is complete → resolve the ticket (status 9) → customer gets notified
-  // If documentation is missing → leave on "Awaiting Triage Review" (35) → no customer email
-  const RESOLVED_STATUS = 9;
-  const needsDocumentation =
-    review.documentation_action.quality_score <= 2 ||
-    review.documentation_action.hudu_updates_needed.length > 0 ||
-    review.tech_performance.rating === "poor" ||
-    review.hudu_kb_drafts.length > 0;
-
-  if (needsDocumentation) {
-    try {
-      // Build a checklist of what's needed
-      const todoItems: string[] = [];
-
-      if (review.documentation_action.quality_score <= 2) {
-        todoItems.push("Add internal notes documenting the resolution steps (what was done, what fixed it)");
-      }
-
-      for (const update of review.documentation_action.hudu_updates_needed) {
-        todoItems.push(`Update Hudu: ${update}`);
-      }
-
-      for (const draft of review.hudu_kb_drafts) {
-        todoItems.push(`Create KB article in Hudu: "${draft.title}" (${draft.category})`);
-      }
-
-      if (review.tech_performance.issues) {
-        todoItems.push(`Address: ${review.tech_performance.issues}`);
-      }
-
-      // Post checklist note to Halo — ticket stays on status 35
-      const checklistHtml = [
-        `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #f59e0b;border-radius:6px;overflow:hidden;">`,
-        `<tr><td colspan="2" style="padding:12px 14px;background:linear-gradient(135deg,#92400e,#b45309);color:white;font-size:15px;font-weight:700;">`,
-        `⚠️ Documentation Required — Ticket NOT Closed Yet</td></tr>`,
-        `<tr><td style="padding:12px 14px;color:#fde68a;font-size:13px;line-height:1.8;">`,
-        `TriageIT reviewed this ticket and found missing documentation. The ticket will remain open until the following is completed:<br/><br/>`,
-        todoItems.map((item, i) => `<strong>${i + 1}.</strong> ${item}`).join("<br/>"),
-        `<br/><br/><span style="color:#94a3b8;font-size:11px;">Once completed, set the ticket to "Awaiting Triage Review" again. TriageIt will re-review and close if approved.</span>`,
-        `</td></tr></table>`,
-      ].join("");
-
-      await halo.addInternalNote(haloId, checklistHtml);
-
-      console.log(
-        `[CLOSE-REVIEW] #${haloId} HELD — documentation needed (${todoItems.length} items). Ticket stays on status 35.`,
-      );
-    } catch (err) {
-      console.error(`[CLOSE-REVIEW] Failed to post checklist for #${haloId}:`, err);
-    }
-  } else {
-    // Documentation is good — resolve the ticket
-    try {
-      await halo.updateTicketStatus(haloId, RESOLVED_STATUS);
-
-      // Update local DB
-      await supabase
-        .from("tickets")
-        .update({
-          halo_is_open: false,
-          halo_status: "Resolved",
-          halo_status_id: RESOLVED_STATUS,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", ticket.id);
-
-      console.log(
-        `[CLOSE-REVIEW] #${haloId} APPROVED — documentation complete, ticket resolved.`,
-      );
-    } catch (err) {
-      console.error(`[CLOSE-REVIEW] Failed to resolve #${haloId}:`, err);
-    }
-  }
+  // Close review posted as internal note. No status changes, no reassignment.
+  // The ticket stays resolved, the tech stays assigned, the customer doesn't see anything.
+  console.log(`[CLOSE-REVIEW] #${haloId} reviewed — rating: ${review.tech_performance.rating}, doc quality: ${review.documentation_action.quality_score}/5`);
 
   return { review, noteHtml };
 }

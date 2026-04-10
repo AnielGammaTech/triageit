@@ -136,50 +136,7 @@ export async function POST(request: NextRequest) {
 
     const haloTicket = (await ticketResponse.json()) as HaloApiTicket;
 
-    // If ticket is set to "Awaiting Triage Review" (35) — tech wants to close but needs review first
-    const AWAITING_REVIEW_STATUS = 35;
-    if (haloTicket.status_id === AWAITING_REVIEW_STATUS && haloTicket.tickettype_id === 31) {
-      console.log(`[WEBHOOK] Ticket #${ticketId} awaiting triage review — triggering close review`);
-
-      const { data: existingTicket } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("halo_id", ticketId)
-        .single();
-
-      if (existingTicket) {
-        await supabase
-          .from("tickets")
-          .update({
-            halo_status: "Awaiting Triage Review",
-            halo_status_id: AWAITING_REVIEW_STATUS,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingTicket.id);
-
-        const workerUrl = process.env.WORKER_URL;
-        if (workerUrl) {
-          try {
-            await fetch(`${workerUrl}/close-review`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ halo_id: ticketId }),
-            });
-            console.log(`[WEBHOOK] Close review triggered for #${ticketId}`);
-          } catch (err) {
-            console.error(`[WEBHOOK] Failed to trigger close review for #${ticketId}:`, err);
-          }
-        }
-      }
-
-      return NextResponse.json({
-        status: "awaiting_review",
-        reason: "Tech requested close — close review triggered",
-        halo_id: ticketId,
-      });
-    }
-
-    // If ticket is closed in Halo, update local status and skip triage
+    // If ticket is closed/resolved in Halo, sync status and run close review
     if (isTicketClosed(haloTicket)) {
       const statusName = (haloTicket.statusname ?? haloTicket.status_name ?? "closed") as string;
       console.log(
