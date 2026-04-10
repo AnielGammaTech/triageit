@@ -47,7 +47,7 @@ export function isUpdateRequest(text: string): boolean {
   return UPDATE_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
 }
 
-// Track recently handled update requests to prevent duplicates
+// In-memory backup dedup (survives within a single process lifecycle)
 const recentUpdateRequests = new Map<number, number>();
 
 export async function handleUpdateRequest(
@@ -55,15 +55,50 @@ export async function handleUpdateRequest(
   customerMessage: string,
   supabase: SupabaseClient,
 ): Promise<void> {
-  // Dedup: skip if we handled this ticket in the last 30 minutes
+  // In-memory dedup (fast, but resets on deploy)
   const lastHandled = recentUpdateRequests.get(haloTicketId);
   if (lastHandled && Date.now() - lastHandled < 30 * 60 * 1000) {
-    console.log(`[UPDATE-REQUEST] Skipping duplicate for #${haloTicketId} — handled ${Math.round((Date.now() - lastHandled) / 60000)}m ago`);
+    console.log(`[UPDATE-REQUEST] Skipping duplicate for #${haloTicketId} — in-memory dedup`);
     return;
   }
+
+  // DB-level dedup — check agent_logs for a recent update_request entry (survives restarts)
+  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data: recentLog } = await supabase
+    .from("agent_logs")
+    .select("id")
+    .eq("agent_name", "update_request_handler")
+    .gte("created_at", thirtyMinAgo)
+    .limit(1)
+    .maybeSingle();
+
+  // Also check by ticket — need to find the local ticket ID first
+  const { data: localTicket } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("halo_id", haloTicketId)
+    .maybeSingle();
+
+  if (localTicket) {
+    const { data: recentForTicket } = await supabase
+      .from("agent_logs")
+      .select("id")
+      .eq("agent_name", "update_request_handler")
+      .eq("ticket_id", localTicket.id)
+      .gte("created_at", thirtyMinAgo)
+      .limit(1)
+      .maybeSingle();
+
+    if (recentForTicket) {
+      console.log(`[UPDATE-REQUEST] Skipping duplicate for #${haloTicketId} — DB dedup (logged in last 30min)`);
+      recentUpdateRequests.set(haloTicketId, Date.now());
+      return;
+    }
+  }
+
   recentUpdateRequests.set(haloTicketId, Date.now());
 
-  // Clean old entries (keep map small)
+  // Clean old in-memory entries
   for (const [id, time] of recentUpdateRequests) {
     if (Date.now() - time > 60 * 60 * 1000) recentUpdateRequests.delete(id);
   }
