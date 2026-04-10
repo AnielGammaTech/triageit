@@ -287,5 +287,29 @@ export async function refineKbArticle(
     .map((b) => b.text)
     .join("");
 
-  return parseLlmJson<RefinedArticle>(text);
+  try {
+    return parseLlmJson<RefinedArticle>(text);
+  } catch (err) {
+    console.error(`[KB-REFINE] JSON parse failed for #${haloId}:`, (err as Error).message);
+    // Extract content as plain text fallback — the article is in there, just malformed JSON
+    const titleMatch = text.match(/"title"\s*:\s*"([^"]+)"/);
+    const sectionMatch = text.match(/"hudu_section"\s*:\s*"([^"]+)"/);
+    // Get the content between "content": " and the next key
+    const contentStart = text.indexOf('"content"');
+    let content = idea.content;
+    if (contentStart !== -1) {
+      const valueStart = text.indexOf('"', contentStart + 10) + 1;
+      // Find the closing by looking for the pattern ", "hudu_section" or ", "summary"
+      const nextKey = text.indexOf('", "', valueStart);
+      if (nextKey !== -1) {
+        content = text.slice(valueStart, nextKey).replace(/\\n/g, "\n").replace(/\\"/g, '"');
+      }
+    }
+    return {
+      title: titleMatch?.[1] ?? idea.title,
+      content,
+      hudu_section: sectionMatch?.[1] ?? idea.hudu_section,
+      summary: `KB article for ${idea.title}`,
+    };
+  }
 }
