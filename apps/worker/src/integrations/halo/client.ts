@@ -107,39 +107,41 @@ export class HaloClient {
   }
 
   async getOpenTickets(ticketTypeId?: number): Promise<ReadonlyArray<HaloTicket>> {
-    // Halo caps at 50 per page regardless of page_size, so use 50
     const pageSize = 50;
-    let page = 1;
     const allTickets: HaloTicket[] = [];
-    // Halo uses requesttype_id for type filtering + open_only for open tickets
-    // open_only is unreliable alone but helps reduce the result set
     const typeFilter = ticketTypeId ? `&requesttype_id=${ticketTypeId}` : "";
-
-    // Closed status IDs to filter client-side as backup
     const closedStatusIds = new Set([9, 10, 24, 26, 27]);
 
-    while (true) {
+    // Halo's pagination is unreliable — it returns the same page regardless of page_no
+    // and record_count shows total matching, not remaining. So fetch page 1 only,
+    // then use record_count to decide if we need more, with dedup by ticket ID.
+    const seenIds = new Set<number>();
+    let page = 1;
+
+    while (page <= 20) {
       const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
         "GET",
         `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true${typeFilter}`,
       );
       const tickets = result.tickets ?? [];
-      // Client-side filter as backup — skip any closed tickets that slipped through
-      const openTickets = tickets.filter((t) => {
+      const totalCount = result.record_count ?? 0;
+
+      let newCount = 0;
+      for (const t of tickets) {
+        if (seenIds.has(t.id)) continue;
+        seenIds.add(t.id);
         const statusId = (t as unknown as Record<string, unknown>).status_id as number | undefined;
-        return !statusId || !closedStatusIds.has(statusId);
-      });
-      allTickets.push(...openTickets);
+        if (statusId && closedStatusIds.has(statusId)) continue;
+        allTickets.push(t);
+        newCount++;
+      }
 
-      // Halo caps at 50 — if we got a full page, there might be more
-      if (tickets.length < pageSize) break;
+      // Stop if: no new tickets found (Halo is repeating), or we've got all of them
+      if (newCount === 0 || allTickets.length >= totalCount || tickets.length < pageSize) break;
       page++;
-
-      // Safety cap to prevent infinite loops
-      if (page > 20) break;
     }
 
-    console.log(`[HALO] getOpenTickets: ${allTickets.length} open tickets across ${page} page(s)${ticketTypeId ? ` (type ${ticketTypeId})` : ""}`);
+    console.log(`[HALO] getOpenTickets: ${allTickets.length} open tickets (${page} page(s) fetched)${ticketTypeId ? ` (type ${ticketTypeId})` : ""}`);
     return allTickets;
   }
 
