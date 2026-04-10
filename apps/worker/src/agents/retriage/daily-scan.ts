@@ -588,9 +588,17 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       // Pull actions for this ticket
       const actions = await halo.getTicketActions(ticket.id);
 
-      // Check if the latest customer reply is an update request
+      // Check if the latest CUSTOMER reply is an update request (skip staff messages)
+      const STAFF_NAMES = ["dylan", "raul", "jarid", "matthew", "ryan", "darren", "bryanna", "david", "jonathan", "roman", "todd", "aniel"];
       const latestCustomerAction = [...actions]
-        .filter((a) => !a.hiddenfromuser && a.note && a.who)
+        .filter((a) => {
+          if (a.hiddenfromuser || !a.note || !a.who) return false;
+          const whoLower = (a.who ?? "").toLowerCase();
+          if (STAFF_NAMES.some((n) => whoLower.includes(n))) return false;
+          if (whoLower.includes("gamma.tech") || whoLower.includes("gtmail") || whoLower.includes("triageit") || whoLower.includes("triggr")) return false;
+          if (a.note.startsWith("<")) return false;
+          return true;
+        })
         .sort((a, b) => new Date(actionDate(b)).getTime() - new Date(actionDate(a)).getTime())[0];
 
       if (latestCustomerAction?.note && isUpdateRequest(latestCustomerAction.note)) {
