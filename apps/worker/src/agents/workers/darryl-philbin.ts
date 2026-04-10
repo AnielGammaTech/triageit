@@ -244,15 +244,56 @@ Respond with ONLY valid JSON:
       const tenantDomain = await this.getTenantForCustomer(client, context.clientName);
       if (!tenantDomain) return null;
 
-      // Extract email from ticket context
+      // Extract email or name from ticket context
       const userEmail = context.userEmail ?? null;
+      const userName = context.userName ?? null;
 
-      // Fetch data in parallel
-      const [user, mfaStatus, conditionalAccess] = await Promise.all([
-        userEmail ? client.findUser(tenantDomain, userEmail) : Promise.resolve(null),
-        userEmail ? client.findUserMfa(tenantDomain, userEmail) : Promise.resolve(null),
-        client.getConditionalAccess(tenantDomain).catch(() => [] as CippConditionalAccessPolicy[]),
-      ]);
+      // Try to find user by email first, then by name if no email
+      let user: CippUser | null = null;
+      let mfaStatus: CippMfaStatus | null = null;
+
+      const conditionalAccess = await client.getConditionalAccess(tenantDomain).catch(() => [] as CippConditionalAccessPolicy[]);
+
+      if (userEmail) {
+        [user, mfaStatus] = await Promise.all([
+          client.findUser(tenantDomain, userEmail),
+          client.findUserMfa(tenantDomain, userEmail),
+        ]);
+      }
+
+      // If no user found by email, try searching all users by name
+      if (!user && userName) {
+        try {
+          const allUsers = await client.getUsers(tenantDomain);
+          const nameLower = userName.toLowerCase();
+          const matched = allUsers.find((u) => {
+            const displayName = (u.displayName ?? "").toLowerCase();
+            const upn = (u.userPrincipalName ?? "").toLowerCase();
+            return displayName.includes(nameLower) || nameLower.includes(displayName) || upn.includes(nameLower);
+          });
+          if (matched) {
+            user = matched;
+            mfaStatus = await client.findUserMfa(tenantDomain, matched.userPrincipalName ?? "");
+            console.log(`[DARRYL] Found user by name match: "${userName}" → ${matched.userPrincipalName}`);
+          }
+        } catch {
+          // Non-critical — proceed without user
+        }
+      }
+
+      // Also try extracting email from ticket summary/details
+      if (!user) {
+        const emailRegex = /[\w.-]+@[\w.-]+\.\w+/;
+        const textToSearch = `${context.summary} ${context.details ?? ""}`;
+        const emailMatch = textToSearch.match(emailRegex);
+        if (emailMatch) {
+          user = await client.findUser(tenantDomain, emailMatch[0]);
+          if (user) {
+            mfaStatus = await client.findUserMfa(tenantDomain, emailMatch[0]);
+            console.log(`[DARRYL] Found user by email in ticket text: ${emailMatch[0]}`);
+          }
+        }
+      }
 
       // Fetch user-specific data if we found the user
       let mailbox: CippMailbox | null = null;
