@@ -340,20 +340,24 @@ export default function TicketsPage() {
   }>>([]);
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from("close_reviews")
-      .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id)")
-      .order("created_at", { ascending: false })
-      .limit(100)
-      .then(({ data }) => {
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("close_reviews")
+          .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id)")
+          .order("created_at", { ascending: false })
+          .limit(100);
+
         const bad = (data ?? []).filter((r) => {
           const rating = (r.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating;
           return rating === "poor" || rating === "needs_improvement";
         });
         setCloseReviewTickets(bad as unknown as typeof closeReviewTickets);
-      })
-      .catch(() => setCloseReviewTickets([]));
+      } catch {
+        setCloseReviewTickets([]);
+      }
+    })();
   }, []);
 
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
