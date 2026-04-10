@@ -157,7 +157,7 @@ async function _generateCloseReview(
     })
     .map((a) => ({
       who: a.who ?? "Unknown",
-      date: a.datecreated ?? "Unknown",
+      date: a.actiondatecreated ?? a.datetime ?? a.datecreated ?? "Unknown",
       note: (a.note ?? "").slice(0, 800),
       isInternal: a.hiddenfromuser,
       outcome: a.outcome ?? null,

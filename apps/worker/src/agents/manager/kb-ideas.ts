@@ -100,7 +100,7 @@ export async function generateKbIdeas(
     })
     .map((a) => ({
       who: a.who ?? "Unknown",
-      date: a.datecreated ?? "Unknown",
+      date: a.actiondatecreated ?? a.datetime ?? a.datecreated ?? "Unknown",
       note: (a.note ?? "").slice(0, 1000),
       isInternal: a.hiddenfromuser,
     }));

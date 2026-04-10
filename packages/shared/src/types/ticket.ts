@@ -46,7 +46,12 @@ export interface HaloAction {
   readonly outcome: string;
   readonly hiddenfromuser: boolean;
   readonly who?: string;
+  // Halo returns date in multiple fields depending on context.
+  // `actiondatecreated` and `datetime` are the primary fields from the API.
+  // `datecreated` is NOT returned by the actions endpoint despite what docs imply.
   readonly datecreated?: string;
+  readonly actiondatecreated?: string;
+  readonly datetime?: string;
   readonly attachments?: ReadonlyArray<HaloAttachment>;
 }
 

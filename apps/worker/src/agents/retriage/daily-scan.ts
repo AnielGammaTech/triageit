@@ -87,6 +87,14 @@ const HALO_STATUS_MAP: Record<number, string> = {
   32: "New",
 };
 
+/**
+ * Extract the action date from a Halo action.
+ * Halo returns `actiondatecreated` or `datetime` — NOT `datecreated` on the actions endpoint.
+ */
+function actionDate(a: HaloAction): string {
+  return a.actiondatecreated ?? a.datetime ?? a.datecreated ?? "";
+}
+
 function getStatusName(ticket: HaloTicket): string {
   // Halo returns status name in various fields depending on includecolumns
   const raw = ticket as unknown as Record<string, unknown>;
@@ -112,10 +120,10 @@ function getLastActivity(actions: ReadonlyArray<HaloAction>): string | null {
   if (actions.length === 0) return null;
   const sorted = [...actions].sort(
     (a, b) =>
-      new Date(b.datecreated ?? "").getTime() -
-      new Date(a.datecreated ?? "").getTime(),
+      new Date(actionDate(b)).getTime() -
+      new Date(actionDate(a)).getTime(),
   );
-  return sorted[0]?.datecreated ?? null;
+  return sorted[0] ? actionDate(sorted[0]) || null : null;
 }
 
 function getLastCustomerReply(actions: ReadonlyArray<HaloAction>): string | null {
@@ -125,10 +133,10 @@ function getLastCustomerReply(actions: ReadonlyArray<HaloAction>): string | null
   if (customerActions.length === 0) return null;
   const sorted = [...customerActions].sort(
     (a, b) =>
-      new Date(b.datecreated ?? "").getTime() -
-      new Date(a.datecreated ?? "").getTime(),
+      new Date(actionDate(b)).getTime() -
+      new Date(actionDate(a)).getTime(),
   );
-  return sorted[0]?.datecreated ?? null;
+  return sorted[0] ? actionDate(sorted[0]) || null : null;
 }
 
 function getLastTechAction(actions: ReadonlyArray<HaloAction>): string | null {
@@ -136,10 +144,10 @@ function getLastTechAction(actions: ReadonlyArray<HaloAction>): string | null {
   if (techActions.length === 0) return null;
   const sorted = [...techActions].sort(
     (a, b) =>
-      new Date(b.datecreated ?? "").getTime() -
-      new Date(a.datecreated ?? "").getTime(),
+      new Date(actionDate(b)).getTime() -
+      new Date(actionDate(a)).getTime(),
   );
-  return sorted[0]?.datecreated ?? null;
+  return sorted[0] ? actionDate(sorted[0]) || null : null;
 }
 
 /**
@@ -170,11 +178,11 @@ function getLastCustomerFacingActivity(
 
   const sorted = [...customerFacing].sort(
     (a, b) =>
-      new Date(b.datecreated ?? "").getTime() -
-      new Date(a.datecreated ?? "").getTime(),
+      new Date(actionDate(b)).getTime() -
+      new Date(actionDate(a)).getTime(),
   );
 
-  return sorted[0]?.datecreated ?? ticketCreatedAt ?? new Date().toISOString();
+  return (sorted[0] ? actionDate(sorted[0]) : null) ?? ticketCreatedAt ?? new Date().toISOString();
 }
 
 const POSITIVE_LABELS: Record<string, string> = {
@@ -282,14 +290,14 @@ function quickRuleCheck(
   if (customerReplies.length > 0 && techNotes.length > 0) {
     let fastResponses = 0;
     for (const cr of customerReplies) {
-      const crTime = new Date(cr.datecreated ?? "").getTime();
+      const crTime = new Date(actionDate(cr)).getTime();
       // Find the next tech action after this customer reply
       const nextTechAction = techNotes.find(
-        (t) => new Date(t.datecreated ?? "").getTime() > crTime,
+        (t) => new Date(actionDate(t)).getTime() > crTime,
       );
       if (nextTechAction) {
         const responseHours =
-          (new Date(nextTechAction.datecreated ?? "").getTime() - crTime) / (1000 * 60 * 60);
+          (new Date(actionDate(nextTechAction)).getTime() - crTime) / (1000 * 60 * 60);
         if (responseHours <= 2) fastResponses++;
       }
     }
@@ -301,7 +309,7 @@ function quickRuleCheck(
   // Consistent engagement — tech has 3+ actions spread across multiple days
   if (techNotes.length >= 3) {
     const techDays = new Set(
-      techNotes.map((t) => new Date(t.datecreated ?? "").toISOString().slice(0, 10)),
+      techNotes.map((t) => new Date(actionDate(t)).toISOString().slice(0, 10)),
     );
     if (techDays.size >= 2) {
       positives.push("consistent_engagement");
@@ -583,7 +591,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       // Check if the latest customer reply is an update request
       const latestCustomerAction = [...actions]
         .filter((a) => !a.hiddenfromuser && a.note && a.who)
-        .sort((a, b) => new Date(b.datecreated ?? "").getTime() - new Date(a.datecreated ?? "").getTime())[0];
+        .sort((a, b) => new Date(actionDate(b)).getTime() - new Date(actionDate(a)).getTime())[0];
 
       if (latestCustomerAction?.note && isUpdateRequest(latestCustomerAction.note)) {
         try {
@@ -752,7 +760,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         `Recent Actions (last 10):`,
         ...actions.slice(0, 10).map(
           (a) =>
-            `  [${a.datecreated ?? "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.substring(0, 200) ?? ""}`,
+            `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.substring(0, 200) ?? ""}`,
         ),
       ].join("\n");
 

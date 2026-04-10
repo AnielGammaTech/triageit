@@ -139,7 +139,7 @@ export async function runTriage(
         note: stripHtmlActions(a.note),
         who: a.who ?? null,
         outcome: a.outcome ?? null,
-        date: a.datecreated ?? null,
+        date: a.actiondatecreated ?? a.datetime ?? a.datecreated ?? null,
         isInternal: a.hiddenfromuser,
       }));
 
