@@ -196,7 +196,13 @@ export async function generateKbIdeas(
     .map((b) => b.text)
     .join("");
 
-  return parseLlmJson<KbIdeasResult>(text);
+  try {
+    return parseLlmJson<KbIdeasResult>(text);
+  } catch (err) {
+    console.error(`[KB-IDEAS] JSON parse failed for #${haloId}:`, (err as Error).message, "Raw:", text.slice(0, 500));
+    // Return empty result instead of crashing
+    return { ideas: [], questions: [] };
+  }
 }
 
 // ── Refine a single KB idea with tech's answers ──────────────────────

@@ -22,10 +22,90 @@ export function parseLlmJson<T>(text: string): T {
       return JSON.parse(cleaned) as T;
     } catch {
       // Third try: fix common LLM JSON issues (unescaped newlines, control chars in strings)
-      const sanitized = sanitizeLlmJson(extracted);
-      return JSON.parse(sanitized) as T;
+      try {
+        const sanitized = sanitizeLlmJson(extracted);
+        return JSON.parse(sanitized) as T;
+      } catch {
+        // Fourth try: use regex to extract key-value pairs from broken JSON
+        // This handles cases where markdown content has unescaped quotes
+        const repaired = repairBrokenJsonStrings(extracted);
+        return JSON.parse(repaired) as T;
+      }
     }
   }
+}
+
+/**
+ * Attempt to repair JSON with unescaped double quotes inside string values.
+ * Common when LLM puts markdown content (with "quoted text") inside JSON strings.
+ *
+ * Strategy: find string boundaries by looking at the structural context
+ * (colons, commas, brackets) rather than just matching quotes.
+ */
+function repairBrokenJsonStrings(json: string): string {
+  // Replace literal newlines that might be inside strings
+  let fixed = json.replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+
+  // Try parsing after newline fix
+  try {
+    JSON.parse(fixed);
+    return fixed;
+  } catch {
+    // Continue
+  }
+
+  // More aggressive: escape all double quotes that aren't structural
+  // Structural quotes are: after {, after [, after :, after ,, before :, before }, before ], before ,
+  fixed = fixTrailingCommas(json);
+  const chars = [...fixed];
+  const result: string[] = [];
+  let inStr = false;
+  let i = 0;
+
+  while (i < chars.length) {
+    const ch = chars[i];
+
+    if (ch === "\\" && inStr) {
+      result.push(ch, chars[i + 1] ?? "");
+      i += 2;
+      continue;
+    }
+
+    if (ch === '"') {
+      if (!inStr) {
+        inStr = true;
+        result.push(ch);
+        i++;
+        continue;
+      }
+
+      // We're in a string and hit a quote. Is this the closing quote?
+      // Look ahead: if followed by structural char (: , } ]) then it's closing
+      let j = i + 1;
+      while (j < chars.length && (chars[j] === " " || chars[j] === "\n" || chars[j] === "\r" || chars[j] === "\t")) j++;
+      const next = chars[j];
+      if (!next || next === ":" || next === "," || next === "}" || next === "]") {
+        // Closing quote
+        inStr = false;
+        result.push(ch);
+      } else {
+        // Unescaped quote inside string — escape it
+        result.push("\\", '"');
+      }
+      i++;
+      continue;
+    }
+
+    if (inStr && ch === "\n") { result.push("\\n"); i++; continue; }
+    if (inStr && ch === "\r") { result.push("\\r"); i++; continue; }
+    if (inStr && ch === "\t") { result.push("\\t"); i++; continue; }
+    if (inStr && ch.charCodeAt(0) < 32) { result.push(" "); i++; continue; }
+
+    result.push(ch);
+    i++;
+  }
+
+  return result.join("");
 }
 
 function extractJson(text: string): string {
