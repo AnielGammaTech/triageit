@@ -108,40 +108,48 @@ export async function POST(request: NextRequest) {
   // Build system prompt with context
   let systemPrompt = TOBY_CHAT_PROMPT;
 
-  // Load Toby's latest analysis data summaries
-  const [
-    { data: techProfiles },
-    { data: customerInsights },
-    { data: recentTrends },
-    { count: openTicketCount },
-  ] = await Promise.all([
-    serviceClient.from("tech_profiles").select("tech_name, avg_response_hours, ticket_count, rating_breakdown, strong_categories, weak_categories").order("updated_at", { ascending: false }).limit(10),
-    serviceClient.from("customer_insights").select("client_name, ticket_count, top_issue_types, update_request_count").order("updated_at", { ascending: false }).limit(10),
-    serviceClient.from("trend_detections").select("trend_type, description, severity, created_at").order("created_at", { ascending: false }).limit(5),
-    serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
-  ]);
+  // Load Toby's latest analysis data summaries (graceful — don't crash if tables are empty)
+  let techProfiles: Array<Record<string, unknown>> = [];
+  let customerInsights: Array<Record<string, unknown>> = [];
+  let recentTrends: Array<Record<string, unknown>> = [];
+  let openTicketCount = 0;
 
-  systemPrompt += `\\n\\n## Current Data Snapshot (use tools for deeper dives):\\n`;
-  systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\\n`;
+  try {
+    const [tp, ci, rt, tc] = await Promise.all([
+      serviceClient.from("tech_profiles").select("tech_name, avg_response_hours, ticket_count, rating_breakdown, strong_categories, weak_categories").order("updated_at", { ascending: false }).limit(10),
+      serviceClient.from("customer_insights").select("client_name, ticket_count, top_issue_types, update_request_count").order("updated_at", { ascending: false }).limit(10),
+      serviceClient.from("trend_detections").select("trend_type, description, severity, created_at").order("created_at", { ascending: false }).limit(5),
+      serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
+    ]);
+    techProfiles = (tp.data ?? []) as Array<Record<string, unknown>>;
+    customerInsights = (ci.data ?? []) as Array<Record<string, unknown>>;
+    recentTrends = (rt.data ?? []) as Array<Record<string, unknown>>;
+    openTicketCount = tc.count ?? 0;
+  } catch {
+    // Non-critical — Toby can still work without cached profiles
+  }
+
+  systemPrompt += `\n\n## Current Data Snapshot (use tools for deeper dives):\n`;
+  systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
 
   if (techProfiles && techProfiles.length > 0) {
-    systemPrompt += `\\n### Tech Profiles:\\n`;
+    systemPrompt += `\n### Tech Profiles:\n`;
     for (const tp of techProfiles) {
-      systemPrompt += `- **${tp.tech_name}**: ${tp.ticket_count} tickets, avg response ${tp.avg_response_hours?.toFixed(1) ?? "?"}h, strong: ${tp.strong_categories ?? "?"}, weak: ${tp.weak_categories ?? "?"}\\n`;
+      systemPrompt += `- **${tp.tech_name}**: ${tp.ticket_count} tickets, avg response ${tp.avg_response_hours?.toFixed(1) ?? "?"}h, strong: ${tp.strong_categories ?? "?"}, weak: ${tp.weak_categories ?? "?"}\n`;
     }
   }
 
   if (customerInsights && customerInsights.length > 0) {
-    systemPrompt += `\\n### Top Clients:\\n`;
+    systemPrompt += `\n### Top Clients:\n`;
     for (const ci of customerInsights) {
-      systemPrompt += `- **${ci.client_name}**: ${ci.ticket_count} tickets, top issues: ${ci.top_issue_types ?? "?"}, update requests: ${ci.update_request_count ?? 0}\\n`;
+      systemPrompt += `- **${ci.client_name}**: ${ci.ticket_count} tickets, top issues: ${ci.top_issue_types ?? "?"}, update requests: ${ci.update_request_count ?? 0}\n`;
     }
   }
 
   if (recentTrends && recentTrends.length > 0) {
-    systemPrompt += `\\n### Recent Trends:\\n`;
+    systemPrompt += `\n### Recent Trends:\n`;
     for (const t of recentTrends) {
-      systemPrompt += `- [${t.severity}] ${t.trend_type}: ${t.description}\\n`;
+      systemPrompt += `- [${t.severity}] ${t.trend_type}: ${t.description}\n`;
     }
   }
 
@@ -155,9 +163,9 @@ export async function POST(request: NextRequest) {
       .order("created_at", { referencedTable: "triage_results", ascending: false });
 
     if (tickets && tickets.length > 0) {
-      systemPrompt += "\\n\\n## Mentioned Tickets:\\n";
+      systemPrompt += "\n\n## Mentioned Tickets:\n";
       for (const t of tickets) {
-        systemPrompt += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"}\\n`;
+        systemPrompt += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"}\n`;
       }
     }
   }
@@ -269,25 +277,25 @@ export async function POST(request: NextRequest) {
           serviceClient.from("tech_profiles").select("*").ilike("tech_name", `%${techName}%`).limit(1).maybeSingle(),
         ]);
 
-        let result = `## Tech Analysis: ${techName} (last ${daysBack} days)\\n\\n`;
+        let result = `## Tech Analysis: ${techName} (last ${daysBack} days)\n\n`;
 
         if (profile) {
-          result += `**Profile:** ${profile.ticket_count} total tickets, avg response ${profile.avg_response_hours?.toFixed(1) ?? "?"}h\\n`;
-          result += `Strong: ${profile.strong_categories ?? "none"} | Weak: ${profile.weak_categories ?? "none"}\\n\\n`;
+          result += `**Profile:** ${profile.ticket_count} total tickets, avg response ${profile.avg_response_hours?.toFixed(1) ?? "?"}h\n`;
+          result += `Strong: ${profile.strong_categories ?? "none"} | Weak: ${profile.weak_categories ?? "none"}\n\n`;
         }
 
-        result += `**Recent Tickets (${tickets?.length ?? 0}):**\\n`;
+        result += `**Recent Tickets (${tickets?.length ?? 0}):**\n`;
         for (const t of tickets ?? []) {
-          result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] (${formatDate(t.created_at)})\\n`;
+          result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] (${formatDate(t.created_at)})\n`;
         }
 
-        result += `\\n**Reviews (${reviews?.length ?? 0}):**\\n`;
+        result += `\n**Reviews (${reviews?.length ?? 0}):**\n`;
         const ratingCounts: Record<string, number> = {};
         for (const r of reviews ?? []) {
           ratingCounts[r.rating] = (ratingCounts[r.rating] ?? 0) + 1;
-          result += `- #${r.halo_id}: ${r.rating} (response: ${r.response_time}, gap: ${r.max_gap_hours?.toFixed(1) ?? "?"}h) — ${r.summary ?? ""}\\n`;
+          result += `- #${r.halo_id}: ${r.rating} (response: ${r.response_time}, gap: ${r.max_gap_hours?.toFixed(1) ?? "?"}h) — ${r.summary ?? ""}\n`;
         }
-        result += `\\nRating breakdown: ${JSON.stringify(ratingCounts)}\\n`;
+        result += `\nRating breakdown: ${JSON.stringify(ratingCounts)}\n`;
 
         return result;
       }
@@ -300,16 +308,16 @@ export async function POST(request: NextRequest) {
           serviceClient.from("customer_insights").select("*").ilike("client_name", `%${clientName}%`).limit(1).maybeSingle(),
         ]);
 
-        let result = `## Client Analysis: ${clientName}\\n\\n`;
+        let result = `## Client Analysis: ${clientName}\n\n`;
 
         if (insights) {
-          result += `**Insights:** ${insights.ticket_count} total tickets, update requests: ${insights.update_request_count}\\n`;
-          result += `Top issues: ${insights.top_issue_types ?? "?"}\\n\\n`;
+          result += `**Insights:** ${insights.ticket_count} total tickets, update requests: ${insights.update_request_count}\n`;
+          result += `Top issues: ${insights.top_issue_types ?? "?"}\n\n`;
         }
 
-        result += `**Recent Tickets (${tickets?.length ?? 0}):**\\n`;
+        result += `**Recent Tickets (${tickets?.length ?? 0}):**\n`;
         for (const t of tickets ?? []) {
-          result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] Tech: ${t.halo_agent ?? "Unassigned"} (${formatDate(t.created_at)})\\n`;
+          result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] Tech: ${t.halo_agent ?? "Unassigned"} (${formatDate(t.created_at)})\n`;
         }
 
         return result;
@@ -329,9 +337,9 @@ export async function POST(request: NextRequest) {
 
         const { data: tickets } = await query;
 
-        let result = `Found ${tickets?.length ?? 0} tickets (last ${daysBack} days):\\n\\n`;
+        let result = `Found ${tickets?.length ?? 0} tickets (last ${daysBack} days):\n\n`;
         for (const t of tickets ?? []) {
-          result += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${formatDate(t.created_at)}\\n`;
+          result += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${formatDate(t.created_at)}\n`;
         }
         return result;
       }
@@ -347,17 +355,17 @@ export async function POST(request: NextRequest) {
 
         if (!ticket) return `Ticket #${haloId} not found.`;
 
-        let result = `**#${ticket.halo_id}**: ${ticket.summary}\\n`;
-        result += `Client: ${ticket.client_name ?? "?"} | Status: ${ticket.halo_status ?? "?"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\\n`;
-        if (ticket.details) result += `Details: ${ticket.details.slice(0, 1000)}\\n`;
+        let result = `**#${ticket.halo_id}**: ${ticket.summary}\n`;
+        result += `Client: ${ticket.client_name ?? "?"} | Status: ${ticket.halo_status ?? "?"} | Tech: ${ticket.halo_agent ?? "Unassigned"}\n`;
+        if (ticket.details) result += `Details: ${ticket.details.slice(0, 1000)}\n`;
 
         const triageResults = (ticket.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
         const latest = triageResults[0];
         if (latest) {
           const classification = latest.classification as Record<string, string> | null;
-          result += `\\nTriage: ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}\\n`;
+          result += `\nTriage: ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}\n`;
           const notes = String(latest.internal_notes ?? "");
-          if (notes) result += `Notes: ${notes.slice(0, 1500)}\\n`;
+          if (notes) result += `Notes: ${notes.slice(0, 1500)}\n`;
         }
 
         return result;
@@ -391,11 +399,11 @@ export async function POST(request: NextRequest) {
           reviewStats[tech].ratings[r.rating] = (reviewStats[tech].ratings[r.rating] ?? 0) + 1;
         }
 
-        let result = `## Team Overview (last ${daysBack} days)\\n\\n`;
-        result += `| Tech | Tickets | Open | Reviews | Ratings |\\n|------|---------|------|---------|---------|\\n`;
+        let result = `## Team Overview (last ${daysBack} days)\n\n`;
+        result += `| Tech | Tickets | Open | Reviews | Ratings |\n|------|---------|------|---------|---------|\n`;
         for (const [tech, w] of Object.entries(workload).sort((a, b) => b[1].total - a[1].total)) {
           const rs = reviewStats[tech];
-          result += `| ${tech} | ${w.total} | ${w.open} | ${rs?.count ?? 0} | ${rs ? JSON.stringify(rs.ratings) : "-"} |\\n`;
+          result += `| ${tech} | ${w.total} | ${w.open} | ${rs?.count ?? 0} | ${rs ? JSON.stringify(rs.ratings) : "-"} |\n`;
         }
 
         return result;
@@ -412,9 +420,9 @@ export async function POST(request: NextRequest) {
 
         if (!evals || evals.length === 0) return "No triage evaluations found. Run a fresh analysis to generate them.";
 
-        let result = `## Triage Accuracy (last ${daysBack} days, ${evals.length} evaluations)\\n\\n`;
+        let result = `## Triage Accuracy (last ${daysBack} days, ${evals.length} evaluations)\n\n`;
         for (const e of evals) {
-          result += `- ${JSON.stringify(e)}\\n`;
+          result += `- ${JSON.stringify(e)}\n`;
         }
         return result;
       }
@@ -436,7 +444,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\\n\\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
       try {
