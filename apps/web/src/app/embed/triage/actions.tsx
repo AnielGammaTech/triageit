@@ -535,7 +535,8 @@ function GenerateKBButton({
 
       if (response.ok) {
         setState("done");
-        setTimeout(() => setState("idle"), 3000);
+        // Reload to show the KB note in TriageIT Notes
+        setTimeout(() => window.location.reload(), 2000);
       } else {
         setState("error");
         setTimeout(() => setState("idle"), 3000);
@@ -647,6 +648,10 @@ function AskAgentButton({
 
       if (response.ok) {
         setResult({ agentName, status: "done" });
+        setInvoking(null);
+        // Reload to show agent findings
+        setTimeout(() => window.location.reload(), 2000);
+        return;
       } else {
         setResult({ agentName, status: "error" });
       }
