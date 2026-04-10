@@ -83,8 +83,8 @@ export class HaloClient {
     ]);
   }
 
-  async addInternalNote(ticketId: number, note: string): Promise<void> {
-    await this.request("POST", "/actions", [
+  async addInternalNote(ticketId: number, note: string): Promise<number> {
+    const result = await this.request<{ id?: number }>("POST", "/actions", [
       {
         ticket_id: ticketId,
         note,
@@ -92,6 +92,35 @@ export class HaloClient {
         hiddenfromuser: true,
       },
     ]);
+    return result.id ?? 0;
+  }
+
+  async updateNote(actionId: number, ticketId: number, note: string): Promise<void> {
+    await this.request("POST", "/actions", [
+      {
+        id: actionId,
+        ticket_id: ticketId,
+        note,
+        outcome: "note",
+        hiddenfromuser: true,
+      },
+    ]);
+  }
+
+  /**
+   * Find the most recent TriageIT note of a given type on a ticket.
+   * Returns the action ID if found, null otherwise.
+   */
+  async findTriageItNote(ticketId: number, noteType: string): Promise<number | null> {
+    const actions = await this.getTicketActions(ticketId);
+    const match = [...actions]
+      .filter((a) => {
+        const lower = (a.note ?? "").toLowerCase();
+        return a.hiddenfromuser && (lower.includes("triageit") || lower.includes("triage it")) && lower.includes(noteType.toLowerCase());
+      })
+      .sort((a, b) => new Date(a.actiondatecreated ?? a.datetime ?? "").getTime() - new Date(b.actiondatecreated ?? b.datetime ?? "").getTime())
+      .pop();
+    return match?.id ?? null;
   }
 
   async addClientNote(ticketId: number, note: string): Promise<void> {

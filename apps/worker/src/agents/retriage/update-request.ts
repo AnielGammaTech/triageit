@@ -152,8 +152,15 @@ export async function handleUpdateRequest(
     `</table>`,
   ].join("");
 
-  // Post the internal note to Halo
-  await halo.addInternalNote(haloTicketId, internalNote);
+  // Post or update the internal note in Halo
+  // If a previous update request note exists, edit it instead of creating a new one
+  const existingNoteId = await halo.findTriageItNote(haloTicketId, "update request");
+  if (existingNoteId) {
+    await halo.updateNote(existingNoteId, haloTicketId, internalNote);
+    console.log(`[UPDATE-REQUEST] Updated existing note ${existingNoteId} for #${haloTicketId}`);
+  } else {
+    await halo.addInternalNote(haloTicketId, internalNote);
+  }
 
   // Send Teams notification
   const { data: teamsIntegration } = await supabase
