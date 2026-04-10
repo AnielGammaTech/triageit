@@ -315,15 +315,20 @@ export function KBBuilder({
             <button onClick={handleBack} style={dismissBtn}>back</button>
           </div>
 
-          <div style={{ fontSize: "11px", fontWeight: 700, color: "#c8ccd4", marginBottom: "6px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+          {/* Title */}
+          <div style={{
+            fontSize: "13px", fontWeight: 700, color: "#e4e6ed", marginBottom: "10px",
+            fontFamily: "'Inter', system-ui, sans-serif", lineHeight: 1.4,
+          }}>
             {selectedIdea.title}
           </div>
 
           {/* Draft preview */}
           <div style={{
-            fontSize: "10px", color: "#636e72", lineHeight: 1.6, marginBottom: "10px",
-            padding: "8px 10px", background: "#0c0d10", borderRadius: "4px", border: "1px solid #1e2028",
-            maxHeight: "120px", overflow: "auto", fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: "11px", color: "#8b8fa3", lineHeight: 1.7, marginBottom: "14px",
+            padding: "12px 14px", background: "rgba(108,92,231,0.04)", borderRadius: "6px",
+            border: "1px solid rgba(108,92,231,0.12)", borderLeft: "3px solid #6c5ce7",
+            maxHeight: "150px", overflow: "auto", fontFamily: "'Inter', system-ui, sans-serif",
             whiteSpace: "pre-wrap" as const,
           }}>
             {selectedIdea.content}
@@ -331,48 +336,54 @@ export function KBBuilder({
 
           {/* Questions */}
           {hasQuestions && (
-            <div style={{ display: "flex", flexDirection: "column" as const, gap: "8px", marginBottom: "10px" }}>
-              <div style={{ fontSize: "9px", fontWeight: 800, color: "#fdcb6e", letterSpacing: "0.1em" }}>
+            <div style={{ marginBottom: "14px" }}>
+              <div style={{
+                fontSize: "10px", fontWeight: 800, color: "#fdcb6e", letterSpacing: "0.08em",
+                marginBottom: "12px", paddingBottom: "6px", borderBottom: "1px solid rgba(253,203,110,0.12)",
+              }}>
                 DWIGHT NEEDS YOUR INPUT
               </div>
-              {questions.map((q) => (
-                <div key={q}>
-                  <label style={{
-                    display: "block", fontSize: "10px", color: "#8b8fa3", marginBottom: "3px",
-                    lineHeight: 1.4, fontFamily: "'Inter', system-ui, sans-serif",
-                  }}>
-                    {q}
-                  </label>
-                  <input
-                    type="text"
-                    value={answers[q] ?? ""}
-                    onChange={(e) => setAnswers({ ...answers, [q]: e.target.value })}
-                    placeholder="Type answer or leave blank to skip"
-                    style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      fontSize: "10px",
-                      fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-                      color: "#c8ccd4",
-                      backgroundColor: "#0c0d10",
-                      border: "1px solid #1e2028",
-                      borderRadius: "4px",
-                      outline: "none",
-                    }}
-                    onFocus={(e) => { e.currentTarget.style.borderColor = "#6c5ce7"; }}
-                    onBlur={(e) => { e.currentTarget.style.borderColor = "#1e2028"; }}
-                  />
-                </div>
-              ))}
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: "12px" }}>
+                {questions.map((q, i) => (
+                  <div key={q}>
+                    <label style={{
+                      display: "block", fontSize: "12px", color: "#c8ccd4", marginBottom: "6px",
+                      lineHeight: 1.5, fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 500,
+                    }}>
+                      <span style={{ color: "#fdcb6e", fontWeight: 700, marginRight: "6px", fontSize: "10px" }}>{i + 1}.</span>
+                      {q}
+                    </label>
+                    <input
+                      type="text"
+                      value={answers[q] ?? ""}
+                      onChange={(e) => setAnswers({ ...answers, [q]: e.target.value })}
+                      placeholder="Type answer or skip"
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        fontSize: "11px",
+                        fontFamily: "'Inter', system-ui, sans-serif",
+                        color: "#e4e6ed",
+                        backgroundColor: "#0c0d10",
+                        border: "1px solid #2d3040",
+                        borderRadius: "4px",
+                        outline: "none",
+                      }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = "#6c5ce7"; e.currentTarget.style.boxShadow = "0 0 0 2px rgba(108,92,231,0.15)"; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = "#2d3040"; e.currentTarget.style.boxShadow = "none"; }}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {error && <div style={{ fontSize: "9px", color: "#ff4757", marginBottom: "6px" }}>{error}</div>}
 
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", gap: "8px", paddingTop: "4px" }}>
             <button
               onClick={handleBuildArticle}
-              style={btn("#fff", "#6c5ce7", "#6c5ce7")}
+              style={{ ...btn("#fff", "#6c5ce7", "#6c5ce7"), padding: "8px 16px", fontSize: "11px", fontWeight: 700 }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
             >
