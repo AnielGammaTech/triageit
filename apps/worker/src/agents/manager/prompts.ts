@@ -101,7 +101,8 @@ After resolving this ticket, suggest Hudu KB articles that SHOULD exist for this
 Respond with ONLY valid JSON, no markdown:
 {
   "recommended_team": "<team name: Network, Security, Endpoint, Cloud, Identity, Email, Application, General>",
-  "recommended_agent": "<specific technician if known, null otherwise>",
+  "recommended_agent": "<REQUIRED: pick the best tech from the workload data. Consider: 1) lightest current load, 2) relevant skills for this ticket type, 3) past performance on similar tickets. Use full name. Never null — Bryanna needs a specific assignment.>",
+  "assignment_reasoning": "<1 sentence: why this tech — e.g. 'Darren has 5 open tickets (lightest) and handles endpoint issues well'>",
   "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
   "internal_notes": ["<step 1 — one short actionable sentence>", "<step 2>", "<step 3>"],
   // IMPORTANT: internal_notes MUST be a JSON array of strings. MAX 5 items.

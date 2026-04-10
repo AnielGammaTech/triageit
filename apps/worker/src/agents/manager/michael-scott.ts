@@ -462,10 +462,40 @@ export async function runTriage(
     console.warn("[MICHAEL] Memory recall failed (non-fatal):", error);
   }
 
+  // ── Step 4b: Pull tech workload for assignment recommendation ──────
+  let techWorkload = "";
+  try {
+    const { data: openTickets } = await supabase
+      .from("tickets")
+      .select("halo_agent")
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", true);
+
+    const TECH_NAMES = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
+    const counts: Record<string, number> = {};
+    for (const name of TECH_NAMES) counts[name] = 0;
+    let unassigned = 0;
+
+    for (const t of openTickets ?? []) {
+      const agent = t.halo_agent ?? "";
+      const matched = TECH_NAMES.find((n) => agent.toLowerCase().includes(n.split(" ")[0].toLowerCase()));
+      if (matched) counts[matched]++;
+      else if (!agent || agent === "Unassigned") unassigned++;
+    }
+
+    const lines = Object.entries(counts)
+      .sort((a, b) => a[1] - b[1])
+      .map(([name, count]) => `- ${name}: ${count} open tickets`);
+    lines.push(`- Unassigned: ${unassigned}`);
+    techWorkload = `\n\n## Current Tech Workload (live)\n${lines.join("\n")}\n\nRecommend the tech with the lightest load AND relevant skills for this ticket type. Tell Bryanna who to assign and why.`;
+  } catch {
+    // Non-critical
+  }
+
   // ── Step 5: Michael synthesizes ALL findings ───────────────────────
 
   const michaelResult = await synthesizeFindings(
-    context, classification, findings, successfulSpecialists, managerMemories,
+    context, classification, findings, successfulSpecialists, managerMemories, techWorkload,
   );
   const processingTime = Date.now() - startTime;
 
@@ -763,6 +793,7 @@ async function synthesizeFindings(
   findings: Record<string, AgentFinding>,
   successfulSpecialists: ReadonlyArray<string>,
   memories: ReadonlyArray<MemoryMatch> = [],
+  techWorkload: string = "",
 ): Promise<MichaelSynthesis> {
   const client = new Anthropic();
 
@@ -829,6 +860,7 @@ async function synthesizeFindings(
         ]
       : []),
     specialistSections,
+    techWorkload,
   ]
     .filter(Boolean)
     .join("\n");
