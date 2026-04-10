@@ -100,6 +100,20 @@ export async function generateCloseReview(
 
   if (!ticket) throw new Error(`Ticket #${haloId} not found`);
 
+  // Dedup: skip if we already have a close review for this ticket in the last hour
+  const { data: existingReview } = await supabase
+    .from("close_reviews")
+    .select("id")
+    .eq("halo_id", haloId)
+    .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString())
+    .limit(1)
+    .maybeSingle();
+
+  if (existingReview) {
+    console.log(`[CLOSE-REVIEW] Skipping duplicate for #${haloId} — already reviewed in the last hour`);
+    throw new Error(`Close review already exists for #${haloId}`);
+  }
+
   // Fetch Halo config for live actions
   const { data: haloIntegration } = await supabase
     .from("integrations")
