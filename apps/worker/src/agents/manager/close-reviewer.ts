@@ -235,9 +235,10 @@ export async function generateCloseReview(
     review_data: review,
   });
 
-  // ── Reopen ticket if documentation is missing ──
-  // If the tech didn't document their resolution, or Hudu needs updates,
-  // assign to Bryanna for follow-up (don't change status to avoid customer emails).
+  // ── Documentation gate: approve or hold ──
+  // If documentation is complete → resolve the ticket (status 9) → customer gets notified
+  // If documentation is missing → leave on "Awaiting Triage Review" (35) → no customer email
+  const RESOLVED_STATUS = 9;
   const needsDocumentation =
     review.documentation_action.quality_score <= 2 ||
     review.documentation_action.hudu_updates_needed.length > 0 ||
@@ -265,35 +266,47 @@ export async function generateCloseReview(
         todoItems.push(`Address: ${review.tech_performance.issues}`);
       }
 
-      // Post checklist note to Halo
+      // Post checklist note to Halo — ticket stays on status 35
       const checklistHtml = [
         `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #f59e0b;border-radius:6px;overflow:hidden;">`,
         `<tr><td colspan="2" style="padding:12px 14px;background:linear-gradient(135deg,#92400e,#b45309);color:white;font-size:15px;font-weight:700;">`,
-        `⚠️ Documentation Required Before Closing</td></tr>`,
+        `⚠️ Documentation Required — Ticket NOT Closed Yet</td></tr>`,
         `<tr><td style="padding:12px 14px;color:#fde68a;font-size:13px;line-height:1.8;">`,
-        `This ticket was closed but needs additional documentation. Please complete the following before re-closing:<br/><br/>`,
+        `TriageIT reviewed this ticket and found missing documentation. The ticket will remain open until the following is completed:<br/><br/>`,
         todoItems.map((item, i) => `<strong>${i + 1}.</strong> ${item}`).join("<br/>"),
-        `<br/><br/><span style="color:#94a3b8;font-size:11px;">Once completed, close this ticket again. TriageIt will re-review.</span>`,
+        `<br/><br/><span style="color:#94a3b8;font-size:11px;">Once completed, set the ticket to "Awaiting Triage Review" again. TriageIt will re-review and close if approved.</span>`,
         `</td></tr></table>`,
       ].join("");
 
       await halo.addInternalNote(haloId, checklistHtml);
 
-      // Assign to Bryanna (dispatcher) for follow-up — don't change status
-      // to avoid triggering Halo's customer email notifications
-      const BRYANNA_AGENT_ID = 31; // Bryanna's Halo agent ID
-      try {
-        await halo.assignTicket(haloId, BRYANNA_AGENT_ID);
-        console.log(`[CLOSE-REVIEW] Assigned #${haloId} to Bryanna for documentation follow-up`);
-      } catch (assignErr) {
-        console.error(`[CLOSE-REVIEW] Failed to assign #${haloId} to Bryanna:`, assignErr);
-      }
-
       console.log(
-        `[CLOSE-REVIEW] #${haloId} needs documentation (${todoItems.length} items) — checklist posted, assigned to Bryanna`,
+        `[CLOSE-REVIEW] #${haloId} HELD — documentation needed (${todoItems.length} items). Ticket stays on status 35.`,
       );
     } catch (err) {
-      console.error(`[CLOSE-REVIEW] Failed to reopen #${haloId}:`, err);
+      console.error(`[CLOSE-REVIEW] Failed to post checklist for #${haloId}:`, err);
+    }
+  } else {
+    // Documentation is good — resolve the ticket
+    try {
+      await halo.updateTicketStatus(haloId, RESOLVED_STATUS);
+
+      // Update local DB
+      await supabase
+        .from("tickets")
+        .update({
+          halo_is_open: false,
+          halo_status: "Resolved",
+          halo_status_id: RESOLVED_STATUS,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", ticket.id);
+
+      console.log(
+        `[CLOSE-REVIEW] #${haloId} APPROVED — documentation complete, ticket resolved.`,
+      );
+    } catch (err) {
+      console.error(`[CLOSE-REVIEW] Failed to resolve #${haloId}:`, err);
     }
   }
 
