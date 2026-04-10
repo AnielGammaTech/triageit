@@ -140,40 +140,17 @@ export async function handleUpdateRequest(
   }
   const agentMention = techName ?? "Team";
 
-  const internalNote = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;background:#1E2028;border-radius:8px;overflow:hidden;border:1px solid #2A2D35;">
-  <div style="background:linear-gradient(135deg,#8B2C2C,#5C1A1A);padding:14px 18px;">
-    <span style="font-size:15px;font-weight:700;color:#FFFFFF;">TriageIt — Customer Update Request</span>
-  </div>
-
-  <div style="padding:14px 18px;border-bottom:1px solid #2A2D35;background:#3E1A1A20;">
-    <p style="margin:0;font-size:14px;color:#EF9A9A;font-weight:600;">
-      ${agentMention} — The customer has requested an update on this ticket. Management has been notified.
-    </p>
-  </div>
-
-  <table style="width:100%;border-collapse:collapse;">
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;width:140px;">Current Status</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${analysis.ticket_status_summary}</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Work Done</td>
-      <td style="padding:12px 14px;font-size:14px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${analysis.work_done}</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#FFB74D;font-weight:600;border-bottom:1px solid #2A2D35;">Next Step</td>
-      <td style="padding:12px 14px;font-size:14px;color:#FFB74D;border-bottom:1px solid #2A2D35;font-weight:600;">${analysis.next_step}</td>
-    </tr>
-    <tr>
-      <td style="padding:12px 14px;font-size:13px;color:#78909C;font-weight:600;">Suggested Reply</td>
-      <td style="padding:12px 14px;font-size:14px;color:#90CAF9;line-height:1.6;">${analysis.suggested_response_to_customer}</td>
-    </tr>
-  </table>
-
-  <div style="padding:10px 18px;background:#1A1C22;text-align:right;">
-    <span style="font-size:11px;color:#546E7A;">TriageIt AI &middot; Update Request Handler</span>
-  </div>
-</div>`;
+  const internalNote = [
+    `<table style="font-family:'Segoe UI',Roboto,sans-serif;width:100%;max-width:680px;border-collapse:collapse;background:#1E2028;border:1px solid #2A2D35;border-radius:6px;overflow:hidden;">`,
+    `<tr><td colspan="2" style="padding:10px 14px;background:linear-gradient(135deg,#8B2C2C,#5C1A1A);color:#fff;font-size:14px;font-weight:700;">Customer Update Request</td></tr>`,
+    `<tr><td colspan="2" style="padding:8px 14px;background:rgba(62,26,26,0.12);border-bottom:1px solid #2A2D35;font-size:13px;color:#EF9A9A;font-weight:600;">${agentMention} — customer is asking for an update. Management notified.</td></tr>`,
+    `<tr><td style="padding:6px 14px;font-size:12px;color:#78909C;font-weight:600;width:100px;border-bottom:1px solid #2A2D35;">Status</td><td style="padding:6px 14px;font-size:13px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${analysis.ticket_status_summary}</td></tr>`,
+    `<tr><td style="padding:6px 14px;font-size:12px;color:#78909C;font-weight:600;border-bottom:1px solid #2A2D35;">Done</td><td style="padding:6px 14px;font-size:13px;color:#E0E0E0;border-bottom:1px solid #2A2D35;">${analysis.work_done}</td></tr>`,
+    `<tr><td style="padding:6px 14px;font-size:12px;color:#FFB74D;font-weight:600;border-bottom:1px solid #2A2D35;">Next</td><td style="padding:6px 14px;font-size:13px;color:#FFB74D;font-weight:600;border-bottom:1px solid #2A2D35;">${analysis.next_step}</td></tr>`,
+    `<tr><td style="padding:6px 14px;font-size:12px;color:#78909C;font-weight:600;">Reply</td><td style="padding:6px 14px;font-size:13px;color:#90CAF9;line-height:1.5;">${analysis.suggested_response_to_customer}</td></tr>`,
+    `<tr><td colspan="2" style="padding:4px 14px;background:#1A1C22;text-align:right;font-size:10px;color:#546E7A;">TriageIt AI &middot; update request</td></tr>`,
+    `</table>`,
+  ].join("");
 
   // Post the internal note to Halo
   await halo.addInternalNote(haloTicketId, internalNote);
