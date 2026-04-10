@@ -27,6 +27,8 @@ import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
+import { createAgent } from "./agents/registry.js";
+import type { TriageContext } from "./agents/types.js";
 
 const server = Fastify({ logger: true });
 
@@ -243,6 +245,69 @@ server.post<{ Body: { halo_id: number } }>(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[CLOSE-REVIEW] Failed for ticket #${halo_id}:`, message);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// ── Agent invoke endpoint ─────────────────────────────────────────────
+// Run a specific agent on a ticket on demand
+server.post<{ Body: { halo_id: number; agent_name: string; prompt?: string } }>(
+  "/agent/invoke",
+  async (request, reply) => {
+    const { halo_id, agent_name, prompt } = request.body;
+    if (!halo_id || !agent_name) {
+      return reply.status(400).send({ error: "halo_id and agent_name are required" });
+    }
+
+    const supabase = createSupabaseClient();
+
+    try {
+      // Look up ticket
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("halo_id", halo_id)
+        .single();
+
+      if (!ticket) {
+        return reply.status(404).send({ error: `Ticket #${halo_id} not found` });
+      }
+
+      // Build context
+      const context: TriageContext = {
+        ticketId: ticket.id,
+        haloId: ticket.halo_id,
+        summary: prompt ? `${ticket.summary}\n\nAdditional context: ${prompt}` : ticket.summary,
+        details: ticket.details,
+        clientName: ticket.client_name,
+        clientId: ticket.client_id,
+        userName: ticket.user_name,
+        userEmail: ticket.user_email,
+        originalPriority: ticket.original_priority,
+      };
+
+      // Create and run the agent
+      const agent = createAgent(agent_name, supabase);
+      if (!agent) {
+        return reply.status(400).send({ error: `Unknown agent: ${agent_name}` });
+      }
+
+      console.log(`[AGENT-INVOKE] Running ${agent_name} on ticket #${halo_id}`);
+      const result = await agent.execute(context);
+
+      return {
+        status: "completed",
+        agent_name,
+        halo_id,
+        summary: result.summary,
+        data: result.data,
+        confidence: result.confidence,
+        memories_used: result.memories_used,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[AGENT-INVOKE] ${agent_name} failed for #${halo_id}:`, message);
       return reply.status(500).send({ error: message });
     }
   },
