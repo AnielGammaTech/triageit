@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloConfig, HaloAction, TeamsConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { TeamsClient } from "../../integrations/teams/client.js";
+import { parseLlmJson } from "../parse-json.js";
 
 const UPDATE_REQUEST_PATTERNS = [
   /\bupdate\b/i,
@@ -104,13 +105,13 @@ export async function handleUpdateRequest(
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "{}";
-  const analysis = JSON.parse(text) as {
+  const analysis = parseLlmJson<{
     ticket_status_summary: string;
     work_done: string;
     next_step: string;
     needs_attention: boolean;
     suggested_response_to_customer: string;
-  };
+  }>(text);
 
   // Build the internal note @mentioning the assigned tech
   const agentMention = ticket.agent_id
