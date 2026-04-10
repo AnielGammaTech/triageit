@@ -92,8 +92,9 @@ export function KBBuilder({
       });
 
       if (!res.ok) {
-        setError("Failed to generate ideas");
+        setError("Gen failed");
         setPhase("idle");
+        setTimeout(() => setError(null), 3000);
         return;
       }
 
@@ -103,8 +104,9 @@ export function KBBuilder({
       };
 
       if (!data.ideas || data.ideas.length === 0) {
-        setError("No KB ideas found for this ticket");
+        setError("No ideas found");
         setPhase("idle");
+        setTimeout(() => setError(null), 3000);
         return;
       }
 
@@ -112,8 +114,9 @@ export function KBBuilder({
       setGlobalQuestions(data.questions ?? []);
       setPhase("ideas");
     } catch {
-      setError("Failed to reach worker");
+      setError("Connection failed");
       setPhase("idle");
+      setTimeout(() => setError(null), 3000);
     }
   }, [haloId, token, phase]);
 
@@ -205,18 +208,24 @@ export function KBBuilder({
 
   // ── IDLE: just the button
   if (phase === "idle") {
+    const hasError = error !== null;
     return (
-      <>
-        <button
-          onClick={handleGenerate}
-          style={btn("#636e72", "#12131a", "#1e2028")}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#2d3040"; e.currentTarget.style.color = "#8b8fa3"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#1e2028"; e.currentTarget.style.color = "#636e72"; }}
-        >
-          Gen KB
-        </button>
-        {error && <span style={{ fontSize: "9px", color: "#ff4757" }}>{error}</span>}
-      </>
+      <button
+        onClick={handleGenerate}
+        style={btn(
+          hasError ? "#ff4757" : "#636e72",
+          hasError ? "rgba(255,71,87,0.06)" : "#12131a",
+          hasError ? "rgba(255,71,87,0.2)" : "#1e2028",
+        )}
+        onMouseEnter={(e) => {
+          if (!hasError) { e.currentTarget.style.borderColor = "#2d3040"; e.currentTarget.style.color = "#8b8fa3"; }
+        }}
+        onMouseLeave={(e) => {
+          if (!hasError) { e.currentTarget.style.borderColor = "#1e2028"; e.currentTarget.style.color = "#636e72"; }
+        }}
+      >
+        {hasError ? error : "Gen KB"}
+      </button>
     );
   }
 
