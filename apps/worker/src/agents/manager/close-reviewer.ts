@@ -48,6 +48,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - What KB articles, procedures, or environment docs should be created/updated in Hudu based on what was learned
 
 ## Rules:
+- ALL times must be in Eastern Time (ET). Never use UTC. Convert any timestamps to ET before displaying.
 - Be factual — only state what the ticket history shows
 - Hudu updates should ONLY be permanent environment documentation: network configs, device inventories, passwords, procedures, contact info, DNS records. NOT ticket-specific details.
 - Rate the tech honestly — great/good/needs_improvement/poor
