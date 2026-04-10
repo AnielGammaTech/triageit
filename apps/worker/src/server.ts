@@ -32,6 +32,19 @@ import type { TriageContext } from "./agents/types.js";
 
 const server = Fastify({ logger: true });
 
+// ── Teams Bot endpoint ────────────────────────────────────────────────
+// Azure Bot Service sends messages here. Registered as the bot's messaging endpoint.
+server.post("/api/teams/messages", async (request, reply) => {
+  try {
+    const { botAdapter, handleTeamsMessage } = await import("./integrations/teams/bot.js");
+    // Bot Framework expects raw Node req/res
+    await botAdapter.process(request.raw, reply.raw, handleTeamsMessage);
+  } catch (err) {
+    console.error("[TEAMS-BOT] Error:", err);
+    if (!reply.sent) reply.status(500).send({ error: "Bot error" });
+  }
+});
+
 // Health check
 server.get("/health", async () => {
   return { status: "ok", service: "triageit-worker" };
