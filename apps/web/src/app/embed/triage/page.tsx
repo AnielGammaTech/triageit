@@ -395,13 +395,6 @@ export default async function EmbedTriagePage({
         <p style={s.bodyText}>{latest.urgency_reasoning}</p>
       </CollapsibleSection>
 
-      {/* ── Suggested Response ──────────────────────────────── */}
-      {latest.suggested_response && (
-        <CollapsibleSection title="Suggested Customer Response" accent="#06b6d4">
-          <p style={s.responseText}>{latest.suggested_response}</p>
-        </CollapsibleSection>
-      )}
-
       {/* ── Internal Notes ──────────────────────────────────── */}
       {latest.internal_notes && (
         <CollapsibleSection title="Internal Notes" accent="#a78bfa">
@@ -785,13 +778,6 @@ const s = {
   // Text
   bodyText: {
     color: "#d4d4d8",
-    margin: 0,
-    whiteSpace: "pre-wrap" as const,
-    fontSize: "12px",
-    lineHeight: 1.7,
-  } as React.CSSProperties,
-  responseText: {
-    color: "#67e8f9",
     margin: 0,
     whiteSpace: "pre-wrap" as const,
     fontSize: "12px",
