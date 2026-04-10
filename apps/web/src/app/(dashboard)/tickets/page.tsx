@@ -345,13 +345,20 @@ export default function TicketsPage() {
         const supabase = createClient();
         const { data } = await supabase
           .from("close_reviews")
-          .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id)")
+          .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id, halo_agent, tickettype_id)")
           .order("created_at", { ascending: false })
-          .limit(100);
+          .limit(200);
 
+        // Filter: poor/needs_improvement only, Gamma Default only, deduplicate by halo_id
+        const seen = new Set<number>();
         const bad = (data ?? []).filter((r) => {
           const rating = (r.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating;
-          return rating === "poor" || rating === "needs_improvement";
+          const ticket = r.tickets as unknown as { tickettype_id?: number };
+          const isGamma = (ticket as Record<string, unknown>).tickettype_id === 31;
+          const isBad = rating === "poor" || rating === "needs_improvement";
+          if (!isBad || !isGamma || seen.has(r.halo_id as number)) return false;
+          seen.add(r.halo_id as number);
+          return true;
         });
         setCloseReviewTickets(bad as unknown as typeof closeReviewTickets);
       } catch {
@@ -604,15 +611,16 @@ export default function TicketsPage() {
           <div className="space-y-2">
             {closeReviewTickets.map((cr) => {
               const rating = (cr.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating ?? "unknown";
-              const ticket = cr.tickets as unknown as { id: string; summary: string; client_name: string | null; halo_id: number };
+              const ticket = cr.tickets as unknown as { id: string; summary: string; client_name: string | null; halo_id: number; halo_agent: string | null };
+              const techName = ticket.halo_agent ?? cr.tech_name ?? "Unassigned";
               const ratingColor = rating === "poor" ? "text-red-400 bg-red-500/10" : "text-yellow-400 bg-yellow-500/10";
+              const haloLink = haloBaseUrl ? `${haloBaseUrl}/tickets/${ticket.halo_id}` : null;
               return (
-                <button
-                  key={cr.halo_id + cr.created_at}
-                  onClick={() => handleSelectTicket(ticket.id)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition-all hover:border-white/20 hover:bg-white/[0.04]"
+                <div
+                  key={`${cr.halo_id}-${cr.created_at}`}
+                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
                 >
-                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", ratingColor)}>
+                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", ratingColor)}>
                     {rating.replace("_", " ")}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -620,10 +628,28 @@ export default function TicketsPage() {
                       #{ticket.halo_id} — {ticket.summary}
                     </p>
                     <p className="text-xs text-white/40">
-                      {ticket.client_name ?? "Unknown"} · Tech: {cr.tech_name ?? "Unknown"} · {new Date(cr.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}
+                      {ticket.client_name ?? "Unknown"} · Assigned: <strong className="text-white/60">{techName}</strong> · {new Date(cr.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}
                     </p>
                   </div>
-                </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => handleSelectTicket(ticket.id)}
+                      className="rounded-lg px-2.5 py-1 text-[10px] font-medium bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80 transition-colors"
+                    >
+                      TriageIT
+                    </button>
+                    {haloLink && (
+                      <a
+                        href={haloLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg px-2.5 py-1 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                      >
+                        Halo
+                      </a>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
