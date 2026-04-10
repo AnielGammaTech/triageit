@@ -481,8 +481,22 @@ async function checkForUpdateRequest(haloId: number): Promise<void> {
     const actionsData = (await actionsResponse.json()) as { actions?: Array<{ note?: string; hiddenfromuser?: boolean; who?: string }> };
     const actions = actionsData.actions ?? [];
 
-    // Find the most recent customer-visible action (not internal)
-    const latestCustomerAction = actions.find((a) => !a.hiddenfromuser && a.note);
+    // Find the most recent customer-visible action (not internal, not from TriageIT or Halo automation)
+    const latestCustomerAction = actions.find((a) => {
+      if (a.hiddenfromuser) return false;
+      if (!a.note) return false;
+      // Skip TriageIT's own notes and Halo automation notes
+      const lower = (a.note ?? "").toLowerCase();
+      if (lower.includes("triageit") || lower.includes("ai triage") || lower.includes("triggr ktr")) return false;
+      // Skip HTML notes (these are system-generated, not customer typed)
+      if (a.note.startsWith("<")) return false;
+      // Must have a who (sender)
+      if (!a.who) return false;
+      // Skip known non-customer senders
+      const whoLower = (a.who ?? "").toLowerCase();
+      if (whoLower.includes("triageit") || whoLower.includes("triggr") || whoLower.includes("gamma.tech") || whoLower.includes("gtmail")) return false;
+      return true;
+    });
     if (!latestCustomerAction?.note) return;
 
     // Forward to worker's /webhook/action endpoint — it will check patterns
