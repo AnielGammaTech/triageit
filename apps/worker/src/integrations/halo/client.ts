@@ -110,15 +110,23 @@ export class HaloClient {
     const pageSize = 100;
     let page = 1;
     const allTickets: HaloTicket[] = [];
-    const typeFilter = ticketTypeId ? `&tickettype_id=${ticketTypeId}` : "";
+    // Halo uses requesttype_id (NOT tickettype_id) for ticket type filtering
+    const typeFilter = ticketTypeId ? `&requesttype_id=${ticketTypeId}` : "";
 
     while (true) {
       const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
         "GET",
-        `/tickets?page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true${typeFilter}`,
+        // open_only=true is unreliable in Halo — use status_id filter instead
+        // Status 9=Resolved is the only closed status; exclude it to get open tickets
+        `/tickets?page_size=${pageSize}&page_no=${page}&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true${typeFilter}`,
       );
       const tickets = result.tickets ?? [];
-      allTickets.push(...tickets);
+      // Client-side filter: skip resolved/closed tickets since open_only is unreliable
+      const openTickets = tickets.filter((t) => {
+        const statusId = (t as unknown as Record<string, unknown>).status_id as number | undefined;
+        return statusId !== 9 && statusId !== 10 && statusId !== 24 && statusId !== 26 && statusId !== 27;
+      });
+      allTickets.push(...openTickets);
 
       if (tickets.length < pageSize) break;
       page++;
