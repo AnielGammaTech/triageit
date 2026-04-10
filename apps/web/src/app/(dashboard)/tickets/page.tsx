@@ -55,8 +55,8 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const filterParam = searchParams.get("filter"); // "stale" | "unassigned" | null
-  const initialTab = (searchParams.get("tab") as "open" | "needs_review" | "alerts" | "resolved") ?? "open";
-  const [activeTab, setActiveTab] = useState<"open" | "needs_review" | "alerts" | "resolved">(initialTab);
+  const initialTab = (searchParams.get("tab") as "open" | "needs_review" | "review_close" | "alerts" | "resolved") ?? "open";
+  const [activeTab, setActiveTab] = useState<"open" | "needs_review" | "review_close" | "alerts" | "resolved">(initialTab);
   const [staleOnly, setStaleOnly] = useState(filterParam === "stale");
   const techFilter = searchParams.get("tech");
   const [pulling, setPulling] = useState(false);
@@ -330,6 +330,32 @@ export default function TicketsPage() {
       .catch(() => setReviewCount(0));
   }, []);
 
+  // Close review count — tickets with poor/needs_improvement close reviews
+  const [closeReviewTickets, setCloseReviewTickets] = useState<ReadonlyArray<{
+    readonly halo_id: number;
+    readonly tech_name: string | null;
+    readonly review_data: { tech_performance: { rating: string } };
+    readonly created_at: string;
+    readonly tickets: { id: string; summary: string; client_name: string | null; halo_id: number };
+  }>>([]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("close_reviews")
+      .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id)")
+      .order("created_at", { ascending: false })
+      .limit(100)
+      .then(({ data }) => {
+        const bad = (data ?? []).filter((r) => {
+          const rating = (r.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating;
+          return rating === "poor" || rating === "needs_improvement";
+        });
+        setCloseReviewTickets(bad as typeof closeReviewTickets);
+      })
+      .catch(() => setCloseReviewTickets([]));
+  }, []);
+
   const handleSelectTicket = (id: string) => router.push(`/tickets?id=${id}`);
 
   if (selectedTicketId) {
@@ -504,6 +530,15 @@ export default function TicketsPage() {
           hideZero={false}
         />
         <TabButton
+          active={activeTab === "review_close"}
+          onClick={() => setActiveTab("review_close")}
+          label="Close Review"
+          count={closeReviewTickets.length}
+          badgeClass="bg-yellow-500/20 text-yellow-400"
+          pulse={false}
+          hideZero
+        />
+        <TabButton
           active={activeTab === "alerts"}
           onClick={() => setActiveTab("alerts")}
           label="Alerts"
@@ -556,6 +591,39 @@ export default function TicketsPage() {
 
       {activeTab === "needs_review" ? (
         <ReviewList onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+      ) : activeTab === "review_close" ? (
+        closeReviewTickets.length === 0 ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
+            <p className="text-[var(--muted-foreground)]">No close reviews needing attention.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {closeReviewTickets.map((cr) => {
+              const rating = (cr.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating ?? "unknown";
+              const ticket = cr.tickets as unknown as { id: string; summary: string; client_name: string | null; halo_id: number };
+              const ratingColor = rating === "poor" ? "text-red-400 bg-red-500/10" : "text-yellow-400 bg-yellow-500/10";
+              return (
+                <button
+                  key={cr.halo_id + cr.created_at}
+                  onClick={() => handleSelectTicket(ticket.id)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition-all hover:border-white/20 hover:bg-white/[0.04]"
+                >
+                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", ratingColor)}>
+                    {rating.replace("_", " ")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-white truncate">
+                      #{ticket.halo_id} — {ticket.summary}
+                    </p>
+                    <p className="text-xs text-white/40">
+                      {ticket.client_name ?? "Unknown"} · Tech: {cr.tech_name ?? "Unknown"} · {new Date(cr.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )
       ) : activeTab === "alerts" ? (
         alertTickets.length === 0 ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
