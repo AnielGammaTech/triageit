@@ -64,22 +64,14 @@ export async function handleUpdateRequest(
 
   // DB-level dedup — check agent_logs for a recent update_request entry (survives restarts)
   const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  const { data: recentLog } = await supabase
-    .from("agent_logs")
-    .select("id")
-    .eq("agent_name", "update_request_handler")
-    .gte("created_at", thirtyMinAgo)
-    .limit(1)
-    .maybeSingle();
 
-  // Also check by ticket — need to find the local ticket ID first
-  const { data: localTicket } = await supabase
+  const { data: dedupTicket } = await supabase
     .from("tickets")
     .select("id")
     .eq("halo_id", haloTicketId)
     .maybeSingle();
 
-  if (localTicket) {
+  if (dedupTicket) {
     const { data: recentForTicket } = await supabase
       .from("agent_logs")
       .select("id")
@@ -226,15 +218,15 @@ export async function handleUpdateRequest(
   }
 
   // Log the event
-  const { data: localTicket } = await supabase
+  const { data: logTicket } = await supabase
     .from("tickets")
     .select("id")
     .eq("halo_id", haloTicketId)
     .single();
 
-  if (localTicket) {
+  if (logTicket) {
     await supabase.from("agent_logs").insert({
-      ticket_id: localTicket.id,
+      ticket_id: logTicket.id,
       agent_name: "update_request_handler",
       agent_role: "retriage",
       status: "completed",
