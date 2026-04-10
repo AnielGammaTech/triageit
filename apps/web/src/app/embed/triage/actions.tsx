@@ -2,26 +2,69 @@
 
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 
+// ── Shared Button Style Helper ─────────────────────────────────────────
+
+interface BtnStyle {
+  readonly color: string;
+  readonly bg: string;
+  readonly border: string;
+  readonly hoverBg?: string;
+  readonly hoverBorder?: string;
+}
+
+function btnBase(s: BtnStyle): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    padding: "6px 10px",
+    fontSize: "10px",
+    fontWeight: 600,
+    fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+    color: s.color,
+    backgroundColor: s.bg,
+    border: `1px solid ${s.border}`,
+    borderRadius: "4px",
+    cursor: "pointer",
+    transition: "all 0.15s ease",
+    whiteSpace: "nowrap" as const,
+    letterSpacing: "0.02em",
+    lineHeight: 1,
+  };
+}
+
+function Spinner({ color }: { readonly color: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: "10px",
+        height: "10px",
+        border: `1.5px solid ${color}40`,
+        borderTopColor: color,
+        borderRadius: "50%",
+        animation: "spin 0.6s linear infinite",
+      }}
+    />
+  );
+}
+
 // ── Copy Button ─────────────────────────────────────────────────────────
 
 function CopyButton({
   text,
   label,
-  icon,
 }: {
   readonly text: string;
   readonly label: string;
-  readonly icon: string;
 }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
-      // Try clipboard API first (works in top-level and permitted iframes)
       await navigator.clipboard.writeText(text);
     } catch {
       try {
-        // Fallback for iframes: use textarea + execCommand
         const textarea = document.createElement("textarea");
         textarea.value = text;
         textarea.style.position = "fixed";
@@ -31,56 +74,40 @@ function CopyButton({
         document.execCommand("copy");
         document.body.removeChild(textarea);
       } catch {
-        // Last resort for cross-origin iframes: open a small window with copyable text
         const w = window.open("", "_blank", "width=500,height=300");
         if (w) {
           w.document.write(`<pre style="white-space:pre-wrap;font-size:13px;padding:16px;">${text.replace(/</g, "&lt;")}</pre>`);
           w.document.close();
         }
-        return; // Don't show "Copied!" since user needs to manually copy
+        return;
       }
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
+  const style = copied
+    ? btnBase({ color: "#00b894", bg: "rgba(0,184,148,0.08)", border: "rgba(0,184,148,0.25)" })
+    : btnBase({ color: "#636e72", bg: "#12131a", border: "#1e2028" });
+
   return (
     <button
       onClick={handleCopy}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "7px 14px",
-        fontSize: "11px",
-        fontWeight: 600,
-        fontFamily: "inherit",
-        color: copied ? "#34d399" : "#a1a1aa",
-        backgroundColor: copied ? "rgba(52, 211, 153, 0.08)" : "rgba(255,255,255,0.03)",
-        border: `1px solid ${copied ? "rgba(52, 211, 153, 0.25)" : "rgba(255,255,255,0.06)"}`,
-        borderRadius: "8px",
-        cursor: "pointer",
-        transition: "all 0.2s ease",
-        whiteSpace: "nowrap" as const,
-        letterSpacing: "0.01em",
-      }}
+      style={style}
       onMouseEnter={(e) => {
         if (!copied) {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-          e.currentTarget.style.color = "#d4d4d8";
+          e.currentTarget.style.borderColor = "#2d3040";
+          e.currentTarget.style.color = "#8b8fa3";
         }
       }}
       onMouseLeave={(e) => {
         if (!copied) {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-          e.currentTarget.style.color = "#a1a1aa";
+          e.currentTarget.style.borderColor = "#1e2028";
+          e.currentTarget.style.color = "#636e72";
         }
       }}
     >
-      <span style={{ fontSize: "13px" }}>{copied ? "\u2713" : icon}</span>
-      {copied ? "Copied!" : label}
+      {copied ? "Copied" : label}
     </button>
   );
 }
@@ -109,7 +136,6 @@ function ReTriageButton({
 
       if (response.ok) {
         setState("done");
-        // Auto-refresh after a short delay to show updated notes
         setTimeout(() => window.location.reload(), 5000);
       } else {
         setState("error");
@@ -121,65 +147,39 @@ function ReTriageButton({
     }
   }, [haloId, token, state]);
 
-  const config = {
-    idle: { label: "Re-Triage", bg: "linear-gradient(135deg, #b91c1c, #4f46e5)", color: "#fff" },
-    loading: { label: "Triaging...", bg: "linear-gradient(135deg, #b91c1c, #4f46e5)", color: "#fff" },
-    done: { label: "Queued!", bg: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" },
-    error: { label: "Failed", bg: "linear-gradient(135deg, #ef4444, #dc2626)", color: "#fff" },
-  } as const;
+  const styles: Record<string, BtnStyle> = {
+    idle: { color: "#fff", bg: "#6c5ce7", border: "#6c5ce7" },
+    loading: { color: "#fff", bg: "#6c5ce7", border: "#6c5ce7" },
+    done: { color: "#fff", bg: "#00b894", border: "#00b894" },
+    error: { color: "#fff", bg: "#ff4757", border: "#ff4757" },
+  };
 
-  const c = config[state];
+  const labels: Record<string, string> = {
+    idle: "Re-Triage",
+    loading: "Triaging...",
+    done: "Queued",
+    error: "Failed",
+  };
 
   return (
     <button
       onClick={handleRetriage}
       disabled={state === "loading" || state === "done"}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "7px 16px",
-        fontSize: "11px",
+        ...btnBase(styles[state]),
         fontWeight: 700,
-        fontFamily: "inherit",
-        color: c.color,
-        background: c.bg,
-        border: "none",
-        borderRadius: "8px",
         cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
-        transition: "all 0.2s ease",
         opacity: state === "loading" ? 0.8 : 1,
-        whiteSpace: "nowrap" as const,
-        letterSpacing: "0.02em",
-        boxShadow: state === "idle" ? "0 1px 4px rgba(99, 102, 241, 0.3)" : "none",
       }}
       onMouseEnter={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.boxShadow = "0 2px 8px rgba(99, 102, 241, 0.45)";
-          e.currentTarget.style.transform = "translateY(-1px)";
-        }
+        if (state === "idle") e.currentTarget.style.opacity = "0.85";
       }}
       onMouseLeave={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.boxShadow = "0 1px 4px rgba(99, 102, 241, 0.3)";
-          e.currentTarget.style.transform = "translateY(0)";
-        }
+        if (state === "idle") e.currentTarget.style.opacity = "1";
       }}
     >
-      {state === "loading" && (
-        <span
-          style={{
-            display: "inline-block",
-            width: "11px",
-            height: "11px",
-            border: "2px solid rgba(255,255,255,0.3)",
-            borderTopColor: "#fff",
-            borderRadius: "50%",
-            animation: "spin 0.6s linear infinite",
-          }}
-        />
-      )}
-      {c.label}
+      {state === "loading" && <Spinner color="#fff" />}
+      {labels[state]}
     </button>
   );
 }
@@ -222,99 +222,85 @@ function SummarizeITButton({
     }
   }, [haloId, token, state]);
 
+  const styles: Record<string, BtnStyle> = {
+    idle: { color: "#fdcb6e", bg: "rgba(253,203,110,0.06)", border: "rgba(253,203,110,0.2)" },
+    loading: { color: "#fdcb6e", bg: "rgba(253,203,110,0.1)", border: "rgba(253,203,110,0.25)" },
+    done: { color: "#fdcb6e", bg: "rgba(253,203,110,0.06)", border: "rgba(253,203,110,0.2)" },
+    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+  };
+
+  const labels: Record<string, string> = {
+    idle: "Summarize",
+    loading: "Summarizing...",
+    done: "Summarize",
+    error: "Failed",
+  };
+
   return (
     <>
       <button
         onClick={handleSummarize}
         disabled={state === "loading"}
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          padding: "7px 14px",
-          fontSize: "11px",
-          fontWeight: 700,
-          fontFamily: "inherit",
-          color: state === "done" ? "#fbbf24" : state === "error" ? "#f87171" : "#fbbf24",
-          background: state === "loading"
-            ? "rgba(251, 191, 36, 0.08)"
-            : "linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(251, 191, 36, 0.05))",
-          border: "1px solid rgba(251, 191, 36, 0.2)",
-          borderRadius: "8px",
+          ...btnBase(styles[state]),
           cursor: state === "loading" ? "not-allowed" : "pointer",
-          transition: "all 0.2s ease",
           opacity: state === "loading" ? 0.8 : 1,
-          whiteSpace: "nowrap" as const,
-          letterSpacing: "0.01em",
         }}
         onMouseEnter={(e) => {
-          if (state === "idle" || state === "done") {
-            e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.35)";
-            e.currentTarget.style.transform = "translateY(-1px)";
+          if (state !== "loading") {
+            e.currentTarget.style.borderColor = "rgba(253,203,110,0.35)";
           }
         }}
         onMouseLeave={(e) => {
-          if (state === "idle" || state === "done") {
-            e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.2)";
-            e.currentTarget.style.transform = "translateY(0)";
+          if (state !== "loading") {
+            e.currentTarget.style.borderColor = "rgba(253,203,110,0.2)";
           }
         }}
       >
-        {state === "loading" && (
-          <span
-            style={{
-              display: "inline-block",
-              width: "11px",
-              height: "11px",
-              border: "2px solid rgba(251, 191, 36, 0.3)",
-              borderTopColor: "#fbbf24",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
-        )}
-        {state === "error"
-          ? "Failed"
-          : state === "loading"
-            ? "Summarizing..."
-            : "SummarizeIT"}
+        {state === "loading" && <Spinner color="#fdcb6e" />}
+        {labels[state]}
       </button>
 
       {summary && (
         <div
           style={{
-            width: "100%",
-            marginTop: "10px",
-            padding: "14px 16px",
-            background: "linear-gradient(135deg, rgba(251, 191, 36, 0.06), rgba(251, 191, 36, 0.02))",
-            border: "1px solid rgba(251, 191, 36, 0.15)",
-            borderRadius: "10px",
+            gridColumn: "1 / -1",
+            padding: "10px 12px",
+            background: "rgba(253,203,110,0.04)",
+            border: "1px solid rgba(253,203,110,0.12)",
+            borderRadius: "4px",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              marginBottom: "8px",
-            }}
-          >
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#fbbf24" }}>
-              SummarizeIT
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+            <span style={{ fontSize: "9px", fontWeight: 800, color: "#fdcb6e", letterSpacing: "0.1em" }}>
+              SUMMARY
             </span>
-            <span style={{ fontSize: "10px", color: "rgba(251, 191, 36, 0.4)" }}>
-              Tech Activity Summary
-            </span>
+            <button
+              onClick={() => { setState("idle"); setSummary(null); }}
+              style={{
+                marginLeft: "auto",
+                padding: "2px 6px",
+                fontSize: "9px",
+                fontWeight: 600,
+                color: "#636e72",
+                backgroundColor: "transparent",
+                border: "1px solid #1e2028",
+                borderRadius: "3px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              dismiss
+            </button>
           </div>
-          <p
-            style={{
-              color: "#d4d4d8",
-              margin: 0,
-              whiteSpace: "pre-wrap" as const,
-              fontSize: "12px",
-              lineHeight: 1.7,
-            }}
-          >
+          <p style={{
+            color: "#8b8fa3",
+            margin: 0,
+            whiteSpace: "pre-wrap" as const,
+            fontSize: "11px",
+            lineHeight: 1.6,
+            fontFamily: "'Inter', system-ui, sans-serif",
+          }}>
             {summary}
           </p>
         </div>
@@ -390,56 +376,53 @@ function SuggestReplyButton({
 
   if (state === "done" && reply) {
     return (
-      <div style={{ width: "100%" }}>
-        <div
-          style={{
-            backgroundColor: "rgba(99, 102, 241, 0.06)",
-            border: "1px solid rgba(99, 102, 241, 0.15)",
-            borderRadius: "10px",
-            padding: "12px 14px",
-            marginTop: "8px",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-            <span style={{ fontSize: "11px", fontWeight: 700, color: "#818cf8", letterSpacing: "0.03em", textTransform: "uppercase" as const }}>
-              Suggested Customer Reply
+      <div style={{ gridColumn: "1 / -1" }}>
+        <div style={{
+          backgroundColor: "rgba(162, 155, 254, 0.04)",
+          border: "1px solid rgba(162, 155, 254, 0.12)",
+          borderRadius: "4px",
+          padding: "10px 12px",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+            <span style={{ fontSize: "9px", fontWeight: 800, color: "#a29bfe", letterSpacing: "0.1em" }}>
+              SUGGESTED REPLY
             </span>
-            <div style={{ display: "flex", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "4px" }}>
               <button
                 onClick={handleCopy}
                 style={{
-                  padding: "4px 10px",
-                  fontSize: "10px",
+                  padding: "2px 6px",
+                  fontSize: "9px",
                   fontWeight: 600,
-                  color: copied ? "#34d399" : "#a1a1aa",
-                  backgroundColor: copied ? "rgba(52, 211, 153, 0.08)" : "rgba(255,255,255,0.04)",
-                  border: `1px solid ${copied ? "rgba(52, 211, 153, 0.2)" : "rgba(255,255,255,0.06)"}`,
-                  borderRadius: "6px",
+                  color: copied ? "#00b894" : "#636e72",
+                  backgroundColor: "transparent",
+                  border: `1px solid ${copied ? "rgba(0,184,148,0.25)" : "#1e2028"}`,
+                  borderRadius: "3px",
                   cursor: "pointer",
                   fontFamily: "inherit",
                 }}
               >
-                {copied ? "Copied!" : "Copy"}
+                {copied ? "copied" : "copy"}
               </button>
               <button
                 onClick={() => { setState("idle"); setReply(null); }}
                 style={{
-                  padding: "4px 10px",
-                  fontSize: "10px",
+                  padding: "2px 6px",
+                  fontSize: "9px",
                   fontWeight: 600,
-                  color: "#a1a1aa",
-                  backgroundColor: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: "6px",
+                  color: "#636e72",
+                  backgroundColor: "transparent",
+                  border: "1px solid #1e2028",
+                  borderRadius: "3px",
                   cursor: "pointer",
                   fontFamily: "inherit",
                 }}
               >
-                Dismiss
+                dismiss
               </button>
             </div>
           </div>
-          <p style={{ fontSize: "12px", color: "#d4d4d8", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" as const }}>
+          <p style={{ fontSize: "11px", color: "#8b8fa3", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" as const, fontFamily: "'Inter', system-ui, sans-serif" }}>
             {reply}
           </p>
         </div>
@@ -447,66 +430,36 @@ function SuggestReplyButton({
     );
   }
 
-  const config = {
-    idle: { label: "Suggest Reply", bg: "rgba(255,255,255,0.03)", color: "#a1a1aa", border: "rgba(255,255,255,0.06)" },
-    loading: { label: "Generating...", bg: "rgba(99, 102, 241, 0.1)", color: "#818cf8", border: "rgba(99, 102, 241, 0.2)" },
-    error: { label: "Failed", bg: "rgba(239, 68, 68, 0.1)", color: "#f87171", border: "rgba(239, 68, 68, 0.2)" },
-    done: { label: "Done", bg: "rgba(52, 211, 153, 0.1)", color: "#34d399", border: "rgba(52, 211, 153, 0.2)" },
-  } as const;
-
-  const c = config[state];
+  const styles: Record<string, BtnStyle> = {
+    idle: { color: "#636e72", bg: "#12131a", border: "#1e2028" },
+    loading: { color: "#a29bfe", bg: "rgba(162,155,254,0.08)", border: "rgba(162,155,254,0.2)" },
+    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+    done: { color: "#00b894", bg: "rgba(0,184,148,0.06)", border: "rgba(0,184,148,0.2)" },
+  };
 
   return (
     <button
       onClick={handleSuggest}
       disabled={state === "loading"}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "7px 14px",
-        fontSize: "11px",
-        fontWeight: 600,
-        fontFamily: "inherit",
-        color: c.color,
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
-        borderRadius: "8px",
+        ...btnBase(styles[state]),
         cursor: state === "loading" ? "not-allowed" : "pointer",
-        transition: "all 0.2s ease",
-        whiteSpace: "nowrap" as const,
-        letterSpacing: "0.01em",
       }}
       onMouseEnter={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-          e.currentTarget.style.color = "#d4d4d8";
+          e.currentTarget.style.borderColor = "#2d3040";
+          e.currentTarget.style.color = "#8b8fa3";
         }
       }}
       onMouseLeave={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = c.bg;
-          e.currentTarget.style.borderColor = c.border;
-          e.currentTarget.style.color = c.color;
+          e.currentTarget.style.borderColor = "#1e2028";
+          e.currentTarget.style.color = "#636e72";
         }
       }}
     >
-      {state === "loading" && (
-        <span
-          style={{
-            display: "inline-block",
-            width: "11px",
-            height: "11px",
-            border: "2px solid rgba(129, 140, 248, 0.3)",
-            borderTopColor: "#818cf8",
-            borderRadius: "50%",
-            animation: "spin 0.6s linear infinite",
-          }}
-        />
-      )}
-      <span style={{ fontSize: "13px" }}>💬</span>
-      {c.label}
+      {state === "loading" && <Spinner color="#a29bfe" />}
+      {state === "error" ? "Failed" : state === "loading" ? "Generating..." : "Suggest Reply"}
     </button>
   );
 }
@@ -535,7 +488,6 @@ function GenerateKBButton({
 
       if (response.ok) {
         setState("done");
-        // Reload to show the KB note in TriageIT Notes
         setTimeout(() => window.location.reload(), 2000);
       } else {
         setState("error");
@@ -547,66 +499,43 @@ function GenerateKBButton({
     }
   }, [haloId, token, state]);
 
-  const config = {
-    idle: { label: "Generate KB", bg: "rgba(255,255,255,0.03)", color: "#a1a1aa", border: "rgba(255,255,255,0.06)" },
-    loading: { label: "Generating...", bg: "rgba(14, 165, 233, 0.1)", color: "#38bdf8", border: "rgba(14, 165, 233, 0.2)" },
-    done: { label: "KB Generated!", bg: "rgba(52, 211, 153, 0.1)", color: "#34d399", border: "rgba(52, 211, 153, 0.2)" },
-    error: { label: "Failed", bg: "rgba(239, 68, 68, 0.1)", color: "#f87171", border: "rgba(239, 68, 68, 0.2)" },
-  } as const;
+  const styles: Record<string, BtnStyle> = {
+    idle: { color: "#636e72", bg: "#12131a", border: "#1e2028" },
+    loading: { color: "#74b9ff", bg: "rgba(116,185,255,0.08)", border: "rgba(116,185,255,0.2)" },
+    done: { color: "#00b894", bg: "rgba(0,184,148,0.08)", border: "rgba(0,184,148,0.2)" },
+    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+  };
 
-  const c = config[state];
+  const labels: Record<string, string> = {
+    idle: "Gen KB",
+    loading: "Generating...",
+    done: "KB Done",
+    error: "Failed",
+  };
 
   return (
     <button
       onClick={handleGenerate}
       disabled={state === "loading"}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "7px 14px",
-        fontSize: "11px",
-        fontWeight: 600,
-        fontFamily: "inherit",
-        color: c.color,
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
-        borderRadius: "8px",
+        ...btnBase(styles[state]),
         cursor: state === "loading" ? "not-allowed" : "pointer",
-        transition: "all 0.2s ease",
-        whiteSpace: "nowrap" as const,
-        letterSpacing: "0.01em",
       }}
       onMouseEnter={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-          e.currentTarget.style.color = "#d4d4d8";
+          e.currentTarget.style.borderColor = "#2d3040";
+          e.currentTarget.style.color = "#8b8fa3";
         }
       }}
       onMouseLeave={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-          e.currentTarget.style.color = "#a1a1aa";
+          e.currentTarget.style.borderColor = "#1e2028";
+          e.currentTarget.style.color = "#636e72";
         }
       }}
     >
-      {state === "loading" && (
-        <span
-          style={{
-            display: "inline-block",
-            width: "11px",
-            height: "11px",
-            border: "2px solid rgba(14, 165, 233, 0.3)",
-            borderTopColor: "#38bdf8",
-            borderRadius: "50%",
-            animation: "spin 0.6s linear infinite",
-          }}
-        />
-      )}
-      <span style={{ fontSize: "13px" }}>{state === "done" ? "\u2713" : "\uD83D\uDCDA"}</span>
-      {c.label}
+      {state === "loading" && <Spinner color="#74b9ff" />}
+      {labels[state]}
     </button>
   );
 }
@@ -614,14 +543,14 @@ function GenerateKBButton({
 // ── Ask Agent Dropdown Button ──────────────────────────────────────────
 
 const INVOKABLE_AGENTS = [
-  { id: "dwight_schrute", name: "Dwight", desc: "Hudu docs & KB", color: "#10b981" },
-  { id: "darryl_philbin", name: "Darryl", desc: "M365 & CIPP", color: "#3b82f6" },
-  { id: "andy_bernard", name: "Andy", desc: "Datto RMM", color: "#06b6d4" },
-  { id: "holly_flax", name: "Holly", desc: "Licensing", color: "#ec4899" },
-  { id: "angela_martin", name: "Angela", desc: "Security", color: "#ef4444" },
-  { id: "jim_halpert", name: "Jim", desc: "Identity", color: "#8b5cf6" },
-  { id: "phyllis_vance", name: "Phyllis", desc: "Email/DNS", color: "#f97316" },
-  { id: "creed_bratton", name: "Creed", desc: "UniFi", color: "#0ea5e9" },
+  { id: "dwight_schrute", name: "Dwight", desc: "Hudu / KB", color: "#00b894" },
+  { id: "darryl_philbin", name: "Darryl", desc: "M365 / CIPP", color: "#74b9ff" },
+  { id: "andy_bernard", name: "Andy", desc: "Datto RMM", color: "#00cec9" },
+  { id: "holly_flax", name: "Holly", desc: "Licensing", color: "#fd79a8" },
+  { id: "angela_martin", name: "Angela", desc: "Security", color: "#ff4757" },
+  { id: "jim_halpert", name: "Jim", desc: "Identity", color: "#a29bfe" },
+  { id: "phyllis_vance", name: "Phyllis", desc: "Email/DNS", color: "#ff8c42" },
+  { id: "creed_bratton", name: "Creed", desc: "UniFi", color: "#0984e3" },
 ] as const;
 
 function AskAgentButton({
@@ -649,7 +578,6 @@ function AskAgentButton({
       if (response.ok) {
         setResult({ agentName, status: "done" });
         setInvoking(null);
-        // Reload to show agent findings
         setTimeout(() => window.location.reload(), 2000);
         return;
       } else {
@@ -663,7 +591,6 @@ function AskAgentButton({
     setTimeout(() => setResult(null), 3000);
   }, [haloId, token]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!open) return;
     const handleClick = () => setOpen(false);
@@ -675,31 +602,15 @@ function AskAgentButton({
   }, [open]);
 
   const isLoading = invoking !== null;
-  const buttonLabel = isLoading
-    ? `Asking ${INVOKABLE_AGENTS.find((a) => a.id === invoking)?.name ?? "agent"}...`
+  const label = isLoading
+    ? `${INVOKABLE_AGENTS.find((a) => a.id === invoking)?.name ?? "..."}...`
     : result
-      ? result.status === "done"
-        ? `${result.agentName} responded!`
-        : `${result.agentName} failed`
+      ? result.status === "done" ? `${result.agentName} done` : `${result.agentName} failed`
       : "Ask Agent";
 
-  const buttonColor = isLoading
-    ? "#a78bfa"
-    : result
-      ? result.status === "done" ? "#34d399" : "#f87171"
-      : "#a1a1aa";
-
-  const buttonBg = isLoading
-    ? "rgba(167, 139, 250, 0.1)"
-    : result
-      ? result.status === "done" ? "rgba(52, 211, 153, 0.1)" : "rgba(239, 68, 68, 0.1)"
-      : "rgba(255,255,255,0.03)";
-
-  const buttonBorder = isLoading
-    ? "rgba(167, 139, 250, 0.2)"
-    : result
-      ? result.status === "done" ? "rgba(52, 211, 153, 0.2)" : "rgba(239, 68, 68, 0.2)"
-      : "rgba(255,255,255,0.06)";
+  const color = isLoading ? "#a29bfe" : result ? (result.status === "done" ? "#00b894" : "#ff4757") : "#636e72";
+  const bg = isLoading ? "rgba(162,155,254,0.08)" : result ? (result.status === "done" ? "rgba(0,184,148,0.08)" : "rgba(255,71,87,0.06)") : "#12131a";
+  const border = isLoading ? "rgba(162,155,254,0.2)" : result ? (result.status === "done" ? "rgba(0,184,148,0.2)" : "rgba(255,71,87,0.2)") : "#1e2028";
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -710,54 +621,26 @@ function AskAgentButton({
         }}
         disabled={isLoading}
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          padding: "7px 14px",
-          fontSize: "11px",
-          fontWeight: 600,
-          fontFamily: "inherit",
-          color: buttonColor,
-          backgroundColor: buttonBg,
-          border: `1px solid ${buttonBorder}`,
-          borderRadius: "8px",
+          ...btnBase({ color, bg, border }),
           cursor: isLoading ? "not-allowed" : "pointer",
-          transition: "all 0.2s ease",
-          whiteSpace: "nowrap" as const,
-          letterSpacing: "0.01em",
         }}
         onMouseEnter={(e) => {
           if (!isLoading && !result) {
-            e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)";
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-            e.currentTarget.style.color = "#d4d4d8";
+            e.currentTarget.style.borderColor = "#2d3040";
+            e.currentTarget.style.color = "#8b8fa3";
           }
         }}
         onMouseLeave={(e) => {
           if (!isLoading && !result) {
-            e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.03)";
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-            e.currentTarget.style.color = "#a1a1aa";
+            e.currentTarget.style.borderColor = "#1e2028";
+            e.currentTarget.style.color = "#636e72";
           }
         }}
       >
-        {isLoading && (
-          <span
-            style={{
-              display: "inline-block",
-              width: "11px",
-              height: "11px",
-              border: "2px solid rgba(167, 139, 250, 0.3)",
-              borderTopColor: "#a78bfa",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
-        )}
-        <span style={{ fontSize: "13px" }}>{result?.status === "done" ? "\u2713" : "\uD83E\uDD16"}</span>
-        {buttonLabel}
+        {isLoading && <Spinner color="#a29bfe" />}
+        {label}
         {!isLoading && !result && (
-          <span style={{ fontSize: "8px", marginLeft: "2px", opacity: 0.5 }}>{open ? "\u25B2" : "\u25BC"}</span>
+          <span style={{ fontSize: "7px", opacity: 0.4 }}>{open ? "\u25B2" : "\u25BC"}</span>
         )}
       </button>
 
@@ -765,24 +648,19 @@ function AskAgentButton({
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 4px)",
+            top: "calc(100% + 3px)",
             left: 0,
             zIndex: 50,
-            minWidth: "200px",
-            background: "#1a1a1f",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: "10px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            minWidth: "180px",
+            background: "#12131a",
+            border: "1px solid #1e2028",
+            borderRadius: "4px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
             overflow: "hidden",
-            animation: "fadeIn 0.15s ease",
+            animation: "fadeIn 0.1s ease",
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#52525b", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>
-              Invoke Agent
-            </span>
-          </div>
           {INVOKABLE_AGENTS.map((agent) => (
             <button
               key={agent.id}
@@ -790,77 +668,40 @@ function AskAgentButton({
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "10px",
+                gap: "8px",
                 width: "100%",
-                padding: "9px 12px",
+                padding: "7px 10px",
                 backgroundColor: "transparent",
                 border: "none",
                 cursor: "pointer",
-                fontFamily: "inherit",
+                fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
                 textAlign: "left" as const,
-                transition: "background-color 0.15s ease",
+                transition: "background-color 0.1s ease",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.backgroundColor = "#1e2028";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = "transparent";
               }}
             >
-              <span
-                style={{
-                  width: "8px",
-                  height: "8px",
-                  borderRadius: "50%",
-                  backgroundColor: agent.color,
-                  flexShrink: 0,
-                  boxShadow: `0 0 6px ${agent.color}40`,
-                }}
-              />
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "#e4e4e7", minWidth: "55px" }}>
+              <span style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "2px",
+                backgroundColor: agent.color,
+                flexShrink: 0,
+              }} />
+              <span style={{ fontSize: "10px", fontWeight: 700, color: "#c8ccd4", minWidth: "50px" }}>
                 {agent.name}
               </span>
-              <span style={{ fontSize: "10px", color: "#52525b" }}>
+              <span style={{ fontSize: "9px", color: "#3d4051" }}>
                 {agent.desc}
               </span>
             </button>
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Quick Action Bar ────────────────────────────────────────────────────
-
-export function QuickActions({
-  ticketId,
-  haloId,
-  suggestedResponse,
-  internalNotes,
-  token,
-}: {
-  readonly ticketId: string;
-  readonly haloId: number;
-  readonly suggestedResponse: string | null;
-  readonly internalNotes: string | null;
-  readonly token: string;
-}) {
-  void ticketId; // kept for potential future use
-  return (
-    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const, alignItems: "center" }}>
-      {suggestedResponse && (
-        <CopyButton text={suggestedResponse} label="Copy Response" icon={"✉"} />
-      )}
-      {internalNotes && (
-        <CopyButton text={internalNotes} label="Copy Notes" icon={"📋"} />
-      )}
-      <SuggestReplyButton haloId={haloId} token={token} />
-      <SummarizeITButton haloId={haloId} token={token} />
-      <GenerateKBButton haloId={haloId} token={token} />
-      <AskAgentButton haloId={haloId} token={token} />
-      <CloseReviewButton haloId={haloId} token={token} />
-      <ReTriageButton haloId={haloId} token={token} />
     </div>
   );
 }
@@ -900,65 +741,83 @@ function CloseReviewButton({
     }
   }, [haloId, token, state]);
 
-  const config = {
-    idle: { label: "Close Review", bg: "rgba(5, 150, 105, 0.08)", color: "#34d399", border: "rgba(52, 211, 153, 0.2)" },
-    loading: { label: "Reviewing...", bg: "rgba(5, 150, 105, 0.12)", color: "#34d399", border: "rgba(52, 211, 153, 0.25)" },
-    done: { label: "Posted!", bg: "rgba(5, 150, 105, 0.15)", color: "#34d399", border: "rgba(52, 211, 153, 0.3)" },
-    error: { label: "Failed", bg: "rgba(239, 68, 68, 0.1)", color: "#f87171", border: "rgba(239, 68, 68, 0.2)" },
-  } as const;
+  const styles: Record<string, BtnStyle> = {
+    idle: { color: "#00cec9", bg: "rgba(0,206,201,0.06)", border: "rgba(0,206,201,0.2)" },
+    loading: { color: "#00cec9", bg: "rgba(0,206,201,0.1)", border: "rgba(0,206,201,0.25)" },
+    done: { color: "#00b894", bg: "rgba(0,184,148,0.1)", border: "rgba(0,184,148,0.25)" },
+    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+  };
 
-  const c = config[state];
+  const labels: Record<string, string> = {
+    idle: "Close Review",
+    loading: "Reviewing...",
+    done: "Posted",
+    error: "Failed",
+  };
 
   return (
     <button
       onClick={handleCloseReview}
       disabled={state === "loading" || state === "done"}
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "7px 14px",
-        fontSize: "11px",
-        fontWeight: 600,
-        fontFamily: "inherit",
-        color: c.color,
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}`,
-        borderRadius: "8px",
+        ...btnBase(styles[state]),
         cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
-        transition: "all 0.2s ease",
-        whiteSpace: "nowrap" as const,
-        letterSpacing: "0.01em",
       }}
       onMouseEnter={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = "rgba(5, 150, 105, 0.15)";
-          e.currentTarget.style.borderColor = "rgba(52, 211, 153, 0.35)";
+          e.currentTarget.style.borderColor = "rgba(0,206,201,0.35)";
         }
       }}
       onMouseLeave={(e) => {
         if (state === "idle") {
-          e.currentTarget.style.backgroundColor = c.bg;
-          e.currentTarget.style.borderColor = c.border;
+          e.currentTarget.style.borderColor = "rgba(0,206,201,0.2)";
         }
       }}
     >
-      {state === "loading" && (
-        <span
-          style={{
-            display: "inline-block",
-            width: "11px",
-            height: "11px",
-            border: "2px solid rgba(52, 211, 153, 0.3)",
-            borderTopColor: "#34d399",
-            borderRadius: "50%",
-            animation: "spin 0.6s linear infinite",
-          }}
-        />
-      )}
-      <span style={{ fontSize: "13px" }}>{state === "done" ? "✓" : "✅"}</span>
-      {c.label}
+      {state === "loading" && <Spinner color="#00cec9" />}
+      {labels[state]}
     </button>
+  );
+}
+
+// ── Quick Action Bar ────────────────────────────────────────────────────
+
+export function QuickActions({
+  ticketId,
+  haloId,
+  suggestedResponse,
+  internalNotes,
+  token,
+}: {
+  readonly ticketId: string;
+  readonly haloId: number;
+  readonly suggestedResponse: string | null;
+  readonly internalNotes: string | null;
+  readonly token: string;
+}) {
+  void ticketId;
+  return (
+    <div style={{
+      display: "flex",
+      gap: "6px",
+      flexWrap: "wrap" as const,
+      alignItems: "flex-start",
+    }}>
+      {/* Primary actions */}
+      <ReTriageButton haloId={haloId} token={token} />
+      <SummarizeITButton haloId={haloId} token={token} />
+      <CloseReviewButton haloId={haloId} token={token} />
+
+      {/* Separator */}
+      <div style={{ width: "1px", height: "24px", backgroundColor: "#1e2028", alignSelf: "center" }} />
+
+      {/* Secondary actions */}
+      {suggestedResponse && <CopyButton text={suggestedResponse} label="Copy Resp" />}
+      {internalNotes && <CopyButton text={internalNotes} label="Copy Notes" />}
+      <SuggestReplyButton haloId={haloId} token={token} />
+      <GenerateKBButton haloId={haloId} token={token} />
+      <AskAgentButton haloId={haloId} token={token} />
+    </div>
   );
 }
 
@@ -966,31 +825,30 @@ function CloseReviewButton({
 
 export function CollapsibleSection({
   title,
-  accent = "#b91c1c",
+  accent = "#6c5ce7",
   defaultOpen = false,
   badge,
+  tag,
   children,
 }: {
   readonly title: string;
   readonly accent?: string;
   readonly defaultOpen?: boolean;
   readonly badge?: string;
+  readonly tag?: string;
   readonly children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div
-      style={{
-        backgroundColor: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.05)",
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: "10px",
-        marginBottom: "10px",
-        overflow: "hidden",
-        backdropFilter: "blur(8px)",
-      }}
-    >
+    <div style={{
+      background: "#12131a",
+      border: "1px solid #1e2028",
+      borderLeft: `2px solid ${accent}`,
+      borderRadius: "4px",
+      marginBottom: "6px",
+      overflow: "hidden",
+    }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -998,62 +856,65 @@ export function CollapsibleSection({
           alignItems: "center",
           gap: "8px",
           width: "100%",
-          padding: "11px 16px",
+          padding: "8px 12px",
           backgroundColor: "transparent",
           border: "none",
           cursor: "pointer",
           textAlign: "left" as const,
-          fontFamily: "inherit",
+          fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.02)";
+          e.currentTarget.style.backgroundColor = "#1a1b24";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
-        <span
-          style={{
-            fontSize: "9px",
-            color: accent,
-            transition: "transform 0.2s ease",
-            transform: open ? "rotate(90deg)" : "rotate(0deg)",
-            display: "inline-block",
-            opacity: 0.7,
-          }}
-        >
+        <span style={{
+          fontSize: "8px",
+          color: accent,
+          transition: "transform 0.15s ease",
+          transform: open ? "rotate(90deg)" : "rotate(0deg)",
+          display: "inline-block",
+          opacity: 0.6,
+        }}>
           &#9654;
         </span>
-        <span
-          style={{
-            fontSize: "11px",
-            fontWeight: 700,
-            color: "#a1a1aa",
-            textTransform: "uppercase" as const,
-            letterSpacing: "0.06em",
-            flex: 1,
-          }}
-        >
+        {tag && (
+          <span style={{
+            fontSize: "8px",
+            fontWeight: 800,
+            color: accent,
+            backgroundColor: `${accent}15`,
+            padding: "1px 5px",
+            borderRadius: "2px",
+            letterSpacing: "0.08em",
+          }}>
+            {tag}
+          </span>
+        )}
+        <span style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          color: "#636e72",
+          textTransform: "uppercase" as const,
+          letterSpacing: "0.06em",
+          flex: 1,
+        }}>
           {title}
         </span>
         {badge && (
-          <span
-            style={{
-              fontSize: "10px",
-              fontWeight: 600,
-              padding: "2px 8px",
-              borderRadius: "10px",
-              backgroundColor: `${accent}15`,
-              color: accent,
-              border: `1px solid ${accent}25`,
-            }}
-          >
+          <span style={{
+            fontSize: "9px",
+            fontWeight: 500,
+            color: "#3d4051",
+          }}>
             {badge}
           </span>
         )}
       </button>
       {open && (
-        <div style={{ padding: "0 16px 14px 16px" }}>{children}</div>
+        <div style={{ padding: "0 12px 10px 12px" }}>{children}</div>
       )}
     </div>
   );
@@ -1083,11 +944,9 @@ export function EmbedTriageButton({
 
       if (response.ok) {
         setState("done");
-        // Start polling for results
         const poll = setInterval(() => {
           window.location.reload();
         }, 5000);
-        // Stop polling after 3 minutes
         setTimeout(() => clearInterval(poll), 180_000);
       } else {
         setState("error");
@@ -1100,54 +959,32 @@ export function EmbedTriageButton({
   }, [haloId, token, state]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", gap: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column" as const, alignItems: "center", gap: "10px" }}>
       <button
         onClick={handleTriage}
         disabled={state === "loading" || state === "done"}
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "8px",
+          ...btnBase({
+            color: "#fff",
+            bg: state === "done" ? "#00b894" : state === "error" ? "#ff4757" : "#6c5ce7",
+            border: state === "done" ? "#00b894" : state === "error" ? "#ff4757" : "#6c5ce7",
+          }),
           padding: "10px 24px",
-          fontSize: "13px",
+          fontSize: "12px",
           fontWeight: 700,
-          fontFamily: "inherit",
-          color: "#fff",
-          background: state === "done"
-            ? "linear-gradient(135deg, #10b981, #059669)"
-            : state === "error"
-              ? "linear-gradient(135deg, #ef4444, #dc2626)"
-              : "linear-gradient(135deg, #b91c1c, #4f46e5)",
-          border: "none",
-          borderRadius: "10px",
           cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
-          transition: "all 0.2s ease",
           opacity: state === "loading" ? 0.85 : 1,
-          boxShadow: state === "idle" ? "0 2px 12px rgba(99, 102, 241, 0.4)" : "none",
-          letterSpacing: "0.02em",
         }}
       >
-        {state === "loading" && (
-          <span
-            style={{
-              display: "inline-block",
-              width: "14px",
-              height: "14px",
-              border: "2px solid rgba(255,255,255,0.3)",
-              borderTopColor: "#fff",
-              borderRadius: "50%",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
-        )}
+        {state === "loading" && <Spinner color="#fff" />}
         {state === "idle" && "Triage This Ticket"}
         {state === "loading" && "Triaging..."}
-        {state === "done" && "Triaging — refreshing..."}
-        {state === "error" && "Failed — Try Again"}
+        {state === "done" && "Triaging -- refreshing..."}
+        {state === "error" && "Failed -- Try Again"}
       </button>
       {state === "done" && (
-        <span style={{ fontSize: "11px", color: "#b91c1c", opacity: 0.7 }}>
-          Page will refresh automatically when triage completes
+        <span style={{ fontSize: "10px", color: "#3d4051" }}>
+          Auto-refreshing when complete
         </span>
       )}
     </div>
@@ -1173,8 +1010,8 @@ export function AutoRefresh() {
   }, []);
 
   return (
-    <span style={{ fontSize: "11px", color: "#b91c1c", opacity: 0.7 }}>
-      Auto-refreshing{dots}
+    <span style={{ fontSize: "10px", color: "#6c5ce7", opacity: 0.7, fontFamily: "'JetBrains Mono', 'SF Mono', monospace" }}>
+      auto-refreshing{dots}
     </span>
   );
 }
@@ -1186,18 +1023,20 @@ export function SpinnerStyles() {
     <style
       dangerouslySetInnerHTML={{
         __html: `
+          @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
           @keyframes spin {
             to { transform: rotate(360deg); }
           }
           @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(4px); }
+            from { opacity: 0; transform: translateY(2px); }
             to { opacity: 1; transform: translateY(0); }
           }
           * { box-sizing: border-box; }
-          body { margin: 0; }
-          ::-webkit-scrollbar { width: 6px; }
+          body { margin: 0; background: #0c0d10; }
+          ::-webkit-scrollbar { width: 4px; }
           ::-webkit-scrollbar-track { background: transparent; }
-          ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+          ::-webkit-scrollbar-thumb { background: #1e2028; border-radius: 2px; }
         `,
       }}
     />

@@ -7,40 +7,34 @@ import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, Aut
  *
  * URL format: /embed/triage?halo_id=$FAULTID&token={EMBED_SECRET}
  * Halo replaces $FAULTID with the ticket's Halo ID automatically.
- *
- * Shows:
- * 1. Latest triage summary (priority, urgency, type, team)
- * 2. Quick actions (Copy Response, Copy Notes, SummarizeIT, Re-Triage)
- * 3. All TriageIT notes posted to the ticket (in chronological order)
- * 4. Agent activity and triage history
  */
 
 // ── Constants ───────────────────────────────────────────────────────────
 
-const PRIORITY_CONFIG: Record<number, { label: string; color: string; bg: string }> = {
-  1: { label: "Critical", color: "#fca5a5", bg: "linear-gradient(135deg, #991b1b, #7f1d1d)" },
-  2: { label: "High", color: "#fdba74", bg: "linear-gradient(135deg, #9a3412, #7c2d12)" },
-  3: { label: "Medium", color: "#fcd34d", bg: "linear-gradient(135deg, #92400e, #78350f)" },
-  4: { label: "Low", color: "#6ee7b7", bg: "linear-gradient(135deg, #065f46, #064e3b)" },
-  5: { label: "Minimal", color: "#a1a1aa", bg: "linear-gradient(135deg, #3f3f46, #27272a)" },
+const PRIORITY_CONFIG: Record<number, { label: string; color: string; track: string }> = {
+  1: { label: "Critical", color: "#ff4757", track: "linear-gradient(90deg, #ff4757, #ff6b81)" },
+  2: { label: "High", color: "#ff8c42", track: "linear-gradient(90deg, #ff8c42, #ffa563)" },
+  3: { label: "Medium", color: "#ffc312", track: "linear-gradient(90deg, #ffc312, #ffd43b)" },
+  4: { label: "Low", color: "#2ed573", track: "linear-gradient(90deg, #2ed573, #7bed9f)" },
+  5: { label: "Minimal", color: "#636e72", track: "linear-gradient(90deg, #636e72, #a4b0be)" },
 };
 
 const URGENCY_COLOR = (score: number): string =>
-  score >= 4 ? "#f87171" : score >= 3 ? "#fbbf24" : "#34d399";
+  score >= 4 ? "#ff4757" : score >= 3 ? "#ffc312" : "#2ed573";
 
 const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
   AGENTS.map((a) => [a.name, a.character]),
 );
 
-const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; icon: string }> = {
-  triage: { label: "AI Triage", accent: "#b91c1c", icon: "🔍" },
-  retriage: { label: "Re-Triage", accent: "#f59e0b", icon: "🔄" },
-  "tech-review": { label: "Tech Review", accent: "#10b981", icon: "📋" },
-  "close-review": { label: "Close Review", accent: "#059669", icon: "✅" },
-  alert: { label: "Alert", accent: "#ef4444", icon: "🚨" },
-  priority: { label: "Priority", accent: "#8b5cf6", icon: "⚡" },
-  documentation: { label: "Documentation", accent: "#06b6d4", icon: "📝" },
-  other: { label: "Note", accent: "#64748b", icon: "💬" },
+const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; tag: string }> = {
+  triage: { label: "AI Triage", accent: "#6c5ce7", tag: "TRIAGE" },
+  retriage: { label: "Re-Triage", accent: "#fdcb6e", tag: "RETRIAGE" },
+  "tech-review": { label: "Tech Review", accent: "#00b894", tag: "REVIEW" },
+  "close-review": { label: "Close Review", accent: "#00cec9", tag: "CLOSE" },
+  alert: { label: "Alert", accent: "#ff4757", tag: "ALERT" },
+  priority: { label: "Priority", accent: "#a29bfe", tag: "PRIORITY" },
+  documentation: { label: "Docs", accent: "#74b9ff", tag: "DOCS" },
+  other: { label: "Note", accent: "#636e72", tag: "NOTE" },
 };
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -145,7 +139,6 @@ async function fetchTriageITNotes(
   haloId: number,
 ): Promise<ReadonlyArray<TriageITNote>> {
   try {
-    // Get Halo token
     const tokenUrl = `${config.base_url}/auth/token`;
     const tokenBody = new URLSearchParams({
       grant_type: "client_credentials",
@@ -164,7 +157,6 @@ async function fetchTriageITNotes(
     if (!tokenRes.ok) return [];
     const { access_token } = (await tokenRes.json()) as { access_token: string };
 
-    // Fetch all actions for this ticket
     const actionsRes = await fetch(
       `${config.base_url}/api/actions?ticket_id=${haloId}&excludesys=true`,
       {
@@ -179,13 +171,12 @@ async function fetchTriageITNotes(
     const data = (await actionsRes.json()) as { actions: HaloAction[] };
     const actions = data.actions ?? [];
 
-    // Filter to TriageIT notes and sort chronologically (oldest first)
     return actions
       .filter(isTriageITNote)
       .sort(
         (a, b) =>
-          new Date(getActionDate(a)).getTime() -
-          new Date(getActionDate(b)).getTime(),
+          new Date(getActionDate(b)).getTime() -
+          new Date(getActionDate(a)).getTime(),
       )
       .map((a) => ({
         id: a.id,
@@ -210,10 +201,9 @@ export default async function EmbedTriagePage({
   const haloId = params.halo_id;
   const token = params.token;
 
-  // Embed token is REQUIRED — fail-safe if EMBED_SECRET is not configured
   const embedSecret = process.env.EMBED_SECRET;
   if (!embedSecret || token !== embedSecret) {
-    return <ErrorState message="Unauthorized — invalid or missing embed token." />;
+    return <ErrorState message="Unauthorized -- invalid or missing embed token." />;
   }
 
   if (!haloId || isNaN(Number(haloId))) {
@@ -222,7 +212,6 @@ export default async function EmbedTriagePage({
 
   const supabase = await createServiceClient();
 
-  // Fetch Halo integration config (needed for notes)
   const { data: haloIntegration } = await supabase
     .from("integrations")
     .select("config")
@@ -240,12 +229,12 @@ export default async function EmbedTriagePage({
 
   if (!ticket) {
     return (
-      <div style={s.page}>
+      <div style={css.page}>
         <SpinnerStyles />
-        <div style={s.emptyWrap}>
-          <div style={s.emptyIcon}>{"\u2014"}</div>
-          <p style={s.emptyText}>
-            No triage data found for Halo ticket #{haloId}.
+        <div style={css.emptyWrap}>
+          <div style={css.emptyIcon}>?</div>
+          <p style={css.emptyText}>
+            No triage data for ticket #{haloId}
           </p>
           <EmbedTriageButton haloId={Number(haloId)} token={embedSecret} />
         </div>
@@ -253,7 +242,6 @@ export default async function EmbedTriagePage({
     );
   }
 
-  // Fetch triage results, agent logs, and TriageIT notes in parallel
   const [triageResultsRes, agentLogsRes, triageItNotes] = await Promise.all([
     supabase
       .from("triage_results")
@@ -273,16 +261,19 @@ export default async function EmbedTriagePage({
 
   if (triageResults.length === 0) {
     return (
-      <div style={s.page}>
+      <div style={css.page}>
         <SpinnerStyles />
-        <div style={s.emptyWrap}>
-          <div style={{ ...s.emptyIcon, color: ticket.status === "triaging" ? "#b91c1c" : "#52525b" }}>
-            {ticket.status === "triaging" ? "\u23F3" : "\u2014"}
+        <div style={css.emptyWrap}>
+          <div style={{
+            ...css.emptyIcon,
+            color: ticket.status === "triaging" ? "#6c5ce7" : "#636e72",
+          }}>
+            {ticket.status === "triaging" ? "..." : "--"}
           </div>
-          <p style={s.emptyText}>
+          <p style={css.emptyText}>
             {ticket.status === "triaging"
-              ? "Currently being triaged..."
-              : "Queued for triage."}
+              ? "Triage in progress"
+              : "Awaiting triage"}
           </p>
           {ticket.status === "triaging" ? (
             <AutoRefresh />
@@ -295,65 +286,91 @@ export default async function EmbedTriagePage({
   }
 
   const latest = triageResults[0];
-  const priority = PRIORITY_CONFIG[latest.recommended_priority] ?? {
+  const pri = PRIORITY_CONFIG[latest.recommended_priority] ?? {
     label: `P${latest.recommended_priority}`,
-    color: "#a1a1aa",
-    bg: "linear-gradient(135deg, #3f3f46, #27272a)",
+    color: "#636e72",
+    track: "linear-gradient(90deg, #636e72, #a4b0be)",
   };
+  const findingsEntries = Object.entries(latest.findings);
+  const completedAgents = logs.filter((l) => l.status === "completed").length;
 
   return (
-    <div style={s.page}>
+    <div style={css.page}>
       <SpinnerStyles />
 
-      {/* ── Header Bar ──────────────────────────────────────── */}
-      <div style={s.header}>
-        <div style={s.headerLeft}>
-          <div style={s.logoMark}>T</div>
-          <div>
-            <div style={s.headerTitle}>TriageIT</div>
-            {ticket.client_name && (
-              <div style={s.headerClient}>{ticket.client_name}</div>
+      {/* ── Top Bar: Logo + Client + Time ─────────────────── */}
+      <div style={css.topBar}>
+        <div style={css.topBarLeft}>
+          <div style={css.logo}>T</div>
+          <span style={css.brandName}>TriageIT</span>
+          {ticket.client_name && (
+            <>
+              <span style={css.topBarSep}>/</span>
+              <span style={css.clientName}>{ticket.client_name}</span>
+            </>
+          )}
+        </div>
+        <div style={css.topBarRight}>
+          {latest.security_flag && <span style={css.secBadge}>SEC</span>}
+          <span style={css.timestamp}>{formatTimestamp(latest.created_at)}</span>
+        </div>
+      </div>
+
+      {/* ── Status Strip: Priority / Urgency / Type / Team ── */}
+      <div style={css.statusStrip}>
+        <div style={css.statusItem}>
+          <div style={css.statusLabel}>PRI</div>
+          <div style={{ ...css.statusValue, color: pri.color }}>{pri.label}</div>
+          <div style={css.statusTrack}>
+            <div style={{
+              height: "100%",
+              width: `${(latest.recommended_priority / 5) * 100}%`,
+              background: pri.track,
+              borderRadius: "2px",
+            }} />
+          </div>
+        </div>
+        <div style={css.statusDivider} />
+        <div style={css.statusItem}>
+          <div style={css.statusLabel}>URG</div>
+          <div style={{ ...css.statusValue, color: URGENCY_COLOR(latest.urgency_score), fontFamily: "'JetBrains Mono', 'SF Mono', monospace" }}>
+            {latest.urgency_score}<span style={css.statusDim}>/5</span>
+          </div>
+        </div>
+        <div style={css.statusDivider} />
+        <div style={{ ...css.statusItem, flex: "1.5 1 0" }}>
+          <div style={css.statusLabel}>TYPE</div>
+          <div style={css.statusValue}>
+            {latest.classification.type}
+            {latest.classification.subtype && (
+              <span style={css.statusSub}> / {latest.classification.subtype}</span>
             )}
           </div>
         </div>
-        <div style={s.headerRight}>
-          {latest.security_flag && <span style={s.badgeSecurity}>SECURITY</span>}
-          {latest.triage_type === "retriage" && <span style={s.badgeRetriage}>RE-TRIAGE</span>}
-          <span style={s.headerTime}>{formatTimestamp(latest.created_at)}</span>
-        </div>
-      </div>
-
-      {/* ── Priority Hero ───────────────────────────────────── */}
-      <div style={{ ...s.heroRow, gap: "10px" }}>
-        <div style={{ ...s.heroCard, background: priority.bg, flex: "1.5 1 0" }}>
-          <span style={s.heroLabel}>PRIORITY</span>
-          <span style={{ ...s.heroValue, color: priority.color, fontSize: "22px" }}>
-            {priority.label}
-          </span>
-        </div>
-        <div style={s.heroCard}>
-          <span style={s.heroLabel}>URGENCY</span>
-          <span style={{ ...s.heroValue, color: URGENCY_COLOR(latest.urgency_score) }}>
-            {latest.urgency_score}<span style={s.heroValueDim}>/5</span>
-          </span>
-        </div>
-        <div style={s.heroCard}>
-          <span style={s.heroLabel}>TYPE</span>
-          <span style={s.heroValue}>{latest.classification.type}</span>
-          {latest.classification.subtype && (
-            <span style={s.heroSub}>{latest.classification.subtype}</span>
-          )}
-        </div>
         {latest.recommended_team && (
-          <div style={s.heroCard}>
-            <span style={s.heroLabel}>TEAM</span>
-            <span style={s.heroValue}>{latest.recommended_team}</span>
-          </div>
+          <>
+            <div style={css.statusDivider} />
+            <div style={css.statusItem}>
+              <div style={css.statusLabel}>TEAM</div>
+              <div style={css.statusValue}>{latest.recommended_team}</div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* ── Quick Actions ───────────────────────────────────── */}
-      <div style={s.actionsRow}>
+      {/* ── Security Alert ──────────────────────────────── */}
+      {latest.security_flag && latest.security_notes && (
+        <div style={css.secAlert}>
+          <div style={css.secAlertBar} />
+          <div style={css.secAlertContent}>
+            <div style={css.secAlertTitle}>SECURITY FLAG</div>
+            <p style={css.secAlertText}>{latest.security_notes}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Actions ────────────────────────────────────── */}
+      <div style={css.actionsWrap}>
         <QuickActions
           ticketId={ticket.id}
           haloId={ticket.halo_id}
@@ -363,66 +380,61 @@ export default async function EmbedTriagePage({
         />
       </div>
 
-      {/* ── Security Alert ──────────────────────────────────── */}
-      {latest.security_flag && latest.security_notes && (
-        <div style={s.securityBox}>
-          <div style={s.securityIcon}>!</div>
-          <div>
-            <div style={s.securityTitle}>Security Alert</div>
-            <p style={s.bodyText}>{latest.security_notes}</p>
+      {/* ── Agent Findings (always visible if present) ──── */}
+      {findingsEntries.length > 0 && (
+        <div style={css.findingsSection}>
+          <div style={css.sectionHeader}>
+            <span style={css.sectionTitle}>Agent Findings</span>
+            <span style={css.sectionCount}>{findingsEntries.length}</span>
           </div>
-        </div>
-      )}
-
-      {/* ── TriageIT Notes History ────────────────────────────── */}
-      {triageItNotes.length > 0 && (
-        <div style={s.notesSection}>
-          <div style={s.notesSectionHeader}>
-            <span style={s.notesSectionDot} />
-            <span style={s.notesSectionTitle}>TriageIT Notes</span>
-            <span style={s.notesSectionBadge}>{triageItNotes.length} notes</span>
-          </div>
-          <div style={s.notesList}>
-            {triageItNotes.map((note) => (
-              <NoteCard key={note.id} note={note} />
+          <div style={css.findingsGrid}>
+            {findingsEntries.map(([name, finding]) => (
+              <FindingCard
+                key={name}
+                agentName={name}
+                summary={finding.summary}
+                confidence={finding.confidence}
+              />
             ))}
           </div>
         </div>
       )}
 
-      {/* ── Urgency Analysis ────────────────────────────────── */}
-      <CollapsibleSection title="Urgency Analysis" accent="#b91c1c" defaultOpen={triageItNotes.length === 0}>
-        <p style={s.bodyText}>{latest.urgency_reasoning}</p>
+      {/* ── TriageIT Notes ─────────────────────────────── */}
+      {triageItNotes.length > 0 && (
+        <div style={css.notesSection}>
+          <div style={css.sectionHeader}>
+            <span style={css.sectionTitle}>Halo Notes</span>
+            <span style={css.sectionCount}>{triageItNotes.length}</span>
+          </div>
+          <div style={css.notesList}>
+            {triageItNotes.map((note, i) => (
+              <NoteCard key={note.id} note={note} defaultOpen={i === 0} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Urgency Reasoning ──────────────────────────── */}
+      <CollapsibleSection title="Urgency Reasoning" accent="#6c5ce7">
+        <p style={css.bodyText}>{latest.urgency_reasoning}</p>
       </CollapsibleSection>
 
-      {/* ── Internal Notes ──────────────────────────────────── */}
+      {/* ── Internal Notes ─────────────────────────────── */}
       {latest.internal_notes && (
-        <CollapsibleSection title="Internal Notes" accent="#a78bfa">
-          <p style={s.bodyText}>{latest.internal_notes}</p>
+        <CollapsibleSection title="Internal Notes" accent="#a29bfe">
+          <p style={css.bodyText}>{latest.internal_notes}</p>
         </CollapsibleSection>
       )}
 
-      {/* ── Agent Findings ──────────────────────────────────── */}
-      {Object.keys(latest.findings).length > 0 && (
-        <CollapsibleSection
-          title="Agent Findings"
-          badge={`${Object.keys(latest.findings).length} agents`}
-        >
-          <div style={s.findingsGrid}>
-            {Object.entries(latest.findings).map(([name, finding]) => (
-              <FindingCard key={name} agentName={name} summary={finding.summary} confidence={finding.confidence} />
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* ── Agent Activity ──────────────────────────────────── */}
+      {/* ── Agent Activity Log ─────────────────────────── */}
       {logs.length > 0 && (
         <CollapsibleSection
-          title="Agent Activity"
-          badge={`${logs.filter((l) => l.status === "completed").length}/${logs.length}`}
+          title="Agent Pipeline"
+          badge={`${completedAgents}/${logs.length}`}
+          accent="#636e72"
         >
-          <div style={s.logList}>
+          <div style={css.logGrid}>
             {logs.map((log, i) => (
               <AgentLogRow key={i} log={log} />
             ))}
@@ -430,15 +442,17 @@ export default async function EmbedTriagePage({
         </CollapsibleSection>
       )}
 
-      {/* ── Footer ──────────────────────────────────────────── */}
-      <div style={s.footer}>
+      {/* ── Footer ─────────────────────────────────────── */}
+      <div style={css.footer}>
+        <span>{completedAgents} agents</span>
+        <span style={css.footerDot} />
+        <span>{logs.reduce((sum, l) => sum + (l.tokens_used ?? 0), 0).toLocaleString()} tok</span>
         {latest.processing_time_ms != null && (
-          <span>{(latest.processing_time_ms / 1000).toFixed(1)}s</span>
+          <>
+            <span style={css.footerDot} />
+            <span>{(latest.processing_time_ms / 1000).toFixed(1)}s</span>
+          </>
         )}
-        <span style={s.footerDot} />
-        <span>{logs.filter((l) => l.status === "completed").length} agents</span>
-        <span style={s.footerDot} />
-        <span>{logs.reduce((sum, l) => sum + (l.tokens_used ?? 0), 0).toLocaleString()} tokens</span>
       </div>
     </div>
   );
@@ -446,15 +460,16 @@ export default async function EmbedTriagePage({
 
 // ── Sub Components ──────────────────────────────────────────────────────
 
-function NoteCard({ note }: { readonly note: TriageITNote }) {
+function NoteCard({ note, defaultOpen }: { readonly note: TriageITNote; readonly defaultOpen: boolean }) {
   const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
 
   return (
     <CollapsibleSection
-      title={`${cfg.icon} ${cfg.label} — TriageIT`}
+      title={cfg.label}
       accent={cfg.accent}
-      defaultOpen={false}
+      defaultOpen={defaultOpen}
       badge={formatTimestamp(note.date)}
+      tag={cfg.tag}
     >
       <div
         style={{ fontSize: "12px", lineHeight: 1.6, overflow: "auto", maxHeight: "500px" }}
@@ -475,38 +490,48 @@ function FindingCard({
 }) {
   const character = AGENT_CHARACTERS[agentName] ?? agentName;
   const pct = Math.round(confidence * 100);
-  const barColor = pct >= 80 ? "#34d399" : pct >= 60 ? "#fbbf24" : "#71717a";
+  const barColor = pct >= 80 ? "#00b894" : pct >= 60 ? "#fdcb6e" : "#636e72";
 
   return (
-    <div style={s.findingCard}>
-      <div style={s.findingHeader}>
-        <span style={s.findingAgent}>{character}</span>
-        <span style={{ ...s.findingPct, color: barColor }}>{pct}%</span>
+    <div style={css.findingCard}>
+      <div style={css.findingTop}>
+        <div style={css.findingAvatar}>
+          <span style={{ fontSize: "10px" }}>{character.charAt(0)}</span>
+        </div>
+        <span style={css.findingName}>{character}</span>
+        <div style={css.findingConfWrap}>
+          <div style={css.findingConfTrack}>
+            <div style={{
+              height: "100%",
+              width: `${pct}%`,
+              backgroundColor: barColor,
+              borderRadius: "2px",
+            }} />
+          </div>
+          <span style={{ ...css.findingConfPct, color: barColor }}>{pct}%</span>
+        </div>
       </div>
-      <div style={s.confidenceTrack}>
-        <div style={{ ...s.confidenceBar, width: `${pct}%`, backgroundColor: barColor }} />
-      </div>
-      <p style={s.findingText}>{summary}</p>
+      <p style={css.findingText}>{summary}</p>
     </div>
   );
 }
 
 function AgentLogRow({ log }: { readonly log: AgentLog }) {
   const character = AGENT_CHARACTERS[log.agent_name] ?? log.agent_name;
-  const cfg: Record<string, { icon: string; color: string }> = {
-    completed: { icon: "\u2713", color: "#34d399" },
-    error: { icon: "\u2717", color: "#f87171" },
-    skipped: { icon: "\u2192", color: "#71717a" },
+  const statusMap: Record<string, { symbol: string; color: string }> = {
+    completed: { symbol: "+", color: "#00b894" },
+    error: { symbol: "x", color: "#ff4757" },
+    skipped: { symbol: "-", color: "#636e72" },
   };
-  const c = cfg[log.status] ?? { icon: "\u2026", color: "#fbbf24" };
+  const st = statusMap[log.status] ?? { symbol: "~", color: "#fdcb6e" };
 
   return (
-    <div style={s.logRow}>
-      <span style={{ ...s.logIcon, color: c.color, backgroundColor: `${c.color}15` }}>{c.icon}</span>
-      <span style={s.logName}>{character}</span>
-      <span style={s.logRole}>{log.agent_role}</span>
+    <div style={css.logRow}>
+      <span style={{ ...css.logStatus, color: st.color }}>{st.symbol}</span>
+      <span style={css.logName}>{character}</span>
+      <span style={css.logRole}>{log.agent_role}</span>
       {log.duration_ms != null && (
-        <span style={s.logDuration}>{(log.duration_ms / 1000).toFixed(1)}s</span>
+        <span style={css.logTime}>{(log.duration_ms / 1000).toFixed(1)}s</span>
       )}
     </div>
   );
@@ -514,11 +539,11 @@ function AgentLogRow({ log }: { readonly log: AgentLog }) {
 
 function ErrorState({ message }: { readonly message: string }) {
   return (
-    <div style={s.page}>
+    <div style={css.page}>
       <SpinnerStyles />
-      <div style={s.emptyWrap}>
-        <div style={{ ...s.emptyIcon, color: "#f87171" }}>!</div>
-        <p style={{ ...s.emptyText, color: "#f87171" }}>{message}</p>
+      <div style={css.emptyWrap}>
+        <div style={{ ...css.emptyIcon, color: "#ff4757" }}>!</div>
+        <p style={{ ...css.emptyText, color: "#ff4757" }}>{message}</p>
       </div>
     </div>
   );
@@ -538,362 +563,351 @@ function formatTimestamp(iso: string): string {
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
-const s = {
+const css = {
   page: {
-    fontFamily: "'Inter', 'SF Pro Display', system-ui, -apple-system, sans-serif",
-    backgroundColor: "#0a0a0c",
-    color: "#fafafa",
+    fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
+    backgroundColor: "#0c0d10",
+    color: "#c8ccd4",
     minHeight: "100vh",
-    padding: "16px 20px",
-    fontSize: "13px",
+    padding: "14px 16px",
+    fontSize: "12px",
     lineHeight: 1.5,
   } as React.CSSProperties,
 
-  // Header
-  header: {
+  // ── Top Bar
+  topBar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "16px",
-    paddingBottom: "12px",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    marginBottom: "12px",
+    paddingBottom: "10px",
+    borderBottom: "1px solid #1e2028",
   } as React.CSSProperties,
-  headerLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  } as React.CSSProperties,
-  logoMark: {
-    width: "28px",
-    height: "28px",
-    borderRadius: "8px",
-    background: "linear-gradient(135deg, #b91c1c, #4f46e5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "14px",
-    fontWeight: 800,
-    color: "#fff",
-    boxShadow: "0 2px 8px rgba(99, 102, 241, 0.3)",
-  } as React.CSSProperties,
-  headerTitle: {
-    fontSize: "13px",
-    fontWeight: 700,
-    color: "#e4e4e7",
-    letterSpacing: "-0.01em",
-  } as React.CSSProperties,
-  headerClient: {
-    fontSize: "11px",
-    color: "#71717a",
-    fontWeight: 500,
-    marginTop: "1px",
-  } as React.CSSProperties,
-  headerRight: {
+  topBarLeft: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
   } as React.CSSProperties,
-  headerTime: {
+  logo: {
+    width: "22px",
+    height: "22px",
+    borderRadius: "4px",
+    background: "#6c5ce7",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     fontSize: "11px",
-    color: "#52525b",
+    fontWeight: 900,
+    color: "#fff",
+    letterSpacing: "-0.02em",
+  } as React.CSSProperties,
+  brandName: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#6c5ce7",
+    letterSpacing: "0.04em",
+  } as React.CSSProperties,
+  topBarSep: {
+    color: "#2d3040",
+    fontSize: "11px",
+    fontWeight: 400,
+  } as React.CSSProperties,
+  clientName: {
+    fontSize: "11px",
+    fontWeight: 500,
+    color: "#636e72",
+    maxWidth: "200px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  } as React.CSSProperties,
+  topBarRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+  } as React.CSSProperties,
+  secBadge: {
+    fontSize: "8px",
+    fontWeight: 800,
+    padding: "2px 6px",
+    borderRadius: "3px",
+    backgroundColor: "rgba(255, 71, 87, 0.12)",
+    color: "#ff4757",
+    border: "1px solid rgba(255, 71, 87, 0.25)",
+    letterSpacing: "0.1em",
+  } as React.CSSProperties,
+  timestamp: {
+    fontSize: "10px",
+    color: "#3d4051",
     fontWeight: 500,
   } as React.CSSProperties,
-  badgeSecurity: {
-    fontSize: "9px",
-    fontWeight: 700,
-    padding: "3px 8px",
-    borderRadius: "6px",
-    background: "linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.08))",
-    color: "#f87171",
-    border: "1px solid rgba(239, 68, 68, 0.2)",
-    letterSpacing: "0.08em",
-  } as React.CSSProperties,
-  badgeRetriage: {
-    fontSize: "9px",
-    fontWeight: 700,
-    padding: "3px 8px",
-    borderRadius: "6px",
-    background: "linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.08))",
-    color: "#fbbf24",
-    border: "1px solid rgba(245, 158, 11, 0.2)",
-    letterSpacing: "0.08em",
-  } as React.CSSProperties,
 
-  // Hero cards
-  heroRow: {
+  // ── Status Strip
+  statusStrip: {
     display: "flex",
+    alignItems: "stretch",
+    gap: "0",
     marginBottom: "12px",
-    flexWrap: "wrap" as const,
+    background: "#12131a",
+    border: "1px solid #1e2028",
+    borderRadius: "6px",
+    overflow: "hidden",
   } as React.CSSProperties,
-  heroCard: {
+  statusItem: {
     flex: "1 1 0",
-    minWidth: "80px",
-    background: "linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "10px",
-    padding: "12px 14px",
+    padding: "10px 12px",
     display: "flex",
     flexDirection: "column" as const,
     gap: "3px",
+    minWidth: 0,
   } as React.CSSProperties,
-  heroLabel: {
-    fontSize: "9px",
+  statusDivider: {
+    width: "1px",
+    backgroundColor: "#1e2028",
+    alignSelf: "stretch",
+  } as React.CSSProperties,
+  statusLabel: {
+    fontSize: "8px",
     fontWeight: 700,
-    color: "rgba(255,255,255,0.35)",
-    letterSpacing: "0.1em",
+    color: "#3d4051",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase" as const,
   } as React.CSSProperties,
-  heroValue: {
-    fontSize: "16px",
+  statusValue: {
+    fontSize: "13px",
     fontWeight: 800,
-    color: "#fafafa",
+    color: "#e4e6ed",
     textTransform: "capitalize" as const,
     lineHeight: 1.2,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
   } as React.CSSProperties,
-  heroValueDim: {
-    fontSize: "13px",
-    fontWeight: 500,
-    opacity: 0.5,
-  } as React.CSSProperties,
-  heroSub: {
+  statusDim: {
     fontSize: "10px",
-    color: "#71717a",
-    textTransform: "capitalize" as const,
+    fontWeight: 500,
+    opacity: 0.4,
+  } as React.CSSProperties,
+  statusSub: {
+    fontSize: "10px",
+    color: "#636e72",
     fontWeight: 500,
   } as React.CSSProperties,
-
-  // Actions
-  actionsRow: {
-    marginBottom: "14px",
-    padding: "10px 14px",
-    background: "linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))",
-    border: "1px solid rgba(255,255,255,0.05)",
-    borderRadius: "10px",
+  statusTrack: {
+    height: "3px",
+    backgroundColor: "#1e2028",
+    borderRadius: "2px",
+    overflow: "hidden",
+    marginTop: "2px",
   } as React.CSSProperties,
 
-  // Security
-  securityBox: {
+  // ── Security Alert
+  secAlert: {
     display: "flex",
-    gap: "12px",
-    alignItems: "flex-start",
-    padding: "14px 16px",
-    background: "linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.03))",
-    border: "1px solid rgba(239, 68, 68, 0.15)",
-    borderRadius: "10px",
-    marginBottom: "10px",
-  } as React.CSSProperties,
-  securityIcon: {
-    width: "24px",
-    height: "24px",
+    marginBottom: "12px",
+    background: "rgba(255, 71, 87, 0.04)",
+    border: "1px solid rgba(255, 71, 87, 0.15)",
     borderRadius: "6px",
-    background: "rgba(239, 68, 68, 0.15)",
-    color: "#f87171",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "13px",
-    fontWeight: 800,
+    overflow: "hidden",
+  } as React.CSSProperties,
+  secAlertBar: {
+    width: "3px",
+    backgroundColor: "#ff4757",
     flexShrink: 0,
   } as React.CSSProperties,
-  securityTitle: {
-    fontSize: "11px",
-    fontWeight: 700,
-    color: "#f87171",
-    letterSpacing: "0.03em",
+  secAlertContent: {
+    padding: "10px 12px",
+    flex: 1,
+  } as React.CSSProperties,
+  secAlertTitle: {
+    fontSize: "9px",
+    fontWeight: 800,
+    color: "#ff4757",
+    letterSpacing: "0.1em",
     marginBottom: "4px",
   } as React.CSSProperties,
+  secAlertText: {
+    color: "#ff6b81",
+    margin: 0,
+    fontSize: "11px",
+    lineHeight: 1.5,
+    fontFamily: "'Inter', system-ui, sans-serif",
+  } as React.CSSProperties,
 
-  // TriageIT Notes section
-  notesSection: {
+  // ── Actions
+  actionsWrap: {
     marginBottom: "14px",
   } as React.CSSProperties,
-  notesSectionHeader: {
+
+  // ── Sections
+  sectionHeader: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    marginBottom: "10px",
-    paddingBottom: "8px",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    marginBottom: "8px",
   } as React.CSSProperties,
-  notesSectionDot: {
-    width: "6px",
-    height: "6px",
-    borderRadius: "50%",
-    backgroundColor: "#b91c1c",
-    boxShadow: "0 0 6px rgba(99, 102, 241, 0.5)",
-  } as React.CSSProperties,
-  notesSectionTitle: {
-    fontSize: "11px",
-    fontWeight: 700,
-    color: "#a1a1aa",
+  sectionTitle: {
+    fontSize: "9px",
+    fontWeight: 800,
+    color: "#3d4051",
     textTransform: "uppercase" as const,
-    letterSpacing: "0.06em",
+    letterSpacing: "0.12em",
     flex: 1,
   } as React.CSSProperties,
-  notesSectionBadge: {
-    fontSize: "10px",
-    fontWeight: 600,
-    padding: "2px 8px",
-    borderRadius: "10px",
-    backgroundColor: "rgba(99, 102, 241, 0.1)",
-    color: "#b91c1c",
-    border: "1px solid rgba(99, 102, 241, 0.2)",
+  sectionCount: {
+    fontSize: "9px",
+    fontWeight: 700,
+    color: "#6c5ce7",
+    backgroundColor: "rgba(108, 92, 231, 0.1)",
+    padding: "1px 6px",
+    borderRadius: "3px",
+  } as React.CSSProperties,
+
+  // ── Findings
+  findingsSection: {
+    marginBottom: "14px",
+  } as React.CSSProperties,
+  findingsGrid: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "6px",
+  } as React.CSSProperties,
+  findingCard: {
+    background: "#12131a",
+    border: "1px solid #1e2028",
+    borderRadius: "6px",
+    padding: "10px 12px",
+  } as React.CSSProperties,
+  findingTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "6px",
+  } as React.CSSProperties,
+  findingAvatar: {
+    width: "20px",
+    height: "20px",
+    borderRadius: "4px",
+    backgroundColor: "rgba(108, 92, 231, 0.15)",
+    color: "#a29bfe",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    flexShrink: 0,
+  } as React.CSSProperties,
+  findingName: {
+    fontSize: "11px",
+    fontWeight: 700,
+    color: "#a29bfe",
+    flex: 1,
+  } as React.CSSProperties,
+  findingConfWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  } as React.CSSProperties,
+  findingConfTrack: {
+    width: "40px",
+    height: "3px",
+    backgroundColor: "#1e2028",
+    borderRadius: "2px",
+    overflow: "hidden",
+  } as React.CSSProperties,
+  findingConfPct: {
+    fontSize: "9px",
+    fontWeight: 700,
+    minWidth: "28px",
+    textAlign: "right" as const,
+  } as React.CSSProperties,
+  findingText: {
+    color: "#8b8fa3",
+    margin: 0,
+    fontSize: "11px",
+    lineHeight: 1.6,
+    fontFamily: "'Inter', system-ui, sans-serif",
+  } as React.CSSProperties,
+
+  // ── Notes
+  notesSection: {
+    marginBottom: "14px",
   } as React.CSSProperties,
   notesList: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "10px",
-  } as React.CSSProperties,
-  noteCard: {
-    background: "rgba(255,255,255,0.02)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "10px",
-    overflow: "hidden",
-  } as React.CSSProperties,
-  noteCardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "8px 12px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
-    background: "rgba(255,255,255,0.02)",
-  } as React.CSSProperties,
-  noteCardType: {
-    fontSize: "11px",
-    fontWeight: 700,
-    letterSpacing: "0.02em",
-  } as React.CSSProperties,
-  noteCardDate: {
-    fontSize: "10px",
-    color: "#52525b",
-    fontWeight: 500,
-  } as React.CSSProperties,
-  noteCardBody: {
-    padding: "10px 12px",
-    fontSize: "12px",
-    lineHeight: 1.6,
-    overflow: "auto",
-    maxHeight: "500px",
+    gap: "6px",
   } as React.CSSProperties,
 
-  // Text
+  // ── Body text
   bodyText: {
-    color: "#d4d4d8",
+    color: "#8b8fa3",
     margin: 0,
     whiteSpace: "pre-wrap" as const,
-    fontSize: "12px",
+    fontSize: "11px",
     lineHeight: 1.7,
+    fontFamily: "'Inter', system-ui, sans-serif",
   } as React.CSSProperties,
 
-  // Findings
-  findingsGrid: {
+  // ── Agent logs
+  logGrid: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "8px",
-  } as React.CSSProperties,
-  findingCard: {
-    background: "rgba(255,255,255,0.03)",
-    borderRadius: "8px",
-    padding: "10px 12px",
-    border: "1px solid rgba(255,255,255,0.05)",
-  } as React.CSSProperties,
-  findingHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "6px",
-  } as React.CSSProperties,
-  findingAgent: {
-    fontSize: "12px",
-    fontWeight: 700,
-    color: "#a78bfa",
-  } as React.CSSProperties,
-  findingPct: {
-    fontSize: "11px",
-    fontWeight: 700,
-  } as React.CSSProperties,
-  confidenceTrack: {
-    height: "3px",
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: "2px",
-    marginBottom: "8px",
-    overflow: "hidden",
-  } as React.CSSProperties,
-  confidenceBar: {
-    height: "100%",
-    borderRadius: "2px",
-    transition: "width 0.3s ease",
-  } as React.CSSProperties,
-  findingText: {
-    color: "#a1a1aa",
-    margin: 0,
-    fontSize: "11px",
-    lineHeight: 1.5,
-  } as React.CSSProperties,
-
-  // Agent logs
-  logList: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "4px",
+    gap: "2px",
   } as React.CSSProperties,
   logRow: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    padding: "5px 6px",
-    borderRadius: "6px",
-    fontSize: "12px",
+    padding: "4px 6px",
+    borderRadius: "4px",
+    fontSize: "11px",
   } as React.CSSProperties,
-  logIcon: {
-    width: "20px",
-    height: "20px",
-    borderRadius: "5px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "10px",
+  logStatus: {
+    width: "14px",
+    textAlign: "center" as const,
     fontWeight: 800,
+    fontSize: "10px",
     flexShrink: 0,
   } as React.CSSProperties,
   logName: {
     fontWeight: 600,
-    color: "#e4e4e7",
-    minWidth: "110px",
+    color: "#c8ccd4",
+    minWidth: "100px",
     fontSize: "11px",
   } as React.CSSProperties,
   logRole: {
-    color: "#52525b",
+    color: "#3d4051",
     flex: 1,
-    fontSize: "11px",
-  } as React.CSSProperties,
-  logDuration: {
-    color: "#52525b",
     fontSize: "10px",
-    fontFamily: "'SF Mono', 'Fira Code', monospace",
+  } as React.CSSProperties,
+  logTime: {
+    color: "#3d4051",
+    fontSize: "10px",
     fontWeight: 500,
   } as React.CSSProperties,
 
-  // Footer
+  // ── Footer
   footer: {
     display: "flex",
     gap: "8px",
     justifyContent: "center",
     alignItems: "center",
-    color: "#3f3f46",
-    fontSize: "10px",
-    marginTop: "16px",
-    paddingTop: "12px",
-    borderTop: "1px solid rgba(255,255,255,0.04)",
+    color: "#2d3040",
+    fontSize: "9px",
+    marginTop: "14px",
+    paddingTop: "10px",
+    borderTop: "1px solid #1e2028",
     fontWeight: 500,
+    letterSpacing: "0.04em",
   } as React.CSSProperties,
   footerDot: {
-    width: "3px",
-    height: "3px",
+    width: "2px",
+    height: "2px",
     borderRadius: "50%",
-    backgroundColor: "#27272a",
+    backgroundColor: "#1e2028",
   } as React.CSSProperties,
 
-  // Empty / Error
+  // ── Empty / Error
   emptyWrap: {
     display: "flex",
     flexDirection: "column" as const,
@@ -903,22 +917,23 @@ const s = {
     gap: "12px",
   } as React.CSSProperties,
   emptyIcon: {
-    fontSize: "24px",
-    color: "#52525b",
-    width: "48px",
-    height: "48px",
-    borderRadius: "14px",
-    background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.05)",
+    fontSize: "18px",
+    color: "#3d4051",
+    width: "40px",
+    height: "40px",
+    borderRadius: "6px",
+    background: "#12131a",
+    border: "1px solid #1e2028",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    fontWeight: 800,
   } as React.CSSProperties,
   emptyText: {
-    color: "#52525b",
+    color: "#3d4051",
     textAlign: "center" as const,
-    maxWidth: "320px",
-    fontSize: "13px",
+    maxWidth: "280px",
+    fontSize: "12px",
     lineHeight: 1.5,
     fontWeight: 500,
   } as React.CSSProperties,
