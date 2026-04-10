@@ -46,11 +46,27 @@ export function isUpdateRequest(text: string): boolean {
   return UPDATE_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+// Track recently handled update requests to prevent duplicates
+const recentUpdateRequests = new Map<number, number>();
+
 export async function handleUpdateRequest(
   haloTicketId: number,
   customerMessage: string,
   supabase: SupabaseClient,
 ): Promise<void> {
+  // Dedup: skip if we handled this ticket in the last 30 minutes
+  const lastHandled = recentUpdateRequests.get(haloTicketId);
+  if (lastHandled && Date.now() - lastHandled < 30 * 60 * 1000) {
+    console.log(`[UPDATE-REQUEST] Skipping duplicate for #${haloTicketId} — handled ${Math.round((Date.now() - lastHandled) / 60000)}m ago`);
+    return;
+  }
+  recentUpdateRequests.set(haloTicketId, Date.now());
+
+  // Clean old entries (keep map small)
+  for (const [id, time] of recentUpdateRequests) {
+    if (Date.now() - time > 60 * 60 * 1000) recentUpdateRequests.delete(id);
+  }
+
   // Get Halo config
   const { data: haloIntegration } = await supabase
     .from("integrations")
@@ -113,10 +129,15 @@ export async function handleUpdateRequest(
     suggested_response_to_customer: string;
   }>(text);
 
-  // Build the internal note @mentioning the assigned tech
-  const agentMention = ticket.agent_id
-    ? `@agent:${ticket.agent_id}`
-    : "@team";
+  // Resolve the assigned tech's name (not just agent_id)
+  let techName: string | null = null;
+  const raw = ticket as unknown as Record<string, unknown>;
+  if (raw.agent_name && typeof raw.agent_name === "string") {
+    techName = raw.agent_name;
+  } else if (ticket.agent_id) {
+    techName = await halo.resolveAgentName(null, ticket.agent_id);
+  }
+  const agentMention = techName ?? "Team";
 
   const internalNote = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:680px;background:#1E2028;border-radius:8px;overflow:hidden;border:1px solid #2A2D35;">
   <div style="background:linear-gradient(135deg,#8B2C2C,#5C1A1A);padding:14px 18px;">
