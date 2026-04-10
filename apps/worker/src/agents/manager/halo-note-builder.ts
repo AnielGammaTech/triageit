@@ -138,7 +138,6 @@ export function buildHaloNote(
   slaInfo?: SlaInfo,
   branding?: BrandingConfig,
   originalPriority?: number | null,
-  docGaps?: ReadonlyArray<string>,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -252,10 +251,7 @@ export function buildHaloNote(
 
   // KB Ideas removed from initial triage — they belong in the close review only
 
-  if (docGaps && docGaps.length > 0) {
-    const gapItems = docGaps.map((g) => `<li>${g}</li>`).join("");
-    rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">📝 Doc Gap</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.5;">Update Hudu after resolution:<ul style="margin:4px 0;padding-left:18px;">${gapItems}</ul></td></tr>`);
-  }
+  // Doc Gaps removed from initial triage — they belong in the close review only
 
   // Priority Recommendation — inline instead of separate note
   if (originalPriority && classification.recommended_priority !== originalPriority) {
@@ -291,7 +287,6 @@ export function buildCompactRetriageNote(
   processingTime: number,
   slaInfo?: SlaInfo,
   originalPriority?: number | null,
-  docGaps?: ReadonlyArray<string>,
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const rows: string[] = [];
