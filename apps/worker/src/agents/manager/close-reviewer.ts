@@ -87,7 +87,28 @@ Analyze the full ticket lifecycle and produce a close-out review.
   }
 }`;
 
+// In-memory lock to prevent concurrent close reviews for the same ticket
+const activeReviews = new Set<number>();
+
 export async function generateCloseReview(
+  haloId: number,
+  supabase: SupabaseClient,
+): Promise<{ review: CloseReviewResult; noteHtml: string }> {
+  // In-memory lock — prevents concurrent reviews from multiple webhook events
+  if (activeReviews.has(haloId)) {
+    console.log(`[CLOSE-REVIEW] Skipping #${haloId} — already in progress`);
+    throw new Error(`Close review already in progress for #${haloId}`);
+  }
+  activeReviews.add(haloId);
+
+  try {
+    return await _generateCloseReview(haloId, supabase);
+  } finally {
+    activeReviews.delete(haloId);
+  }
+}
+
+async function _generateCloseReview(
   haloId: number,
   supabase: SupabaseClient,
 ): Promise<{ review: CloseReviewResult; noteHtml: string }> {
