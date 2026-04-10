@@ -5,24 +5,25 @@ import { HaloClient } from "../../integrations/halo/client.js";
 import { TeamsClient } from "../../integrations/teams/client.js";
 import { parseLlmJson } from "../parse-json.js";
 
+// Only match when the customer is ASKING for an update — not providing one.
+// "please update the MFA list" is NOT an update request.
+// "any update on this?" IS an update request.
 const UPDATE_REQUEST_PATTERNS = [
-  /\bupdate\b/i,
-  /\bstatus\b/i,
-  /\bany\s+news\b/i,
-  /\bfollowing\s+up\b/i,
-  /\bfollow\s*-?\s*up\b/i,
+  /\bany\s+(update|news|progress)\b/i,
   /\bwhat('?s| is)\s+(the\s+)?(status|update|progress)\b/i,
-  /\bwhen\s+(will|can)\b/i,
-  /\bjust\s+checking\b/i,
-  /\bany\s+progress\b/i,
-  /\bwaiting\b/i,
+  /\bfollowing\s+up\b/i,
+  /\bfollow\s*-?\s*up\s+on\b/i,
+  /\bjust\s+checking\s+(in|on)\b/i,
   /\bstill\s+(waiting|pending|open)\b/i,
-  /\bhas\s+(this|anything)\s+been\b/i,
-  /\bcan\s+you\s+(provide|give)\b.*\bupdate\b/i,
-  /\bETA\b/,
-  /\bhaven'?t\s+heard\b/i,
-  /\bno\s+response\b/i,
-  /\bplease\s+(advise|update|respond)\b/i,
+  /\bhas\s+(this|anything)\s+been\s+(done|resolved|fixed|addressed|looked\s+at)\b/i,
+  /\bcan\s+(you|we)\s+(get|provide|give)\s+(an?\s+)?update\b/i,
+  /\bwhat('?s| is)\s+the\s+ETA\b/i,
+  /\bhaven'?t\s+heard\s+back\b/i,
+  /\bno\s+(response|reply)\s+(from|yet)\b/i,
+  /\bplease\s+(advise|respond)\b/i,
+  /\bany\s+update\s*\?/i,
+  /\bwhere\s+are\s+we\s+(on|with)\b/i,
+  /\bis\s+anyone\s+(working|looking)\b/i,
 ];
 
 const RETRIAGE_PROMPT = `You are an MSP help desk advisor. A customer has asked for an update on their ticket.
