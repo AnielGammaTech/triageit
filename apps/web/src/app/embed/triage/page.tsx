@@ -341,9 +341,9 @@ export default async function EmbedTriagePage({
         <div style={{ ...css.statusItem, flex: "1.5 1 0" }}>
           <div style={css.statusLabel}>TYPE</div>
           <div style={css.statusValue}>
-            {latest.classification.type}
+            {latest.classification.type.replace(/_/g, " ")}
             {latest.classification.subtype && (
-              <span style={css.statusSub}> / {latest.classification.subtype}</span>
+              <span style={css.statusSub}> / {latest.classification.subtype.replace(/_/g, " ")}</span>
             )}
           </div>
         </div>
@@ -380,13 +380,14 @@ export default async function EmbedTriagePage({
         />
       </div>
 
-      {/* ── Agent Findings (always visible if present) ──── */}
+      {/* ── Agent Findings (collapsible) ──────────────── */}
       {findingsEntries.length > 0 && (
-        <div style={css.findingsSection}>
-          <div style={css.sectionHeader}>
-            <span style={css.sectionTitle}>Agent Findings</span>
-            <span style={css.sectionCount}>{findingsEntries.length}</span>
-          </div>
+        <CollapsibleSection
+          title="Agent Findings"
+          badge={`${findingsEntries.length} agents`}
+          accent="#a29bfe"
+          defaultOpen={findingsEntries.length <= 3}
+        >
           <div style={css.findingsGrid}>
             {findingsEntries.map(([name, finding]) => (
               <FindingCard
@@ -397,7 +398,7 @@ export default async function EmbedTriagePage({
               />
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* ── TriageIT Notes ─────────────────────────────── */}
@@ -493,25 +494,52 @@ function FindingCard({
   const barColor = pct >= 80 ? "#00b894" : pct >= 60 ? "#fdcb6e" : "#636e72";
 
   return (
-    <div style={css.findingCard}>
-      <div style={css.findingTop}>
-        <div style={css.findingAvatar}>
-          <span style={{ fontSize: "10px" }}>{character.charAt(0)}</span>
+    <div style={{
+      padding: "8px 10px",
+      borderBottom: "1px solid #1e2028",
+    }}>
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        marginBottom: "4px",
+      }}>
+        <span style={{
+          fontSize: "11px",
+          fontWeight: 700,
+          color: "#a29bfe",
+          fontFamily: "'Inter', system-ui, sans-serif",
+        }}>{character}</span>
+        <span style={{ flex: 1 }} />
+        <div style={{
+          width: "32px",
+          height: "3px",
+          backgroundColor: "#1e2028",
+          borderRadius: "2px",
+          overflow: "hidden",
+        }}>
+          <div style={{
+            height: "100%",
+            width: `${pct}%`,
+            backgroundColor: barColor,
+            borderRadius: "2px",
+          }} />
         </div>
-        <span style={css.findingName}>{character}</span>
-        <div style={css.findingConfWrap}>
-          <div style={css.findingConfTrack}>
-            <div style={{
-              height: "100%",
-              width: `${pct}%`,
-              backgroundColor: barColor,
-              borderRadius: "2px",
-            }} />
-          </div>
-          <span style={{ ...css.findingConfPct, color: barColor }}>{pct}%</span>
-        </div>
+        <span style={{
+          fontSize: "9px",
+          fontWeight: 700,
+          color: barColor,
+          minWidth: "24px",
+          textAlign: "right" as const,
+        }}>{pct}%</span>
       </div>
-      <p style={css.findingText}>{summary}</p>
+      <p style={{
+        color: "#8b8fa3",
+        margin: 0,
+        fontSize: "11px",
+        lineHeight: 1.6,
+        fontFamily: "'Inter', system-ui, sans-serif",
+      }}>{summary}</p>
     </div>
   );
 }
