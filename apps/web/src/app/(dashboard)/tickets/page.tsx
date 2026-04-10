@@ -112,7 +112,8 @@ export default function TicketsPage() {
     ]);
 
     const dbError = openResult.error ?? closedResult.error ?? alertsResult.error;
-    const data = [...(openResult.data ?? []), ...(closedResult.data ?? []), ...(alertsResult.data ?? [])];
+    const data = [...(openResult.data ?? []), ...(closedResult.data ?? []), ...(alertsResult.data ?? [])]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     if (dbError) {
       setError(dbError.message);
