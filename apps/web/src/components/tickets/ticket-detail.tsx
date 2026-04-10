@@ -124,7 +124,27 @@ const AGENT_ROLES: Record<string, string> = {
   angela_martin: "Security Assessment",
   meredith_palmer: "Backup & Recovery",
   kelly_kapoor: "VoIP & Telephony",
+  oscar_martinez: "Backup (Cove)",
+  darryl_philbin: "Microsoft 365",
+  creed_bratton: "Networking (UniFi)",
+  holly_flax: "Licensing (Pax8)",
 };
+
+const INVOKABLE_AGENTS: ReadonlyArray<{
+  readonly id: string;
+  readonly name: string;
+  readonly desc: string;
+  readonly color: string;
+}> = [
+  { id: "dwight_schrute", name: "Dwight", desc: "Hudu docs, assets, KB articles", color: "emerald" },
+  { id: "darryl_philbin", name: "Darryl", desc: "M365 users, licenses, sign-ins", color: "blue" },
+  { id: "andy_bernard", name: "Andy", desc: "Datto devices, alerts, patches", color: "cyan" },
+  { id: "holly_flax", name: "Holly", desc: "Pax8 licensing, subscriptions", color: "pink" },
+  { id: "angela_martin", name: "Angela", desc: "Security assessment", color: "red" },
+  { id: "jim_halpert", name: "Jim", desc: "JumpCloud identity, MFA", color: "violet" },
+  { id: "phyllis_vance", name: "Phyllis", desc: "Email, DNS, DMARC", color: "orange" },
+  { id: "creed_bratton", name: "Creed", desc: "UniFi networking", color: "sky" },
+];
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -153,6 +173,14 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
   const [summarizing, setSummarizing] = useState(false);
   const [closeReviewing, setCloseReviewing] = useState(false);
   const [closeReviewDone, setCloseReviewDone] = useState(false);
+  const [showAgentMenu, setShowAgentMenu] = useState(false);
+  const [invokingAgent, setInvokingAgent] = useState<string | null>(null);
+  const [agentResult, setAgentResult] = useState<{
+    readonly agent_name: string;
+    readonly summary: string;
+    readonly data: Record<string, unknown>;
+    readonly confidence: number;
+  } | null>(null);
   const [kbDrafts, setKbDrafts] = useState<ReadonlyArray<{ title: string; category: string; content: string; hudu_section: string; why?: string; needs_info?: ReadonlyArray<string>; confidence?: string }>>([]);
   const [copiedKb, setCopiedKb] = useState<number | null>(null);
   const [closeReviewData, setCloseReviewData] = useState<{
@@ -372,6 +400,37 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       setSummarizing(false);
     }
   }, [ticket, summarizing]);
+
+  const handleInvokeAgent = useCallback(async (agentId: string) => {
+    if (invokingAgent || !ticket) return;
+    setInvokingAgent(agentId);
+    setAgentResult(null);
+    setShowAgentMenu(false);
+
+    try {
+      const res = await fetch("/api/agent/invoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: ticket.halo_id, agent_name: agentId }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAgentResult({
+          agent_name: data.agent_name,
+          summary: data.summary,
+          data: data.data,
+          confidence: data.confidence,
+        });
+        // Switch to agents tab to see the live thinking
+        setActiveTab("agents");
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      setInvokingAgent(null);
+    }
+  }, [ticket, invokingAgent]);
 
   // Initial load + real-time subscriptions
   useEffect(() => {
@@ -614,6 +673,55 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             )}
             {closeReviewing ? "Reviewing..." : closeReviewDone ? "Review Posted" : "Close Review"}
           </button>
+          {/* Ask Agent dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowAgentMenu(!showAgentMenu)}
+              disabled={!!invokingAgent}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                invokingAgent
+                  ? "cursor-not-allowed bg-white/5 text-white/20"
+                  : "bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20",
+              )}
+            >
+              {invokingAgent ? (
+                <div className="h-3 w-3 animate-spin rounded-full border border-indigo-400/30 border-t-indigo-400" />
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              )}
+              {invokingAgent ? `Running ${AGENT_NAMES[invokingAgent] ?? invokingAgent}...` : "Ask Agent"}
+            </button>
+            {showAgentMenu && (
+              <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl border border-white/10 bg-[#1a1a2e] shadow-2xl overflow-hidden">
+                <div className="px-3 py-2 border-b border-white/5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/30">Run agent on this ticket</p>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {INVOKABLE_AGENTS.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => handleInvokeAgent(agent.id)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-white/5"
+                    >
+                      <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white", `bg-${agent.color}-500`)}>
+                        {agent.name[0]}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium text-white">{agent.name}</p>
+                        <p className="text-[10px] text-white/40 truncate">{agent.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -732,6 +840,43 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             <div className="whitespace-pre-wrap text-sm leading-relaxed text-white/70">
               {summary}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Agent invoke result */}
+      {agentResult && (
+        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/[0.03] p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white", AGENT_COLORS[agentResult.agent_name] ?? "bg-indigo-500")}>
+                {(AGENT_NAMES[agentResult.agent_name] ?? agentResult.agent_name).split(" ").map((w: string) => w[0]).join("").slice(0, 2)}
+              </div>
+              <h3 className="text-sm font-semibold text-indigo-400">{AGENT_NAMES[agentResult.agent_name] ?? agentResult.agent_name}</h3>
+              <span className="text-[10px] text-indigo-400/40">{AGENT_ROLES[agentResult.agent_name] ?? "Specialist"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-indigo-400/40">Confidence: {(agentResult.confidence * 100).toFixed(0)}%</span>
+              <button
+                onClick={() => setAgentResult(null)}
+                className="text-white/20 hover:text-white/40 transition-colors"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-white/70">
+            {agentResult.summary}
+          </div>
+          {agentResult.data && Object.keys(agentResult.data).length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-[10px] text-indigo-400/40 hover:text-indigo-400/60">Show raw data</summary>
+              <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-black/20 p-3 text-[10px] text-white/40">
+                {JSON.stringify(agentResult.data, null, 2)}
+              </pre>
+            </details>
           )}
         </div>
       )}
