@@ -222,6 +222,54 @@ function getTools(): Anthropic.Messages.Tool[] {
         required: ["tech_name"],
       },
     },
+    {
+      name: "retriage_ticket",
+      description: "Retriage a ticket through the full AI pipeline. Use when asked to re-evaluate or re-process a ticket.",
+      input_schema: {
+        type: "object" as const,
+        properties: { halo_id: { type: "number", description: "Halo ticket number" } },
+        required: ["halo_id"],
+      },
+    },
+    {
+      name: "post_halo_note",
+      description: "Post an internal note to a Halo ticket. Use to ping a tech, flag something, or leave a message.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number" },
+          note: { type: "string", description: "The note content (plain text or HTML)" },
+        },
+        required: ["halo_id", "note"],
+      },
+    },
+    {
+      name: "get_client_history",
+      description: "Full client analysis: tickets, recurring issues, assigned techs.",
+      input_schema: {
+        type: "object" as const,
+        properties: { client_name: { type: "string" } },
+        required: ["client_name"],
+      },
+    },
+    {
+      name: "run_toby_analysis",
+      description: "Trigger Toby's analytics run to refresh tech profiles, customer insights, and trends.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+    },
+    {
+      name: "sync_tickets",
+      description: "Force sync all open tickets from Halo. Use when tickets seem out of date.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+    },
   ];
 }
 
@@ -277,6 +325,47 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       r += `\nReviews (${reviews?.length ?? 0}):\n`;
       for (const rv of reviews ?? []) r += `#${rv.halo_id}: ${rv.rating} (resp: ${rv.response_time}, gap: ${rv.max_gap_hours?.toFixed(1) ?? "?"}h)\n`;
       return r;
+    }
+    case "retriage_ticket": {
+      const haloId = input.halo_id as number;
+      const { data: ticket } = await supabase.from("tickets").select("id").eq("halo_id", haloId).single();
+      if (!ticket) return `Ticket #${haloId} not found.`;
+      const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
+      const res = await fetch(`${workerUrl}/triage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket_id: ticket.id }),
+      });
+      return res.ok ? `Retriage queued for #${haloId}. Pipeline will run classification + specialists.` : `Failed to queue retriage: ${await res.text()}`;
+    }
+    case "post_halo_note": {
+      const haloId = input.halo_id as number;
+      const note = input.note as string;
+      const { data: haloInt } = await supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).single();
+      if (!haloInt) return "Halo not configured.";
+      const { HaloClient } = await import("../../integrations/halo/client.js");
+      const halo = new HaloClient(haloInt.config as { base_url: string; client_id: string; client_secret: string; tenant?: string });
+      await halo.addInternalNote(haloId, note);
+      return `Internal note posted to #${haloId}.`;
+    }
+    case "get_client_history": {
+      const clientName = input.client_name as string;
+      const { data: tickets } = await supabase.from("tickets").select("halo_id, summary, halo_status, halo_agent, created_at").ilike("client_name", `%${clientName}%`).order("created_at", { ascending: false }).limit(20);
+      let r = `## ${clientName} — ${tickets?.length ?? 0} tickets\n`;
+      for (const t of tickets ?? []) r += `#${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] ${t.halo_agent ?? "?"} ${fmt(t.created_at)}\n`;
+      return r;
+    }
+    case "run_toby_analysis": {
+      const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
+      const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+      return res.ok ? "Toby's analysis triggered. Tech profiles, customer insights, and trends will update in a few minutes." : `Failed: ${await res.text()}`;
+    }
+    case "sync_tickets": {
+      const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
+      const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST" });
+      if (!res.ok) return `Sync failed: ${await res.text()}`;
+      const data = (await res.json()) as { pulled?: number; created?: number; updated?: number };
+      return `Ticket sync complete: ${data.pulled ?? 0} pulled, ${data.created ?? 0} new, ${data.updated ?? 0} updated.`;
     }
     default: return `Unknown tool: ${name}`;
   }
