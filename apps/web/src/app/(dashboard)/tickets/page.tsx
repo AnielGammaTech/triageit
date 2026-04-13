@@ -154,15 +154,14 @@ export default function TicketsPage() {
         setStatusMessage({ type: "error", text: body.error ?? `Pull failed: ${res.status}` });
       } else {
         const result = await res.json();
-        const errInfo = result.errors?.length ? ` (${result.errors.length} errors)` : "";
-        const closedInfo = result.closed ? `, ${result.closed} closed` : "";
-        const breakdown = result.open_count && result.closed_synced
-          ? ` (${result.open_count} open + ${result.closed_synced} recently resolved)`
-          : "";
-        const pendingInfo = result.pending_retriaged ? `, ${result.pending_retriaged} pending re-queued` : "";
+        const fetched = result.halo_fetched ?? result.pulled ?? 0;
+        const created = result.db_created ?? result.created ?? 0;
+        const opened = result.db_opened ?? result.updated ?? 0;
+        const closed = result.db_closed ?? result.closed ?? 0;
+        const statusFixed = result.db_statuses_fixed ?? 0;
         setStatusMessage({
-          type: result.errors?.length ? "error" : "success",
-          text: `Synced ${result.pulled} tickets from Halo — ${result.created} new, ${result.updated} updated${closedInfo}${pendingInfo}${breakdown}${errInfo}`,
+          type: "success",
+          text: `Synced ${fetched} tickets from Halo — ${created} new, ${opened} opened, ${closed} closed${statusFixed ? `, ${statusFixed} statuses fixed` : ""}`,
         });
       }
     } catch (err) {
