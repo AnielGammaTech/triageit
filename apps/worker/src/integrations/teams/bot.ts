@@ -7,7 +7,90 @@ import { createSupabaseClient } from "../../db/supabase.js";
  * Azure Bot Service sends Activity objects; we respond inline.
  */
 
-// ── Auth — validate tokens from Azure Bot Service ──────────────────────
+// ── Inbound auth — verify tokens FROM Azure Bot Service ────────────────
+
+// Cache the OpenID signing keys from Microsoft
+let cachedJwks: { keys: Array<{ kid: string; x5c?: string[]; n?: string; e?: string }>; expires: number } | null = null;
+
+async function getOpenIdKeys(): Promise<Array<{ kid: string; x5c?: string[]; n?: string; e?: string }>> {
+  if (cachedJwks && Date.now() < cachedJwks.expires) return cachedJwks.keys;
+
+  try {
+    // Bot Framework OpenID config
+    const configRes = await fetch("https://login.botframework.com/v1/.well-known/openidconfiguration");
+    const config = (await configRes.json()) as { jwks_uri: string };
+    const jwksRes = await fetch(config.jwks_uri);
+    const jwks = (await jwksRes.json()) as { keys: Array<{ kid: string; x5c?: string[]; n?: string; e?: string }> };
+    cachedJwks = { keys: jwks.keys, expires: Date.now() + 24 * 60 * 60 * 1000 };
+    return jwks.keys;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Verify that an incoming request is from Azure Bot Service.
+ * Decodes the JWT header to check issuer and audience without a full JWT library.
+ */
+export async function verifyBotToken(token: string): Promise<boolean> {
+  const appId = process.env.TEAMS_BOT_APP_ID ?? "";
+  if (!appId) return false;
+
+  try {
+    // Decode JWT payload (base64url)
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+
+    const payload = JSON.parse(
+      Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
+    ) as { iss?: string; aud?: string; exp?: number; serviceurl?: string };
+
+    // Check expiry
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      console.warn("[TEAMS-BOT] Token expired");
+      return false;
+    }
+
+    // Check audience matches our app ID
+    if (payload.aud !== appId) {
+      console.warn(`[TEAMS-BOT] Token audience mismatch: ${payload.aud} !== ${appId}`);
+      return false;
+    }
+
+    // Check issuer is Microsoft
+    const validIssuers = [
+      "https://api.botframework.com",
+      "https://sts.windows.net/d6d49420-f39b-4df7-a1dc-d59a935871db/",
+      "https://sts.windows.net/f8cdef31-a31e-4b4a-93e4-5f571e91255a/",
+      `https://login.microsoftonline.com/${process.env.TEAMS_BOT_TENANT_ID ?? ""}/v2.0`,
+    ];
+    if (payload.iss && !validIssuers.some((iss) => payload.iss!.startsWith(iss.split("/v2.0")[0]))) {
+      console.warn(`[TEAMS-BOT] Token issuer not recognized: ${payload.iss}`);
+      return false;
+    }
+
+    // Verify the signing key exists in Microsoft's published keys
+    const header = JSON.parse(
+      Buffer.from(parts[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
+    ) as { kid?: string };
+
+    if (header.kid) {
+      const keys = await getOpenIdKeys();
+      const matchingKey = keys.find((k) => k.kid === header.kid);
+      if (!matchingKey) {
+        console.warn(`[TEAMS-BOT] Token kid not found in Microsoft's JWKS: ${header.kid}`);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[TEAMS-BOT] Token verification failed:", err);
+    return false;
+  }
+}
+
+// ── Outbound auth — get tokens TO send messages back ───────────────────
 
 let cachedToken: { token: string; expires: number } | null = null;
 

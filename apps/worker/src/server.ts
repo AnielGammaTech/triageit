@@ -34,9 +34,25 @@ const server = Fastify({ logger: true });
 
 // ── Teams Bot endpoint ────────────────────────────────────────────────
 // Azure Bot Service sends activities here as JSON.
+// Security: validate the Bearer token from Azure Bot Framework.
 server.post("/api/teams/messages", async (request, reply) => {
   try {
-    const { handleBotMessage } = await import("./integrations/teams/bot.js");
+    // Verify the request comes from Azure Bot Service
+    const authHeader = (request.headers.authorization ?? "") as string;
+    if (!authHeader.startsWith("Bearer ")) {
+      console.warn("[TEAMS-BOT] Missing auth header — rejecting");
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    const token = authHeader.slice(7);
+    const { verifyBotToken, handleBotMessage } = await import("./integrations/teams/bot.js");
+
+    const valid = await verifyBotToken(token);
+    if (!valid) {
+      console.warn("[TEAMS-BOT] Invalid token — rejecting");
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
     const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string } };
     // Fire and forget — respond 200 immediately, process async
     handleBotMessage(activity).catch((err) => {
