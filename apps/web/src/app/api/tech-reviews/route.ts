@@ -18,7 +18,7 @@ export async function GET() {
 
   const supabase = await createServiceClient();
 
-  // Fetch reviews — exclude tickets that are closed/resolved
+  // Fetch reviews — only for tickets that are still open
   const { data, error } = await supabase
     .from("tech_reviews")
     .select(`
@@ -39,12 +39,11 @@ export async function GET() {
         summary,
         client_name,
         halo_status,
-        halo_agent
+        halo_agent,
+        halo_is_open
       )
     `)
-    .not("tickets.halo_status", "ilike", "%closed%")
-    .not("tickets.halo_status", "ilike", "%resolved%")
-    .not("tickets.halo_status", "ilike", "%completed%")
+    .eq("tickets.halo_is_open", true)
     .order("created_at", { ascending: false })
     .limit(200);
 
