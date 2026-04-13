@@ -1,5 +1,6 @@
 import type { HaloConfig, HaloTicket, HaloAction, HaloAttachment } from "@triageit/shared";
 import { getHaloToken } from "./auth.js";
+import { withCache } from "../../cache/integration-cache.js";
 
 /**
  * Represents a downloaded image attachment ready for the vision API.
@@ -163,16 +164,24 @@ export class HaloClient {
   }
 
   async getAgentName(agentId: number): Promise<string | null> {
-    try {
-      const agent = await this.request<{ name?: string }>(
-        "GET",
-        `/agent/${agentId}`,
-      );
-      return agent.name ?? null;
-    } catch {
-      console.warn(`[HALO] Could not resolve agent name for agent_id=${agentId}`);
-      return null;
-    }
+    return withCache(
+      "halo",
+      "agent-name",
+      async () => {
+        try {
+          const agent = await this.request<{ name?: string }>(
+            "GET",
+            `/agent/${agentId}`,
+          );
+          return agent.name ?? null;
+        } catch {
+          console.warn(`[HALO] Could not resolve agent name for agent_id=${agentId}`);
+          return null;
+        }
+      },
+      86400,
+      String(agentId),
+    );
   }
 
   /**
@@ -199,21 +208,29 @@ export class HaloClient {
    * Useful for building Halo @mentions.
    */
   async findAgentByName(name: string): Promise<{ id: number; name: string } | null> {
-    try {
-      const result = await this.request<{ agents?: ReadonlyArray<{ id: number; name: string }> }>(
-        "GET",
-        `/agent?search=${encodeURIComponent(name)}&count=5`,
-      );
-      const agents = result.agents ?? [];
-      // Exact match first, then partial
-      const exact = agents.find((a) => a.name.toLowerCase() === name.toLowerCase());
-      if (exact) return exact;
-      const partial = agents.find((a) => a.name.toLowerCase().includes(name.toLowerCase()));
-      return partial ?? null;
-    } catch {
-      console.warn(`[HALO] Could not search for agent "${name}"`);
-      return null;
-    }
+    return withCache(
+      "halo",
+      "agent-by-name",
+      async () => {
+        try {
+          const result = await this.request<{ agents?: ReadonlyArray<{ id: number; name: string }> }>(
+            "GET",
+            `/agent?search=${encodeURIComponent(name)}&count=5`,
+          );
+          const agents = result.agents ?? [];
+          // Exact match first, then partial
+          const exact = agents.find((a) => a.name.toLowerCase() === name.toLowerCase());
+          if (exact) return exact;
+          const partial = agents.find((a) => a.name.toLowerCase().includes(name.toLowerCase()));
+          return partial ?? null;
+        } catch {
+          console.warn(`[HALO] Could not search for agent "${name}"`);
+          return null;
+        }
+      },
+      86400,
+      name.toLowerCase(),
+    );
   }
 
   /**
@@ -272,28 +289,31 @@ export class HaloClient {
    * Look up all ticket types from Halo and return as id→name map.
    */
   async getTicketTypes(): Promise<ReadonlyMap<string, number>> {
-    const map = new Map<string, number>();
-    try {
-      const result = await this.request<{ record_count?: number } & Record<string, unknown>>(
-        "GET",
-        "/tickettype?count=100",
-      );
-      // Halo may return array or { tickettypes: [...] }
-      const types: ReadonlyArray<{ id: number; name: string }> =
-        Array.isArray(result)
-          ? result
-          : ((result as Record<string, unknown>).tickettypes as ReadonlyArray<{ id: number; name: string }>) ??
-            ((result as Record<string, unknown>).records as ReadonlyArray<{ id: number; name: string }>) ??
-            [];
-      for (const t of types) {
-        if (t.id && t.name) {
-          map.set(t.name.toLowerCase(), t.id);
-        }
-      }
-    } catch (err) {
-      console.warn("[HALO] Failed to fetch ticket types:", err);
-    }
-    return map;
+    // Cache returns a plain object (JSON-serialized Map loses its type),
+    // so we cache the entries array and reconstruct the Map.
+    const entries = await withCache(
+      "halo",
+      "ticket-types",
+      async () => {
+        const result = await this.request<{ record_count?: number } & Record<string, unknown>>(
+          "GET",
+          "/tickettype?count=100",
+        );
+        // Halo may return array or { tickettypes: [...] }
+        const types: ReadonlyArray<{ id: number; name: string }> =
+          Array.isArray(result)
+            ? result
+            : ((result as Record<string, unknown>).tickettypes as ReadonlyArray<{ id: number; name: string }>) ??
+              ((result as Record<string, unknown>).records as ReadonlyArray<{ id: number; name: string }>) ??
+              [];
+        const pairs: ReadonlyArray<[string, number]> = types
+          .filter((t) => t.id && t.name)
+          .map((t) => [t.name.toLowerCase(), t.id]);
+        return pairs;
+      },
+      21600,
+    );
+    return new Map(entries);
   }
 
   // ── Asset / Printer Methods ──────────────────────────────────────────
@@ -322,11 +342,18 @@ export class HaloClient {
   }
 
   async getAssetTypes(): Promise<ReadonlyArray<HaloAssetType>> {
-    const result = await this.request<{ asset_types: HaloAssetType[] }>(
-      "GET",
-      "/assettype",
+    return withCache(
+      "halo",
+      "asset-types",
+      async () => {
+        const result = await this.request<{ asset_types: HaloAssetType[] }>(
+          "GET",
+          "/assettype",
+        );
+        return result.asset_types ?? [];
+      },
+      21600,
     );
-    return result.asset_types ?? [];
   }
 
   async getClientAssets(clientId: number): Promise<ReadonlyArray<HaloAsset>> {

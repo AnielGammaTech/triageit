@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HaloTicket, HaloAction, HaloConfig } from "@triageit/shared";
+import type { HaloTicket, HaloAction } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";

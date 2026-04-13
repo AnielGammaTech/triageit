@@ -1,7 +1,8 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { HaloClient } from "../integrations/halo/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
-import type { HaloConfig, HaloTicket } from "@triageit/shared";
+import { getCachedHaloConfig } from "../integrations/get-config.js";
+import type { HaloTicket } from "@triageit/shared";
 
 interface TicketSyncResult {
   readonly pulled: number;
@@ -19,19 +20,14 @@ interface TicketSyncResult {
 export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const supabase = createSupabaseClient();
 
-  const { data: integration } = await supabase
-    .from("integrations")
-    .select("config")
-    .eq("service", "halo")
-    .eq("is_active", true)
-    .single();
+  const haloConfig = await getCachedHaloConfig(supabase);
 
-  if (!integration) {
+  if (!haloConfig) {
     console.log("[TICKET-SYNC] Halo not configured — skipping");
     return { pulled: 0, created: 0, updated: 0, triageEnqueued: 0 };
   }
 
-  const halo = new HaloClient(integration.config as HaloConfig);
+  const halo = new HaloClient(haloConfig);
 
   // Only sync "Gamma Default" tickets (type id=31)
   console.log("[TICKET-SYNC] Fetching Gamma Default open tickets from Halo...");
@@ -58,61 +54,71 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   let updated = 0;
   let triageEnqueued = 0;
 
+  // Pre-resolve all agent names in one pass (fixes N+1 API calls)
+  const uniqueAgentIds = [...new Set(
+    openTickets
+      .map((t) => t.agent_id)
+      .filter((id): id is number => id != null),
+  )];
+
+  const agentNameMap = new Map<number, string>();
+  for (const agentId of uniqueAgentIds) {
+    const name = await halo.resolveAgentName(null, agentId);
+    if (name) agentNameMap.set(agentId, name);
+  }
+
+  function getResolvedAgentName(ticket: HaloTicket): string | null {
+    const name = ticket.agent_name;
+    if (name && typeof name === "string" && !/^(?:tech\s*)?\d+$/i.test(name.trim())) return name;
+    if (ticket.agent_id && agentNameMap.has(ticket.agent_id)) return agentNameMap.get(ticket.agent_id)!;
+    return name ?? null;
+  }
+
   // Insert new tickets (ones not in local DB)
   const newTickets = openTickets.filter((t) => !existingMap.has(t.id));
 
   if (newTickets.length > 0) {
-    const insertRows = [];
-    for (const ticket of newTickets) {
-      const agentName = await halo.resolveAgentName(ticket.agent_name, ticket.agent_id);
+    const insertRows = newTickets.map((ticket) => ({
+      halo_id: ticket.id,
+      summary: ticket.summary ?? `Ticket #${ticket.id}`,
+      details: ticket.details ?? null,
+      client_name: ticket.client_name ?? null,
+      client_id: ticket.client_id ?? null,
+      user_name: ticket.user_name ?? null,
+      user_email: ticket.user_emailaddress ?? null,
+      original_priority: ticket.priority_id ?? null,
+      status: "pending" as const,
+      halo_status: resolveStatusName(ticket),
+      halo_status_id: ticket.status_id,
+      halo_team: ticket.team_name ?? ticket.team ?? null,
+      halo_agent: getResolvedAgentName(ticket),
+      tickettype_id: ticket.tickettype_id ?? null,
+      last_tech_action_at: ticket.lastactiondate ?? null,
+      last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+      created_at: ticket.datecreated ?? now,
+      updated_at: now,
+    }));
 
-      insertRows.push({
-        halo_id: ticket.id,
-        summary: ticket.summary ?? `Ticket #${ticket.id}`,
-        details: ticket.details ?? null,
-        client_name: ticket.client_name ?? null,
-        client_id: ticket.client_id ?? null,
-        user_name: ticket.user_name ?? null,
-        user_email: ticket.user_emailaddress ?? null,
-        original_priority: ticket.priority_id ?? null,
-        status: "pending" as const,
-        halo_status: resolveStatusName(ticket),
-        halo_status_id: ticket.status_id,
-        halo_team: ticket.team_name ?? ticket.team ?? null,
-        halo_agent: agentName,
-        tickettype_id: ticket.tickettype_id ?? null,
-        last_tech_action_at: ticket.lastactiondate ?? null,
-        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
-        created_at: ticket.datecreated ?? now,
-        updated_at: now,
-      });
-    }
-
-    const { error: insertError } = await supabase
+    const { data: insertedRows, error: insertError } = await supabase
       .from("tickets")
-      .insert(insertRows);
+      .insert(insertRows)
+      .select("id, halo_id");
 
     if (insertError) {
       console.error("[TICKET-SYNC] Insert failed:", insertError.message);
-    } else {
-      created = newTickets.length;
+    } else if (insertedRows) {
+      created = insertedRows.length;
       console.log(`[TICKET-SYNC] Created ${created} new tickets`);
 
-      // Enqueue new tickets for triage
-      for (const ticket of newTickets) {
+      // Enqueue new tickets for triage using IDs returned from insert
+      for (const row of insertedRows) {
         try {
-          // Look up the just-inserted ticket to get its local UUID
-          const { data: inserted } = await supabase
-            .from("tickets")
-            .select("id")
-            .eq("halo_id", ticket.id)
-            .single();
-
-          if (inserted) {
+          const original = newTickets.find((t) => t.id === row.halo_id);
+          if (original) {
             await enqueueTriageJob({
-              ticketId: inserted.id,
-              haloId: ticket.id,
-              summary: ticket.summary ?? `Ticket #${ticket.id}`,
+              ticketId: row.id,
+              haloId: row.halo_id,
+              summary: original.summary ?? `Ticket #${original.id}`,
             });
             triageEnqueued++;
           }
@@ -127,8 +133,6 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const existingToUpdate = openTickets.filter((t) => existingMap.has(t.id));
 
   for (const ticket of existingToUpdate) {
-    const agentName = await halo.resolveAgentName(ticket.agent_name, ticket.agent_id);
-
     const { error: updateError } = await supabase
       .from("tickets")
       .update({
@@ -137,7 +141,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         halo_status: resolveStatusName(ticket),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
-        halo_agent: agentName,
+        halo_agent: getResolvedAgentName(ticket),
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         updated_at: now,
