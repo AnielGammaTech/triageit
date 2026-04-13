@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloConfig } from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { TriageContext } from "../types.js";
+import { getDispatcherName } from "../../db/staff.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -18,7 +19,6 @@ interface DispatcherReview {
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const DISPATCHER_NAME = "Bryanna";
 const BUSINESS_START_HOUR = 7;
 const BUSINESS_END_HOUR = 18;
 const TIMEZONE = "America/New_York";
@@ -100,6 +100,7 @@ export function checkDispatcherReviewEligibility(
 export function evaluateDispatcher(
   context: TriageContext,
   ticketCreatedAt: string,
+  dispatcherName: string = "Bryanna",
 ): DispatcherReview {
   const actions = context.actions ?? [];
   const issues: string[] = [];
@@ -130,7 +131,7 @@ export function evaluateDispatcher(
     const firstTechAction = actions.find((a) => {
       if (!a.who || !a.date) return false;
       const whoLower = a.who.toLowerCase();
-      return whoLower !== DISPATCHER_NAME.toLowerCase() &&
+      return whoLower !== dispatcherName.toLowerCase() &&
         whoLower !== "system" &&
         whoLower !== "triageit" &&
         a.isInternal;
@@ -175,7 +176,7 @@ export function evaluateDispatcher(
     const techFollowedUp = subsequentActions.some((a) => {
       if (!a.who) return false;
       const whoLower = a.who.toLowerCase();
-      return whoLower !== DISPATCHER_NAME.toLowerCase() &&
+      return whoLower !== dispatcherName.toLowerCase() &&
         whoLower !== "system" &&
         whoLower !== "triageit";
     });
@@ -222,7 +223,7 @@ export function evaluateDispatcher(
     const techResponseAfter = actions.find((a) => {
       if (!a.date || !a.who) return false;
       const whoLower = a.who.toLowerCase();
-      if (whoLower === DISPATCHER_NAME.toLowerCase() || whoLower === "system") return false;
+      if (whoLower === dispatcherName.toLowerCase() || whoLower === "system") return false;
       const aTime = new Date(a.date).getTime();
       return aTime > replyTime && a.isInternal;
     });
@@ -295,7 +296,8 @@ export async function generateDispatcherReview(
   haloConfig: HaloConfig,
   supabase: SupabaseClient,
 ): Promise<void> {
-  const review = evaluateDispatcher(context, ticketCreatedAt);
+  const dispatcherName = await getDispatcherName(supabase);
+  const review = evaluateDispatcher(context, ticketCreatedAt, dispatcherName);
 
   // Only post a Halo note for issues (don't spam "good" reviews)
   if (review.issues.length > 0) {
@@ -308,7 +310,7 @@ export async function generateDispatcherReview(
   await supabase.from("dispatcher_reviews").insert({
     ticket_id: context.ticketId,
     halo_id: context.haloId,
-    dispatcher_name: DISPATCHER_NAME,
+    dispatcher_name: dispatcherName,
     rating: review.rating,
     assignment_time_minutes: review.assignmentTimeMinutes,
     promise_kept: review.promiseKept,

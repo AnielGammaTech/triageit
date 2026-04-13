@@ -5,6 +5,8 @@ import { HaloClient } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";
 import { parseLlmJson } from "../parse-json.js";
+import { getStaffNames } from "../../db/staff.js";
+import { getCachedHaloConfig } from "../../integrations/get-config.js";
 
 
 interface ReTriageResult {
@@ -559,19 +561,14 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
     };
   }
 
-  // Get Halo config
-  const { data: haloIntegration } = await supabase
-    .from("integrations")
-    .select("config")
-    .eq("service", "halo")
-    .eq("is_active", true)
-    .single();
+  // Get Halo config (cached for 1 hour)
+  const haloConfig = await getCachedHaloConfig(supabase);
 
-  if (!haloIntegration) {
+  if (!haloConfig) {
     throw new Error("Halo PSA integration not configured or inactive");
   }
 
-  const halo = new HaloClient(haloIntegration.config as HaloConfig);
+  const halo = new HaloClient(haloConfig);
 
   // Pull open tickets from Halo — only "Gamma Default" type (id=31)
   const GAMMA_DEFAULT_TYPE_ID = 31;
@@ -582,6 +579,41 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   const info: ReTriageResult[] = [];
 
   const client = new Anthropic();
+  const staffNames = await getStaffNames(supabase);
+
+  // Batch pre-fetch: all local tickets for open Halo IDs (fixes N+1 queries)
+  const haloIds = openTickets.map((t) => t.id);
+  const { data: batchLocalTickets } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .in("halo_id", haloIds);
+
+  const localTicketMap = new Map(
+    (batchLocalTickets ?? []).map((t: { id: string; halo_id: number }) => [t.halo_id, t.id]),
+  );
+
+  // Batch pre-fetch: latest triage result per local ticket
+  const allLocalIds = [...localTicketMap.values()];
+  const triageMap = new Map<string, { internal_notes: string | null; urgency_score: number | null; created_at: string | null }>();
+
+  if (allLocalIds.length > 0) {
+    const { data: triageResults } = await supabase
+      .from("triage_results")
+      .select("ticket_id, internal_notes, urgency_score, created_at")
+      .in("ticket_id", allLocalIds)
+      .order("created_at", { ascending: false });
+
+    // Keep only the latest per ticket_id
+    for (const tr of triageResults ?? []) {
+      if (!triageMap.has(tr.ticket_id)) {
+        triageMap.set(tr.ticket_id, {
+          internal_notes: tr.internal_notes,
+          urgency_score: tr.urgency_score,
+          created_at: tr.created_at,
+        });
+      }
+    }
+  }
 
   for (const ticket of openTickets) {
     try {
@@ -589,12 +621,11 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const actions = await halo.getTicketActions(ticket.id);
 
       // Check if the latest CUSTOMER reply is an update request (skip staff messages)
-      const STAFF_NAMES = ["dylan", "raul", "jarid", "matthew", "ryan", "darren", "bryanna", "david", "jonathan", "roman", "todd", "aniel"];
       const latestCustomerAction = [...actions]
         .filter((a) => {
           if (a.hiddenfromuser || !a.note || !a.who) return false;
           const whoLower = (a.who ?? "").toLowerCase();
-          if (STAFF_NAMES.some((n) => whoLower.includes(n))) return false;
+          if (staffNames.some((n) => whoLower.includes(n))) return false;
           if (whoLower.includes("gamma.tech") || whoLower.includes("gtmail") || whoLower.includes("triageit") || whoLower.includes("triggr")) return false;
           if (a.note.startsWith("<")) return false;
           return true;
@@ -624,30 +655,17 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       }
 
       // Also skip if this ticket was previously triaged via alert/notification fast path
-      const { data: localTicket } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("halo_id", ticket.id)
-        .maybeSingle();
+      const cachedLocalId = localTicketMap.get(ticket.id) ?? null;
+      const cachedTriage = cachedLocalId ? triageMap.get(cachedLocalId) ?? null : null;
 
-      if (localTicket) {
-        const { data: existingTriage } = await supabase
-          .from("triage_results")
-          .select("internal_notes")
-          .eq("ticket_id", localTicket.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (existingTriage?.internal_notes) {
-          const notes = existingTriage.internal_notes as string;
-          if (
-            notes.startsWith("Alert:") ||
-            notes === "Notification/transactional ticket — no action required."
-          ) {
-            await upsertTicketFromHalo(supabase, ticket, actions, halo);
-            continue;
-          }
+      if (cachedTriage?.internal_notes) {
+        const notes = cachedTriage.internal_notes;
+        if (
+          notes.startsWith("Alert:") ||
+          notes === "Notification/transactional ticket — no action required."
+        ) {
+          await upsertTicketFromHalo(supabase, ticket, actions, halo);
+          continue;
         }
       }
 
@@ -673,26 +691,11 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       }
 
       // ── Urgency-based timer check ──
-      // Look up the last triage's urgency score for this ticket
-      let urgencyScore: number | null = null;
-      const { data: localTicketForUrgency } = await supabase
-        .from("tickets")
-        .select("id")
-        .eq("halo_id", enrichedTicket.id)
-        .maybeSingle();
-
-      let lastTriageAt: string | null = null;
-      if (localTicketForUrgency) {
-        const { data: lastTriage } = await supabase
-          .from("triage_results")
-          .select("urgency_score, created_at")
-          .eq("ticket_id", localTicketForUrgency.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        urgencyScore = (lastTriage?.urgency_score as number) ?? null;
-        lastTriageAt = (lastTriage?.created_at as string) ?? null;
-      }
+      // Look up the last triage's urgency score from pre-fetched maps
+      const localIdForUrgency = localTicketMap.get(enrichedTicket.id) ?? null;
+      const latestTriage = localIdForUrgency ? triageMap.get(localIdForUrgency) ?? null : null;
+      const urgencyScore: number | null = (latestTriage?.urgency_score as number) ?? null;
+      const lastTriageAt: string | null = (latestTriage?.created_at as string) ?? null;
 
       const intervalHours = getRetriageIntervalHours(urgencyScore);
 
