@@ -121,6 +121,12 @@ async function _generateCloseReview(
 
   if (!ticket) throw new Error(`Ticket #${haloId} not found`);
 
+  // Skip alerts — they don't need close reviews
+  if (ticket.tickettype_id && ticket.tickettype_id !== 31) {
+    console.log(`[CLOSE-REVIEW] Skipping #${haloId} — not Gamma Default (type ${ticket.tickettype_id})`);
+    throw new Error(`Ticket #${haloId} is not Gamma Default — skipping close review`);
+  }
+
   // Dedup: skip if we already have a close review for this ticket in the last hour
   const { data: existingReview } = await supabase
     .from("close_reviews")
