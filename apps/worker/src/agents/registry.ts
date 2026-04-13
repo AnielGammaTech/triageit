@@ -191,9 +191,14 @@ export async function getAgentsForClassification(
 
   const candidates = mapping[classificationType] ?? ["dwight_schrute"];
 
+  // Cross-reference agents — run on EVERY ticket type for holistic analysis.
+  // These catch root causes that don't match the surface classification.
+  const CROSS_REFERENCE_AGENTS = ["holly_flax", "creed_bratton", "phyllis_vance"] as const;
+  const allCandidates = [...new Set([...candidates, ...CROSS_REFERENCE_AGENTS])];
+
   // Filter integration-gated agents by active integration + customer mapping
   const eligibilityChecks = await Promise.all(
-    candidates.map(async (agentName) => {
+    allCandidates.map(async (agentName) => {
       const requiredService = AGENT_REQUIRED_INTEGRATION[agentName];
       if (!requiredService) {
         // Agent doesn't require a specific integration (dwight, angela)
