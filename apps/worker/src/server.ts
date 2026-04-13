@@ -121,6 +121,18 @@ server.post<{ Body: Record<string, never> }>(
   },
 );
 
+// Error ticket scan — find tickets stuck in error status
+server.post("/error-scan", async (_request, reply) => {
+  try {
+    const { scanForErrorTickets } = await import("./cron/error-ticket-scan.js");
+    const result = await scanForErrorTickets();
+    return { status: "completed", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 // Manual ticket sync from Halo
 server.post<{ Body: Record<string, never> }>(
   "/ticket-sync",
@@ -196,6 +208,50 @@ server.post<{ Body: { max_age_days?: number; min_confidence?: number } }>(
     }
   },
 );
+
+// Failed jobs — inspect BullMQ queues for failed jobs
+server.get("/health/failed-jobs", async () => {
+  const { getRedisConnectionOptions } = await import("./queue/connection.js");
+  const { Queue } = await import("bullmq");
+
+  const connection = getRedisConnectionOptions();
+
+  const triageQueue = new Queue("triage-jobs", { connection });
+  const cronQueue = new Queue("cron-jobs", { connection });
+
+  const [triageFailed, cronFailed] = await Promise.all([
+    triageQueue.getFailed(0, 20),
+    cronQueue.getFailed(0, 20),
+  ]);
+
+  const result = {
+    triage: {
+      failedCount: triageFailed.length,
+      jobs: triageFailed.map((j) => ({
+        id: j.id,
+        name: j.name,
+        failedReason: j.failedReason,
+        timestamp: j.timestamp,
+        data: j.data,
+      })),
+    },
+    cron: {
+      failedCount: cronFailed.length,
+      jobs: cronFailed.map((j) => ({
+        id: j.id,
+        name: j.name,
+        failedReason: j.failedReason,
+        timestamp: j.timestamp,
+        data: j.data,
+      })),
+    },
+  };
+
+  await triageQueue.close();
+  await cronQueue.close();
+
+  return result;
+});
 
 // Cron status — check if scheduler is alive and when jobs last ran
 server.get("/cron/status", async () => {
@@ -534,11 +590,27 @@ async function processPendingTickets(): Promise<void> {
     return;
   }
 
+  // ── Backpressure: skip if queue is already busy ──
+  const { Queue } = await import("bullmq");
+  const { getRedisConnectionOptions } = await import("./queue/connection.js");
+  const triageQueue = new Queue("triage-jobs", { connection: getRedisConnectionOptions() });
+  const waitingCount = await triageQueue.getWaitingCount();
+  await triageQueue.close();
+
+  if (waitingCount > 20) {
+    console.log(`[WORKER] Queue already has ${waitingCount} waiting jobs — skipping pending ticket reprocessing`);
+    return;
+  }
+
+  // Cap at remaining capacity
+  const maxToEnqueue = Math.max(0, 30 - waitingCount);
+  const ticketsToProcess = pendingTickets.slice(0, maxToEnqueue);
+
   console.log(
-    `[WORKER] Found ${pendingTickets.length} pending tickets — enqueuing for triage`,
+    `[WORKER] Found ${pendingTickets.length} pending tickets, enqueuing ${ticketsToProcess.length} (queue has ${waitingCount} waiting)`,
   );
 
-  for (const ticket of pendingTickets) {
+  for (const ticket of ticketsToProcess) {
     try {
       const jobId = await enqueueTriageJob({
         ticketId: ticket.id,

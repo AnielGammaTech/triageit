@@ -4,6 +4,7 @@ import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
 import { syncTicketsFromHalo } from "./ticket-sync.js";
+import { scanForErrorTickets } from "./error-ticket-scan.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -60,6 +61,8 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/sla-scan": runSlaScan,
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/memory/evict": runMemoryEviction,
+  "/error-scan": runErrorScan,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -117,6 +120,20 @@ async function runTicketSync(): Promise<void> {
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
   );
+}
+
+async function runMemoryEviction(): Promise<void> {
+  console.log("[CRON] Starting memory eviction");
+  const supabase = createSupabaseClient();
+  const { MemoryManager } = await import("../memory/memory-manager.js");
+  const memoryManager = new MemoryManager(supabase);
+  const evicted = await memoryManager.evictStaleMemories({});
+  console.log(`[CRON] Memory eviction complete: ${evicted} memories pruned`);
+}
+
+async function runErrorScan(): Promise<void> {
+  const result = await scanForErrorTickets();
+  console.log(`[CRON] Error scan: ${result.found} found, ${result.alerted} alerted`);
 }
 
 async function runSlaScan(): Promise<void> {
@@ -374,6 +391,8 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "0 */3 * * *" },
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
+    { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 8 * * *" }, // 3 AM ET = 8 AM UTC
+    { endpoint: "/error-scan", name: "Error Ticket Scan", schedule: "0 */1 * * *" }, // Every hour
   ];
 
   // Clear any stale state before registering defaults
