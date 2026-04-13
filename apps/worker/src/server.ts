@@ -133,6 +133,42 @@ server.post("/error-scan", async (_request, reply) => {
   }
 });
 
+// Response time alerts — manual trigger
+server.post("/response-alerts", async (_request, reply) => {
+  try {
+    const { scanForResponseAlerts } = await import("./cron/response-alerts.js");
+    const result = await scanForResponseAlerts();
+    return { status: "completed", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+// Weekly report — manual trigger
+server.post("/weekly-report", async (_request, reply) => {
+  try {
+    const { generateWeeklyReport } = await import("./cron/weekly-report.js");
+    const result = await generateWeeklyReport();
+    return { status: "completed", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+// Error retry — manual trigger
+server.post("/error-retry", async (_request, reply) => {
+  try {
+    const { retryErroredTickets } = await import("./cron/error-retry.js");
+    const result = await retryErroredTickets();
+    return { status: "completed", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 // Manual ticket sync from Halo
 server.post<{ Body: Record<string, never> }>(
   "/ticket-sync",

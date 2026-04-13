@@ -5,6 +5,9 @@ import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
 import { syncTicketsFromHalo } from "./ticket-sync.js";
 import { scanForErrorTickets } from "./error-ticket-scan.js";
+import { scanForResponseAlerts } from "./response-alerts.js";
+import { generateWeeklyReport } from "./weekly-report.js";
+import { retryErroredTickets } from "./error-retry.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -63,6 +66,9 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/ticket-sync": runTicketSync,
   "/memory/evict": runMemoryEviction,
   "/error-scan": runErrorScan,
+  "/response-alerts": runResponseAlerts,
+  "/weekly-report": runWeeklyReport,
+  "/error-retry": runErrorRetry,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -134,6 +140,22 @@ async function runMemoryEviction(): Promise<void> {
 async function runErrorScan(): Promise<void> {
   const result = await scanForErrorTickets();
   console.log(`[CRON] Error scan: ${result.found} found, ${result.alerted} alerted`);
+}
+
+async function runResponseAlerts(): Promise<void> {
+  const result = await scanForResponseAlerts();
+  console.log(`[CRON] Response alerts: ${result.warnings} warnings, ${result.escalations} escalations`);
+}
+
+async function runWeeklyReport(): Promise<void> {
+  console.log("[CRON] Generating weekly team report card");
+  const result = await generateWeeklyReport();
+  console.log(`[CRON] Weekly report: ${result.totalTickets} opened, ${result.closedTickets} closed, ${result.techScores.length} techs scored`);
+}
+
+async function runErrorRetry(): Promise<void> {
+  const result = await retryErroredTickets();
+  console.log(`[CRON] Error retry: ${result.retried} retried, ${result.escalated} escalated`);
 }
 
 async function runSlaScan(): Promise<void> {
@@ -393,6 +415,9 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
     { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 8 * * *" }, // 3 AM ET = 8 AM UTC
     { endpoint: "/error-scan", name: "Error Ticket Scan", schedule: "0 */1 * * *" }, // Every hour
+    { endpoint: "/response-alerts", name: "Response Time Alerts", schedule: "*/15 * * * *" }, // Every 15 minutes
+    { endpoint: "/weekly-report", name: "Weekly Team Report", schedule: "0 13 * * 1" }, // Monday 8 AM ET = 1 PM UTC
+    { endpoint: "/error-retry", name: "Error Ticket Retry", schedule: "*/30 * * * *" }, // Every 30 minutes
   ];
 
   // Clear any stale state before registering defaults

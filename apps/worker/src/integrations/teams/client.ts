@@ -454,4 +454,170 @@ export class TeamsClient {
 
     await this.sendCard(card);
   }
+
+  async sendResponseAlert(alert: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly techName: string | null;
+    readonly hoursSinceReply: number;
+    readonly isEscalation: boolean;
+  }): Promise<void> {
+    const color = alert.isEscalation ? "Attention" : "Warning";
+    const header = alert.isEscalation
+      ? `ESCALATION — Tech #${alert.haloId} No Response (${alert.hoursSinceReply}h)`
+      : `WARNING — Tech #${alert.haloId} No Response (${alert.hoursSinceReply}h)`;
+
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              { type: "TextBlock", text: header, weight: "Bolder", size: "Large", color },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Ticket", value: `#${alert.haloId}` },
+                  { title: "Summary", value: alert.summary },
+                  { title: "Client", value: alert.clientName ?? "Unknown" },
+                  { title: "Assigned Tech", value: alert.techName ?? "UNASSIGNED" },
+                  { title: "Waiting", value: `${alert.hoursSinceReply}h since customer reply` },
+                ],
+              },
+              ...(alert.isEscalation
+                ? [{ type: "TextBlock", text: "David — this ticket needs your attention. Customer has been waiting over 2 hours.", wrap: true, weight: "Bolder" as const, color: "Attention" as const }]
+                : [{ type: "TextBlock", text: `${alert.techName ?? "Tech"} — please respond to this customer ASAP.`, wrap: true, weight: "Bolder" as const, color: "Warning" as const }]),
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
+  async sendWeeklyReport(report: {
+    readonly weekOf: string;
+    readonly totalTickets: number;
+    readonly closedTickets: number;
+    readonly avgResponseHours: number;
+    readonly feedbackScore: number;
+    readonly mvpName: string | null;
+    readonly mvpReason: string | null;
+    readonly techScores: ReadonlyArray<{
+      readonly name: string;
+      readonly ticketsHandled: number;
+      readonly avgResponseHours: number;
+      readonly rating: string;
+      readonly trend: "improving" | "stable" | "declining";
+    }>;
+    readonly topIssues: ReadonlyArray<string>;
+  }): Promise<void> {
+    const trendIcon = (t: string) => t === "improving" ? "+" : t === "declining" ? "-" : "=";
+
+    const techRows = report.techScores.map((t) => ({
+      type: "ColumnSet",
+      columns: [
+        { type: "Column", width: "stretch", items: [{ type: "TextBlock", text: t.name, weight: "Bolder" }] },
+        { type: "Column", width: "auto", items: [{ type: "TextBlock", text: String(t.ticketsHandled) }] },
+        { type: "Column", width: "auto", items: [{ type: "TextBlock", text: `${t.avgResponseHours.toFixed(1)}h` }] },
+        { type: "Column", width: "auto", items: [{ type: "TextBlock", text: t.rating }] },
+        { type: "Column", width: "auto", items: [{ type: "TextBlock", text: trendIcon(t.trend) }] },
+      ],
+    }));
+
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              { type: "TextBlock", text: `Weekly Team Report Card — Week of ${report.weekOf}`, weight: "Bolder", size: "Large", color: "Accent" },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Tickets Opened", value: String(report.totalTickets) },
+                  { title: "Tickets Closed", value: String(report.closedTickets) },
+                  { title: "Avg Response", value: `${report.avgResponseHours}h` },
+                  { title: "Triage Feedback", value: report.feedbackScore > 0 ? `${report.feedbackScore}% helpful` : "No feedback yet" },
+                  ...(report.mvpName ? [{ title: "MVP", value: `${report.mvpName} — ${report.mvpReason ?? "Top performer"}` }] : []),
+                ],
+              },
+              { type: "TextBlock", text: "Tech Scorecard", weight: "Bolder", size: "Medium", spacing: "Large" },
+              {
+                type: "ColumnSet",
+                columns: [
+                  { type: "Column", width: "stretch", items: [{ type: "TextBlock", text: "Tech", weight: "Bolder", size: "Small" }] },
+                  { type: "Column", width: "auto", items: [{ type: "TextBlock", text: "Tix", weight: "Bolder", size: "Small" }] },
+                  { type: "Column", width: "auto", items: [{ type: "TextBlock", text: "Resp", weight: "Bolder", size: "Small" }] },
+                  { type: "Column", width: "auto", items: [{ type: "TextBlock", text: "Rating", weight: "Bolder", size: "Small" }] },
+                  { type: "Column", width: "auto", items: [{ type: "TextBlock", text: "Trend", weight: "Bolder", size: "Small" }] },
+                ],
+              },
+              ...techRows,
+              ...(report.topIssues.length > 0
+                ? [
+                    { type: "TextBlock", text: "Top Issues This Week", weight: "Bolder", size: "Medium", spacing: "Large" },
+                    { type: "TextBlock", text: report.topIssues.join(", "), wrap: true, size: "Small" },
+                  ]
+                : []),
+              { type: "TextBlock", text: "TriageIt AI — Weekly Report", size: "Small", isSubtle: true, spacing: "Large" },
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
+  async sendPermanentFailureAlert(tickets: ReadonlyArray<{
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly errorMessage: string | null;
+  }>): Promise<void> {
+    const ticketItems = tickets.map((t) => ({
+      type: "Container",
+      style: "attention",
+      items: [
+        { type: "TextBlock", text: `#${t.haloId} — ${t.summary}`, weight: "Bolder", wrap: true },
+        { type: "TextBlock", text: `Client: ${t.clientName ?? "Unknown"}`, size: "Small" },
+        { type: "TextBlock", text: `Error: ${t.errorMessage ?? "Unknown error"}`, size: "Small", wrap: true, isSubtle: true },
+      ],
+    }));
+
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              { type: "TextBlock", text: `PERMANENT FAILURE — ${tickets.length} ticket(s) need manual intervention`, weight: "Bolder", size: "Large", color: "Attention" },
+              { type: "TextBlock", text: "These tickets failed triage 3 times. Manual intervention required.", wrap: true },
+              ...ticketItems,
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
 }
