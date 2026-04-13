@@ -37,6 +37,7 @@ import {
   REMEMBER_INSTRUCTIONS,
 } from "../../memory/memory-extractor.js";
 import type { MemoryMatch } from "@triageit/shared";
+import { getFeedbackContext } from "./feedback-stats.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -495,7 +496,7 @@ export async function runTriage(
   // ── Step 5: Michael synthesizes ALL findings ───────────────────────
 
   const michaelResult = await synthesizeFindings(
-    context, classification, findings, successfulSpecialists, managerMemories, techWorkload,
+    context, classification, findings, successfulSpecialists, managerMemories, techWorkload, supabase,
   );
   const processingTime = Date.now() - startTime;
 
@@ -794,6 +795,7 @@ async function synthesizeFindings(
   successfulSpecialists: ReadonlyArray<string>,
   memories: ReadonlyArray<MemoryMatch> = [],
   techWorkload: string = "",
+  supabase?: SupabaseClient,
 ): Promise<MichaelSynthesis> {
   const client = new Anthropic();
 
@@ -902,6 +904,18 @@ async function synthesizeFindings(
     ].join("\n");
 
     messageContent.push({ type: "text", text: memorySection });
+  }
+
+  // Inject triage accuracy feedback context (if enough data exists)
+  if (supabase) {
+    try {
+      const feedbackCtx = await getFeedbackContext(supabase);
+      if (feedbackCtx) {
+        messageContent.push({ type: "text", text: `\n${feedbackCtx}` });
+      }
+    } catch (err) {
+      console.warn("[MICHAEL] Feedback context fetch failed (non-fatal):", err);
+    }
   }
 
   const systemWithMemory = `${MICHAEL_SYSTEM_PROMPT}\n\n${REMEMBER_INSTRUCTIONS}`;

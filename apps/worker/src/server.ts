@@ -501,6 +501,64 @@ server.post<{ Body: { client_name: string; title: string; content: string; compa
   },
 );
 
+// ── Triage feedback endpoints ────────────────────────────────────────
+
+// Submit feedback on a triage result
+server.post<{
+  Body: {
+    triage_result_id: string;
+    ticket_id: string;
+    rating: "helpful" | "not_helpful";
+    classification_accurate?: boolean;
+    priority_accurate?: boolean;
+    recommendations_useful?: boolean;
+    comment?: string;
+    submitted_by?: string;
+  };
+}>("/feedback", async (request, reply) => {
+  const { triage_result_id, ticket_id, rating, ...rest } = request.body;
+  if (!triage_result_id || !ticket_id || !rating) {
+    return reply.status(400).send({ error: "triage_result_id, ticket_id, and rating are required" });
+  }
+
+  const supabase = createSupabaseClient();
+  const { data, error } = await supabase
+    .from("triage_feedback")
+    .insert({
+      triage_result_id,
+      ticket_id,
+      rating,
+      ...rest,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    return reply.status(500).send({ error: error.message });
+  }
+
+  return { status: "saved", id: data.id };
+});
+
+// Get feedback for a specific ticket
+server.get<{ Params: { ticketId: string } }>(
+  "/feedback/:ticketId",
+  async (request, reply) => {
+    const supabase = createSupabaseClient();
+    const { data, error } = await supabase
+      .from("triage_feedback")
+      .select("*")
+      .eq("ticket_id", request.params.ticketId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return reply.status(500).send({ error: error.message });
+    }
+
+    return { feedback: data ?? [] };
+  },
+);
+
 // Customer action webhook — detects update requests
 server.post<{
   Body: { ticket_id: number; note: string; who?: string; hiddenfromuser?: boolean };
