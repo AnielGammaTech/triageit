@@ -6,6 +6,8 @@ import type { HaloConfig } from "@triageit/shared";
 import {
   isAlertTicket,
   summarizeAlert,
+  generateAlertRemediation,
+  buildAlertRemediationNote,
 } from "../workers/erin-hannon.js";
 import { findSimilarTickets } from "../similar-tickets.js";
 import type { SimilarTicket } from "../similar-tickets.js";
@@ -174,18 +176,30 @@ export async function tryAlertFastPath(
     duration_ms: Date.now() - alertStart,
   });
 
+  // Run alert expert for remediation advice (Haiku — cheap)
+  let remediationNote = "";
+  try {
+    const remediation = await generateAlertRemediation(context, alertResult);
+    remediationNote = buildAlertRemediationNote(alertResult, remediation);
+    console.log(`[ALERT-EXPERT] #${ticket.halo_id}: ${remediation.urgency} — ${remediation.what_happened}`);
+  } catch (err) {
+    console.error(`[ALERT-EXPERT] Failed for #${ticket.halo_id}:`, err);
+  }
+
   const alertHaloConfig = await getHaloConfig(supabase);
   if (alertHaloConfig) {
     const halo = new HaloClient(alertHaloConfig);
     try {
       const alertNote = buildAlertPathNote(alertResult, alertProcessingTime, alertSimilarTickets);
       await halo.addInternalNote(ticket.halo_id, alertNote);
+
+      // Post remediation note separately so it's clearly visible
+      if (remediationNote) {
+        await halo.addInternalNote(ticket.halo_id, remediationNote);
+      }
     } catch (error) {
       console.error(`[MICHAEL] Alert path: Failed to write Halo note for #${ticket.halo_id}:`, error);
     }
-
-    // Note: ticket type changes removed — too destructive for AI to auto-reclassify.
-    // Dispatchers should change ticket types manually in Halo.
   }
 
   await supabase.from("agent_logs").insert({
