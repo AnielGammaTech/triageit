@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import { TriageFeedback } from "@/components/tickets/triage-feedback";
 import type { TicketStatus } from "@triageit/shared";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -946,6 +947,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               <p className="text-sm text-red-300/80">{triage.security_notes}</p>
             </div>
           )}
+
+          <TriageFeedback triageResultId={triage.id} ticketId={ticketId} />
         </div>
       )}
 
