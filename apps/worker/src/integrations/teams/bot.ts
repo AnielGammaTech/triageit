@@ -434,6 +434,37 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
   const lower = text.toLowerCase();
   const convId = activity.conversation.id;
 
+  // Handle /help command
+  if (lower === "/help" || lower === "help" || lower === "/commands") {
+    const helpText = [
+      "**Prison Mike & Toby — TriageIT Bot**",
+      "",
+      "**Agents:**",
+      "- Just type your question → **Prison Mike** (operations)",
+      "- Start with `toby` → **Toby** (analytics)",
+      "",
+      "**What I can do:**",
+      "| Command | Example |",
+      "|---------|---------|",
+      "| Look up a ticket | *what's the status on #34875?* |",
+      "| Search tickets | *show me open tickets for NABOR* |",
+      "| Retriage a ticket | *retriage #34875* |",
+      "| Post a note | *post a note on #34885 saying check the phone system* |",
+      "| Tech performance | *how is Matthew doing this week?* |",
+      "| Team overview | *show me the team workload* |",
+      "| Client history | *what tickets does Potter Homes have?* |",
+      "| Sync tickets | *sync tickets from Halo* |",
+      "| Run analytics | *toby run a fresh analysis* |",
+      "",
+      "**Tips:**",
+      "- Use `#` + ticket number to reference tickets",
+      "- Say `toby` before your question for analytics/performance data",
+      "- I can take actions — retriage, post notes, sync, not just read data",
+    ].join("\n");
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, helpText);
+    return;
+  }
+
   let agent: "michael" | "toby" = "michael";
   let cleanMsg = text;
 
@@ -443,7 +474,7 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
   }
 
   if (!cleanMsg) {
-    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "What do you need? Start with `toby` for analytics, or just ask me anything.");
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "What do you need? Start with `toby` for analytics, or just ask me anything. Type `/help` for commands.");
     return;
   }
 
