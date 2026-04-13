@@ -608,51 +608,11 @@ export default function TicketsPage() {
             <p className="text-[var(--muted-foreground)]">No close reviews needing attention.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {closeReviewTickets.map((cr) => {
-              const rating = (cr.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating ?? "unknown";
-              const ticket = cr.tickets as unknown as { id: string; summary: string; client_name: string | null; halo_id: number; halo_agent: string | null };
-              const techName = ticket.halo_agent ?? cr.tech_name ?? "Unassigned";
-              const ratingColor = rating === "poor" ? "text-red-400 bg-red-500/10" : "text-yellow-400 bg-yellow-500/10";
-              const haloLink = haloBaseUrl ? `${haloBaseUrl}/tickets/${ticket.halo_id}` : null;
-              return (
-                <div
-                  key={`${cr.halo_id}-${cr.created_at}`}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 transition-all hover:border-white/20 hover:bg-white/[0.04]"
-                >
-                  <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", ratingColor)}>
-                    {rating.replace("_", " ")}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white truncate">
-                      #{ticket.halo_id} — {ticket.summary}
-                    </p>
-                    <p className="text-xs text-white/40">
-                      {ticket.client_name ?? "Unknown"} · Assigned: <strong className="text-white/60">{techName}</strong> · {new Date(cr.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      onClick={() => handleSelectTicket(ticket.id)}
-                      className="rounded-lg px-2.5 py-1 text-[10px] font-medium bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80 transition-colors"
-                    >
-                      TriageIT
-                    </button>
-                    {haloLink && (
-                      <a
-                        href={haloLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="rounded-lg px-2.5 py-1 text-[10px] font-medium bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
-                      >
-                        Halo
-                      </a>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <CloseReviewCards
+            reviews={closeReviewTickets}
+            onSelectTicket={handleSelectTicket}
+            haloBaseUrl={haloBaseUrl}
+          />
         )
       ) : activeTab === "alerts" ? (
         alertTickets.length === 0 ? (
@@ -704,6 +664,109 @@ export default function TicketsPage() {
 }
 
 // ── Tab Button ──────────────────────────────────────────────────────
+
+// ── Close Review Cards — matches Review tab format ──────────────────────
+
+function CloseReviewCards({
+  reviews,
+  onSelectTicket,
+  haloBaseUrl,
+}: {
+  readonly reviews: ReadonlyArray<{
+    readonly halo_id: number;
+    readonly tech_name: string | null;
+    readonly review_data: { tech_performance: { rating: string; response_time?: string; communication?: string; highlights?: string | null; issues?: string | null } };
+    readonly created_at: string;
+    readonly tickets: { id: string; summary: string; client_name: string | null; halo_id: number; halo_agent?: string | null };
+  }>;
+  readonly onSelectTicket: (id: string) => void;
+  readonly haloBaseUrl: string | null;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const ratingStyles: Record<string, { label: string; color: string; border: string }> = {
+    poor: { label: "POOR", color: "text-red-400", border: "border-l-red-500" },
+    needs_improvement: { label: "NEEDS IMP", color: "text-amber-400", border: "border-l-amber-500" },
+    good: { label: "GOOD", color: "text-blue-400", border: "border-l-blue-500" },
+    great: { label: "GREAT", color: "text-emerald-400", border: "border-l-emerald-500" },
+  };
+
+  return (
+    <div className="space-y-1">
+      {reviews.map((cr) => {
+        const perf = cr.review_data?.tech_performance ?? { rating: "unknown" };
+        const rating = perf.rating ?? "unknown";
+        const ticket = cr.tickets as unknown as { id: string; summary: string; client_name: string | null; halo_id: number; halo_agent: string | null };
+        const techName = ticket.halo_agent ?? cr.tech_name ?? "Unassigned";
+        const style = ratingStyles[rating] ?? { label: rating.toUpperCase(), color: "text-white/50", border: "border-l-white/20" };
+        const haloLink = haloBaseUrl ? `${haloBaseUrl}/tickets?id=${ticket.halo_id}` : null;
+        const key = `${cr.halo_id}-${cr.created_at}`;
+        const isOpen = expandedId === key;
+        const daysAgo = Math.floor((Date.now() - new Date(cr.created_at).getTime()) / 86400000);
+
+        return (
+          <div key={key} className={cn("rounded-lg border border-white/[0.06] border-l-[3px] overflow-hidden", style.border, isOpen && "ring-1 ring-white/10")}>
+            {/* Compact row */}
+            <button
+              type="button"
+              onClick={() => setExpandedId(isOpen ? null : key)}
+              className="w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors"
+            >
+              <span className={cn("shrink-0 text-[10px] font-black tracking-wider w-[72px]", style.color)}>{style.label}</span>
+              <span className="text-xs font-mono text-white/40 shrink-0">#{ticket.halo_id}</span>
+              <span className="text-sm text-white/80 truncate flex-1">{ticket.summary}</span>
+              <span className="hidden sm:block shrink-0 text-xs text-white/25 max-w-[100px] truncate">{ticket.client_name ?? ""}</span>
+              <span className={cn("hidden sm:block shrink-0 text-xs font-medium w-[110px] text-right", techName === "Unassigned" ? "text-red-400" : "text-white/50")}>{techName}</span>
+              <span className="shrink-0 text-[11px] text-white/20 tabular-nums w-6 text-right">{daysAgo}d</span>
+              <svg className={cn("shrink-0 h-3.5 w-3.5 text-white/15 transition-transform", isOpen && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {/* Expanded */}
+            {isOpen && (
+              <div className="border-t border-white/[0.06] px-4 py-3 space-y-3 bg-white/[0.01]">
+                <div className="flex flex-wrap items-center gap-4 text-xs text-white/40">
+                  {perf.response_time && <span>Response: <span className="text-white/70 font-medium">{perf.response_time}</span></span>}
+                  {perf.communication && <span>Communication: <span className="text-white/70 font-medium">{perf.communication}</span></span>}
+                </div>
+
+                {(perf.highlights || perf.issues) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {perf.highlights && (
+                      <div className="rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15 px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-emerald-400 tracking-wider mb-1">HIGHLIGHTS</p>
+                        <p className="text-xs text-emerald-100/70 leading-relaxed">{perf.highlights}</p>
+                      </div>
+                    )}
+                    {perf.issues && (
+                      <div className="rounded-lg bg-amber-500/[0.06] border border-amber-500/15 px-3 py-2.5">
+                        <p className="text-[10px] font-bold text-amber-400 tracking-wider mb-1">ISSUES</p>
+                        <p className="text-xs text-amber-100/70 leading-relaxed">{perf.issues}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-2 border-t border-white/[0.04]">
+                  <button onClick={() => onSelectTicket(ticket.id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#b91c1c] hover:bg-[#991b1b] transition-colors">
+                    View Ticket
+                  </button>
+                  {haloLink && (
+                    <a href={haloLink} target="_blank" rel="noopener noreferrer" className="rounded-md px-3 py-1.5 text-xs font-medium text-white/50 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-colors">
+                      Open in Halo
+                    </a>
+                  )}
+                  <span className="ml-auto text-xs text-white/25">{ticket.client_name ?? ""} | {techName}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function TabButton({
   active,
