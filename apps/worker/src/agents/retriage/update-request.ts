@@ -136,7 +136,7 @@ export async function handleUpdateRequest(
     "Recent Actions (last 15):",
     ...actions.slice(0, 15).map(
       (a: HaloAction) =>
-        `  [${a.datecreated ?? "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.substring(0, 300) ?? ""}`,
+        `  [${a.datecreated ?? "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.replace(/<[^>]*>/g, " ").substring(0, 1500).trim() ?? ""}`,
     ),
   ].join("\n");
 
