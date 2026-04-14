@@ -35,36 +35,32 @@ interface DailyScanResult {
 
 const RETRIAGE_PROMPT = `You are Michael Scott, Regional Manager at Gamma Tech Services. You're reviewing an open support ticket to determine if the assigned technician is handling it properly.
 
-You are the MANAGER. These are YOUR employees. You hold them to YOUR standards. Be honest, fair, but firm.
+Today's date: ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" })}
 
-ALL times must be in Eastern Time (ET). Never use UTC.
+## CRITICAL RULES — READ FIRST
+
+1. **NEVER fabricate details.** Only reference dates, names, and events that appear EXACTLY in the action log below. If you don't see it in the data, don't mention it.
+2. **Be consistent.** If the tech is doing well (multiple positives), do NOT flag as "warning" or "critical" — use "info". Only flag warning/critical when there are REAL problems with NO offsetting positives.
+3. **Severity guide:**
+   - "critical" = Customer is actively waiting with NO tech response for 4+ hours, OR SLA breached, OR ticket completely abandoned
+   - "warning" = Minor delay (1-4 hours) OR missing documentation, but tech is otherwise engaged
+   - "info" = Tech is handling it — note positives, suggest improvements if any
+4. **"Waiting on Customer" status means the TECH already replied** and is waiting for the customer. Do NOT flag "customer_waiting_no_reply" on Waiting on Customer tickets.
 
 ## What You're Evaluating
 
-1. **Customer Communication** — Has the tech communicated with the customer? If the customer is waiting and hasn't heard anything, that's a failure. Internal notes don't count — the CUSTOMER needs to know what's happening.
-
-2. **Response Time** — How fast did the tech respond to the customer's messages? Over 1 hour during business hours is concerning. Over 4 hours is unacceptable for urgent tickets.
-
-3. **Documentation** — Is the tech documenting their work? If the ticket gets resolved with no notes about what they did, that's a red flag. We need this for Hudu and for the team to learn.
-
-4. **Progress** — Is the tech actually making progress, or just touching the ticket without advancing it? Look at the conversation — is the issue getting closer to resolution?
-
-5. **Ticket Hygiene** — If the ticket was resolved and reopened, is there a reason? If it's been open for days with no movement, why?
-
-## Your Judgment Calls
-
-Use what you've learned from past tickets (your memories) to inform your assessment. If you've seen this tech handle similar tickets well before, note it. If they have a pattern of slow responses, call it out.
-
-When you're not sure if something is acceptable, err on the side of flagging it. It's better to ask than to let a customer wait.
+1. **Customer Communication** — Has the tech sent customer-visible replies? Internal notes don't count.
+2. **Response Time** — How fast did the tech respond? Over 1h is concerning, over 4h is critical.
+3. **Documentation** — Is the tech documenting work in internal notes?
+4. **Progress** — Is the issue moving toward resolution?
 
 ## Output Format
 Respond with ONLY valid JSON:
 {
-  "flags": ["list any issues — use: customer_waiting_no_reply, no_documentation, slow_response, stale_no_progress, reopened_no_explanation, unassigned, sla_at_risk, closed_without_documentation"],
+  "flags": ["ONLY if real problems exist — use: customer_waiting_no_reply, no_documentation, slow_response, stale_no_progress, unassigned, sla_at_risk"],
   "positives": ["list good behaviors — use: fast_response, good_communication, well_documented, proactive_followup, thorough_troubleshooting"],
   "severity": "critical|warning|info",
-  "recommendation": "What should the tech do RIGHT NOW? Be specific and direct. Address the tech by name. Max 3 sentences.",
-  "customer_impact": "How is the customer being affected? Is someone waiting? Is their business impacted?"
+  "recommendation": "What should the tech do RIGHT NOW? Reference ONLY facts from the action log. Max 2 sentences."
 }`;
 
 // Common Halo status ID → name map (fallback when API doesn't return status name)
@@ -512,49 +508,22 @@ async function postReTriageNote(
     }
   }
   const severityColors: Record<string, { bg: string; text: string; label: string }> = {
-    critical: { bg: "#7f1d1d", text: "#fecaca", label: "🚨 CRITICAL" },
-    warning: { bg: "#78350f", text: "#fef3c7", label: "⚠️ WARNING" },
-    info: { bg: "#1e3a5f", text: "#bfdbfe", label: "ℹ️ INFO" },
+    critical: { bg: "#7f1d1d", text: "#fecaca", label: "CRITICAL" },
+    warning: { bg: "#78350f", text: "#fef3c7", label: "WARNING" },
+    info: { bg: "#1e3a5f", text: "#bfdbfe", label: "INFO" },
   };
 
   const style = severityColors[result.severity] ?? severityColors.info;
 
-  const flagBadges = result.flags
-    .map((f) => `<span style="background:#374151;color:#d1d5db;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;">${f}</span>`)
-    .join("");
-
-  const positiveBadges = result.positives
-    .map((p) => `<span style="background:#064e3b;color:#6ee7b7;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;">✓ ${POSITIVE_LABELS[p] ?? p}</span>`)
-    .join("");
-
-  const rows: string[] = [
+  // Clean, compact note — just the summary with severity header. No separate badge rows.
+  const note = [
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">`,
-    `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">🤖 AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
-    `<tr style="background:${style.bg};"><td colspan="2" style="padding:10px 14px;font-size:14px;color:${style.text};line-height:1.6;border-bottom:1px solid #3a3f4b;"><strong style="font-size:15px;">${style.label}</strong> — ${result.recommendation}</td></tr>`,
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Status</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${result.status} · Open ${result.daysOpen} day${result.daysOpen === 1 ? "" : "s"}</td></tr>`,
-    result.assignedTech
-      ? `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Assigned</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-weight:600;">${result.assignedTech}</td></tr>`
-      : `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#f87171;">Assigned</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#f87171;font-weight:600;">UNASSIGNED</td></tr>`,
-  ];
-
-  if (flagBadges) {
-    rows.push(
-      `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#f87171;">Issues</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${flagBadges}</td></tr>`,
-    );
-  }
-
-  if (positiveBadges) {
-    rows.push(
-      `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:100px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Good</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${positiveBadges}</td></tr>`,
-    );
-  }
-
-  rows.push(
-    `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · daily re-triage scan</td></tr>`,
+    `<tr><td style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:14px;font-weight:700;">AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
+    `<tr style="background:${style.bg};"><td style="padding:12px 14px;font-size:14px;color:${style.text};line-height:1.6;"><strong>${style.label}</strong> — ${result.recommendation}</td></tr>`,
+    `<tr style="background:#252830;"><td style="padding:8px 14px;font-size:13px;color:#94a3b8;">Status: ${result.status} · Open ${result.daysOpen} day${result.daysOpen === 1 ? "" : "s"} · Assigned: <strong style="color:#e2e8f0;">${result.assignedTech ?? "UNASSIGNED"}</strong></td></tr>`,
+    `<tr><td style="padding:4px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI</td></tr>`,
     `</table>`,
-  );
-
-  const note = rows.join("");
+  ].join("");
 
   try {
     await halo.addInternalNote(haloId, note);
@@ -776,10 +745,12 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         `Last Activity: ${lastActivity ?? "None"}`,
         ruleContext,
         "",
-        `Recent Actions (last 10):`,
-        ...actions.slice(0, 10).map(
+        `ACTION LOG (${actions.length} total, showing last 15):`,
+        `IMPORTANT: Only reference facts from this log. Do NOT invent dates, names, or events.`,
+        "",
+        ...actions.slice(0, 15).map(
           (a) =>
-            `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.substring(0, 200) ?? ""}`,
+            `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(INTERNAL)" : "(CUSTOMER-VISIBLE)"} ${a.who ?? "unknown"}: ${(a.note ?? "").replace(/<[^>]*>/g, " ").substring(0, 400).trim() || "(no text)"}`,
         ),
       ].join("\n");
 
