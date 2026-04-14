@@ -750,7 +750,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         "",
         ...actions.slice(0, 15).map(
           (a) =>
-            `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(INTERNAL)" : "(CUSTOMER-VISIBLE)"} ${a.who ?? "unknown"}: ${(a.note ?? "").replace(/<[^>]*>/g, " ").substring(0, 400).trim() || "(no text)"}`,
+            `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(INTERNAL)" : "(CUSTOMER-VISIBLE)"} ${a.who ?? "unknown"}: ${(a.note ?? "").replace(/<[^>]*>/g, " ").substring(0, 1500).trim() || "(no text)"}`,
         ),
       ].join("\n");
 
