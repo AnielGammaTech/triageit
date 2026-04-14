@@ -3,6 +3,7 @@ import { getRedisConnectionOptions } from "./connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runTriage } from "../agents/manager/michael-scott.js";
 import { syncTicketStatusFromHalo } from "./status-sync.js";
+import { runTobyIncremental } from "../agents/workers/toby-incremental.js";
 import type { TriageJobData } from "./producer.js";
 
 const QUEUE_NAME = "triage";
@@ -78,6 +79,21 @@ export function startTriageWorker(): Worker<TriageJobData> {
 
         // Sync the latest Halo status (e.g. "Waiting on Tech") after triage
         await syncTicketStatusFromHalo(supabase, job.data.ticketId, job.data.haloId);
+
+        // Toby incremental learning — update tech & customer profiles in background
+        // Fire-and-forget: don't block the triage response
+        runTobyIncremental(supabase, {
+          ticketId: job.data.ticketId,
+          haloId: job.data.haloId,
+          clientName: ticket.client_name ?? null,
+          techName: ticket.halo_agent ?? null,
+          classificationType: result.classification?.type ?? null,
+          classificationSubtype: result.classification?.subtype ?? null,
+          urgencyScore: result.urgency_score,
+          summary: ticket.summary ?? "",
+        }).catch((err) => {
+          console.error(`[TOBY-LIVE] Incremental update failed for #${job.data.haloId} (non-fatal):`, err);
+        });
 
         return { success: true, triageResultId: result.id };
       } catch (error) {
