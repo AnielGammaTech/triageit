@@ -359,14 +359,19 @@ export default function TicketsPage() {
           .order("created_at", { ascending: false })
           .limit(200);
 
-        // Filter: poor/needs_improvement only, Gamma Default only, deduplicate by halo_id
+        // Filter: poor/needs_improvement only, Gamma Default only, NO alerts, deduplicate by halo_id
+        const ALERT_PATTERNS = ["spanning backup", "3cx alert", "phish911", "backupiq", "datto alert", "datto rms", "report domain"];
         const seen = new Set<number>();
         const bad = (data ?? []).filter((r) => {
           const rating = (r.review_data as { tech_performance?: { rating?: string } })?.tech_performance?.rating;
-          const ticket = r.tickets as unknown as { tickettype_id?: number };
+          const ticket = r.tickets as unknown as { tickettype_id?: number; summary?: string; client_name?: string | null };
           const isGamma = (ticket as Record<string, unknown>).tickettype_id === 31;
           const isBad = rating === "poor" || rating === "needs_improvement";
-          if (!isBad || !isGamma || seen.has(r.halo_id as number)) return false;
+          // Exclude alerts: client_name "Alerts" or "Unknown", or summary matches alert patterns
+          const clientName = ((ticket as Record<string, unknown>).client_name as string | null ?? "").toLowerCase();
+          const summary = ((ticket as Record<string, unknown>).summary as string ?? "").toLowerCase();
+          const isAlert = clientName === "alerts" || clientName === "unknown" || ALERT_PATTERNS.some((p) => summary.includes(p));
+          if (!isBad || !isGamma || isAlert || seen.has(r.halo_id as number)) return false;
           seen.add(r.halo_id as number);
           return true;
         });
