@@ -699,21 +699,30 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
       const intervalHours = getRetriageIntervalHours(urgencyScore);
 
-      // Check both: time since last customer-facing activity AND time since last triage
-      // Use whichever is MORE RECENT (don't retriage if we just triaged)
+      // Check if there's NEW customer activity since the last triage.
+      // If customer replied AFTER our last triage, bypass the timer — this ticket
+      // needs re-evaluation regardless of urgency interval.
       const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated);
       const customerFacingTime = new Date(lastCustomerFacing).getTime();
       const lastTriageTime = lastTriageAt ? new Date(lastTriageAt).getTime() : 0;
-      const mostRecentEvent = Math.max(customerFacingTime, lastTriageTime);
-      const hoursSinceMostRecent = (Date.now() - mostRecentEvent) / (1000 * 60 * 60);
+      const hasNewCustomerActivity = customerFacingTime > lastTriageTime && lastTriageTime > 0;
 
-      // Skip if timer hasn't expired since the most recent event
-      if (hoursSinceMostRecent < intervalHours) {
-        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
-        continue;
+      if (!hasNewCustomerActivity) {
+        // No new customer activity — use standard urgency timer
+        const hoursSinceLastTriage = lastTriageTime > 0
+          ? (Date.now() - lastTriageTime) / (1000 * 60 * 60)
+          : Infinity; // Never triaged = always eligible
+
+        if (hoursSinceLastTriage < intervalHours) {
+          await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+          continue;
+        }
       }
 
-      console.log(`[RETRIAGE] Timer expired for #${enrichedTicket.id}: ${hoursSinceMostRecent.toFixed(1)}h since last event (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`);
+      const reason = hasNewCustomerActivity
+        ? `new customer activity since last triage`
+        : `timer expired (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`;
+      console.log(`[RETRIAGE] Processing #${enrichedTicket.id}: ${reason}`);
 
       // Quick rule-based check first (free, no tokens)
       const ruleResult = quickRuleCheck(enrichedTicket, actions);
