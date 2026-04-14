@@ -22,6 +22,12 @@ export async function GET(request: Request) {
   const supabase = await createServiceClient();
 
   if (ticketId) {
+    // Validate UUID format to prevent Supabase type errors
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(ticketId)) {
+      return NextResponse.json({ feedback: [] });
+    }
+
     const { data, error } = await supabase
       .from("triage_feedback")
       .select("*")
