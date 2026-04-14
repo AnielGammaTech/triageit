@@ -315,19 +315,29 @@ export default function TicketsPage() {
     ? allOpenTickets.filter((t) => isStale(t))
     : allOpenTickets;
 
-  // Tech review count (fetched separately since ReviewList has its own data source)
+  // Review tab count: tech reviews + retriage-flagged tickets (critical/warning)
   const [reviewCount, setReviewCount] = useState<number>(0);
 
   useEffect(() => {
-    fetch("/api/tech-reviews")
-      .then((r) => r.json())
-      .then((d) => {
+    const supabase = createClient();
+    Promise.all([
+      fetch("/api/tech-reviews").then((r) => r.json()).then((d) => {
         const reviews = (d.reviews ?? []) as ReadonlyArray<{ ticket_id: string }>;
-        // Count unique tickets with reviews
-        const uniqueTickets = new Set(reviews.map((r) => r.ticket_id));
-        setReviewCount(uniqueTickets.size);
-      })
-      .catch(() => setReviewCount(0));
+        return new Set(reviews.map((r) => r.ticket_id)).size;
+      }).catch(() => 0),
+      supabase
+        .from("triage_results")
+        .select("ticket_id", { count: "exact", head: false })
+        .eq("triage_type", "retriage")
+        .gte("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString())
+        .or("classification->>subtype.eq.critical,classification->>subtype.eq.warning")
+        .then(({ data }) => {
+          const unique = new Set((data ?? []).map((r: { ticket_id: string }) => r.ticket_id));
+          return unique.size;
+        }),
+    ]).then(([techCount, retriageCount]) => {
+      setReviewCount(techCount + retriageCount);
+    }).catch(() => setReviewCount(0));
   }, []);
 
   // Close review count — tickets with poor/needs_improvement close reviews
