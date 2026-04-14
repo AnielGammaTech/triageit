@@ -1,5 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { PerformanceDashboard } from "./performance-dashboard";
+import { TobyDashboard } from "./toby/toby-dashboard";
+import { AnalyticsTabs } from "./analytics-tabs";
+import type {
+  TechProfileRow,
+  TrendDetectionRow,
+  TriageEvaluationRow,
+  TobyRunLogRow,
+} from "./toby/page";
 
 interface TicketRow {
   readonly id: string;
@@ -210,10 +218,53 @@ export default async function AnalyticsPage() {
     ticketsTriagedThisWeek: triagesThisWeek.length,
   };
 
+  // Fetch Toby data
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [techProfilesRes, trendsRes, evaluationsRes, runLogRes] = await Promise.all([
+    supabase
+      .from("tech_profiles")
+      .select("*")
+      .order("avg_rating_score", { ascending: false }),
+    supabase
+      .from("trend_detections")
+      .select("*")
+      .gte("created_at", thirtyDaysAgo)
+      .order("severity", { ascending: true })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("triage_evaluations")
+      .select("*")
+      .gte("created_at", thirtyDaysAgo)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("toby_run_log")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  const techProfiles = (techProfilesRes.data ?? []) as ReadonlyArray<TechProfileRow>;
+  const trends = (trendsRes.data ?? []) as ReadonlyArray<TrendDetectionRow>;
+  const evaluations = (evaluationsRes.data ?? []) as ReadonlyArray<TriageEvaluationRow>;
+  const runLog = (runLogRes.data ?? []) as ReadonlyArray<TobyRunLogRow>;
+
   return (
-    <PerformanceDashboard
-      techMetrics={sortedMetrics}
-      teamOverview={teamOverview}
+    <AnalyticsTabs
+      performanceTab={
+        <PerformanceDashboard
+          techMetrics={sortedMetrics}
+          teamOverview={teamOverview}
+        />
+      }
+      tobyTab={
+        <TobyDashboard
+          techProfiles={techProfiles}
+          trends={trends}
+          evaluations={evaluations}
+          runLog={runLog}
+        />
+      }
     />
   );
 }

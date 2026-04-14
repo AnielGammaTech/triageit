@@ -8,14 +8,14 @@ import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
   { href: "/tickets", label: "Tickets" },
-  { href: "/michael", label: "Prison Mike" },
-  { href: "/toby", label: "Toby" },
-  { href: "/customers", label: "Customers" },
-  { href: "/workers", label: "Workers" },
   { href: "/analytics", label: "Analytics" },
-  { href: "/analytics/toby", label: "Toby Insights" },
   { href: "/kb-ideas", label: "KB Ideas" },
   { href: "/dispatcher", label: "Dispatcher" },
+] as const;
+
+const AGENT_ITEMS = [
+  { href: "/michael", label: "Prison Mike" },
+  { href: "/toby", label: "Toby" },
 ] as const;
 
 const PRIMARY_COLOR = "#b91c1c";
@@ -35,7 +35,9 @@ export function Sidebar({ userEmail }: SidebarProps) {
   const router = useRouter();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const agentsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -48,6 +50,19 @@ export function Sidebar({ userEmail }: SidebarProps) {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    function handleAgentsClickOutside(event: MouseEvent) {
+      if (
+        agentsRef.current &&
+        !agentsRef.current.contains(event.target as Node)
+      ) {
+        setAgentsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleAgentsClickOutside);
+    return () => document.removeEventListener("mousedown", handleAgentsClickOutside);
   }, []);
 
   // Close mobile menu on route change
@@ -135,6 +150,62 @@ export function Sidebar({ userEmail }: SidebarProps) {
                 </Link>
               );
             })}
+
+            {/* Agents dropdown */}
+            <div className="relative h-14 flex items-center" ref={agentsRef}>
+              <button
+                onClick={() => setAgentsOpen((prev) => !prev)}
+                className={cn(
+                  "relative flex items-center gap-1.5 px-4 h-14 text-sm font-medium transition-colors",
+                  AGENT_ITEMS.some((a) => pathname.startsWith(a.href))
+                    ? "text-white"
+                    : "text-white/60 hover:text-white hover:bg-white/5",
+                )}
+              >
+                Agents
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={cn("transition-transform", agentsOpen && "rotate-180")}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                {AGENT_ITEMS.some((a) => pathname.startsWith(a.href)) && (
+                  <span
+                    className="absolute bottom-0 left-0 right-0 h-0.5"
+                    style={{ backgroundColor: PRIMARY_COLOR }}
+                  />
+                )}
+              </button>
+              {agentsOpen && (
+                <div
+                  className="absolute left-0 top-12 w-44 rounded-lg border border-white/10 shadow-xl py-1"
+                  style={{ backgroundColor: DROPDOWN_BG }}
+                >
+                  {AGENT_ITEMS.map((agent) => (
+                    <Link
+                      key={agent.href}
+                      href={agent.href}
+                      onClick={() => setAgentsOpen(false)}
+                      className={cn(
+                        "flex items-center px-4 py-2.5 text-sm font-medium transition-colors",
+                        pathname.startsWith(agent.href)
+                          ? "text-white bg-white/[0.08]"
+                          : "text-white/70 hover:text-white hover:bg-white/5",
+                      )}
+                    >
+                      {agent.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           </nav>
 
           {/* Right: Small profile avatar */}
@@ -192,6 +263,19 @@ export function Sidebar({ userEmail }: SidebarProps) {
                     </svg>
                     Adminland
                   </Link>
+                  <Link
+                    href="/workers"
+                    onClick={() => setDropdownOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    Workers
+                  </Link>
                 </div>
                 <div className="border-t border-white/10 p-1">
                   <button
@@ -245,18 +329,57 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   </Link>
                 );
               })}
-              <Link
-                href="/adminland"
-                className={cn(
-                  "flex items-center px-6 py-3 text-sm font-medium transition-colors border-t border-white/[0.06] mt-1",
-                  pathname.startsWith("/adminland")
-                    ? "text-white bg-white/[0.08]"
-                    : "text-white/60 hover:text-white hover:bg-white/5",
-                )}
-                style={pathname.startsWith("/adminland") ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
-              >
-                Adminland
-              </Link>
+              {/* Agents section */}
+              <div className="border-t border-white/[0.06] mt-1 pt-1">
+                <span className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                  Agents
+                </span>
+                {AGENT_ITEMS.map((agent) => {
+                  const isActive = pathname.startsWith(agent.href);
+                  return (
+                    <Link
+                      key={agent.href}
+                      href={agent.href}
+                      className={cn(
+                        "flex items-center px-6 py-3 text-sm font-medium transition-colors",
+                        isActive
+                          ? "text-white bg-white/[0.08]"
+                          : "text-white/60 hover:text-white hover:bg-white/5",
+                      )}
+                      style={isActive ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
+                    >
+                      {agent.label}
+                    </Link>
+                  );
+                })}
+              </div>
+              {/* Admin section */}
+              <div className="border-t border-white/[0.06] mt-1">
+                <Link
+                  href="/adminland"
+                  className={cn(
+                    "flex items-center px-6 py-3 text-sm font-medium transition-colors",
+                    pathname.startsWith("/adminland")
+                      ? "text-white bg-white/[0.08]"
+                      : "text-white/60 hover:text-white hover:bg-white/5",
+                  )}
+                  style={pathname.startsWith("/adminland") ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
+                >
+                  Adminland
+                </Link>
+                <Link
+                  href="/workers"
+                  className={cn(
+                    "flex items-center px-6 py-3 text-sm font-medium transition-colors",
+                    pathname.startsWith("/workers")
+                      ? "text-white bg-white/[0.08]"
+                      : "text-white/60 hover:text-white hover:bg-white/5",
+                  )}
+                  style={pathname.startsWith("/workers") ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
+                >
+                  Workers
+                </Link>
+              </div>
             </div>
           </nav>
         </div>
