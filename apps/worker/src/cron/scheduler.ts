@@ -92,7 +92,9 @@ async function updateJobStatus(
   await supabase
     .from("cron_jobs")
     .update({
-      last_run_at: new Date().toISOString(),
+      // Only update last_run_at on success — errors should NOT reset the clock
+      // so catch-up logic can detect missed runs after restart
+      ...(status === "success" ? { last_run_at: new Date().toISOString() } : {}),
       last_status: status,
       last_error: error ?? null,
       updated_at: new Date().toISOString(),
@@ -269,6 +271,7 @@ async function processCronJob(job: Job<CronJobData>): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[CRON] Job "${name}" failed:`, message);
     if (dbJob) await updateJobStatus(dbJob.id, "error", message);
+    throw err; // Re-throw so BullMQ sees the failure and retries
   }
 }
 
@@ -294,7 +297,7 @@ export async function startCronScheduler(): Promise<void> {
   // Create the worker that processes cron jobs
   cronWorker = new Worker<CronJobData>(CRON_QUEUE_NAME, processCronJob, {
     connection,
-    concurrency: 1, // Run one cron job at a time
+    concurrency: 3, // Allow parallel cron jobs to prevent starvation
   });
 
   cronWorker.on("ready", () => {
@@ -410,7 +413,7 @@ export async function startCronScheduler(): Promise<void> {
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "*/30 * * * *" }, // Every 30 minutes
-    { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "0 */3 * * *" },
+    { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
     { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 8 * * *" }, // 3 AM ET = 8 AM UTC

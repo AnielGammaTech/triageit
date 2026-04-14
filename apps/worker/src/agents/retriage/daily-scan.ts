@@ -857,6 +857,12 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   }
 
   const processingTime = Date.now() - startTime;
+  const processedCount = critical.length + warnings.length + info.length;
+  const skippedCount = openTickets.length - processedCount;
+
+  console.log(
+    `[RETRIAGE] Scan complete: ${openTickets.length} open, ${processedCount} processed (${critical.length} critical, ${warnings.length} warnings, ${info.length} info), ${skippedCount} skipped (timer/alert/dedup)`,
+  );
 
   // Log the daily scan (use first ticket as reference, or skip if no tickets)
   if (openTickets.length > 0) {
