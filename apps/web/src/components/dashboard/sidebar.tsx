@@ -13,6 +13,9 @@ const NAV_ITEMS = [
   { href: "/customers", label: "Customers" },
   { href: "/workers", label: "Workers" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/analytics/toby", label: "Toby Insights" },
+  { href: "/kb-ideas", label: "KB Ideas" },
+  { href: "/dispatcher", label: "Dispatcher" },
 ] as const;
 
 const PRIMARY_COLOR = "#b91c1c";

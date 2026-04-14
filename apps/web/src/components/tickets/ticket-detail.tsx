@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { TriageFeedback } from "@/components/tickets/triage-feedback";
+import { AgentInvoke } from "@/components/tickets/agent-invoke";
 import type { TicketStatus } from "@triageit/shared";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -949,6 +950,11 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           )}
 
           <TriageFeedback triageResultId={triage.id} ticketId={ticketId} />
+
+          {/* Run Specialist Agent — collapsible section */}
+          {ticket && (
+            <AgentInvoke haloId={ticket.halo_id} ticketId={ticketId} />
+          )}
         </div>
       )}
 
