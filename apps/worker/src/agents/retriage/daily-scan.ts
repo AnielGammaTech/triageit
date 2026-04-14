@@ -724,48 +724,22 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         : `timer expired (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`;
       console.log(`[RETRIAGE] Processing #${enrichedTicket.id}: ${reason}`);
 
-      // Quick rule-based check first (free, no tokens)
+      // Quick rule-based check (free, no tokens) — collect flags but ALWAYS run AI too
       const ruleResult = quickRuleCheck(enrichedTicket, actions);
-      if (ruleResult) {
-        if (ruleResult.severity === "critical") critical.push(ruleResult);
-        else if (ruleResult.severity === "warning") warnings.push(ruleResult);
-        else info.push(ruleResult);
 
-        // Upsert ticket tracking in Supabase (creates record if ticket only exists in Halo)
-        const ruleTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
-
-        // Post note to Halo and flag for manager review
-        if (ruleResult.severity === "critical" || ruleResult.severity === "warning") {
-          await postReTriageNote(halo, enrichedTicket.id, ruleResult, supabase);
-
-          if (ruleTicketId) {
-            await supabase
-              .from("tickets")
-              .update({
-                status: "needs_review",
-                last_retriage_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", ruleTicketId);
-          }
-        } else if (ruleTicketId) {
-          // Even for info-level results, mark that we actually reviewed it
-          await supabase
-            .from("tickets")
-            .update({ last_retriage_at: new Date().toISOString() })
-            .eq("id", ruleTicketId);
-        }
-
-        continue;
-      }
-
-      // For non-obvious tickets, use Haiku for a quick assessment
+      // EVERY eligible ticket gets a full AI evaluation — rule flags are supplementary
       const now = new Date().toISOString();
       const daysOpen = daysBetween(enrichedTicket.datecreated, now);
       const lastActivity = getLastActivity(actions);
       const status = getStatusName(enrichedTicket);
 
       const assignedTech = getAgentName(enrichedTicket);
+
+      // Include rule-based flags as additional context for the AI
+      const ruleContext = ruleResult
+        ? `\nAuto-detected flags: ${ruleResult.flags.join(", ") || "none"}` +
+          (ruleResult.positives.length > 0 ? `\nPositives: ${ruleResult.positives.join(", ")}` : "")
+        : "";
 
       const contextMessage = [
         `Ticket #${enrichedTicket.id}: ${enrichedTicket.summary}`,
@@ -776,6 +750,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         `Assigned Tech: ${assignedTech ?? "UNASSIGNED"}`,
         `Created: ${enrichedTicket.datecreated} (${daysOpen} days ago)`,
         `Last Activity: ${lastActivity ?? "None"}`,
+        ruleContext,
         "",
         `Recent Actions (last 10):`,
         ...actions.slice(0, 10).map(
@@ -802,22 +777,29 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         recommendation: string;
       }>(text);
 
+      // Merge rule-based flags with AI flags (deduplicated)
+      const mergedFlags = [...new Set([...(ruleResult?.flags ?? []), ...parsed.flags])];
+      const mergedPositives = [...new Set([...(ruleResult?.positives ?? []), ...(parsed.positives ?? [])])];
+      const effectiveSeverity = ruleResult && ruleResult.severity === "critical" && parsed.severity !== "critical"
+        ? "critical" as const
+        : parsed.severity;
+
       const result: ReTriageResult = {
         haloId: enrichedTicket.id,
         summary: enrichedTicket.summary,
         clientName: enrichedTicket.client_name ?? null,
         status,
         assignedTech,
-        flags: parsed.flags,
-        positives: parsed.positives ?? [],
+        flags: mergedFlags,
+        positives: mergedPositives,
         recommendation: parsed.recommendation,
         daysOpen,
         lastActivity,
-        severity: parsed.severity,
+        severity: effectiveSeverity,
       };
 
-      if (parsed.severity === "critical") critical.push(result);
-      else if (parsed.severity === "warning") warnings.push(result);
+      if (effectiveSeverity === "critical") critical.push(result);
+      else if (effectiveSeverity === "warning") warnings.push(result);
       else info.push(result);
 
       // Upsert ticket tracking (creates record if ticket only exists in Halo)
@@ -827,13 +809,13 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         await supabase.from("triage_results").insert({
           id: crypto.randomUUID(),
           ticket_id: localTicketId,
-          classification: { type: "retriage", subtype: parsed.severity },
-          urgency_score: parsed.severity === "critical" ? 5 : parsed.severity === "warning" ? 3 : 1,
+          classification: { type: "retriage", subtype: effectiveSeverity },
+          urgency_score: effectiveSeverity === "critical" ? 5 : effectiveSeverity === "warning" ? 3 : 1,
           urgency_reasoning: parsed.recommendation,
-          recommended_priority: parsed.severity === "critical" ? 1 : parsed.severity === "warning" ? 3 : 5,
+          recommended_priority: effectiveSeverity === "critical" ? 1 : effectiveSeverity === "warning" ? 3 : 5,
           recommended_team: enrichedTicket.team ?? "General",
           security_flag: false,
-          findings: { daily_scan: { flags: parsed.flags, positives: parsed.positives ?? [], recommendation: parsed.recommendation } },
+          findings: { daily_scan: { flags: mergedFlags, positives: mergedPositives, recommendation: parsed.recommendation, rule_flags: ruleResult?.flags ?? [] } },
           internal_notes: parsed.recommendation,
           processing_time_ms: Date.now() - startTime,
           model_tokens_used: { manager: 0, workers: { daily_scan: tokensUsed } },
@@ -841,7 +823,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         });
 
         // Post note to Halo and flag for manager review
-        if (parsed.severity === "critical" || parsed.severity === "warning") {
+        if (effectiveSeverity === "critical" || effectiveSeverity === "warning") {
           await postReTriageNote(halo, enrichedTicket.id, result, supabase);
 
           await supabase
