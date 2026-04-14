@@ -171,10 +171,21 @@ function getRetriageIntervalHours(urgencyScore: number | null): number {
 function getLastCustomerFacingActivity(
   actions: ReadonlyArray<HaloAction>,
   ticketCreatedAt: string | undefined,
+  staffNames?: ReadonlyArray<string>,
 ): string {
-  const customerFacing = actions.filter(
-    (a) => !a.hiddenfromuser && a.who && !a.who.toLowerCase().includes("triageit"),
-  );
+  const customerFacing = actions.filter((a) => {
+    if (a.hiddenfromuser || !a.who) return false;
+    const whoLower = a.who.toLowerCase();
+    // Exclude TriageIT bot
+    if (whoLower.includes("triageit") || whoLower.includes("triggr")) return false;
+    // Exclude Gamma Tech internal domains
+    if (whoLower.includes("gamma.tech") || whoLower.includes("gtmail")) return false;
+    // Exclude staff members (techs, dispatcher, sales, managers)
+    if (staffNames && staffNames.some((n) => whoLower.includes(n))) return false;
+    // Skip HTML-only notes (system-generated)
+    if (a.note && a.note.startsWith("<") && !a.note.includes("wrote:")) return false;
+    return true;
+  });
 
   if (customerFacing.length === 0) return ticketCreatedAt ?? new Date().toISOString();
 
@@ -467,27 +478,35 @@ async function postReTriageNote(
   result: ReTriageResult,
   supabase?: SupabaseClient,
 ): Promise<void> {
-  // Dedup: if a full triage (not daily-scan) was posted within the last 10 minutes, skip
+  // Dedup: skip if ANY triage/retriage note was posted within the last 2 hours.
+  // This prevents spamming Halo with repeated retriage notes on the same ticket.
   if (supabase) {
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const { data: localTicket } = await supabase
       .from("tickets")
-      .select("id")
+      .select("id, last_retriage_at")
       .eq("halo_id", haloId)
       .maybeSingle();
 
     if (localTicket) {
+      // Check last_retriage_at on the ticket itself (fastest check)
+      if (localTicket.last_retriage_at && new Date(localTicket.last_retriage_at) > new Date(twoHoursAgo)) {
+        console.log(`[RETRIAGE] Skipping Halo note for #${haloId} — already posted retriage note at ${localTicket.last_retriage_at}`);
+        return;
+      }
+
+      // Also check triage_results for any recent entry (full or retriage)
       const { data: recentTriage } = await supabase
         .from("triage_results")
-        .select("created_at")
+        .select("created_at, triage_type")
         .eq("ticket_id", localTicket.id)
-        .gte("created_at", tenMinAgo)
-        .is("triage_type", null)  // full triages have null triage_type; daily scan sets "retriage"
+        .gte("created_at", twoHoursAgo)
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (recentTriage) {
-        console.log(`[RETRIAGE] Skipping duplicate daily-scan note for #${haloId} — full triage posted at ${recentTriage.created_at}`);
+        console.log(`[RETRIAGE] Skipping Halo note for #${haloId} — recent ${recentTriage.triage_type ?? "full"} triage at ${recentTriage.created_at}`);
         return;
       }
     }
@@ -700,19 +719,24 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const intervalHours = getRetriageIntervalHours(urgencyScore);
 
       // Check if there's NEW customer activity since the last triage.
-      // If customer replied AFTER our last triage, bypass the timer — this ticket
-      // needs re-evaluation regardless of urgency interval.
-      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated);
+      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated, staffNames);
       const customerFacingTime = new Date(lastCustomerFacing).getTime();
       const lastTriageTime = lastTriageAt ? new Date(lastTriageAt).getTime() : 0;
       const hasNewCustomerActivity = customerFacingTime > lastTriageTime && lastTriageTime > 0;
 
+      // Hard cooldown: never re-evaluate a ticket within 2 hours of last triage.
+      // This prevents spamming the same ticket with repeated AI evaluations.
+      const hoursSinceLastTriage = lastTriageTime > 0
+        ? (Date.now() - lastTriageTime) / (1000 * 60 * 60)
+        : Infinity;
+
+      if (hoursSinceLastTriage < 2) {
+        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        continue;
+      }
+
       if (!hasNewCustomerActivity) {
         // No new customer activity — use standard urgency timer
-        const hoursSinceLastTriage = lastTriageTime > 0
-          ? (Date.now() - lastTriageTime) / (1000 * 60 * 60)
-          : Infinity; // Never triaged = always eligible
-
         if (hoursSinceLastTriage < intervalHours) {
           await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
           continue;
