@@ -223,9 +223,10 @@ export default function TicketsPage() {
       const res = await fetch("/api/triage/all", { method: "POST" });
       const result = await res.json();
       if (res.ok) {
+        const unstuckInfo = result.unstuck ? `, ${result.unstuck} unstuck` : "";
         setStatusMessage({
           type: "success",
-          text: `${result.message} (${result.skipped} skipped — recently triaged)`,
+          text: `${result.message} (${result.skipped} skipped${unstuckInfo})`,
         });
         setTimeout(() => loadTickets(), 3000);
       } else {
