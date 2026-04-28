@@ -44,8 +44,14 @@ interface TicketRow {
 
 // Fallback for tickets without halo_is_open flag (legacy data)
 const CLOSED_STATUSES_FALLBACK = [
-  "closed", "cancelled", "completed",
+  "closed", "resolved", "cancelled", "canceled", "completed",
 ];
+
+function isClosedByHaloState(t: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }): boolean {
+  const status = (t.halo_status ?? "").toLowerCase();
+  if (CLOSED_STATUSES_FALLBACK.some((marker) => status.includes(marker))) return true;
+  return t.halo_is_open === false;
+}
 
 export default function TicketsPage() {
   const searchParams = useSearchParams();
@@ -259,11 +265,7 @@ export default function TicketsPage() {
   // Use Halo's own open/closed flag (set by pull-tickets sync).
   // Falls back to status name matching for legacy tickets without the flag.
   const isClosed = (t: TicketRow) => {
-    if (t.halo_is_open === true) return false;
-    if (t.halo_is_open === false) return true;
-    // Fallback for tickets synced before halo_is_open was added
-    if (!t.halo_status) return false;
-    return CLOSED_STATUSES_FALLBACK.includes(t.halo_status.toLowerCase());
+    return isClosedByHaloState(t);
   };
 
   // Apply tech filter from query params (e.g. from Analytics page)
@@ -327,12 +329,18 @@ export default function TicketsPage() {
       }).catch(() => 0),
       supabase
         .from("triage_results")
-        .select("ticket_id", { count: "exact", head: false })
+        .select("ticket_id, tickets!inner(halo_is_open, halo_status)", { count: "exact", head: false })
         .eq("triage_type", "retriage")
         .gte("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString())
         .or("classification->>subtype.eq.critical,classification->>subtype.eq.warning")
         .then(({ data }) => {
-          const unique = new Set((data ?? []).map((r: { ticket_id: string }) => r.ticket_id));
+          const openRows = (data ?? []).filter((r: {
+            readonly tickets?: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null } | ReadonlyArray<{ readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }>;
+          }) => {
+            const ticket = Array.isArray(r.tickets) ? r.tickets[0] : r.tickets;
+            return ticket ? !isClosedByHaloState(ticket) : false;
+          });
+          const unique = new Set(openRows.map((r: { ticket_id: string }) => r.ticket_id));
           return unique.size;
         }),
     ]).then(([techCount, retriageCount]) => {

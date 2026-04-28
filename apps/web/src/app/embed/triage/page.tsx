@@ -77,6 +77,7 @@ interface HaloAction {
   readonly note: string;
   readonly hiddenfromuser: boolean;
   readonly who?: string;
+  readonly actiondatecreated?: string;
   readonly datecreated?: string;
   readonly dateoccurred?: string;
   readonly datetime?: string;
@@ -84,7 +85,7 @@ interface HaloAction {
 }
 
 function getActionDate(a: HaloAction): string {
-  return a.datecreated ?? a.dateoccurred ?? a.datetime ?? a.when ?? "";
+  return a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when ?? "";
 }
 
 interface TriageITNote {

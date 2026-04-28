@@ -25,6 +25,7 @@ interface TechReview {
     readonly client_name: string | null;
     readonly halo_status: string | null;
     readonly halo_agent: string | null;
+    readonly halo_is_open?: boolean | null;
   };
 }
 
@@ -42,6 +43,7 @@ interface ReTriageItem {
     readonly client_name: string | null;
     readonly halo_status: string | null;
     readonly halo_agent: string | null;
+    readonly halo_is_open?: boolean | null;
   };
 }
 
@@ -79,7 +81,15 @@ const FLAG_LABELS: Record<string, string> = {
   reopened_no_explanation: "Reopened without explanation",
 };
 
+const CLOSED_STATUS_MARKERS = ["closed", "resolved", "cancelled", "canceled", "completed"];
+
 // ── Helpers ──────────────────────────────────────────────────────────
+
+function isClosedTicket(ticket: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }): boolean {
+  const status = (ticket.halo_status ?? "").toLowerCase();
+  if (CLOSED_STATUS_MARKERS.some((marker) => status.includes(marker))) return true;
+  return ticket.halo_is_open === false;
+}
 
 function resolveTechName(review: TechReview): { name: string; isDispatch: boolean } {
   const techName = review.tech_name;
@@ -123,6 +133,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
       // Dedupe tech reviews — keep latest per ticket
       const techByTicket = new Map<string, TechReview>();
       for (const r of techReviews) {
+        if (isClosedTicket(r.tickets)) continue;
         if (!techByTicket.has(r.ticket_id)) techByTicket.set(r.ticket_id, r);
       }
 
@@ -138,7 +149,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
       const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
       const { data: retriageResults } = await supabase
         .from("triage_results")
-        .select("id, ticket_id, classification, urgency_reasoning, findings, created_at, tickets(halo_id, summary, client_name, halo_status, halo_agent)")
+        .select("id, ticket_id, classification, urgency_reasoning, findings, created_at, tickets!inner(halo_id, summary, client_name, halo_status, halo_agent, halo_is_open)")
         .eq("triage_type", "retriage")
         .gte("created_at", threeDaysAgo)
         .order("created_at", { ascending: false })
@@ -159,6 +170,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
         const scan = findings?.daily_scan;
         const ticket = Array.isArray(tr.tickets) ? tr.tickets[0] : tr.tickets;
         if (!ticket) continue;
+        if (isClosedTicket(ticket)) continue;
 
         retriageItems.push({
           source: "retriage" as const,
@@ -183,7 +195,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
         (a, b) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime(),
       );
 
-      setItems(combined);
+      setItems(combined.filter((item) => !isClosedTicket(item.data.tickets)));
     } catch {
       /* silent */
     }
@@ -207,6 +219,7 @@ export function ReviewList({ onSelectTicket, haloBaseUrl }: ReviewListProps) {
   }))].sort();
 
   const filtered = items.filter((i) => {
+    if (isClosedTicket(i.data.tickets)) return false;
     if (sourceFilter && i.source !== sourceFilter) return false;
     const q = search.toLowerCase();
     if (q) {

@@ -19,6 +19,8 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly actiondatecreated?: string;
+  readonly datetime?: string;
 }
 
 const SUMMARIZE_PROMPT = `You are an MSP operations analyst. Given a ticket's private/internal tech notes and appointment history, write a concise summary of what the technician did on this ticket.
@@ -57,6 +59,10 @@ function stripHtml(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function actionDate(action: HaloAction): string {
+  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
 }
 
 async function getHaloToken(config: HaloConfig): Promise<string> {
@@ -207,8 +213,8 @@ export async function POST(request: Request) {
       })
       .sort(
         (a, b) =>
-          new Date(a.datecreated ?? "").getTime() -
-          new Date(b.datecreated ?? "").getTime(),
+          (new Date(actionDate(a)).getTime() || 0) -
+          (new Date(actionDate(b)).getTime() || 0),
       );
 
     if (techActions.length === 0 && appointments.length === 0) {
@@ -220,8 +226,9 @@ export async function POST(request: Request) {
 
     // Build context for the AI
     const actionLines = techActions.map((a) => {
-      const date = a.datecreated
-        ? new Date(a.datecreated).toLocaleString("en-US", {
+      const rawDate = actionDate(a);
+      const date = rawDate
+        ? new Date(rawDate).toLocaleString("en-US", {
             month: "short",
             day: "numeric",
             hour: "numeric",

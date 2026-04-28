@@ -47,6 +47,10 @@ export function isUpdateRequest(text: string): boolean {
   return UPDATE_REQUEST_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function actionDate(action: HaloAction): string {
+  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
+}
+
 // In-memory backup dedup (survives within a single process lifecycle)
 const recentUpdateRequests = new Map<number, number>();
 
@@ -136,7 +140,7 @@ export async function handleUpdateRequest(
     "Recent Actions (last 15):",
     ...actions.slice(0, 15).map(
       (a: HaloAction) =>
-        `  [${a.datecreated ?? "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.replace(/<[^>]*>/g, " ").substring(0, 1500).trim() ?? ""}`,
+        `  [${actionDate(a) || "?"}] ${a.hiddenfromuser ? "(internal)" : "(customer-visible)"} ${a.who ?? "unknown"}: ${a.note?.replace(/<[^>]*>/g, " ").substring(0, 1500).trim() ?? ""}`,
     ),
   ].join("\n");
 
