@@ -31,6 +31,7 @@ import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
 
 const server = Fastify({ logger: true });
+const TRIAGE_QUEUE_NAME = "triage";
 
 // ── Teams Bot endpoint ────────────────────────────────────────────────
 // Azure Bot Service sends activities here as JSON.
@@ -252,7 +253,7 @@ server.get("/health/failed-jobs", async () => {
 
   const connection = getRedisConnectionOptions();
 
-  const triageQueue = new Queue("triage-jobs", { connection });
+  const triageQueue = new Queue(TRIAGE_QUEUE_NAME, { connection });
   const cronQueue = new Queue("cron-jobs", { connection });
 
   const [triageFailed, cronFailed] = await Promise.all([
@@ -687,7 +688,7 @@ async function processPendingTickets(): Promise<void> {
   // ── Backpressure: skip if queue is already busy ──
   const { Queue } = await import("bullmq");
   const { getRedisConnectionOptions } = await import("./queue/connection.js");
-  const triageQueue = new Queue("triage-jobs", { connection: getRedisConnectionOptions() });
+  const triageQueue = new Queue(TRIAGE_QUEUE_NAME, { connection: getRedisConnectionOptions() });
   const waitingCount = await triageQueue.getWaitingCount();
   await triageQueue.close();
 

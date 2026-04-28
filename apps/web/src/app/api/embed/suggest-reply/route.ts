@@ -17,6 +17,8 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly actiondatecreated?: string;
+  readonly datetime?: string;
 }
 
 interface SuggestReplyBody {
@@ -74,6 +76,10 @@ function stripHtml(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function actionDate(action: HaloAction): string {
+  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
 }
 
 async function getHaloToken(config: HaloConfig): Promise<string> {
@@ -189,13 +195,13 @@ export async function POST(request: Request) {
   // Build conversation context
   const conversationHistory = [...actions]
     .sort((a, b) => {
-      const dateA = a.datecreated ? new Date(a.datecreated).getTime() : 0;
-      const dateB = b.datecreated ? new Date(b.datecreated).getTime() : 0;
+      const dateA = new Date(actionDate(a)).getTime() || 0;
+      const dateB = new Date(actionDate(b)).getTime() || 0;
       return dateA - dateB;
     })
     .map((a) => {
       const who = a.who ?? "Unknown";
-      const when = a.datecreated ?? "";
+      const when = actionDate(a);
       const visibility = a.hiddenfromuser ? "[INTERNAL]" : "[CUSTOMER-VISIBLE]";
       const note = stripHtml(a.note).substring(0, 500);
       return `${visibility} ${who} (${when}): ${note}`;

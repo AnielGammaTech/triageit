@@ -17,6 +17,7 @@ interface HaloAction {
   readonly outcome: string;
   readonly hiddenfromuser: boolean;
   readonly who?: string;
+  readonly actiondatecreated?: string;
   readonly datecreated?: string;
   readonly dateoccurred?: string;
   readonly datetime?: string;
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
     // Filter to only TriageIT-posted notes
     // Halo returns dates under various field names depending on version
     const getActionDate = (a: HaloAction): string =>
-      a.datecreated ?? a.dateoccurred ?? a.datetime ?? a.when ?? "";
+      a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when ?? "";
 
     const triageItNotes: ReadonlyArray<TriageITNote> = allActions
       .filter(isTriageITNote)

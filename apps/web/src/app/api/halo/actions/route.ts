@@ -16,6 +16,8 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly actiondatecreated?: string;
+  readonly datetime?: string;
 }
 
 async function getHaloToken(config: HaloConfig): Promise<string> {
@@ -51,6 +53,10 @@ function stripHtml(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function actionDate(action: HaloAction): string {
+  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
 }
 
 export async function GET(request: NextRequest) {
@@ -95,13 +101,13 @@ export async function GET(request: NextRequest) {
     const data = (await response.json()) as { actions?: HaloAction[] };
     const actions = (data.actions ?? [])
       .sort((a, b) => {
-        const dateA = a.datecreated ? new Date(a.datecreated).getTime() : 0;
-        const dateB = b.datecreated ? new Date(b.datecreated).getTime() : 0;
+        const dateA = new Date(actionDate(a)).getTime() || 0;
+        const dateB = new Date(actionDate(b)).getTime() || 0;
         return dateB - dateA;
       })
       .map((a) => ({
         who: a.who ?? "Unknown",
-        date: a.datecreated ?? "",
+        date: actionDate(a),
         note: stripHtml(a.note),
         isInternal: a.hiddenfromuser,
         outcome: a.outcome ?? null,

@@ -3,6 +3,14 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 
+const CLOSED_STATUS_MARKERS = ["closed", "resolved", "cancelled", "canceled", "completed"];
+
+function isClosedTicket(ticket: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }): boolean {
+  const status = (ticket.halo_status ?? "").toLowerCase();
+  if (CLOSED_STATUS_MARKERS.some((marker) => status.includes(marker))) return true;
+  return ticket.halo_is_open === false;
+}
+
 /**
  * GET /api/tech-reviews
  *
@@ -52,5 +60,7 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to fetch tech reviews" }, { status: 500 });
   }
 
-  return NextResponse.json({ reviews: data ?? [] });
+  const openReviews = (data ?? []).filter((review) => !isClosedTicket(review.tickets));
+
+  return NextResponse.json({ reviews: openReviews });
 }

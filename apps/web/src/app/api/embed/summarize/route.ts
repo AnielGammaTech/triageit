@@ -17,6 +17,8 @@ interface HaloAction {
   readonly hiddenfromuser: boolean;
   readonly who?: string;
   readonly datecreated?: string;
+  readonly actiondatecreated?: string;
+  readonly datetime?: string;
 }
 
 interface EmbedSummarizeBody {
@@ -84,6 +86,10 @@ function stripHtml(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function actionDate(action: HaloAction): string {
+  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
 }
 
 async function getHaloToken(config: HaloConfig): Promise<string> {
@@ -156,8 +162,8 @@ function filterTechActions(
     })
     .sort(
       (a, b) =>
-        new Date(a.datecreated ?? "").getTime() -
-        new Date(b.datecreated ?? "").getTime(),
+        (new Date(actionDate(a)).getTime() || 0) -
+        (new Date(actionDate(b)).getTime() || 0),
     );
 }
 
@@ -166,8 +172,9 @@ function filterTechActions(
  */
 function buildContext(actions: ReadonlyArray<HaloAction>): string {
   const actionLines = actions.map((a) => {
-    const date = a.datecreated
-      ? new Date(a.datecreated).toLocaleString("en-US", {
+    const rawDate = actionDate(a);
+    const date = rawDate
+      ? new Date(rawDate).toLocaleString("en-US", {
           month: "short",
           day: "numeric",
           hour: "numeric",

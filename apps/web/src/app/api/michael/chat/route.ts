@@ -427,7 +427,7 @@ export async function POST(request: NextRequest) {
         const res = await fetch(`${workerUrl}/triage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticketId: ticket.id, haloId }),
+          body: JSON.stringify({ ticket_id: ticket.id }),
         });
         return res.ok
           ? `Retriage queued for ticket #${haloId}. The pipeline will run Ryan's classification, then route to the relevant specialists.`
@@ -509,14 +509,16 @@ export async function POST(request: NextRequest) {
               );
 
               if (actRes.ok) {
-                const actData = await actRes.json() as { actions?: ReadonlyArray<{ note?: string; who?: string; hiddenfromuser?: boolean; datecreated?: string; outcome?: string }> };
+                const actData = await actRes.json() as { actions?: ReadonlyArray<{ note?: string; who?: string; hiddenfromuser?: boolean; actiondatecreated?: string; datetime?: string; datecreated?: string; outcome?: string }> };
                 const actions = (actData.actions ?? []).filter((a) => a.note && !a.note.toLowerCase().includes("triageit"));
+                const actionDate = (a: { actiondatecreated?: string; datetime?: string; datecreated?: string }) =>
+                  a.actiondatecreated ?? a.datetime ?? a.datecreated ?? "";
 
                 if (actions.length > 0) {
                   result += "\n\n## Ticket Actions/Notes (from Halo):\n";
                   for (const a of actions) {
                     const visibility = a.hiddenfromuser ? "[INTERNAL]" : "[VISIBLE]";
-                    result += `- ${visibility} ${a.who ?? "Unknown"} (${formatDate(a.datecreated)}): ${(a.note ?? "").slice(0, 500)}\n`;
+                    result += `- ${visibility} ${a.who ?? "Unknown"} (${formatDate(actionDate(a))}): ${(a.note ?? "").slice(0, 500)}\n`;
                   }
                 }
               }

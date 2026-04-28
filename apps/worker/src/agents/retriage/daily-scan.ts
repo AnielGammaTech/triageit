@@ -473,7 +473,7 @@ async function postReTriageNote(
   haloId: number,
   result: ReTriageResult,
   supabase?: SupabaseClient,
-): Promise<void> {
+): Promise<boolean> {
   // Dedup: skip if ANY triage/retriage note was posted within the last 2 hours.
   // This prevents spamming Halo with repeated retriage notes on the same ticket.
   if (supabase) {
@@ -488,7 +488,7 @@ async function postReTriageNote(
       // Check last_retriage_at on the ticket itself (fastest check)
       if (localTicket.last_retriage_at && new Date(localTicket.last_retriage_at) > new Date(twoHoursAgo)) {
         console.log(`[RETRIAGE] Skipping Halo note for #${haloId} — already posted retriage note at ${localTicket.last_retriage_at}`);
-        return;
+        return false;
       }
 
       // Also check triage_results for any recent entry (full or retriage)
@@ -503,7 +503,7 @@ async function postReTriageNote(
 
       if (recentTriage) {
         console.log(`[RETRIAGE] Skipping Halo note for #${haloId} — recent ${recentTriage.triage_type ?? "full"} triage at ${recentTriage.created_at}`);
-        return;
+        return false;
       }
     }
   }
@@ -527,8 +527,10 @@ async function postReTriageNote(
 
   try {
     await halo.addInternalNote(haloId, note);
+    return true;
   } catch (err) {
     console.error(`[RETRIAGE] Failed to post note to Halo for #${haloId}:`, err);
+    return false;
   }
 }
 
@@ -801,6 +803,11 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const localTicketId = await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
 
       if (localTicketId) {
+        const shouldPostReTriageNote = effectiveSeverity === "critical" || effectiveSeverity === "warning";
+        const retriageNotePosted = shouldPostReTriageNote
+          ? await postReTriageNote(halo, enrichedTicket.id, result, supabase)
+          : false;
+
         await supabase.from("triage_results").insert({
           id: crypto.randomUUID(),
           ticket_id: localTicketId,
@@ -818,15 +825,14 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         });
 
         // Post note to Halo and flag for manager review
-        if (effectiveSeverity === "critical" || effectiveSeverity === "warning") {
-          await postReTriageNote(halo, enrichedTicket.id, result, supabase);
-
+        if (shouldPostReTriageNote) {
+          const updateTime = new Date().toISOString();
           await supabase
             .from("tickets")
             .update({
               status: "needs_review",
-              last_retriage_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
+              ...(retriageNotePosted ? { last_retriage_at: updateTime } : {}),
+              updated_at: updateTime,
             })
             .eq("id", localTicketId);
         } else {
