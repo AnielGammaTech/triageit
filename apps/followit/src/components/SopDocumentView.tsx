@@ -14,6 +14,7 @@ interface SopDocumentViewProps {
 
 export function SopDocumentView({ sop, chrome = "full" }: SopDocumentViewProps) {
   const showNav = chrome === "full";
+  const embedPath = `/sop/${sop.slug}/embed`;
 
   return (
     <article className={`sop-document sop-document-${chrome}`}>
@@ -24,6 +25,24 @@ export function SopDocumentView({ sop, chrome = "full" }: SopDocumentViewProps) 
             SOP index
           </Link>
           <CopyLinkButton />
+          <CopyLinkButton
+            className="button button-muted"
+            copiedIcon="OK"
+            copiedLabel="Copied"
+            icon="URL"
+            label="Copy embed URL"
+            value={embedPath}
+          />
+          <CopyLinkButton
+            className="button button-muted"
+            copiedIcon="OK"
+            copiedLabel="Copied"
+            format="iframe"
+            icon="Code"
+            label="Copy iframe"
+            title={`${sop.title} SOP`}
+            value={embedPath}
+          />
           <button className="button button-muted" type="button" onClick={() => window.print()}>
             <span aria-hidden="true">PDF</span>
             Print
@@ -91,13 +110,26 @@ export function SopDocumentView({ sop, chrome = "full" }: SopDocumentViewProps) 
       {showNav && (
         <aside className="hudu-panel no-print">
           <div>
-            <h2>Hudu link target</h2>
-            <p>Use this stable URL from Hudu KB articles. If the slug is renamed later, FollowIT keeps an automatic redirect.</p>
+            <h2>Hudu embed options</h2>
+            <p>Use the embed URL or iframe code in Hudu. The embed view removes the library back-link chrome.</p>
+            <code>{embedPath}</code>
           </div>
-          <a className="button button-muted" href={`/sop/${sop.slug}/embed`} target="_blank" rel="noreferrer">
-            <span aria-hidden="true">Open</span>
-            Embed view
-          </a>
+          <div className="hudu-actions">
+            <a className="button button-muted" href={embedPath} target="_blank" rel="noreferrer">
+              <span aria-hidden="true">Open</span>
+              Embed view
+            </a>
+            <CopyLinkButton
+              className="button button-primary"
+              copiedIcon="OK"
+              copiedLabel="Copied"
+              format="iframe"
+              icon="Code"
+              label="Copy iframe"
+              title={`${sop.title} SOP`}
+              value={embedPath}
+            />
+          </div>
         </aside>
       )}
 

@@ -87,6 +87,12 @@ button {
   color: var(--blue-mid);
 }
 
+.button-small {
+  font-size: 0.78rem;
+  min-height: 2.15rem;
+  padding: 0 0.7rem;
+}
+
 .button.danger {
   color: var(--danger);
 }
@@ -332,6 +338,14 @@ button {
   transform: translateY(-2px);
 }
 
+.sop-card-main {
+  color: inherit;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .sop-card-top {
   align-items: center;
   display: flex;
@@ -408,6 +422,15 @@ button {
   font-size: 0.88rem;
   font-weight: 700;
   margin: 0.2rem 0 0;
+}
+
+.sop-card-actions {
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
 }
 
 .document-page,
@@ -616,6 +639,13 @@ button {
   padding: 1rem 1.35rem;
 }
 
+.hudu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
 .hudu-panel h2 {
   color: var(--navy-darkest);
   font-size: 1rem;
@@ -625,6 +655,17 @@ button {
 .hudu-panel p {
   color: var(--text-soft);
   margin: 0;
+}
+
+.hudu-panel code {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--navy-dark);
+  display: inline-block;
+  font-size: 0.82rem;
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.45rem;
 }
 
 .sop-footer {
@@ -926,6 +967,7 @@ button {
   .admin-header,
   .sop-header-inner,
   .hudu-panel,
+  .hudu-actions,
   .sop-footer,
   .editor-header {
     align-items: flex-start;
