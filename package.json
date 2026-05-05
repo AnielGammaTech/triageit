@@ -12,8 +12,10 @@
     "clean": "turbo clean",
     "dev:web": "turbo dev --filter=web",
     "dev:worker": "turbo dev --filter=worker",
+    "dev:followit": "turbo dev --filter=followit",
     "build:web": "turbo build --filter=web",
-    "build:worker": "turbo build --filter=worker"
+    "build:worker": "turbo build --filter=worker",
+    "build:followit": "turbo build --filter=followit"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
