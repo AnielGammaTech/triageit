@@ -102,9 +102,34 @@ export async function POST() {
     }
   }
 
+  // Unstick tickets that have been in "triaging"/"pending" for more than 10 minutes
+  // (something went wrong — the worker crashed, timed out, or the job was lost)
+  const TEN_MINUTES_AGO = Date.now() - 10 * 60 * 1000;
+  const stuckTickets = openTickets.filter((t) => {
+    if (t.status !== "triaging" && t.status !== "pending") return false;
+    const updatedAt = new Date(t.updated_at).getTime();
+    return updatedAt < TEN_MINUTES_AGO;
+  });
+
+  if (stuckTickets.length > 0) {
+    console.log(`[TRIAGE ALL] Unsticking ${stuckTickets.length} tickets stuck in triaging/pending`);
+    for (const t of stuckTickets) {
+      const lastTriage = lastTriageTime.get(t.id);
+      const resetStatus = lastTriage ? "triaged" : "new";
+      await supabase
+        .from("tickets")
+        .update({ status: resetStatus, updated_at: new Date().toISOString() })
+        .eq("id", t.id);
+    }
+  }
+
   const ticketsToTriage = openTickets.filter((t) => {
-    // Skip if currently triaging or pending
-    if (t.status === "triaging" || t.status === "pending") return false;
+    // Skip if actively being triaged right now (pending/triaging < 10 min ago)
+    if (t.status === "triaging" || t.status === "pending") {
+      const updatedAt = new Date(t.updated_at).getTime();
+      if (updatedAt >= TEN_MINUTES_AGO) return false;
+      // If older than 10 min, it was unstuck above — allow it through
+    }
     // Skip if actually triaged within the last 2 hours (based on triage_results, not updated_at)
     const lastTriage = lastTriageTime.get(t.id);
     if (lastTriage && lastTriage > twoHoursAgo) return false;
@@ -115,6 +140,19 @@ export async function POST() {
     if (alertTicketIds.has(t.id)) return false;
     return true;
   });
+
+  // Log skip reasons for debugging
+  const skipReasons = { active: 0, recentTriage: 0, alertKeyword: 0, alertTriage: 0, unstuck: stuckTickets.length };
+  for (const t of openTickets) {
+    if (ticketsToTriage.includes(t)) continue;
+    if (t.status === "triaging" || t.status === "pending") { skipReasons.active++; continue; }
+    const lt = lastTriageTime.get(t.id);
+    if (lt && lt > twoHoursAgo) { skipReasons.recentTriage++; continue; }
+    const sl = (t.summary ?? "").toLowerCase();
+    if (alertKeywords.some((kw) => sl.includes(kw))) { skipReasons.alertKeyword++; continue; }
+    if (alertTicketIds.has(t.id)) { skipReasons.alertTriage++; continue; }
+  }
+  console.log(`[TRIAGE ALL] ${openTickets.length} open tickets. Filtering: ${JSON.stringify(skipReasons)}. Eligible: ${ticketsToTriage.length}`);
 
   let queued = 0;
   let skipped = openTickets.length - ticketsToTriage.length;
@@ -156,6 +194,8 @@ export async function POST() {
     queued,
     skipped,
     total_open: openTickets.length,
+    unstuck: stuckTickets.length > 0 ? stuckTickets.length : undefined,
+    skip_reasons: skipReasons,
     errors: errors.length > 0 ? errors : undefined,
     message: `Queued ${queued} tickets for full triage with tech performance reviews.`,
   });
