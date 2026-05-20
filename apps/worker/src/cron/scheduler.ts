@@ -4,6 +4,7 @@ import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
 import { syncTicketsFromHalo } from "./ticket-sync.js";
+import { scanWorkflowState } from "./workflow-scan.js";
 import { scanForErrorTickets } from "./error-ticket-scan.js";
 import { scanForResponseAlerts } from "./response-alerts.js";
 import { generateWeeklyReport } from "./weekly-report.js";
@@ -22,6 +23,7 @@ import type { TeamsConfig } from "@triageit/shared";
 // - /sla-scan: 0 */3 * * * (every 3 hours)
 // - /toby/analyze: 0 7 * * * (daily at 2 AM ET)
 // - /ticket-sync: */30 * * * * (every 30 minutes)
+// - /workflow-scan: */15 * * * * (every 15 minutes)
 
 const CRON_QUEUE_NAME = "cron-jobs";
 
@@ -64,6 +66,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/sla-scan": runSlaScan,
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/workflow-scan": runWorkflowScan,
   "/memory/evict": runMemoryEviction,
   "/error-scan": runErrorScan,
   "/response-alerts": runResponseAlerts,
@@ -127,6 +130,14 @@ async function runTicketSync(): Promise<void> {
   const result = await syncTicketsFromHalo();
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
+  );
+}
+
+async function runWorkflowScan(): Promise<void> {
+  console.log("[CRON] Starting workflow consistency scan");
+  const result = await scanWorkflowState();
+  console.log(
+    `[CRON] Workflow scan complete: ${result.checked} checked, ${result.issues} issues, ${result.eventsLogged} events logged`,
   );
 }
 
@@ -413,6 +424,7 @@ export async function startCronScheduler(): Promise<void> {
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "*/30 * * * *" }, // Every 30 minutes
+    { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC

@@ -127,6 +127,7 @@ export function buildHaloNote(
     readonly root_cause_hypothesis: string;
     readonly internal_notes: string | string[];
     readonly suggested_response: string | null;
+    readonly workflow_reminder?: string | null;
     readonly kb_suggestions: ReadonlyArray<string>;
     readonly escalation_needed: boolean;
     readonly escalation_reason: string | null;
@@ -185,6 +186,10 @@ export function buildHaloNote(
   // Escalation
   if (michaelResult.escalation_needed) {
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.escalation_reason ?? "")}</td></tr>`);
+  }
+
+  if (michaelResult.workflow_reminder) {
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">Workflow</td><td style="padding:8px 12px;${border}font-size:13px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.workflow_reminder)}</td></tr>`);
   }
 
   // Root Cause — amber tinted dark background
@@ -279,6 +284,7 @@ export function buildCompactRetriageNote(
     readonly root_cause_hypothesis: string;
     readonly internal_notes: string | string[];
     readonly suggested_response: string | null;
+    readonly workflow_reminder?: string | null;
     readonly kb_suggestions: ReadonlyArray<string>;
     readonly escalation_needed: boolean;
     readonly escalation_reason: string | null;
@@ -310,6 +316,10 @@ export function buildCompactRetriageNote(
   // Escalation reason (only if escalating)
   if (michaelResult.escalation_needed && michaelResult.escalation_reason) {
     rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${linkifyUrls(michaelResult.escalation_reason)}</td></tr>`);
+  }
+
+  if (michaelResult.workflow_reminder) {
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Workflow</td><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;line-height:1.4;">${linkifyUrls(michaelResult.workflow_reminder)}</td></tr>`);
   }
 
   // Action items — keep short (formatTechNotes already applies linkifyUrls)

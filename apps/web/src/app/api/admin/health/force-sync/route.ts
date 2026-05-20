@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+} from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 
@@ -78,10 +83,15 @@ export async function POST() {
     readonly user_emailaddress?: string;
     readonly agent_name?: string;
     readonly team?: string;
+    readonly team_name?: string;
+    readonly status?: string;
+    readonly statusname?: string;
+    readonly status_name?: string;
     readonly status_id: number;
     readonly priority_id?: number;
     readonly tickettype_id: number;
     readonly datecreated?: string;
+    readonly deadlinedate?: string;
   }
 
   const allTickets: HaloTicket[] = [];
@@ -144,7 +154,13 @@ export async function POST() {
   // Close any tickets older than 3 months that are still marked open
   await supabase
     .from("tickets")
-    .update({ halo_is_open: false, updated_at: now })
+    .update({
+      halo_is_open: false,
+      workflow_status: "RESOLVED",
+      workflow_owner_role: null,
+      workflow_past_due: false,
+      updated_at: now,
+    })
     .eq("halo_is_open", true)
     .lt("created_at", threeMonthsCutoff);
 
@@ -172,6 +188,23 @@ export async function POST() {
 
   console.log(`[FORCE-SYNC] Gamma open: ${gammaOpenIds.length}, Gamma resolved: ${gammaClosedIds.length}, Non-Gamma: ${nonGammaIds.length}`);
 
+  const buildWorkflowFields = (ticket: HaloTicket) => {
+    const haloStatus =
+      ticket.statusname ??
+      ticket.status_name ??
+      ticket.status ??
+      ticketStatusMap.get(ticket.id) ??
+      null;
+    const hasAssignedTech = isHelpdeskTechnicianName(ticket.agent_name ?? null);
+    const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
+    return {
+      workflow_status: workflowStatus,
+      workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+      resolution_time_at: ticket.deadlinedate ?? null,
+      workflow_past_due: workflowStatus === "PAST_DUE",
+    };
+  };
+
   // Batch update: Gamma Default open → halo_is_open=true, tickettype_id=31
   let openedCount = 0;
   for (let i = 0; i < gammaOpenIds.length; i += 50) {
@@ -188,11 +221,18 @@ export async function POST() {
   let closedCount = 0;
   for (let i = 0; i < gammaClosedIds.length; i += 50) {
     const chunk = gammaClosedIds.slice(i, i + 50);
-    const { data } = await supabase
-      .from("tickets")
-      .update({ halo_is_open: false, tickettype_id: GAMMA_DEFAULT_TYPE_ID, updated_at: now })
-      .in("halo_id", chunk)
-      .select("id");
+      const { data } = await supabase
+        .from("tickets")
+        .update({
+          halo_is_open: false,
+          tickettype_id: GAMMA_DEFAULT_TYPE_ID,
+          workflow_status: "RESOLVED",
+          workflow_owner_role: null,
+          workflow_past_due: false,
+          updated_at: now,
+        })
+        .in("halo_id", chunk)
+        .select("id");
     closedCount += data?.length ?? 0;
   }
 
@@ -248,7 +288,7 @@ export async function POST() {
       user_email: t.user_emailaddress ?? null,
       original_priority: t.priority_id ?? null,
       halo_agent: t.agent_name ?? null,
-      halo_team: t.team ?? null,
+      halo_team: t.team_name ?? t.team ?? null,
       halo_status: ticketStatusMap.get(t.id) ?? null,
       halo_status_id: t.status_id,
       tickettype_id: GAMMA_DEFAULT_TYPE_ID,
@@ -256,6 +296,7 @@ export async function POST() {
       status: "pending" as const,
       created_at: t.datecreated ?? now,
       updated_at: now,
+      ...buildWorkflowFields(t),
     }));
 
     // Insert in batches of 50
@@ -311,6 +352,16 @@ export async function POST() {
     }
   }
 
+  // Recompute workflow owner/status/timer from the latest Halo state.
+  let workflowFixed = 0;
+  for (const ticket of recentTickets.filter((t) => t.tickettype_id === GAMMA_DEFAULT_TYPE_ID)) {
+    const { error } = await supabase
+      .from("tickets")
+      .update({ ...buildWorkflowFields(ticket), updated_at: now })
+      .eq("halo_id", ticket.id);
+    if (!error) workflowFixed++;
+  }
+
   // ── Close tickets in DB that are NOT in Halo's open list ──
   // These were resolved in Halo but our DB still has them as open.
   const haloOpenSet = new Set(gammaOpenIds);
@@ -330,7 +381,13 @@ export async function POST() {
         const chunk = closeIds.slice(i, i + 50);
         await supabase
           .from("tickets")
-          .update({ halo_is_open: false, updated_at: now })
+          .update({
+            halo_is_open: false,
+            workflow_status: "RESOLVED",
+            workflow_owner_role: null,
+            workflow_past_due: false,
+            updated_at: now,
+          })
           .in("id", chunk);
       }
       extraClosed = toClose.length;
@@ -338,11 +395,11 @@ export async function POST() {
     }
   }
 
-  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount + extraClosed} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created, ${statusFixed} statuses fixed`);
+  console.log(`[FORCE-SYNC] DB results: ${openedCount} opened, ${closedCount + extraClosed} closed, ${nonGammaFixed} non-Gamma fixed, ${createdCount} created, ${statusFixed} statuses fixed, ${workflowFixed} workflows fixed`);
 
   return NextResponse.json({
     success: true,
-    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} open, ${createdCount} created, ${closedCount + nonGammaFixed + extraClosed} closed, ${statusFixed} statuses fixed.`,
+    message: `Halo: ${gammaOpenIds.length} open. DB: ${openedCount} open, ${createdCount} created, ${closedCount + nonGammaFixed + extraClosed} closed, ${statusFixed} statuses fixed, ${workflowFixed} workflows fixed.`,
     halo_fetched: allTickets.length,
     gamma_open_halo: gammaOpenIds.length,
     gamma_closed_halo: gammaClosedIds.length,
@@ -352,6 +409,7 @@ export async function POST() {
     db_closed: closedCount,
     db_non_gamma_fixed: nonGammaFixed,
     db_statuses_fixed: statusFixed,
+    db_workflows_fixed: workflowFixed,
     pages_fetched: page,
   });
 }

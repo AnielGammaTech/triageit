@@ -3,7 +3,7 @@ create table if not exists staff_members (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text,
-  role text not null default 'technician',  -- technician, dispatcher, manager
+  role text not null default 'technician',  -- technician, dispatcher, manager, project_manager, sales
   is_active boolean not null default true,
   halo_agent_id integer,
   created_at timestamptz not null default now(),
@@ -23,8 +23,8 @@ insert into staff_members (name, role) values
   ('Darren', 'technician'),
   ('Bryanna', 'dispatcher'),
   ('David', 'manager'),
-  ('Jonathan', 'technician'),
-  ('Roman', 'technician'),
-  ('Todd', 'technician'),
+  ('Jonathan', 'project_manager'),
+  ('Roman', 'sales'),
+  ('Todd', 'sales'),
   ('Aniel', 'manager')
 on conflict do nothing;

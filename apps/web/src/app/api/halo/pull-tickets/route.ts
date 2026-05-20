@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+} from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
@@ -31,6 +36,7 @@ interface HaloTicket {
   readonly sla_timer_text?: string;
   readonly fixbydate?: string;
   readonly respondbydate?: string;
+  readonly deadlinedate?: string;
   readonly [key: string]: unknown;
 }
 
@@ -239,33 +245,58 @@ export async function POST() {
     const newTickets = allTickets.filter((t) => !existingHaloIds.has(t.id));
     const existingIds = allTickets.filter((t) => existingHaloIds.has(t.id));
 
+    const getWorkflowFields = (
+      haloStatus: string | null,
+      haloAgent: string | null,
+      resolutionTime: string | null,
+    ) => {
+      const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
+      const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
+      return {
+        workflow_status: workflowStatus,
+        workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+        resolution_time_at: resolutionTime,
+        workflow_past_due: workflowStatus === "PAST_DUE",
+      };
+    };
+
     let created = 0;
     let updated = 0;
     const errors: string[] = [];
 
     // Batch insert new tickets
     if (newTickets.length > 0) {
-      const insertRows = newTickets.map((ticket) => ({
-        halo_id: ticket.id,
-        summary: ticket.summary,
-        details: ticket.details ?? null,
-        client_name: ticket.client_name ?? null,
-        client_id: ticket.client_id ?? null,
-        user_name: ticket.user_name ?? null,
-        user_email: ticket.user_emailaddress ?? null,
-        original_priority: ticket.priority_id ?? null,
-        status: "pending" as const,
-        halo_status: resolveStatusName(ticket, statusNameMap),
-        halo_status_id: ticket.status_id,
-        halo_team: ticket.team_name ?? ticket.team ?? null,
-        halo_agent: resolveAgentName(ticket, agentNameMap),
-        tickettype_id: (ticket.tickettype_id as number) ?? null,
-        halo_is_open: openHaloIdSet.has(ticket.id),
-        last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
-        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
-        created_at: ticket.datecreated ?? now,
-        updated_at: now,
-      }));
+      const insertRows = newTickets.map((ticket) => {
+        const resolvedStatus = resolveStatusName(ticket, statusNameMap);
+        const resolvedAgent = resolveAgentName(ticket, agentNameMap);
+        const workflowFields = getWorkflowFields(
+          resolvedStatus,
+          resolvedAgent,
+          ticket.deadlinedate ?? null,
+        );
+        return {
+          halo_id: ticket.id,
+          summary: ticket.summary,
+          details: ticket.details ?? null,
+          client_name: ticket.client_name ?? null,
+          client_id: ticket.client_id ?? null,
+          user_name: ticket.user_name ?? null,
+          user_email: ticket.user_emailaddress ?? null,
+          original_priority: ticket.priority_id ?? null,
+          status: "pending" as const,
+          halo_status: resolvedStatus,
+          halo_status_id: ticket.status_id,
+          halo_team: ticket.team_name ?? ticket.team ?? null,
+          halo_agent: resolvedAgent,
+          tickettype_id: (ticket.tickettype_id as number) ?? null,
+          halo_is_open: openHaloIdSet.has(ticket.id),
+          last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
+          last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+          created_at: ticket.datecreated ?? now,
+          updated_at: now,
+          ...workflowFields,
+        };
+      });
 
       const { error: insertError, count } = await serviceClient
         .from("tickets")
@@ -299,6 +330,7 @@ export async function POST() {
     for (const ticket of existingIds) {
       let resolvedStatus = resolveStatusName(ticket, statusNameMap);
       let resolvedAgent = resolveAgentName(ticket, agentNameMap);
+      let resolvedDeadline = ticket.deadlinedate ?? null;
 
       // If status or agent couldn't be resolved from list data, fetch the
       // individual ticket from Halo which returns richer field data
@@ -318,12 +350,15 @@ export async function POST() {
             if (agentMissing) {
               resolvedAgent = resolveAgentName(full, agentNameMap);
             }
+            resolvedDeadline = full.deadlinedate ?? resolvedDeadline;
             console.log(`[HALO SYNC] Ticket #${ticket.id}: enriched from single endpoint — status="${resolvedStatus}", agent="${resolvedAgent}"`);
           }
         } catch {
           // Non-critical — keep whatever we resolved from the list
         }
       }
+
+      const workflowFields = getWorkflowFields(resolvedStatus, resolvedAgent, resolvedDeadline);
 
       const { error: updateError } = await serviceClient
         .from("tickets")
@@ -339,6 +374,7 @@ export async function POST() {
           last_tech_action_at: ticket.lastactiondate ?? ticket.last_action_date ?? null,
           last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
           updated_at: now,
+          ...workflowFields,
         })
         .eq("halo_id", ticket.id);
 
@@ -450,7 +486,13 @@ export async function POST() {
         const closeIds = localOpen.map((t) => t.id as string);
         await serviceClient
           .from("tickets")
-          .update({ halo_is_open: false, updated_at: now })
+          .update({
+            halo_is_open: false,
+            workflow_status: "RESOLVED",
+            workflow_owner_role: null,
+            workflow_past_due: false,
+            updated_at: now,
+          })
           .in("id", closeIds);
         closedCount += closeIds.length;
       }

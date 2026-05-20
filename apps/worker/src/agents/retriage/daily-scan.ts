@@ -1,6 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HaloTicket, HaloAction } from "@triageit/shared";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+  type HaloTicket,
+  type HaloAction,
+} from "@triageit/shared";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";
@@ -247,7 +253,7 @@ function quickRuleCheck(
   }
 
   // Unassigned
-  if (!ticket.agent_id) {
+  if (!isHelpdeskTechnicianName(assignedTech)) {
     flags.push("unassigned");
     if (severity === "info") severity = "warning";
   }
@@ -417,12 +423,18 @@ async function upsertTicketFromHalo(
   const agentName = halo
     ? await halo.resolveAgentName(getAgentName(ticket), ticket.agent_id)
     : getAgentName(ticket);
+  const hasAssignedTech = isHelpdeskTechnicianName(agentName);
+  const workflowStatus = deriveWorkflowStatusFromHalo(getStatusName(ticket), hasAssignedTech);
 
   const trackingData = {
     halo_status: getStatusName(ticket),
     halo_status_id: ticket.status_id,
     halo_team: ticket.team ?? null,
     halo_agent: agentName,
+    workflow_status: workflowStatus,
+    workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+    resolution_time_at: ticket.deadlinedate ?? null,
+    workflow_past_due: workflowStatus === "PAST_DUE",
     // NOTE: Do NOT set last_retriage_at here — only set it when we actually post a retriage note.
     // Setting it on every scan pass prevents the timer from ever firing.
     last_customer_reply_at: getLastCustomerReply(actions),

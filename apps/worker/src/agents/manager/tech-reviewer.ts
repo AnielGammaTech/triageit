@@ -32,6 +32,23 @@ const BUSINESS_START_HOUR = 7;  // 7 AM ET
 const BUSINESS_END_HOUR = 18;   // 6 PM ET
 const TIMEZONE = "America/New_York";
 const MIN_TICKET_AGE_HOURS = 1; // Don't review tickets younger than 1 hour
+const NON_TECH_ASSIGNMENT_MARKERS = [
+  "unassigned",
+  "dispatch",
+  "bryanna",
+  "triage",
+  "jonathan",
+  "roman",
+  "todd",
+  "",
+];
+
+function isNonTechAssignment(name: string): boolean {
+  const normalized = name.trim().toLowerCase();
+  return NON_TECH_ASSIGNMENT_MARKERS.some((marker) =>
+    marker === "" ? normalized === "" : normalized.includes(marker),
+  );
+}
 
 /**
  * Check if a given timestamp falls within business hours (Mon-Fri, 7 AM - 6 PM ET).
@@ -131,8 +148,7 @@ export function checkReviewEligibility(
 
   // Check if ticket has an assigned tech or if it's unassigned (dispatch issue)
   const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
-  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
-  const isUnassigned = !context.assignedTechName || NON_TECH_NAMES.includes(techName);
+  const isUnassigned = !context.assignedTechName || isNonTechAssignment(techName);
 
   // Must have at least 1 business hour of ticket age before reviewing
   const ticketCreatedTime = new Date(ticketCreatedAt).getTime();
@@ -148,7 +164,7 @@ export function checkReviewEligibility(
     console.log(`[TECH-REVIEW] Skipping review for #${context.haloId}: ticket too new (${businessAgeHours.toFixed(1)} business hrs < ${MIN_TICKET_AGE_HOURS}hr minimum)`);
   }
   if (eligible && isUnassigned) {
-    console.log(`[TECH-REVIEW] #${context.haloId} is UNASSIGNED — review will flag dispatch gap`);
+    console.log(`[TECH-REVIEW] #${context.haloId} is not assigned to a technician — review will flag dispatch gap`);
   }
 
   return {
@@ -178,8 +194,10 @@ export async function generateTechReview(
 
   // Check if ticket is unassigned
   const techNameLower = assignedTech?.trim().toLowerCase() ?? "";
-  const NON_TECH_NAMES = ["unassigned", "dispatch", "bryanna", "triage", ""];
-  const isUnassigned = !assignedTech || NON_TECH_NAMES.includes(techNameLower);
+  const isUnassigned = !assignedTech || isNonTechAssignment(techNameLower);
+  const assignmentGapDescription = assignedTech
+    ? `assigned to **${assignedTech}**, who is not one of the helpdesk technicians`
+    : "**UNASSIGNED** — no technician has been assigned";
 
   // Identify who is the dispatcher vs the assigned tech
   // People who responded but aren't the assigned tech are dispatchers/triage
@@ -202,20 +220,20 @@ export async function generateTechReview(
   const feedbackPrompt = isUnassigned
     ? [
         `You are an honest IT service delivery manager reviewing ticket handling.`,
-        `This ticket is **UNASSIGNED** — no technician has been assigned. The dispatcher (Bryanna) is responsible for assigning tickets.`,
+        `This ticket is ${assignmentGapDescription}. The dispatcher (Bryanna) is responsible for assigning tickets to technicians.`,
         ``,
         `## YOUR JOB`,
-        `1. Flag that this ticket has NO assigned tech — this is a dispatch failure.`,
+        `1. Flag that this ticket is not assigned to a helpdesk technician — this is a dispatch failure.`,
         `2. Note how long the customer has been waiting with no one assigned.`,
         `3. Suggest which type of tech should be assigned based on the ticket content.`,
-        `4. Rate as "poor" if the ticket has been unassigned for more than 1 business hour, "needs_improvement" otherwise.`,
+        `4. Rate as "poor" if the ticket has lacked a technician for more than 1 business hour, "needs_improvement" otherwise.`,
         `5. In suggestions, always include: "Bryanna: assign this ticket to a tech immediately."`,
         ``,
         `## BUSINESS HOURS CONTEXT`,
         `- Business hours are **Mon-Fri, 7 AM - 6 PM Eastern** only.`,
         ``,
         `## FACTS`,
-        `- This ticket is **UNASSIGNED** — no tech has been assigned.`,
+        `- This ticket is ${assignmentGapDescription}.`,
         `- Ticket has been open for **${ticketAgeHours.toFixed(1)} total hours**.`,
         `- **Dispatcher (Bryanna) must assign this ticket.**`,
         ``,
@@ -240,7 +258,7 @@ export async function generateTechReview(
         `  "strengths": "what went well, or null",`,
         `  "improvement_areas": "be direct — what failed, or null",`,
         `  "suggestions": ["actionable, specific steps"],`,
-        `  "summary": "2-3 sentences. Flag the unassigned status. Call out Bryanna as dispatcher. Suggest the type of tech needed."`,
+        `  "summary": "2-3 sentences. Flag that no helpdesk technician owns the ticket. Call out Bryanna as dispatcher. Suggest the type of tech needed."`,
         `}`,
       ].filter(Boolean).join("\n")
     : [

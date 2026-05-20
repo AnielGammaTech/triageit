@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+} from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 
@@ -58,7 +63,14 @@ When you reference your team, be natural about it — "I'll have Dwight pull the
 **Sales/Account Managers:** Roman Hernandez, Todd — they are NOT techs. Do NOT evaluate them on ticket response times or tech performance.
 **Owner:** Aniel — the admin you're talking to
 
-IMPORTANT: Only evaluate the 6 techs on ticket performance metrics. If Roman or Todd appear in ticket data, they're sales — don't flag them as underperforming techs.
+IMPORTANT: Only evaluate the 6 techs on ticket performance metrics. If Jonathan, Roman, or Todd appear in ticket data, they are not helpdesk techs — don't flag them as underperforming techs.
+
+## Help Desk Workflow Standard:
+- Use the canonical Halo Help Desk Workflow for reminders and management calls.
+- Every ticket needs explicit role ownership, auto_release, and resolution_time.
+- No escalation is silent: escalation requires a customer email/update in the same step.
+- RFI loops do not become PAST_DUE; after two missed RFI cycles, escalate to Triage Lead and notify the customer.
+- If a ticket state does not fit the workflow, flag Triage Lead instead of improvising.
 
 ## When the admin teaches you something:
 If the admin says something like "remember this", "from now on", "when you see X do Y", "always/never do X":
@@ -598,6 +610,14 @@ export async function POST(request: NextRequest) {
 
           if (!ticketRes.ok) return `Ticket #${haloId} not found in Halo (${ticketRes.status}).`;
           const ticket = await ticketRes.json() as Record<string, unknown>;
+          const haloStatus =
+            (ticket.statusname as string | undefined) ??
+            (ticket.status_name as string | undefined) ??
+            (ticket.status as string | undefined) ??
+            null;
+          const haloAgent = (ticket.agent_name as string | undefined) ?? null;
+          const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
+          const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
 
           // Insert into local DB
           const { data: inserted, error: insertErr } = await serviceClient
@@ -613,11 +633,15 @@ export async function POST(request: NextRequest) {
               original_priority: typeof ticket.priority_id === "number" ? ticket.priority_id : null,
               status: "pending",
               created_at: (ticket.datecreated as string) ?? new Date().toISOString(),
-              halo_status: (ticket.statusname as string) ?? (ticket.status_name as string) ?? null,
+              halo_status: haloStatus,
               halo_status_id: typeof ticket.status_id === "number" ? ticket.status_id : null,
-              halo_agent: (ticket.agent_name as string) ?? null,
+              halo_agent: haloAgent,
               halo_team: (ticket.team as string) ?? null,
               tickettype_id: typeof ticket.tickettype_id === "number" ? ticket.tickettype_id : null,
+              workflow_status: workflowStatus,
+              workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+              resolution_time_at: (ticket.deadlinedate as string | undefined) ?? null,
+              workflow_past_due: workflowStatus === "PAST_DUE",
               raw_data: ticket,
             })
             .select("id")

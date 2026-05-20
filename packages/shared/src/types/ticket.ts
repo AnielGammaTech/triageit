@@ -1,3 +1,5 @@
+import type { HaloWorkflowOwnerRole, HaloWorkflowStatus } from "./workflow.js";
+
 export interface HaloTicket {
   readonly id: number;
   readonly summary: string;
@@ -88,6 +90,14 @@ export interface Ticket {
   readonly status: TicketStatus;
   readonly tickettype_id: number | null;
   readonly raw_data: HaloTicket | null;
+  readonly workflow_status?: HaloWorkflowStatus | null;
+  readonly workflow_owner_role?: HaloWorkflowOwnerRole | null;
+  readonly auto_release_at?: string | null;
+  readonly resolution_time_at?: string | null;
+  readonly workflow_past_due?: boolean | null;
+  readonly rfi_cycle_count?: number | null;
+  readonly past_due_count?: number | null;
+  readonly escalation_level?: 0 | 1 | 2 | 3 | null;
   readonly created_at: string;
   readonly updated_at: string;
 }

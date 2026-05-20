@@ -2,7 +2,12 @@ import { createSupabaseClient } from "../db/supabase.js";
 import { HaloClient } from "../integrations/halo/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
-import type { HaloTicket } from "@triageit/shared";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+  type HaloTicket,
+} from "@triageit/shared";
 
 interface TicketSyncResult {
   readonly pulled: number;
@@ -74,30 +79,51 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     return name ?? null;
   }
 
+  function getWorkflowFields(ticket: HaloTicket): {
+    workflow_status: ReturnType<typeof deriveWorkflowStatusFromHalo>;
+    workflow_owner_role: ReturnType<typeof deriveWorkflowOwnerRole>;
+    resolution_time_at: string | null;
+    workflow_past_due: boolean;
+  } {
+    const agentName = getResolvedAgentName(ticket);
+    const hasAssignedTech = isHelpdeskTechnicianName(agentName);
+    const workflowStatus = deriveWorkflowStatusFromHalo(resolveStatusName(ticket), hasAssignedTech);
+    return {
+      workflow_status: workflowStatus,
+      workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+      resolution_time_at: ticket.deadlinedate ?? null,
+      workflow_past_due: workflowStatus === "PAST_DUE",
+    };
+  }
+
   // Insert new tickets (ones not in local DB)
   const newTickets = openTickets.filter((t) => !existingMap.has(t.id));
 
   if (newTickets.length > 0) {
-    const insertRows = newTickets.map((ticket) => ({
-      halo_id: ticket.id,
-      summary: ticket.summary ?? `Ticket #${ticket.id}`,
-      details: ticket.details ?? null,
-      client_name: ticket.client_name ?? null,
-      client_id: ticket.client_id ?? null,
-      user_name: ticket.user_name ?? null,
-      user_email: ticket.user_emailaddress ?? null,
-      original_priority: ticket.priority_id ?? null,
-      status: "pending" as const,
-      halo_status: resolveStatusName(ticket),
-      halo_status_id: ticket.status_id,
-      halo_team: ticket.team_name ?? ticket.team ?? null,
-      halo_agent: getResolvedAgentName(ticket),
-      tickettype_id: ticket.tickettype_id ?? null,
-      last_tech_action_at: ticket.lastactiondate ?? null,
-      last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
-      created_at: ticket.datecreated ?? now,
-      updated_at: now,
-    }));
+    const insertRows = newTickets.map((ticket) => {
+      const workflowFields = getWorkflowFields(ticket);
+      return {
+        halo_id: ticket.id,
+        summary: ticket.summary ?? `Ticket #${ticket.id}`,
+        details: ticket.details ?? null,
+        client_name: ticket.client_name ?? null,
+        client_id: ticket.client_id ?? null,
+        user_name: ticket.user_name ?? null,
+        user_email: ticket.user_emailaddress ?? null,
+        original_priority: ticket.priority_id ?? null,
+        status: "pending" as const,
+        halo_status: resolveStatusName(ticket),
+        halo_status_id: ticket.status_id,
+        halo_team: ticket.team_name ?? ticket.team ?? null,
+        halo_agent: getResolvedAgentName(ticket),
+        tickettype_id: ticket.tickettype_id ?? null,
+        last_tech_action_at: ticket.lastactiondate ?? null,
+        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+        created_at: ticket.datecreated ?? now,
+        updated_at: now,
+        ...workflowFields,
+      };
+    });
 
     const { data: insertedRows, error: insertError } = await supabase
       .from("tickets")
@@ -133,6 +159,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const existingToUpdate = openTickets.filter((t) => existingMap.has(t.id));
 
   for (const ticket of existingToUpdate) {
+    const workflowFields = getWorkflowFields(ticket);
     const { error: updateError } = await supabase
       .from("tickets")
       .update({
@@ -145,6 +172,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         updated_at: now,
+        ...workflowFields,
       })
       .eq("halo_id", ticket.id);
 

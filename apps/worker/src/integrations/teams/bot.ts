@@ -160,7 +160,7 @@ function getMichaelPrompt(): string {
 
 Be concise — Teams messages should be short. Use markdown.
 
-Team: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier (techs). Bryanna (dispatcher). David (manager). Roman, Todd (sales — NOT techs).
+Team: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier (techs). Bryanna (dispatcher). David (manager). Jonathan (project manager). Roman, Todd (sales — NOT techs).
 
 RULES: Use tools for data. NEVER make up numbers. Every number must come from a tool. Today: ${today}`;
 }
@@ -171,7 +171,7 @@ function getTobyPrompt(): string {
 
 Standards: first response under 1hr, customer update every 4hr, no ticket in New over 2hr.
 
-Team: Dylan, Raul, Jarid, Matthew, Ryan, Darren (techs). Roman/Todd are sales — don't evaluate them.
+Team: Dylan, Raul, Jarid, Matthew, Ryan, Darren (techs). Jonathan is project manager. Roman/Todd are sales — don't evaluate them.
 
 RULES: Use tools FIRST. NEVER fabricate. Every number from tool results only. Today: ${today}`;
 }
