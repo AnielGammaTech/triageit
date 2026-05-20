@@ -54,6 +54,12 @@ export type {
 
 export { DEFAULT_MEMORY_CONFIG } from "./types/memory.js";
 
+export type {
+  HaloWorkflowStatus,
+  HaloWorkflowOwnerRole,
+  HaloWorkflowState,
+} from "./types/workflow.js";
+
 // Constants
 export {
   AGENTS,
@@ -63,3 +69,14 @@ export {
 } from "./constants/agents.js";
 
 export { INTEGRATION_DEFINITIONS } from "./constants/integrations.js";
+
+export {
+  WORKFLOW_STATUSES,
+  WORKFLOW_OWNER_ROLES,
+  HELPDESK_TECHNICIANS,
+  NON_TECH_STAFF,
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+  isKnownNonTechStaffName,
+} from "./constants/workflow.js";

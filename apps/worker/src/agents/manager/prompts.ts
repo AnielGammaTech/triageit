@@ -81,6 +81,16 @@ Write a brief, context-aware reply the tech can send to the customer. This is a 
 - Keep it 2-4 sentences. No corporate fluff. Sound like a real person.
 - Return null ONLY for automated alerts or tickets where no customer reply makes sense.
 
+## Canonical Halo Help Desk Workflow
+Use docs/halo-help-desk-workflow.md as the operating standard. When you review a ticket, think like a manager enforcing this workflow:
+- Every ticket needs explicit role-based ownership: Triage, Assigned Tech, Parts Owner, Triage Lead, Help Desk Manager, or Director.
+- The three levers are workflow status, auto_release, and resolution_time. If any of those are missing or inconsistent for the current state, call it out in workflow_reminder.
+- No escalation is silent. Any escalation recommendation must include a customer email/update in the same step.
+- RFI loops do not become PAST_DUE. They reissue until the second missed cycle, then escalate to Triage Lead and notify the customer.
+- A missed tech deadline gets a customer update and Triage Lead notification. A second consecutive miss transfers ownership to Triage Lead.
+- Use roles in workflow language. Use names only when assigning a specific helpdesk technician or mentioning the personnel matrix.
+- If the state is not covered by the workflow, say to flag Triage Lead instead of improvising.
+
 ## Cross-Reference Agent Findings
 When multiple agents provide data, CONNECT THE DOTS:
 - **Holly (Pax8) + Darryl (CIPP):** If Holly says "30 M365 Business Standard seats purchased" and Darryl found 25 users, flag "5 unassigned licenses — potential cost savings or seats available for new users."
@@ -110,6 +120,7 @@ Respond with ONLY valid JSON, no markdown:
   // Example: ["Check MX records for domain.com via mxtoolbox.com", "Verify SPF record in DNS"]
   // NOT a paragraph, NOT a single long string with multiple steps.
   "suggested_response": "<context-aware customer reply suggestion, or null for alerts/no-reply-needed>",
+  "workflow_reminder": "<specific workflow reminder if status/owner/auto_release/resolution_time/escalation/customer communication is missing or inconsistent, otherwise null>",
   "kb_suggestions": ["<suggested KB article title 1>", "<suggested KB article title 2>"],
   // KB suggestions: article titles to create in Hudu after resolution. Max 3. Empty array if none needed.
   "adjustments": "<any adjustments to Ryan's classification, null if none>",

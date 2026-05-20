@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+} from "@triageit/shared";
 
 /**
  * POST /api/webhooks/halo
@@ -156,6 +161,9 @@ export async function POST(request: NextRequest) {
             halo_is_open: false,
             halo_status: statusName,
             halo_status_id: haloTicket.status_id ?? null,
+            workflow_status: "RESOLVED",
+            workflow_owner_role: null,
+            workflow_past_due: false,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existingTicket.id);
@@ -202,6 +210,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const haloStatus = resolveStatusName(haloTicket);
+    const haloAgent = await resolveWebhookAgentName(haloTicket, config, token);
+    const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
+    const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
+
     // Upsert into our tickets table — include Halo status for live tracking
     return await upsertTicket(supabase, {
       halo_id: haloTicket.id,
@@ -212,11 +225,15 @@ export async function POST(request: NextRequest) {
       user_name: haloTicket.user_name ?? null,
       user_email: haloTicket.user_emailaddress ?? null,
       original_priority: haloTicket.priority_id ?? null,
-      halo_status: resolveStatusName(haloTicket),
+      halo_status: haloStatus,
       halo_status_id: haloTicket.status_id ?? null,
-      halo_agent: await resolveWebhookAgentName(haloTicket, config, token),
+      halo_agent: haloAgent,
       halo_team: (haloTicket.team ?? null) as string | null,
       tickettype_id: haloTicket.tickettype_id ?? null,
+      workflow_status: workflowStatus,
+      workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+      resolution_time_at: (haloTicket.deadlinedate as string | undefined) ?? null,
+      workflow_past_due: workflowStatus === "PAST_DUE",
       raw_data: haloTicket,
     });
   } catch (error) {
@@ -332,6 +349,10 @@ interface TicketInsertData {
   readonly halo_agent?: string | null;
   readonly halo_team?: string | null;
   readonly tickettype_id?: number | null;
+  readonly workflow_status?: string | null;
+  readonly workflow_owner_role?: string | null;
+  readonly resolution_time_at?: string | null;
+  readonly workflow_past_due?: boolean | null;
   readonly raw_data: unknown;
 }
 
@@ -362,6 +383,10 @@ async function upsertTicket(
         halo_team: data.halo_team ?? undefined,
         halo_is_open: true,
         tickettype_id: data.tickettype_id ?? undefined,
+        workflow_status: data.workflow_status ?? undefined,
+        workflow_owner_role: data.workflow_owner_role ?? undefined,
+        resolution_time_at: data.resolution_time_at ?? undefined,
+        workflow_past_due: data.workflow_past_due ?? undefined,
         raw_data: data.raw_data,
         updated_at: new Date().toISOString(),
       })
@@ -401,6 +426,10 @@ async function upsertTicket(
       halo_team: data.halo_team ?? null,
       tickettype_id: data.tickettype_id ?? null,
       halo_is_open: true,
+      workflow_status: data.workflow_status ?? null,
+      workflow_owner_role: data.workflow_owner_role ?? null,
+      resolution_time_at: data.resolution_time_at ?? null,
+      workflow_past_due: data.workflow_past_due ?? false,
       status: "pending",
       raw_data: data.raw_data,
     })
@@ -422,6 +451,14 @@ async function upsertFromWebhookBody(
   ticketId: number,
   body: Record<string, unknown>,
 ) {
+  const haloStatus = (body.statusname as string | undefined) ??
+    (body.status_name as string | undefined) ??
+    (body.status as string | undefined) ??
+    null;
+  const haloAgent = (body.agent_name as string | undefined) ?? null;
+  const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
+  const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
+
   return await upsertTicket(supabase, {
     halo_id: ticketId,
     summary: (body.summary as string) ?? (body.subject as string) ?? "No subject",
@@ -431,6 +468,13 @@ async function upsertFromWebhookBody(
     user_name: (body.user_name as string) ?? (body.reportedby as string) ?? null,
     user_email: (body.user_emailaddress as string) ?? (body.user_email as string) ?? null,
     original_priority: typeof body.priority_id === "number" ? body.priority_id : null,
+    halo_status: haloStatus,
+    halo_status_id: typeof body.status_id === "number" ? body.status_id : null,
+    halo_agent: haloAgent,
+    workflow_status: workflowStatus,
+    workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+    resolution_time_at: (body.deadlinedate as string | undefined) ?? null,
+    workflow_past_due: workflowStatus === "PAST_DUE",
     raw_data: body,
   });
 }
@@ -671,6 +715,10 @@ interface HaloApiTicket {
   readonly status_id?: number;
   readonly statusname?: string;
   readonly status_name?: string;
+  readonly agent_id?: number;
+  readonly agent_name?: string;
+  readonly team?: string;
+  readonly deadlinedate?: string;
   readonly inactive?: boolean;
   readonly tickettype_id?: number;
   readonly category_1?: string;

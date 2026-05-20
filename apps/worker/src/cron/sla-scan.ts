@@ -1,6 +1,10 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { HaloClient } from "../integrations/halo/client.js";
-import type { HaloConfig } from "@triageit/shared";
+import {
+  deriveWorkflowOwnerRole,
+  isHelpdeskTechnicianName,
+  type HaloConfig,
+} from "@triageit/shared";
 import { enqueueTriageJob } from "../queue/producer.js";
 
 interface SlaScanResult {
@@ -149,12 +153,22 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     // If ticket doesn't exist locally yet, create it first
     if (!local) {
       try {
+        const haloAgent = (breacher.agent_name as string | undefined) ?? null;
+        const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
         const { data: created } = await supabase
           .from("tickets")
           .insert({
             halo_id: haloId,
             summary: breacher.summary as string,
             status: "pending" as const,
+            halo_status: ((breacher.statusname as string | undefined) ?? (breacher.status_name as string | undefined) ?? (breacher.status as string | undefined) ?? null),
+            halo_status_id: typeof breacher.status_id === "number" ? breacher.status_id : null,
+            halo_agent: haloAgent,
+            workflow_status: "PAST_DUE",
+            workflow_owner_role: deriveWorkflowOwnerRole("PAST_DUE", hasAssignedTech),
+            resolution_time_at: ((breacher.deadlinedate as string | undefined) ?? (breacher.fixbydate as string | undefined) ?? (breacher.respondbydate as string | undefined) ?? null),
+            workflow_past_due: true,
+            past_due_count: 1,
             created_at: (breacher as Record<string, unknown>).datecreated as string ?? new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
@@ -197,9 +211,18 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
 
     // Mark as pending and enqueue triage
     try {
+      const haloAgent = (breacher.agent_name as string | undefined) ?? null;
+      const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
       await supabase
         .from("tickets")
-        .update({ status: "pending" as const })
+        .update({
+          status: "pending" as const,
+          workflow_status: "PAST_DUE",
+          workflow_owner_role: deriveWorkflowOwnerRole("PAST_DUE", hasAssignedTech),
+          resolution_time_at: ((breacher.deadlinedate as string | undefined) ?? (breacher.fixbydate as string | undefined) ?? (breacher.respondbydate as string | undefined) ?? null),
+          workflow_past_due: true,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", local.id);
 
       const jobId = await enqueueTriageJob({

@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  deriveWorkflowOwnerRole,
+  deriveWorkflowStatusFromHalo,
+  isHelpdeskTechnicianName,
+} from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
@@ -28,6 +33,7 @@ interface HaloTicketData {
   readonly agent_id?: number;
   readonly agent_name?: string;
   readonly datecreated: string;
+  readonly deadlinedate?: string;
 }
 
 /**
@@ -120,6 +126,14 @@ export async function POST(request: NextRequest) {
           haloIntegration.config as HaloConfig,
           body.halo_id,
         );
+        const haloStatus =
+          haloTicket.statusname ??
+          haloTicket.status_name ??
+          haloTicket.status ??
+          null;
+        const haloAgent = haloTicket.agent_name ?? null;
+        const hasAssignedTech = isHelpdeskTechnicianName(haloAgent);
+        const workflowStatus = deriveWorkflowStatusFromHalo(haloStatus, hasAssignedTech);
 
         const { data: inserted, error: insertError } = await supabase
           .from("tickets")
@@ -133,14 +147,14 @@ export async function POST(request: NextRequest) {
             user_email: haloTicket.user_emailaddress ?? null,
             original_priority: haloTicket.priority_id ?? null,
             status: "pending" as const,
-            halo_status:
-              haloTicket.statusname ??
-              haloTicket.status_name ??
-              haloTicket.status ??
-              null,
+            halo_status: haloStatus,
             halo_status_id: haloTicket.status_id,
             halo_team: haloTicket.team_name ?? haloTicket.team ?? null,
-            halo_agent: haloTicket.agent_name ?? null,
+            halo_agent: haloAgent,
+            workflow_status: workflowStatus,
+            workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
+            resolution_time_at: haloTicket.deadlinedate ?? null,
+            workflow_past_due: workflowStatus === "PAST_DUE",
             updated_at: new Date().toISOString(),
           })
           .select("id")

@@ -17,6 +17,7 @@ import {
 } from "./agents/retriage/update-request.js";
 import { scanForSlaBreaches } from "./cron/sla-scan.js";
 import { syncTicketsFromHalo } from "./cron/ticket-sync.js";
+import { scanWorkflowState } from "./cron/workflow-scan.js";
 import {
   triageSchema,
   cronTriggerSchema,
@@ -175,6 +176,20 @@ server.post<{ Body: Record<string, never> }>(
   async (_request, reply) => {
     try {
       const result = await syncTicketsFromHalo();
+      return { status: "completed", ...result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Manual workflow guardrail scan
+server.post<{ Body: Record<string, never> }>(
+  "/workflow-scan",
+  async (_request, reply) => {
+    try {
+      const result = await scanWorkflowState();
       return { status: "completed", ...result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
