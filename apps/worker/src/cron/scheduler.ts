@@ -137,7 +137,7 @@ async function runWorkflowScan(): Promise<void> {
   console.log("[CRON] Starting workflow consistency scan");
   const result = await scanWorkflowState();
   console.log(
-    `[CRON] Workflow scan complete: ${result.checked} checked, ${result.issues} issues, ${result.eventsLogged} events logged`,
+    `[CRON] Workflow scan complete: ${result.checked} checked, ${result.issues} issues, ${result.eventsLogged} events logged, ${result.haloPrivateNotesPosted} private Halo notes`,
   );
 }
 

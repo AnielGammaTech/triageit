@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HaloWorkflowOwnerRole, HaloWorkflowStatus, TeamsConfig } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
+import { getCachedHaloConfig } from "../integrations/get-config.js";
+import { HaloClient } from "../integrations/halo/client.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 
 interface WorkflowTicketRow {
@@ -35,6 +37,7 @@ interface WorkflowScanResult {
   readonly issues: number;
   readonly eventsLogged: number;
   readonly ticketsMarkedPastDue: number;
+  readonly haloPrivateNotesPosted: number;
   readonly teamsAlertsSent: number;
 }
 
@@ -61,6 +64,83 @@ function daysOpen(createdAt: string): number {
   const ms = Date.now() - new Date(createdAt).getTime();
   if (Number.isNaN(ms) || ms < 0) return 0;
   return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function workflowOwnerLabel(ticket: WorkflowTicketRow): string {
+  if (ticket.workflow_owner_role === "Assigned Tech" && ticket.halo_agent) {
+    return ticket.halo_agent;
+  }
+  if (ticket.workflow_owner_role === "Triage") return "Triage / Bryanna";
+  if (ticket.workflow_owner_role) return ticket.workflow_owner_role;
+  return ticket.halo_agent ?? "Unassigned";
+}
+
+function buildPrivateWorkflowNote(
+  ticket: WorkflowTicketRow,
+  issues: ReadonlyArray<WorkflowIssue>,
+): string {
+  const severity = issues.some((issue) => issue.severity === "critical")
+    ? "CRITICAL"
+    : "WARNING";
+  const issueRows = issues
+    .map((issue) => `<li><strong>${escapeHtml(issue.type)}</strong>: ${escapeHtml(issue.note)}</li>`)
+    .join("");
+
+  return [
+    `<div style="font-family:'Segoe UI',Arial,sans-serif;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:8px;padding:12px;">`,
+    `<div style="font-size:13px;color:#a5b4fc;font-weight:700;">Private TriageIT Workflow Reminder - ${severity}</div>`,
+    `<div style="margin-top:8px;font-size:13px;"><strong>Ticket:</strong> #${ticket.halo_id} - ${escapeHtml(ticket.summary)}</div>`,
+    `<div style="font-size:13px;"><strong>Internal owner to act:</strong> ${escapeHtml(workflowOwnerLabel(ticket))}</div>`,
+    `<div style="font-size:13px;"><strong>Workflow state:</strong> ${escapeHtml(ticket.workflow_status ?? "Unknown")} / ${escapeHtml(ticket.workflow_owner_role ?? "No owner role")}</div>`,
+    `<ul style="margin:10px 0 0 18px;padding:0;font-size:13px;">${issueRows}</ul>`,
+    `<div style="margin-top:10px;font-size:12px;color:#fbbf24;"><strong>Internal only:</strong> do not email the customer automatically. A human manager or tech decides any customer follow-up.</div>`,
+    `</div>`,
+  ].join("");
+}
+
+async function postPrivateWorkflowNotes(
+  supabase: SupabaseClient,
+  issues: ReadonlyArray<WorkflowIssue>,
+): Promise<number> {
+  const haloConfig = await getCachedHaloConfig(supabase);
+  if (!haloConfig) {
+    console.log("[WORKFLOW] Halo not configured - skipping private workflow notes");
+    return 0;
+  }
+
+  const halo = new HaloClient(haloConfig);
+  const grouped = new Map<string, WorkflowIssue[]>();
+  for (const issue of issues) {
+    const existing = grouped.get(issue.ticket.id) ?? [];
+    existing.push(issue);
+    grouped.set(issue.ticket.id, existing);
+  }
+
+  let posted = 0;
+  for (const ticketIssues of grouped.values()) {
+    const ticket = ticketIssues[0]?.ticket;
+    if (!ticket) continue;
+
+    try {
+      await halo.addInternalNote(
+        ticket.halo_id,
+        buildPrivateWorkflowNote(ticket, ticketIssues),
+      );
+      posted++;
+    } catch (err) {
+      console.error(`[WORKFLOW] Failed to post private note for #${ticket.halo_id}:`, err);
+    }
+  }
+
+  return posted;
 }
 
 async function getTeamsConfig(supabase: SupabaseClient): Promise<TeamsConfig | null> {
@@ -127,7 +207,7 @@ function evaluateTicket(ticket: WorkflowTicketRow, nowMs: number): ReadonlyArray
         ticket,
         type: "stuck_rfi_escalation_paused",
         severity: "critical",
-        note: "RFI loop has reached 2 cycles. Escalation is required, but customer email must be sent first. Do not escalate silently.",
+        note: "RFI loop has reached 2 cycles. Escalate internally to Triage Lead and create a manager reminder. Do not email the customer automatically.",
       });
     } else {
       issues.push({
@@ -151,8 +231,8 @@ function evaluateTicket(ticket: WorkflowTicketRow, nowMs: number): ReadonlyArray
       severity: "critical",
       nextPastDueCount,
       note: nextPastDueCount >= 2
-        ? "Ticket missed its promised deadline a second time. Triage Lead escalation and customer email are required before ownership transfer."
-        : "Ticket missed its promised next-action deadline. Notify Triage Lead, email the customer, and reset the deadline.",
+        ? "Ticket missed its promised deadline a second time. Transfer ownership to Triage Lead internally and create a manager reminder. Do not email the customer automatically."
+        : "Ticket missed its promised next-action deadline. Notify Triage Lead internally and reset the deadline. Do not email the customer automatically.",
     });
   }
 
@@ -161,7 +241,7 @@ function evaluateTicket(ticket: WorkflowTicketRow, nowMs: number): ReadonlyArray
       ticket,
       type: "escalation_owner_mismatch",
       severity: "warning",
-      note: "Ticket has an escalation level but is still owned by Assigned Tech. Confirm the customer was notified and transfer ownership by role.",
+      note: "Ticket has an escalation level but is still owned by Assigned Tech. Transfer ownership by role and keep the reminder internal.",
     });
   }
 
@@ -195,6 +275,7 @@ export async function scanWorkflowState(
       issues: 0,
       eventsLogged: 0,
       ticketsMarkedPastDue: 0,
+      haloPrivateNotesPosted: 0,
       teamsAlertsSent: 0,
     };
   }
@@ -221,6 +302,7 @@ export async function scanWorkflowState(
       issues: issues.length,
       eventsLogged: 0,
       ticketsMarkedPastDue: 0,
+      haloPrivateNotesPosted: 0,
       teamsAlertsSent: 0,
     };
   }
@@ -269,6 +351,8 @@ export async function scanWorkflowState(
     if (!updateError) ticketsMarkedPastDue++;
   }
 
+  const haloPrivateNotesPosted = await postPrivateWorkflowNotes(supabase, newIssues);
+
   let teamsAlertsSent = 0;
   const teamsConfig = await getTeamsConfig(supabase);
   if (teamsConfig) {
@@ -300,7 +384,7 @@ export async function scanWorkflowState(
   }
 
   console.log(
-    `[WORKFLOW] Checked ${tickets.length} tickets, found ${issues.length} issue(s), logged ${eventRows.length}, marked ${ticketsMarkedPastDue} past due, sent ${teamsAlertsSent} Teams alert(s)`,
+    `[WORKFLOW] Checked ${tickets.length} tickets, found ${issues.length} issue(s), logged ${eventRows.length}, marked ${ticketsMarkedPastDue} past due, posted ${haloPrivateNotesPosted} private Halo note(s), sent ${teamsAlertsSent} Teams alert(s)`,
   );
 
   return {
@@ -308,6 +392,7 @@ export async function scanWorkflowState(
     issues: issues.length,
     eventsLogged: eventRows.length,
     ticketsMarkedPastDue,
+    haloPrivateNotesPosted,
     teamsAlertsSent,
   };
 }
