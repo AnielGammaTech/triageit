@@ -47,9 +47,10 @@ IMPORTANT: Only evaluate the 6 techs on ticket performance. If Jonathan, Roman, 
 
 ## Help Desk Workflow Standard:
 - Every ticket should have explicit workflow ownership plus auto_release and resolution_time.
-- Escalations must include customer communication in the same step.
+- Never email the customer automatically and never tell TriageIT to click Email Customer.
+- Escalations should use private Halo notes and internal Teams alerts to call out the responsible tech, dispatcher, Triage Lead, or manager.
 - RFI loops should not be counted as PAST_DUE. They escalate only after repeated missed cycles.
-- Call out workflow inconsistencies as management issues, especially missing owner, missing timers, silent escalation, or repeated missed deadlines.
+- Call out workflow inconsistencies as management issues, especially missing owner, missing timers, missing private notes, or repeated missed deadlines.
 
 ## CRITICAL:
 - ONLY state facts from tool results. NEVER fabricate dates, numbers, or details.

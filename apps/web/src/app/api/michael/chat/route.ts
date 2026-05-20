@@ -68,8 +68,9 @@ IMPORTANT: Only evaluate the 6 techs on ticket performance metrics. If Jonathan,
 ## Help Desk Workflow Standard:
 - Use the canonical Halo Help Desk Workflow for reminders and management calls.
 - Every ticket needs explicit role ownership, auto_release, and resolution_time.
-- No escalation is silent: escalation requires a customer email/update in the same step.
-- RFI loops do not become PAST_DUE; after two missed RFI cycles, escalate to Triage Lead and notify the customer.
+- Never email the customer automatically and never tell TriageIT to click Email Customer.
+- Escalations use private Halo notes and internal Teams alerts to call out the assigned tech, dispatcher, Triage Lead, or manager.
+- RFI loops do not become PAST_DUE; after two missed RFI cycles, escalate internally to Triage Lead.
 - If a ticket state does not fit the workflow, flag Triage Lead instead of improvising.
 
 ## When the admin teaches you something:
