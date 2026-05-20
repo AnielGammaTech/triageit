@@ -91,7 +91,7 @@ export async function processTriageJob(
       classificationSubtype: result.classification?.subtype ?? null,
       urgencyScore: result.urgency_score,
       summary: ticket.summary ?? "",
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       console.error(`[TOBY-LIVE] Incremental update failed for #${data.haloId} (non-fatal):`, err);
     });
 
