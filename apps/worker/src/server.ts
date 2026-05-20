@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { startTriageWorker } from "./queue/consumer.js";
+import { processTriageJob, startTriageWorker } from "./queue/consumer.js";
 import { createSupabaseClient } from "./db/supabase.js";
 import { enqueueTriageJob } from "./queue/producer.js";
 import {
@@ -32,6 +32,9 @@ import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
 
 const server = Fastify({ logger: true });
+const TRIAGE_QUEUE_NAME = "triage";
+let redisAvailable = false;
+let pendingTicketInterval: ReturnType<typeof setInterval> | null = null;
 
 // ── Teams Bot endpoint ────────────────────────────────────────────────
 // Azure Bot Service sends activities here as JSON.
@@ -95,11 +98,20 @@ server.post<{ Body: { ticket_id?: string; halo_id?: number } }>(
       return reply.status(404).send({ error: `Ticket not found: ${ticket_id ?? `halo #${halo_id}`}` });
     }
 
-    const jobId = await enqueueTriageJob({
+    const triageJob = {
       ticketId: ticket.id,
       haloId: ticket.halo_id,
       summary: ticket.summary,
-    });
+    };
+
+    if (!redisAvailable) {
+      processTriageJob(triageJob, `direct-${ticket.halo_id}`).catch((err) => {
+        console.error(`[TRIAGE] Direct fallback failed for #${ticket.halo_id}:`, err);
+      });
+      return { status: "processing_directly", mode: "redis_fallback" };
+    }
+
+    const jobId = await enqueueTriageJob(triageJob);
 
     return { status: "queued", job_id: jobId };
   },
@@ -267,7 +279,7 @@ server.get("/health/failed-jobs", async () => {
 
   const connection = getRedisConnectionOptions();
 
-  const triageQueue = new Queue("triage-jobs", { connection });
+  const triageQueue = new Queue(TRIAGE_QUEUE_NAME, { connection });
   const cronQueue = new Queue("cron-jobs", { connection });
 
   const [triageFailed, cronFailed] = await Promise.all([
@@ -651,7 +663,7 @@ server.post<{
  * triage results (caused by the pull-tickets status bug), then process
  * all tickets stuck in "pending" status.
  */
-async function processPendingTickets(): Promise<void> {
+async function processPendingTickets(useQueue: boolean): Promise<void> {
   const supabase = createSupabaseClient();
 
   // ── Step 1: Reset falsely-triaged tickets ──
@@ -699,10 +711,34 @@ async function processPendingTickets(): Promise<void> {
     return;
   }
 
+  if (!useQueue) {
+    const batchSize = Math.max(1, parseInt(process.env.DIRECT_TRIAGE_BATCH_SIZE ?? "5", 10));
+    const ticketsToProcess = pendingTickets.slice(0, batchSize);
+    console.log(
+      `[WORKER] Redis unavailable; directly processing ${ticketsToProcess.length} of ${pendingTickets.length} pending ticket(s)`,
+    );
+
+    for (const ticket of ticketsToProcess) {
+      try {
+        await processTriageJob(
+          {
+            ticketId: ticket.id,
+            haloId: ticket.halo_id,
+            summary: ticket.summary,
+          },
+          `direct-pending-${ticket.halo_id}`,
+        );
+      } catch (err) {
+        console.error(`[WORKER] Direct pending triage failed for #${ticket.halo_id}:`, err);
+      }
+    }
+    return;
+  }
+
   // ── Backpressure: skip if queue is already busy ──
   const { Queue } = await import("bullmq");
   const { getRedisConnectionOptions } = await import("./queue/connection.js");
-  const triageQueue = new Queue("triage-jobs", { connection: getRedisConnectionOptions() });
+  const triageQueue = new Queue(TRIAGE_QUEUE_NAME, { connection: getRedisConnectionOptions() });
   const waitingCount = await triageQueue.getWaitingCount();
   await triageQueue.close();
 
@@ -774,55 +810,69 @@ async function start() {
   const host = process.env.HOST ?? "0.0.0.0";
 
   // ── Step 1: Test Redis before anything else ──
-  const redisOk = await testRedisConnection();
-  if (!redisOk) {
-    console.error("[WORKER] Cannot start without Redis — check REDIS_URL env var");
-    process.exit(1);
-  }
+  redisAvailable = await testRedisConnection();
 
   // ── Step 2: Start BullMQ triage worker ──
-  const worker = startTriageWorker();
-  console.log("[WORKER] Triage worker started, waiting for jobs...");
+  const worker = redisAvailable ? startTriageWorker() : null;
+  if (worker) {
+    console.log("[WORKER] Triage worker started, waiting for jobs...");
+  } else {
+    console.error("[WORKER] Redis unavailable — starting direct triage fallback without BullMQ");
+  }
 
   // ── Step 3: Start Fastify FIRST (so health checks pass on Railway) ──
   await server.listen({ port, host });
   console.log(`[WORKER] Server listening on ${host}:${port}`);
 
   // ── Step 4: Start cron scheduler (non-blocking — don't hang startup) ──
-  try {
-    await startCronScheduler();
-    const status = await getCronStatus();
-    console.log(`[WORKER] Cron scheduler initialized — ${status.jobCount} repeatable jobs in Redis`);
-    for (const job of status.jobs) {
-      console.log(`[WORKER]   → ${job.name}: ${job.schedule} (last: ${job.lastRun ?? "never"}, status: ${job.lastStatus ?? "none"})`);
+  if (redisAvailable) {
+    try {
+      await startCronScheduler();
+      const status = await getCronStatus();
+      console.log(`[WORKER] Cron scheduler initialized — ${status.jobCount} repeatable jobs in Redis`);
+      for (const job of status.jobs) {
+        console.log(`[WORKER]   → ${job.name}: ${job.schedule} (last: ${job.lastRun ?? "never"}, status: ${job.lastStatus ?? "none"})`);
+      }
+      if (status.jobCount === 0) {
+        console.warn("[WORKER] WARNING: No cron jobs registered in Redis! Check cron_jobs table or defaults.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[WORKER] Cron scheduler failed to start: ${message}`);
+      // Continue running — manual triggers still work via API
     }
-    if (status.jobCount === 0) {
-      console.warn("[WORKER] WARNING: No cron jobs registered in Redis! Check cron_jobs table or defaults.");
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[WORKER] Cron scheduler failed to start: ${message}`);
-    // Continue running — manual triggers still work via API
+  } else {
+    console.warn("[WORKER] Redis unavailable — cron scheduler disabled; pending tickets will be swept directly");
   }
 
   // ── Step 5: Background tasks — don't block server ──
-  processPendingTickets().catch((err) => {
+  processPendingTickets(redisAvailable).catch((err) => {
     console.error("[WORKER] Pending ticket processing failed:", err);
   });
 
-  catchUpMissedJobs().catch((err) => {
-    console.error("[WORKER] Cron catch-up failed:", err);
-  });
+  if (!redisAvailable) {
+    pendingTicketInterval = setInterval(() => {
+      processPendingTickets(false).catch((err) => {
+        console.error("[WORKER] Pending ticket fallback sweep failed:", err);
+      });
+    }, 60_000);
+    pendingTicketInterval.unref?.();
+  } else {
+    catchUpMissedJobs().catch((err) => {
+      console.error("[WORKER] Cron catch-up failed:", err);
+    });
 
-  scanForSlaBreaches().catch((err) => {
-    console.error("[WORKER] Startup SLA scan failed:", err);
-  });
+    scanForSlaBreaches().catch((err) => {
+      console.error("[WORKER] Startup SLA scan failed:", err);
+    });
+  }
 
   // Graceful shutdown
   const shutdown = async () => {
     console.log("[WORKER] Shutting down...");
     stopCronScheduler();
-    await worker.close();
+    if (pendingTicketInterval) clearInterval(pendingTicketInterval);
+    if (worker) await worker.close();
     await server.close();
     process.exit(0);
   };
