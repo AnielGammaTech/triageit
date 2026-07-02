@@ -21,6 +21,13 @@ interface MappingRow {
 
 type ConnectionStatus = "connected" | "configured" | "not_configured";
 
+interface IntegrationHeartbeat {
+  readonly message?: string;
+  readonly checked_at?: string;
+  readonly latency_ms?: number;
+  readonly consecutive_failures?: number;
+}
+
 export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
   const definition = INTEGRATION_DEFINITIONS.find(
     (d) => d.service === item.service,
@@ -34,6 +41,9 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [mappings, setMappings] = useState<ReadonlyArray<MappingRow>>([]);
   const [activeTab, setActiveTab] = useState<"config" | "mappings">("config");
+  const [heartbeat, setHeartbeat] = useState<IntegrationHeartbeat | null>(null);
+  const [healthStatus, setHealthStatus] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     loadIntegration();
@@ -48,13 +58,15 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
 
     if (data) {
       setIntegrationId(data.id);
-      const config = data.config as Record<string, string>;
+      const config = data.config as Record<string, unknown>;
       const initial: Record<string, string> = {};
       for (const field of definition?.fields ?? []) {
-        initial[field.key] = config[field.key] ?? "";
+        initial[field.key] = String(config[field.key] ?? "");
       }
       setValues(initial);
       setStatus(data.is_active ? "connected" : "configured");
+      setHealthStatus((data.health_status as string | null) ?? null);
+      setHeartbeat((config.__heartbeat as IntegrationHeartbeat | undefined) ?? null);
       loadMappings(data.id);
     } else {
       const initial: Record<string, string> = {};
@@ -92,10 +104,11 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       return;
     }
 
+    const existingInternal = heartbeat ? { __heartbeat: heartbeat } : {};
     const payload = {
       service: item.service,
       display_name: item.label,
-      config: values,
+      config: { ...values, ...existingInternal },
       is_active: true,
       health_status: "unknown" as const,
       updated_at: new Date().toISOString(),
@@ -121,6 +134,26 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       }
     }
     setSaving(false);
+  }
+
+  async function runHeartbeat() {
+    setTesting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/integrations/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ services: [item.service] }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        setError(data?.error ?? "Heartbeat check failed");
+        return;
+      }
+      await loadIntegration();
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function handleDeleteMapping(mappingId: string) {
@@ -175,7 +208,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
 
       {/* Status bar */}
       <div className={cn(
-        "flex items-center gap-2 rounded-lg px-4 py-3 text-sm",
+        "flex flex-wrap items-center gap-2 rounded-lg px-4 py-3 text-sm",
         status === "connected" ? "bg-emerald-500/10 text-emerald-400" :
         status === "configured" ? "bg-amber-500/10 text-amber-400" :
         "bg-white/5 text-white/50",
@@ -189,7 +222,25 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
         {status === "connected" ? "Connected" :
          status === "configured" ? "Configured — not tested" :
          "Not configured"}
+        {healthStatus && (
+          <span className="ml-auto rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/50">
+            {healthStatus}
+          </span>
+        )}
+        <button
+          onClick={runHeartbeat}
+          disabled={testing || status === "not_configured"}
+          className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/70 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-40"
+        >
+          {testing ? "Checking..." : "Run heartbeat"}
+        </button>
       </div>
+      {heartbeat?.message && (
+        <p className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-xs text-white/50">
+          Last heartbeat: {heartbeat.message}
+          {heartbeat.checked_at ? ` - ${new Date(heartbeat.checked_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+        </p>
+      )}
 
       {/* Tabs — hide mapping tab for services that don't need it.
           Halo is the source of truth so it doesn't need customer mapping. */}

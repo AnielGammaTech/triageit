@@ -310,12 +310,30 @@ async function fetchHuduDirect(config: Record<string, string>) {
 
 async function fetchDattoDirect(config: Record<string, string>) {
   const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
-  const res = await fetch(`${config.api_url}/api/v2/account/sites`, {
-    headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/json" },
+  const baseUrl = config.api_url.replace(/\/$/, "");
+  const tokenRes = await fetch(`${baseUrl}/auth/oauth/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "password",
+      username: config.api_key,
+      password: config.api_secret,
+    }),
+  });
+  if (!tokenRes.ok) throw new Error(`Datto auth failed: ${tokenRes.status}`);
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+
+  const res = await fetch(`${baseUrl}/api/v2/account/sites`, {
+    headers: { Authorization: `Bearer ${tokenData.access_token}`, "Content-Type": "application/json" },
   });
   if (!res.ok) throw new Error(`Datto error: ${res.status}`);
-  const data = (await res.json()) as { sites?: Array<{ id: number; name: string }> };
-  return (data.sites ?? []).map((s) => ({ id: s.id, name: s.name }));
+  const data = await res.json();
+  return extractArray<{ id: number | string; name: string }>(data, ["sites", "items", "data", "results"])
+    .filter((s) => s.id != null && s.name)
+    .map((s) => ({ id: s.id, name: s.name }));
 }
 
 async function fetchJumpCloudDirect(config: Record<string, string>) {
@@ -327,10 +345,64 @@ async function fetchJumpCloudDirect(config: Record<string, string>) {
   return (data.results ?? []).map((o) => ({ id: o._id, name: o.displayName }));
 }
 
+async function fetchPax8Direct(config: Record<string, string>) {
+  const tokenRes = await fetch("https://login.pax8.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "client_credentials",
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      audience: "https://api.pax8.com",
+    }),
+  });
+  if (!tokenRes.ok) throw new Error(`Pax8 auth failed: ${tokenRes.status}`);
+  const tokenData = (await tokenRes.json()) as { access_token: string };
+  const res = await fetch("https://api.pax8.com/v1/companies?page=0&size=500", {
+    headers: { Authorization: `Bearer ${tokenData.access_token}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`Pax8 error: ${res.status}`);
+  const data = await res.json();
+  return extractArray<{ id: string; name: string }>(data, ["content", "companies", "items", "data", "results"])
+    .filter((c) => c.id && c.name)
+    .map((c) => ({ id: c.id, name: c.name }));
+}
+
+async function fetchUnifiDirect(config: Record<string, string>) {
+  const res = await fetch("https://api.ui.com/ea/sites", {
+    headers: { "X-API-Key": config.api_key, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`UniFi error: ${res.status}`);
+  const data = await res.json();
+  return extractArray<{ id?: string; site_id?: string; name?: string; meta?: { name?: string } }>(data, ["data", "sites", "items", "results"])
+    .map((site) => ({ id: site.id ?? site.site_id ?? site.name ?? "", name: site.name ?? site.meta?.name ?? site.id ?? "Unnamed site" }))
+    .filter((site) => site.id && site.name);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractArray<T>(value: unknown, keys: ReadonlyArray<string>): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (!isRecord(value)) return [];
+  for (const key of keys) {
+    const nested = value[key];
+    if (Array.isArray(nested)) return nested as T[];
+    if (isRecord(nested)) {
+      const deeper = extractArray<T>(nested, keys);
+      if (deeper.length > 0) return deeper;
+    }
+  }
+  return [];
+}
+
 const DIRECT_FETCHERS: Record<string, DirectFetcher> = {
   hudu: fetchHuduDirect,
   datto: fetchDattoDirect,
   jumpcloud: fetchJumpCloudDirect,
+  pax8: fetchPax8Direct,
+  unifi: fetchUnifiDirect,
 };
 
 async function discoverHaloTokenEndpoint(baseUrl: string, tenant?: string): Promise<string> {

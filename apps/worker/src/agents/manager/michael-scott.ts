@@ -363,6 +363,7 @@ export async function runTriage(
     classType,
     supabase,
     ticket.client_name,
+    `${context.summary}\n${context.details ?? ""}`,
   );
 
   const allSpecialists = classification.security_flag

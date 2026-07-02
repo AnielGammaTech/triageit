@@ -10,12 +10,7 @@ const NAV_ITEMS = [
   { href: "/tickets", label: "Tickets" },
   { href: "/michael", label: "Prison Mike" },
   { href: "/toby", label: "Toby" },
-  { href: "/customers", label: "Customers" },
   { href: "/workers", label: "Workers" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/analytics/toby", label: "Toby Insights" },
-  { href: "/kb-ideas", label: "KB Ideas" },
-  { href: "/dispatcher", label: "Dispatcher" },
   {
     href: process.env.NEXT_PUBLIC_FOLLOWIT_URL ?? "http://localhost:3001",
     label: "FollowIT",

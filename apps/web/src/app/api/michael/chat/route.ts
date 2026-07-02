@@ -46,11 +46,19 @@ You are the admin/owner's AI operations manager — a supercomputer that can pul
 - **Meredith Palmer** — Spanning M365 backup. Verifies backup status and coverage.
 - **Oscar Martinez** — Cove backup. Checks backup jobs and restore points.
 - **Darryl Philbin** — CIPP M365 management. Manages licenses, conditional access, tenant config.
+- **Holly Flax** — Pax8 licensing/subscriptions. Checks Microsoft 365 seats, suspended subscriptions, marketplace services, and billing/license mismatches.
 - **Creed Bratton** — UniFi networking. Checks AP status, client connections, network health.
 - **Erin Hannon** — Alert summarizer. Handles automated monitoring alerts quickly.
 - **Toby Flenderson** — Analytics. Runs daily analysis of tech performance, customer patterns, and triage accuracy.
 
 When you reference your team, be natural about it — "I'll have Dwight pull the Hudu docs for that client" or "Let me get Andy to check the device in Datto."
+
+## Worker Routing Discipline:
+- Pick workers by ticket intent, not by every active integration.
+- Ask Andy for Datto RMM device inventory, OS versions, alerts, patching, Windows 10/11 migration readiness, and endpoint health.
+- Ask Holly/Pax8 only when the ticket asks about licenses, subscriptions, seats, billing, vendor marketplace, Azure subscriptions, or Microsoft 365 plan changes.
+- If a worker says data is missing, check integration health and customer mapping before saying the client lacks the tool.
+- Never tell a tech that Datto, Pax8, Hudu, JumpCloud, or another integration is absent unless the integration returned a successful empty result.
 
 ## About Gamma Tech:
 - MSP based in Naples, FL
@@ -188,7 +196,7 @@ export async function POST(request: NextRequest) {
   ] = await Promise.all([
     serviceClient.from("michael_learned_skills").select("title, content").eq("is_active", true),
     serviceClient.from("agent_skills").select("title, content").eq("agent_name", "michael_scott").eq("is_active", true),
-    serviceClient.from("integrations").select("service, is_active").eq("is_active", true),
+    serviceClient.from("integrations").select("service, is_active, health_status, last_health_check, config").eq("is_active", true),
     serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
   ]);
 
@@ -213,6 +221,10 @@ export async function POST(request: NextRequest) {
   systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
   if (integrations && integrations.length > 0) {
     systemPrompt += `- Active integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
+    const unhealthy = integrations.filter((i) => i.health_status === "unhealthy" || i.health_status === "error");
+    if (unhealthy.length > 0) {
+      systemPrompt += `- Integrations needing attention: ${unhealthy.map((i) => i.service).join(", ")}\n`;
+    }
   }
   systemPrompt += `\nUse the **get_dashboard** tool to see tech workload, customer breakdown, recent trends, and tech reviews when the conversation needs that context. Don't load it preemptively.\n`;
 
@@ -372,13 +384,24 @@ export async function POST(request: NextRequest) {
         properties: {
           worker: {
             type: "string",
-            enum: ["dwight", "andy", "jim", "kelly", "stanley", "phyllis", "meredith", "oscar", "darryl", "creed"],
-            description: "Which worker to ask: dwight (Hudu docs/assets), andy (Datto RMM devices), jim (JumpCloud users), kelly (3CX phones), stanley (Vultr cloud), phyllis (email/DNS), meredith (Spanning backup), oscar (Cove/Unitrends backup), darryl (CIPP M365), creed (UniFi network)",
+            enum: ["dwight", "andy", "jim", "kelly", "stanley", "phyllis", "meredith", "oscar", "darryl", "holly", "creed"],
+            description: "Which worker to ask: dwight (Hudu docs/assets), andy (Datto RMM devices), jim (JumpCloud users), kelly (3CX phones), stanley (Vultr cloud), phyllis (email/DNS), meredith (Spanning backup), oscar (Cove/Unitrends backup), darryl (CIPP M365), holly (Pax8 licensing/subscriptions only), creed (UniFi network)",
           },
           client_name: { type: "string", description: "The client/company name to investigate" },
           question: { type: "string", description: "What you want the worker to look into (e.g. 'check device health for workstation DESKTOP-ABC', 'find MFA status for john@example.com', 'what assets does this client have?')" },
         },
         required: ["worker", "client_name", "question"],
+      },
+    },
+    {
+      name: "check_integration_health",
+      description: "Check active integration heartbeat and last error state. Use before concluding an external system has no data, or when the admin asks whether integrations are connected.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          service: { type: "string", description: "Optional service key like halo, datto, hudu, pax8, jumpcloud, cipp, unifi" },
+        },
+        required: [],
       },
     },
     {
@@ -939,6 +962,7 @@ export async function POST(request: NextRequest) {
           meredith: "meredith-palmer",
           oscar: "oscar-martinez",
           darryl: "darryl-philbin",
+          holly: "holly-flax",
           creed: "creed-bratton",
         };
 
@@ -966,6 +990,34 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           return `Failed to reach worker service: ${err instanceof Error ? err.message : String(err)}`;
         }
+      }
+
+      case "check_integration_health": {
+        const service = input.service as string | undefined;
+        let query = serviceClient
+          .from("integrations")
+          .select("service, display_name, is_active, health_status, last_health_check, config")
+          .eq("is_active", true);
+        if (service) query = query.eq("service", service);
+
+        const { data: rows, error } = await query.order("service", { ascending: true });
+        if (error) return `Integration health lookup failed: ${error.message}`;
+        if (!rows || rows.length === 0) return service ? `No active integration found for ${service}.` : "No active integrations found.";
+
+        return rows.map((row) => {
+          const config = row.config as { __heartbeat?: { message?: string; checked_at?: string; latency_ms?: number; consecutive_failures?: number } } | null;
+          const heartbeat = config?.__heartbeat;
+          const checkedAt = row.last_health_check
+            ? new Date(row.last_health_check).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+            : "never";
+          return [
+            `- **${row.display_name ?? row.service}** (${row.service})`,
+            `status: ${row.health_status ?? "unknown"}`,
+            `last check: ${checkedAt}`,
+            heartbeat?.message ? `message: ${heartbeat.message}` : null,
+            heartbeat?.consecutive_failures ? `failures: ${heartbeat.consecutive_failures}` : null,
+          ].filter(Boolean).join(" | ");
+        }).join("\n");
       }
 
       case "search_halo": {
