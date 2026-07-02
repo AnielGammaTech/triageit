@@ -457,6 +457,10 @@ server.post<{ Body: { halo_id: number } }>(
       return { status: "completed", review };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("already in progress") || message.includes("already exists")) {
+        console.log(`[CLOSE-REVIEW] Skipped ticket #${halo_id}: ${message}`);
+        return { status: "skipped", reason: message };
+      }
       console.error(`[CLOSE-REVIEW] Failed for ticket #${halo_id}:`, message);
       return reply.status(500).send({ error: message });
     }
