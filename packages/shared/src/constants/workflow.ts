@@ -21,7 +21,6 @@ export const WORKFLOW_OWNER_ROLES: ReadonlyArray<HaloWorkflowOwnerRole> = [
 ];
 
 export const HELPDESK_TECHNICIANS = [
-  "Dylan Henjum",
   "Raul Tapanes",
   "Jarid Carlson",
   "Matthew Lawyer",
@@ -36,6 +35,17 @@ export const NON_TECH_STAFF = [
   "Roman Hernandez",
   "Todd",
   "Aniel",
+] as const;
+
+export const FORMER_STAFF_NAMES = [
+  "Dylan",
+  "Dylan Henjum",
+] as const;
+
+export const INTERNAL_STAFF_NAMES = [
+  ...HELPDESK_TECHNICIANS,
+  ...NON_TECH_STAFF,
+  ...FORMER_STAFF_NAMES,
 ] as const;
 
 function normalizeStaffName(name: string): string {
@@ -61,6 +71,11 @@ export function isHelpdeskTechnicianName(name: string | null | undefined): boole
 export function isKnownNonTechStaffName(name: string | null | undefined): boolean {
   if (!name) return false;
   return NON_TECH_STAFF.some((staff) => isNameMatch(name, staff));
+}
+
+export function isInternalStaffName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return INTERNAL_STAFF_NAMES.some((staff) => isNameMatch(name, staff));
 }
 
 export function deriveWorkflowStatusFromHalo(

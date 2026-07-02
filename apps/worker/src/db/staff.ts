@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { FORMER_STAFF_NAMES } from "@triageit/shared";
 import { withCache } from "../cache/integration-cache.js";
 
 interface StaffMember {
@@ -9,9 +10,17 @@ interface StaffMember {
   readonly halo_agent_id: number | null;
 }
 
+const FORMER_STAFF_SET = new Set(FORMER_STAFF_NAMES.map((name) => name.toLowerCase()));
+
+function isFormerStaffName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return FORMER_STAFF_SET.has(name.toLowerCase());
+}
+
 /**
- * Get all active staff names (lowercase) — cached for 4 hours.
+ * Get internal staff names (lowercase) — cached for 4 hours.
  * Used to filter out internal staff from customer reply detection.
+ * Former staff stays in this list so old internal notes are not mistaken for customer updates.
  */
 export async function getStaffNames(supabase: SupabaseClient): Promise<ReadonlyArray<string>> {
   return withCache("staff", "names", async () => {
@@ -19,7 +28,8 @@ export async function getStaffNames(supabase: SupabaseClient): Promise<ReadonlyA
       .from("staff_members")
       .select("name")
       .eq("is_active", true);
-    return (data ?? []).map((s) => s.name.toLowerCase());
+    const activeNames = (data ?? []).map((s) => s.name.toLowerCase());
+    return Array.from(new Set([...activeNames, ...FORMER_STAFF_SET]));
   }, 14400); // 4 hours
 }
 
@@ -48,7 +58,7 @@ export async function getStaffMembers(supabase: SupabaseClient): Promise<Readonl
       .from("staff_members")
       .select("id, name, role, is_active, halo_agent_id")
       .eq("is_active", true);
-    return data ?? [];
+    return (data ?? []).filter((s) => !isFormerStaffName(s.name));
   }, 14400);
 }
 
@@ -62,6 +72,6 @@ export async function getTechNames(supabase: SupabaseClient): Promise<ReadonlyAr
       .select("name")
       .eq("role", "technician")
       .eq("is_active", true);
-    return (data ?? []).map((s) => s.name);
+    return (data ?? []).map((s) => s.name).filter((name) => !isFormerStaffName(name));
   }, 14400);
 }

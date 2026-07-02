@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
+  HELPDESK_TECHNICIANS,
   isHelpdeskTechnicianName,
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -57,14 +58,14 @@ When you reference your team, be natural about it — "I'll have Dwight pull the
 - Helpdesk: help@gamma.tech
 
 ## Team Roster (KNOW THIS):
-**Techs (6):** Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier
+**Techs (${HELPDESK_TECHNICIANS.length}):** ${HELPDESK_TECHNICIANS.join(", ")}
 **Triage/Dispatcher:** Bryanna — assigns tickets, NOT a tech
 **Helpdesk Manager:** David — manages the helpdesk team
 **Project Manager:** Jonathan — project work only
 **Sales/Account Managers:** Roman Hernandez, Todd — they are NOT techs. Do NOT evaluate them on ticket response times or tech performance.
 **Owner:** Aniel — the admin you're talking to
 
-IMPORTANT: Only evaluate the 6 techs on ticket performance metrics. If Jonathan, Roman, or Todd appear in ticket data, they are not helpdesk techs — don't flag them as underperforming techs.
+IMPORTANT: Only evaluate the active helpdesk techs listed above on ticket performance metrics. If Jonathan, Roman, or Todd appear in ticket data, they are not helpdesk techs — don't flag them as underperforming techs.
 
 ## Help Desk Workflow Standard:
 - Use the canonical Halo Help Desk Workflow for reminders and management calls.
@@ -83,7 +84,7 @@ This tag helps the system persist it. Only use it when genuinely taught somethin
 ## ABSOLUTE RULE — ZERO FABRICATION:
 This is non-negotiable. The admin WILL catch you if you make up numbers.
 
-1. **EVERY number you state must come from a tool result.** If you say "Dylan has 52 tickets" — that number MUST appear in the tool output. If the tool said 11, you say 11. Not 52. Not "approximately 50." Exactly 11.
+1. **EVERY number you state must come from a tool result.** If you say "Raul has 52 tickets" — that number MUST appear in the tool output. If the tool said 11, you say 11. Not 52. Not "approximately 50." Exactly 11.
 2. **NEVER extrapolate, estimate, or round up.** If the data shows 1 unassigned ticket, say 1. Not "hundreds." Not "716." ONE.
 3. **NEVER fill gaps with assumptions.** If you don't have data on something, say "I don't have that data — let me look it up" and USE A TOOL. Don't guess.
 4. **Quote your sources.** When stating a number, mentally trace it back to which tool returned it. If you can't trace it, don't say it.

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Ticket, AgentFinding } from "@triageit/shared";
+import { HELPDESK_TECHNICIANS, type Ticket, type AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -472,7 +472,7 @@ export async function runTriage(
       .eq("tickettype_id", 31)
       .eq("halo_is_open", true);
 
-    const TECH_NAMES = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
+    const TECH_NAMES = [...HELPDESK_TECHNICIANS];
     const counts: Record<string, number> = {};
     for (const name of TECH_NAMES) counts[name] = 0;
     let unassigned = 0;
@@ -779,7 +779,12 @@ export async function runTriage(
 interface MichaelSynthesis {
   readonly recommended_team: string;
   readonly recommended_agent: string | null;
+  readonly assignment_reasoning: string | null;
+  readonly manager_summary: string | null;
+  readonly evidence: ReadonlyArray<string>;
+  readonly connected_app_context: ReadonlyArray<string>;
   readonly root_cause_hypothesis: string;
+  readonly troubleshooting_steps: ReadonlyArray<string>;
   readonly internal_notes: string | string[];
   readonly suggested_response: string | null;
   readonly workflow_reminder: string | null;
@@ -934,7 +939,12 @@ async function synthesizeFindings(
   const rawResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
+    assignment_reasoning: string | null;
+    manager_summary: string | null;
+    evidence: string[] | null;
+    connected_app_context: string[] | null;
     root_cause_hypothesis: string;
+    troubleshooting_steps: string[] | null;
     internal_notes: string | string[];
     customer_response: string | null;
     suggested_response: string | null;
@@ -947,11 +957,28 @@ async function synthesizeFindings(
 
   return {
     ...rawResult,
+    recommended_team: rawResult.recommended_team ?? "General",
+    recommended_agent: rawResult.recommended_agent ?? null,
+    assignment_reasoning: rawResult.assignment_reasoning ?? null,
+    manager_summary: rawResult.manager_summary ?? null,
+    evidence: Array.isArray(rawResult.evidence) ? rawResult.evidence : [],
+    connected_app_context: Array.isArray(rawResult.connected_app_context) ? rawResult.connected_app_context : [],
+    root_cause_hypothesis: rawResult.root_cause_hypothesis ?? "Needs technician review based on ticket details and connected app findings.",
+    troubleshooting_steps: Array.isArray(rawResult.troubleshooting_steps)
+      ? rawResult.troubleshooting_steps
+      : Array.isArray(rawResult.internal_notes)
+        ? rawResult.internal_notes
+        : rawResult.internal_notes
+          ? [rawResult.internal_notes]
+          : [],
     internal_notes: Array.isArray(rawResult.internal_notes)
       ? rawResult.internal_notes
       : rawResult.internal_notes ?? "",
+    suggested_response: rawResult.suggested_response ?? rawResult.customer_response ?? null,
     workflow_reminder: rawResult.workflow_reminder ?? null,
     kb_suggestions: Array.isArray(rawResult.kb_suggestions) ? rawResult.kb_suggestions : [],
+    escalation_needed: Boolean(rawResult.escalation_needed),
+    escalation_reason: rawResult.escalation_reason ?? null,
     _managerTokens: response.usage.input_tokens + response.usage.output_tokens,
   };
 }

@@ -5,6 +5,7 @@ import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
+  isInternalStaffName,
 } from "@triageit/shared";
 
 /**
@@ -541,8 +542,7 @@ async function checkForUpdateRequest(haloId: number): Promise<void> {
       const whoLower = (a.who ?? "").toLowerCase();
       if (whoLower.includes("triageit") || whoLower.includes("triggr") || whoLower.includes("gamma.tech") || whoLower.includes("gtmail")) return false;
       // Skip messages from our techs and staff — they are NOT customers asking for updates
-      const STAFF_NAMES = ["dylan", "raul", "jarid", "matthew", "ryan", "darren", "bryanna", "david", "jonathan", "roman", "todd", "aniel"];
-      if (STAFF_NAMES.some((name) => whoLower.includes(name))) return false;
+      if (isInternalStaffName(whoLower)) return false;
       return true;
     });
     if (!latestCustomerAction?.note) return;

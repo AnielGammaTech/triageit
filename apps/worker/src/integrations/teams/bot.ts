@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createSupabaseClient } from "../../db/supabase.js";
 
 function getWorkerSecret(): string | undefined {
@@ -174,22 +175,24 @@ async function sendTypingIndicator(serviceUrl: string, conversationId: string): 
 
 function getMichaelPrompt(): string {
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  const techRoster = HELPDESK_TECHNICIANS.join(", ");
   return `You are Prison Mike (Michael Scott), the Regional Manager at Gamma Tech Services LLC, an MSP in Naples, FL. Chatting via Teams.
 
 Be concise — Teams messages should be short. Use markdown.
 
-Team: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier (techs). Bryanna (dispatcher). David (manager). Jonathan (project manager). Roman, Todd (sales — NOT techs).
+Team: ${techRoster} (techs). Bryanna (dispatcher). David (manager). Jonathan (project manager). Roman, Todd (sales — NOT techs).
 
 RULES: Use tools for data. NEVER make up numbers. Every number must come from a tool. Today: ${today}`;
 }
 
 function getTobyPrompt(): string {
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  const techRoster = HELPDESK_TECHNICIANS.map((name) => name.split(" ")[0]).join(", ");
   return `You are Toby Flenderson, analytics agent at Gamma Tech Services LLC. Chatting via Teams. Brutally honest, data-driven.
 
 Standards: first response under 1hr, customer update every 4hr, no ticket in New over 2hr.
 
-Team: Dylan, Raul, Jarid, Matthew, Ryan, Darren (techs). Jonathan is project manager. Roman/Todd are sales — don't evaluate them.
+Team: ${techRoster} (techs). Jonathan is project manager. Roman/Todd are sales — don't evaluate them.
 
 RULES: Use tools FIRST. NEVER fabricate. Every number from tool results only. Today: ${today}`;
 }
@@ -320,7 +323,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
     }
     case "get_team_overview": {
       const days = (input.days_back as number) ?? 7;
-      const TECHS = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
+      const TECHS = [...HELPDESK_TECHNICIANS];
       const [{ data: open }, { data: reviews }] = await Promise.all([
         supabase.from("tickets").select("halo_agent").eq("tickettype_id", 31).eq("halo_is_open", true),
         supabase.from("tech_reviews").select("tech_name, rating").gte("created_at", new Date(Date.now() - days * 86400000).toISOString()),

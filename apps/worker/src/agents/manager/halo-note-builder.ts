@@ -105,6 +105,76 @@ export function formatTechNotes(notes: unknown): string {
   return linkifyUrls(text);
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item && typeof item === "object") {
+          const record = item as Record<string, unknown>;
+          const label = record.title ?? record.name ?? record.label ?? record.summary ?? record.note;
+          return typeof label === "string" ? label.trim() : JSON.stringify(item);
+        }
+        return String(item).trim();
+      })
+      .filter(Boolean);
+  }
+  return [String(value).trim()].filter(Boolean);
+}
+
+function uniqueNonEmpty(items: ReadonlyArray<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const trimmed = item.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function formatBulletList(items: ReadonlyArray<string>, emptyText = "No connected-app findings available."): string {
+  const clean = uniqueNonEmpty(items).slice(0, 8);
+  if (clean.length === 0) return emptyText;
+  return `<ul style="margin:4px 0;padding-left:18px;">${clean
+    .map((item) => `<li style="margin-bottom:5px;">${linkifyUrls(item)}</li>`)
+    .join("")}</ul>`;
+}
+
+function pickNamedItems(value: unknown): string[] {
+  return toStringArray(value).slice(0, 5);
+}
+
+function collectConnectedAppContext(findings: Record<string, AgentFinding>): string[] {
+  const items: string[] = [];
+  const dwight = findings.dwight_schrute?.data;
+
+  if (dwight) {
+    const articles = pickNamedItems(dwight.kb_articles);
+    const procedures = pickNamedItems(dwight.procedures);
+    const assets = pickNamedItems(dwight.relevant_assets);
+    const passwords = pickNamedItems(dwight.relevant_passwords);
+    const configNotes = pickNamedItems(dwight.client_config_notes);
+
+    if (articles.length > 0) items.push(`Hudu articles: ${articles.join(", ")}`);
+    if (procedures.length > 0) items.push(`Hudu procedures: ${procedures.join(", ")}`);
+    if (assets.length > 0) items.push(`Hudu assets: ${assets.join(", ")}`);
+    if (passwords.length > 0) items.push(`Hudu credential entries to check: ${passwords.join(", ")}`);
+    items.push(...configNotes.map((note) => `Hudu client note: ${note}`));
+  }
+
+  for (const [agentName, finding] of Object.entries(findings)) {
+    if (agentName === "dwight_schrute") continue;
+    const label = AGENT_LABELS[agentName] ?? agentName;
+    if (finding.summary) items.push(`${label}: ${finding.summary}`);
+  }
+
+  return uniqueNonEmpty(items);
+}
+
 // ── Full Triage Note ─────────────────────────────────────────────────
 
 export interface BrandingConfig {
@@ -124,7 +194,13 @@ export function buildHaloNote(
   },
   michaelResult: {
     readonly recommended_team: string;
+    readonly recommended_agent?: string | null;
+    readonly assignment_reasoning?: string | null;
+    readonly manager_summary?: string | null;
+    readonly evidence?: ReadonlyArray<string>;
+    readonly connected_app_context?: ReadonlyArray<string>;
     readonly root_cause_hypothesis: string;
+    readonly troubleshooting_steps?: ReadonlyArray<string>;
     readonly internal_notes: string | string[];
     readonly suggested_response: string | null;
     readonly workflow_reminder?: string | null;
@@ -173,6 +249,13 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#252830;"><td style="padding:4px 12px;${border}width:100px;"></td><td style="padding:4px 12px 8px;${border}font-size:12px;color:#94a3b8;line-height:1.4;word-break:break-word;">${linkifyUrls(classification.urgency_reasoning)}</td></tr>`);
   }
 
+  if (michaelResult.manager_summary || michaelResult.assignment_reasoning || michaelResult.recommended_agent) {
+    const assignment = michaelResult.recommended_agent
+      ? `<br/><span style="color:#94a3b8;">Assign to:</span> <strong style="color:#e2e8f0;">${michaelResult.recommended_agent}</strong>${michaelResult.assignment_reasoning ? ` — ${linkifyUrls(michaelResult.assignment_reasoning)}` : ""}`
+      : "";
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#93c5fd;">Manager</td><td style="padding:8px 12px;${border}font-size:14px;color:#dbeafe;line-height:1.55;word-break:break-word;">${linkifyUrls(michaelResult.manager_summary ?? "Manager review complete.")}${assignment}</td></tr>`);
+  }
+
   // Entities
   if (classification.entities.length > 0) {
     rows.push(`<tr style="background:#252830;"><td ${td1}>Entities</td><td ${td2}>${classification.entities.join(", ")}</td></tr>`);
@@ -195,9 +278,25 @@ export function buildHaloNote(
   // Root Cause — amber tinted dark background
   rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.root_cause_hypothesis)}</td></tr>`);
 
-  // Tech Notes — blue tinted dark background, parsed into numbered list
-  const formattedNotes = formatTechNotes(michaelResult.internal_notes);
-  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">📋 Tech Notes</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
+  const evidenceItems = toStringArray(michaelResult.evidence);
+  if (evidenceItems.length > 0) {
+    rows.push(`<tr style="background:#182232;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#93c5fd;">Evidence</td><td style="padding:8px 12px;${border}font-size:13px;color:#dbeafe;line-height:1.5;word-break:break-word;">${formatBulletList(evidenceItems)}</td></tr>`);
+  }
+
+  const appContext = uniqueNonEmpty([
+    ...toStringArray(michaelResult.connected_app_context),
+    ...collectConnectedAppContext(findings),
+  ]);
+  if (appContext.length > 0) {
+    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">App Context</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;word-break:break-word;">${formatBulletList(appContext)}</td></tr>`);
+  }
+
+  // Tech plan — blue tinted dark background, parsed into numbered list
+  const stepSource = michaelResult.troubleshooting_steps && michaelResult.troubleshooting_steps.length > 0
+    ? michaelResult.troubleshooting_steps
+    : michaelResult.internal_notes;
+  const formattedNotes = formatTechNotes(stepSource);
+  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">Tech Plan</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
   // Quick Links — Hudu links from Dwight + backup quicklinks from Oscar/Meredith
   const dwightData = findings.dwight_schrute?.data;
@@ -281,7 +380,13 @@ export function buildCompactRetriageNote(
   },
   michaelResult: {
     readonly recommended_team: string;
+    readonly recommended_agent?: string | null;
+    readonly assignment_reasoning?: string | null;
+    readonly manager_summary?: string | null;
+    readonly evidence?: ReadonlyArray<string>;
+    readonly connected_app_context?: ReadonlyArray<string>;
     readonly root_cause_hypothesis: string;
+    readonly troubleshooting_steps?: ReadonlyArray<string>;
     readonly internal_notes: string | string[];
     readonly suggested_response: string | null;
     readonly workflow_reminder?: string | null;
@@ -313,6 +418,12 @@ export function buildCompactRetriageNote(
     : "";
   rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · ${priorityLabel(classification.recommended_priority)} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
 
+  if (michaelResult.manager_summary || michaelResult.recommended_agent) {
+    const summary = michaelResult.manager_summary ?? "Manager review complete.";
+    const owner = michaelResult.recommended_agent ? ` Assign to ${michaelResult.recommended_agent}.` : "";
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#93c5fd;">Manager</td><td style="padding:5px 12px;${border}font-size:11px;color:#dbeafe;line-height:1.4;">${linkifyUrls(`${summary}${owner}`)}</td></tr>`);
+  }
+
   // Escalation reason (only if escalating)
   if (michaelResult.escalation_needed && michaelResult.escalation_reason) {
     rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${linkifyUrls(michaelResult.escalation_reason)}</td></tr>`);
@@ -322,8 +433,19 @@ export function buildCompactRetriageNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Workflow</td><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;line-height:1.4;">${linkifyUrls(michaelResult.workflow_reminder)}</td></tr>`);
   }
 
+  const appContext = uniqueNonEmpty([
+    ...toStringArray(michaelResult.connected_app_context),
+    ...collectConnectedAppContext(findings),
+  ]).slice(0, 4);
+  if (appContext.length > 0) {
+    rows.push(`<tr style="background:#162216;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#4ade80;">Apps</td><td style="padding:5px 12px;${border}font-size:11px;color:#bbf7d0;line-height:1.4;">${formatBulletList(appContext)}</td></tr>`);
+  }
+
   // Action items — keep short (formatTechNotes already applies linkifyUrls)
-  const formattedNotes = formatTechNotes(michaelResult.internal_notes);
+  const stepSource = michaelResult.troubleshooting_steps && michaelResult.troubleshooting_steps.length > 0
+    ? michaelResult.troubleshooting_steps
+    : michaelResult.internal_notes;
+  const formattedNotes = formatTechNotes(stepSource);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#60a5fa;">Action</td><td style="padding:5px 12px;${border}font-size:11px;color:#bfdbfe;line-height:1.4;word-break:break-word;">${formattedNotes}</td></tr>`);
 
   // Suggested Customer Reply
