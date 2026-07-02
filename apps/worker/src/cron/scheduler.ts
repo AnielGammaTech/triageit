@@ -43,6 +43,28 @@ interface CronJobRecord {
   readonly last_run_at?: string | null;
 }
 
+interface RequiredCronJob {
+  readonly name: string;
+  readonly description: string;
+  readonly schedule: string;
+  readonly endpoint: string;
+}
+
+const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
+  {
+    name: "Halo Ticket Sync",
+    description: "Syncs open tickets from Halo every minute so new customer work enters triage quickly.",
+    schedule: "* * * * *",
+    endpoint: "/ticket-sync",
+  },
+  {
+    name: "Integration Heartbeat",
+    description: "Checks configured integrations and stores health status for Adminland and worker routing.",
+    schedule: "*/5 * * * *",
+    endpoint: "/integration-heartbeat",
+  },
+];
+
 /**
  * Estimate interval in ms from a cron pattern. Handles common patterns.
  */
@@ -263,6 +285,85 @@ async function runDailyRetriage(): Promise<void> {
   }
 }
 
+async function reconcileRequiredSystemCronJobs(
+  jobs: CronJobRecord[],
+): Promise<CronJobRecord[]> {
+  const supabase = createSupabaseClient();
+  const reconciled = [...jobs];
+
+  for (const required of REQUIRED_SYSTEM_CRON_JOBS) {
+    const index = reconciled.findIndex((job) => job.endpoint === required.endpoint);
+    const existing = index >= 0 ? reconciled[index] : null;
+
+    if (existing) {
+      const changed =
+        existing.name !== required.name ||
+        existing.schedule !== required.schedule ||
+        existing.endpoint !== required.endpoint ||
+        !existing.is_active;
+
+      if (changed) {
+        const { error } = await supabase
+          .from("cron_jobs")
+          .update({
+            name: required.name,
+            description: required.description,
+            schedule: required.schedule,
+            endpoint: required.endpoint,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) {
+          console.error(`[CRON] Failed to reconcile "${required.name}": ${error.message}`);
+        } else {
+          console.log(`[CRON] Reconciled required "${required.name}" — "${required.schedule}"`);
+        }
+
+        reconciled[index] = {
+          ...existing,
+          name: required.name,
+          schedule: required.schedule,
+          endpoint: required.endpoint,
+          is_active: true,
+        };
+      }
+      continue;
+    }
+
+    const { data, error } = await supabase
+      .from("cron_jobs")
+      .insert({
+        name: required.name,
+        description: required.description,
+        schedule: required.schedule,
+        endpoint: required.endpoint,
+        is_active: true,
+      })
+      .select("id, name, schedule, endpoint, is_active, last_run_at")
+      .single();
+
+    if (error || !data) {
+      console.error(`[CRON] Failed to create required "${required.name}": ${error?.message ?? "no row returned"}`);
+      reconciled.push({
+        id: `required:${required.endpoint}`,
+        name: required.name,
+        schedule: required.schedule,
+        endpoint: required.endpoint,
+        is_active: true,
+        last_run_at: null,
+      });
+      continue;
+    }
+
+    console.log(`[CRON] Created required "${required.name}" — "${required.schedule}"`);
+    reconciled.push(data as CronJobRecord);
+  }
+
+  return reconciled;
+}
+
 /**
  * Process a cron job from the BullMQ queue.
  */
@@ -356,7 +457,8 @@ export async function startCronScheduler(): Promise<void> {
     return;
   }
 
-  const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
+  const reconciledJobs = await reconcileRequiredSystemCronJobs(jobs as CronJobRecord[]);
+  const activeJobs = reconciledJobs.filter((j: CronJobRecord) => j.is_active);
 
   // Build a map of what SHOULD be registered
   const desiredRepeatables = new Map(
@@ -416,10 +518,10 @@ export async function startCronScheduler(): Promise<void> {
       if (handler) {
         handler().then(() => {
           console.log(`[CRON] Catch-up complete: "${job.name}"`);
-          updateJobStatus(job.id, "success");
+          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "success");
         }).catch((err) => {
           console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
-          updateJobStatus(job.id, "error", (err as Error).message);
+          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "error", (err as Error).message);
         });
       }
     }
