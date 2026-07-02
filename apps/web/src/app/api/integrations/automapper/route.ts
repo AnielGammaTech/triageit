@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
@@ -142,6 +143,12 @@ export async function POST() {
  * Approve suggested mappings and save to integration_mappings table.
  */
 export async function PUT(request: Request) {
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 20, 60_000, "automapper-approve");
+  if (rateLimited) return rateLimited;
+
   const body = (await request.json()) as {
     mappings: Array<{
       integration_id: string;
@@ -157,7 +164,6 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "No mappings provided" }, { status: 400 });
   }
 
-  const supabase = await createClient();
   const rows = body.mappings.map((m) => ({
     integration_id: m.integration_id,
     service: m.service,
@@ -167,7 +173,7 @@ export async function PUT(request: Request) {
     customer_id: m.halo_id,
   }));
 
-  const { error } = await supabase.from("integration_mappings").insert(rows);
+  const { error } = await auth.serviceClient.from("integration_mappings").insert(rows);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

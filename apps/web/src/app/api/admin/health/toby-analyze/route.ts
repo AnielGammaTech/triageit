@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * POST /api/admin/health/toby-analyze
@@ -22,7 +23,7 @@ export async function POST() {
   }
 
   try {
-    const response = await fetch(`${workerUrl}/toby/analyze`, {
+    const response = await workerFetch(`${workerUrl}/toby/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(120000),

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { workerFetch } from "@/lib/api/worker";
 import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
           const workerUrl = process.env.WORKER_URL;
           if (workerUrl) {
             try {
-              await fetch(`${workerUrl}/close-review`, {
+              await workerFetch(`${workerUrl}/close-review`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ halo_id: ticketId }),
@@ -547,7 +548,7 @@ async function checkForUpdateRequest(haloId: number): Promise<void> {
     if (!latestCustomerAction?.note) return;
 
     // Forward to worker's /webhook/action endpoint — it will check patterns
-    await fetch(`${workerUrl}/webhook/action`, {
+    await workerFetch(`${workerUrl}/webhook/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -576,7 +577,7 @@ async function triggerTriage(ticketId: string): Promise<void> {
   }
 
   try {
-    const response = await fetch(`${workerUrl}/triage`, {
+    const response = await workerFetch(`${workerUrl}/triage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticket_id: ticketId }),
@@ -604,7 +605,7 @@ async function triggerAutoRetriage(haloId: number, localTicketId: string): Promi
 
   try {
     console.log(`[WEBHOOK] Auto-retriage triggered for #${haloId} (customer reply detected)`);
-    const response = await fetch(`${workerUrl}/triage`, {
+    const response = await workerFetch(`${workerUrl}/triage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticket_id: localTicketId }),

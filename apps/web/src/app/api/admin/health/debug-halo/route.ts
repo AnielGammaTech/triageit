@@ -59,8 +59,9 @@ export async function GET() {
 
   const { access_token: token } = (await tokenRes.json()) as { access_token: string };
 
-  // Fetch one page with tickettype_id filter
-  const url = `${config.base_url}/api/tickets?page_size=5&page_no=1&tickettype_id=31&order=id&orderdesc=true&includecolumns=true`;
+  // Fetch one page with requesttype_id filter. Halo uses requesttype_id
+  // for ticket type filtering even though rows return tickettype_id.
+  const url = `${config.base_url}/api/tickets?page_size=5&page_no=1&requesttype_id=31&order=id&orderdesc=true&includecolumns=true`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });

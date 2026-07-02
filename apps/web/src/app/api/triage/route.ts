@@ -6,7 +6,9 @@ import {
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -206,7 +208,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const response = await fetch(`${workerUrl}/triage`, {
+    const response = await workerFetch(`${workerUrl}/triage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticket_id: ticketId }),
@@ -236,13 +238,19 @@ export async function POST(request: NextRequest) {
  * Delete old/test tickets from the database.
  */
 export async function DELETE(request: NextRequest) {
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+
+  const rateLimited = checkRateLimit(auth.user.id, 5, 60_000, "triage-delete");
+  if (rateLimited) return rateLimited;
+
   const body = (await request.json()) as { ticket_ids?: readonly string[] };
 
   if (!body.ticket_ids?.length) {
     return NextResponse.json({ error: "ticket_ids[] is required" }, { status: 400 });
   }
 
-  const supabase = await createServiceClient();
+  const supabase = auth.serviceClient;
 
   // Delete triage results first (FK constraint)
   await supabase

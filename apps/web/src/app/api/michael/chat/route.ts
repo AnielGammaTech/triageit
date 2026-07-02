@@ -7,6 +7,7 @@ import {
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { workerFetch } from "@/lib/api/worker";
 
 const MICHAEL_CHAT_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage at Gamma Tech Services LLC.
 
@@ -437,7 +438,7 @@ export async function POST(request: NextRequest) {
 
         if (!ticket) return `Ticket #${haloId} not found in the system.`;
 
-        const res = await fetch(`${workerUrl}/triage`, {
+        const res = await workerFetch(`${workerUrl}/triage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ticketId: ticket.id, haloId }),
@@ -543,14 +544,14 @@ export async function POST(request: NextRequest) {
       }
 
       case "run_toby_analysis": {
-        const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+        const res = await workerFetch(`${workerUrl}/toby/analyze`, { method: "POST" });
         return res.ok
           ? "Toby's analysis has been triggered. He'll update tech profiles, customer insights, and trend detections. Results will be available shortly."
           : `Failed to trigger Toby: ${await res.text()}`;
       }
 
       case "pull_tickets": {
-        const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST" });
+        const res = await workerFetch(`${workerUrl}/ticket-sync`, { method: "POST" });
         return res.ok
           ? `Ticket sync complete. ${JSON.stringify(await res.json())}`
           : `Failed to sync: ${await res.text()}`;
@@ -651,7 +652,7 @@ export async function POST(request: NextRequest) {
           // Trigger triage
           if (inserted) {
             try {
-              await fetch(`${workerUrl}/triage`, {
+              await workerFetch(`${workerUrl}/triage`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ticket_id: inserted.id }),
@@ -944,7 +945,7 @@ export async function POST(request: NextRequest) {
         if (!workerEndpoint) return `Unknown worker: ${worker}`;
 
         try {
-          const res = await fetch(`${workerUrl}/worker/investigate`, {
+          const res = await workerFetch(`${workerUrl}/worker/investigate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

@@ -2,12 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function updateSession(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
   // Skip auth entirely for webhooks and public APIs — no Supabase call needed
-  const isWebhook = request.nextUrl.pathname.startsWith("/api/webhooks");
-  const isPublicApi = request.nextUrl.pathname.startsWith("/api/stream");
-  const isHealthCheck = request.nextUrl.pathname === "/api/health";
-  const isEmbed = request.nextUrl.pathname.startsWith("/embed");
-  const isEmbedApi = request.nextUrl.pathname.startsWith("/api/embed/");
+  const isWebhook = pathname.startsWith("/api/webhooks");
+  const isPublicApi = pathname.startsWith("/api/stream");
+  const isHealthCheck = pathname === "/api/health";
+  const isEmbed = pathname.startsWith("/embed");
+  const isEmbedApi = pathname.startsWith("/api/embed/");
 
   if (isWebhook || isPublicApi || isHealthCheck || isEmbedApi) {
     return NextResponse.next({ request });
@@ -27,10 +29,16 @@ export async function updateSession(request: NextRequest) {
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const isAuthPage = pathname.startsWith("/login");
+  const isApiRoute = pathname.startsWith("/api/");
 
   if (!supabaseUrl || !supabaseAnonKey) {
     console.error("[MIDDLEWARE] Missing Supabase env vars");
-    return supabaseResponse;
+    if (isAuthPage) return supabaseResponse;
+    return NextResponse.json(
+      { error: "Authentication service is not configured" },
+      { status: isApiRoute ? 503 : 500 },
+    );
   }
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -61,14 +69,13 @@ export async function updateSession(request: NextRequest) {
     const { data } = await supabase.auth.getUser();
     user = data.user;
   } catch (err) {
-    // Supabase fetch failed (network hiccup, DNS issue, etc.)
-    // Don't crash the entire app — let the request through and
-    // individual pages will handle missing auth gracefully
     console.error("[MIDDLEWARE] Auth check failed:", (err as Error).message);
-    return supabaseResponse;
+    if (isAuthPage) return supabaseResponse;
+    return NextResponse.json(
+      { error: "Authentication service is temporarily unavailable" },
+      { status: isApiRoute ? 503 : 500 },
+    );
   }
-
-  const isAuthPage = request.nextUrl.pathname.startsWith("/login");
 
   if (!user && !isAuthPage) {
     const url = request.nextUrl.clone();

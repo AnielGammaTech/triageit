@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * POST /api/triage/all
@@ -117,7 +118,7 @@ export async function POST() {
   });
 
   let queued = 0;
-  let skipped = openTickets.length - ticketsToTriage.length;
+  const skipped = openTickets.length - ticketsToTriage.length;
   const errors: string[] = [];
 
   // Queue each ticket for full triage via the worker
@@ -129,7 +130,7 @@ export async function POST() {
         .update({ status: "pending", updated_at: new Date().toISOString() })
         .eq("id", ticket.id);
 
-      const response = await fetch(`${workerUrl}/triage`, {
+      const response = await workerFetch(`${workerUrl}/triage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ halo_id: ticket.halo_id }),

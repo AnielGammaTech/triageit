@@ -1,6 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseClient } from "../../db/supabase.js";
 
+function getWorkerSecret(): string | undefined {
+  return (
+    process.env.WORKER_SHARED_SECRET ??
+    process.env.TRIAGEIT_WORKER_SECRET ??
+    process.env.INTERNAL_API_SECRET
+  );
+}
+
+function workerHeaders(init: Record<string, string> = {}): Record<string, string> {
+  const secret = getWorkerSecret();
+  if (!secret) return init;
+  return {
+    ...init,
+    Authorization: `Bearer ${secret}`,
+    "X-Worker-Secret": secret,
+  };
+}
+
 /**
  * Lightweight Teams bot — no botbuilder SDK dependency.
  * Handles Bot Framework messages directly via HTTP.
@@ -333,7 +351,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
       const res = await fetch(`${workerUrl}/triage`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: workerHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ ticket_id: ticket.id }),
       });
       return res.ok ? `Retriage queued for #${haloId}. Pipeline will run classification + specialists.` : `Failed to queue retriage: ${await res.text()}`;
@@ -357,12 +375,12 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
     }
     case "run_toby_analysis": {
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
-      const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+      const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST", headers: workerHeaders() });
       return res.ok ? "Toby's analysis triggered. Tech profiles, customer insights, and trends will update in a few minutes." : `Failed: ${await res.text()}`;
     }
     case "sync_tickets": {
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
-      const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST" });
+      const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST", headers: workerHeaders() });
       if (!res.ok) return `Sync failed: ${await res.text()}`;
       const data = (await res.json()) as { pulled?: number; created?: number; updated?: number };
       return `Ticket sync complete: ${data.pulled ?? 0} pulled, ${data.created ?? 0} new, ${data.updated ?? 0} updated.`;

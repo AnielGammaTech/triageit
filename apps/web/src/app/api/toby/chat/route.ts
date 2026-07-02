@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { workerFetch } from "@/lib/api/worker";
 
 const TOBY_CHAT_PROMPT = `You are Toby Flenderson, the HR/analytics agent at Gamma Tech Services LLC (an MSP in Naples, FL).
 
@@ -460,7 +461,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "run_fresh_analysis": {
-        const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+        const res = await workerFetch(`${workerUrl}/toby/analyze`, { method: "POST" });
         return res.ok
           ? "Fresh analysis triggered. I'll update tech profiles, customer insights, and trend detections. This takes a few minutes."
           : `Failed to trigger analysis: ${await res.text()}`;

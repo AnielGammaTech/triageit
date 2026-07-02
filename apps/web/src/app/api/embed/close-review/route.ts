@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { workerFetch } from "@/lib/api/worker";
 
 interface EmbedCloseReviewBody {
   readonly halo_id?: number;
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "WORKER_URL not configured" }, { status: 503 });
     }
 
-    const res = await fetch(`${workerUrl}/close-review`, {
+    const res = await workerFetch(`${workerUrl}/close-review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ halo_id: body.halo_id }),
