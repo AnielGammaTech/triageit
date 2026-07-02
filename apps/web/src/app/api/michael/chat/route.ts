@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
   systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
   if (integrations && integrations.length > 0) {
     systemPrompt += `- Active integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
-    const unhealthy = integrations.filter((i) => i.health_status === "unhealthy" || i.health_status === "error");
+    const unhealthy = integrations.filter((i) => i.health_status === "degraded" || i.health_status === "down");
     if (unhealthy.length > 0) {
       systemPrompt += `- Integrations needing attention: ${unhealthy.map((i) => i.service).join(", ")}\n`;
     }
