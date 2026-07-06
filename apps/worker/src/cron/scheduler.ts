@@ -105,6 +105,8 @@ function cronIntervalMs(pattern: string): number {
   // "*/30 * * * *" -> every 30 minutes
   const minuteMatch = /^\*\/(\d+)\s/.exec(pattern);
   if (minuteMatch) return parseInt(minuteMatch[1], 10) * 60 * 1000;
+  // "* * * * *" -> every minute
+  if (/^\*\s/.test(pattern)) return 60 * 1000;
   // "0 7 * * *" -> daily
   if (/^\d+\s\d+\s\*\s\*\s\*$/.test(pattern)) return 24 * 60 * 60 * 1000;
   // Default: 3 hours
