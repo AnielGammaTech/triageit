@@ -88,6 +88,14 @@ export class ApiNinjasClient {
     const data = await this.request<Record<string, unknown>>("/validateemail", { email });
     return data ? ApiNinjasClient.clean(data) : null;
   }
+
+  /** Sentiment of ticket text: score (-1..1) + NEGATIVE/NEUTRAL/POSITIVE. */
+  async sentiment(text: string): Promise<{ score: number; sentiment: string } | null> {
+    const data = await this.request<{ score: number; sentiment: string }>("/sentiment", {
+      text: text.slice(0, 2000),
+    });
+    return data && typeof data.score === "number" ? data : null;
+  }
 }
 
 /** Public IPv4 addresses in free text — skips RFC1918 ranges. */

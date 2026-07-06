@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TriageContext, ClassificationResult } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { ApiNinjasClient } from "../../integrations/apininjas/client.js";
 
 const SYSTEM_PROMPT = `You are Ryan Howard, the Ticket Classification Specialist at Dunder Mifflin IT Triage.
 
@@ -109,6 +110,18 @@ export async function classifyTicket(
 ): Promise<ClassificationResult> {
   const client = new Anthropic();
 
+  // Customer tone — a frustrated reporter (repeated follow-ups, "unacceptable",
+  // escalation language) is a signal to lean toward higher urgency even when
+  // the technical scope is modest
+  let sentimentLine = "";
+  const ninjas = ApiNinjasClient.fromEnv();
+  if (ninjas) {
+    const s = await ninjas.sentiment(`${context.summary} ${context.details ?? ""}`.trim());
+    if (s && s.sentiment === "NEGATIVE" && s.score <= -0.3) {
+      sentimentLine = `**Customer tone:** NEGATIVE (score ${s.score.toFixed(2)}) — the reporter sounds frustrated; weigh this toward higher urgency if the issue is borderline.`;
+    }
+  }
+
   const userMessage = [
     `## Ticket #${context.haloId}`,
     `**Subject:** ${context.summary}`,
@@ -118,6 +131,7 @@ export async function classifyTicket(
     context.originalPriority
       ? `**Original Priority:** P${context.originalPriority}`
       : "",
+    sentimentLine,
   ]
     .filter(Boolean)
     .join("\n");
