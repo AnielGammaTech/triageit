@@ -291,8 +291,8 @@ async function checkTeams(config: Record<string, unknown>): Promise<CheckResult>
     return { status: "down", message: "Teams webhook URL is not a valid URL." };
   }
   return {
-    status: "degraded",
-    message: "Webhook URL is saved. Delivery is not tested automatically to avoid posting heartbeat noise.",
+    status: "healthy",
+    message: "Webhook URL is configured. Delivery is not probed to avoid posting heartbeat noise into the channel.",
   };
 }
 

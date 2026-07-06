@@ -27,10 +27,15 @@ export class DattoClient {
       return this.cachedToken.token;
     }
 
-    const credentials = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString("base64");
+    // Datto RMM OAuth: the Basic auth header is the fixed public client
+    // ("public-client:public") — the API key/secret only go in the form body.
+    // Sending key:secret as Basic auth gets a 302 redirect to an HTML login
+    // page, which then fails JSON parsing.
+    const credentials = Buffer.from("public-client:public").toString("base64");
 
     const tokenResponse = await fetch(`${this.baseUrl}/auth/oauth/token`, {
       method: "POST",
+      redirect: "manual",
       headers: {
         Authorization: `Basic ${credentials}`,
         "Content-Type": "application/x-www-form-urlencoded",
@@ -44,7 +49,14 @@ export class DattoClient {
 
     if (!tokenResponse.ok) {
       const text = await tokenResponse.text();
-      throw new Error(`Datto RMM auth failed (${tokenResponse.status}): ${text}`);
+      throw new Error(`Datto RMM auth failed (${tokenResponse.status}): ${text.slice(0, 300)}`);
+    }
+
+    const contentType = tokenResponse.headers.get("content-type") ?? "";
+    if (!contentType.includes("json")) {
+      throw new Error(
+        `Datto RMM auth returned non-JSON response (${tokenResponse.status}, ${contentType}) — check that api_url points at the platform's -api host`,
+      );
     }
 
     const data = (await tokenResponse.json()) as {
