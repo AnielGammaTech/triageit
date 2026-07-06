@@ -119,10 +119,23 @@ export class UnifiClient {
 
   /**
    * Get all devices across all sites (APs, switches, gateways).
+   *
+   * /ea/devices returns entries GROUPED BY HOST — {hostId, hostName,
+   * devices: [...]} — so flatten the groups and stamp each device with
+   * its hostId. Normalizing the group wrapper itself produces one
+   * "Unnamed" device per console with every field unknown.
    */
   async getDevices(): Promise<ReadonlyArray<UnifiDevice>> {
     const data = await this.request<{ data?: ReadonlyArray<Record<string, unknown>> }>("/ea/devices");
-    return (data.data ?? []).map(normalizeDevice);
+    const devices: UnifiDevice[] = [];
+    for (const group of data.data ?? []) {
+      const hostId = (group.hostId ?? "") as string;
+      const groupDevices = Array.isArray(group.devices) ? (group.devices as Record<string, unknown>[]) : [];
+      for (const raw of groupDevices) {
+        devices.push(normalizeDevice({ ...raw, hostId: raw.hostId ?? hostId }));
+      }
+    }
+    return devices;
   }
 
   /**

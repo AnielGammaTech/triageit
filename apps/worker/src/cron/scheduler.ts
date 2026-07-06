@@ -22,7 +22,7 @@ import type { TeamsConfig } from "@triageit/shared";
 // Default schedules (configured in cron_jobs DB table):
 // - /retriage: */30 * * * * (every 30 min — urgency-based timer decides which tickets to process)
 // - /sla-scan: 0 */3 * * * (every 3 hours)
-// - /toby/analyze: 0 7 * * * (daily at 2 AM ET)
+// - /toby/analyze: 0 2 * * * (daily at 2 AM ET — worker runs with TZ=America/New_York, so patterns are ET-local)
 // - /ticket-sync: * * * * * (every minute)
 // - /workflow-scan: */15 * * * * (every 15 minutes)
 // - /integration-heartbeat: */5 * * * * (every 5 minutes)
@@ -84,13 +84,13 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
   {
     name: "Weekly Team Report",
     description: "Monday 8 AM ET team report card posted to Teams.",
-    schedule: "0 13 * * 1",
+    schedule: "0 8 * * 1",
     endpoint: "/weekly-report",
   },
   {
     name: "Memory Eviction",
     description: "Nightly cleanup of stale agent memories to keep recall sharp.",
-    schedule: "0 8 * * *",
+    schedule: "0 3 * * *",
     endpoint: "/memory/evict",
   },
 ];
@@ -571,11 +571,11 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },
-    { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 7 * * *" }, // 2 AM ET = 7 AM UTC
-    { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 8 * * *" }, // 3 AM ET = 8 AM UTC
+    { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 2 * * *" }, // 2 AM ET (worker TZ is America/New_York)
+    { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 3 * * *" }, // 3 AM ET
     { endpoint: "/error-scan", name: "Error Ticket Scan", schedule: "0 */1 * * *" }, // Every hour
     { endpoint: "/response-alerts", name: "Response Time Alerts", schedule: "*/15 * * * *" }, // Every 15 minutes
-    { endpoint: "/weekly-report", name: "Weekly Team Report", schedule: "0 13 * * 1" }, // Monday 8 AM ET = 1 PM UTC
+    { endpoint: "/weekly-report", name: "Weekly Team Report", schedule: "0 8 * * 1" }, // Monday 8 AM ET
     { endpoint: "/error-retry", name: "Error Ticket Retry", schedule: "*/30 * * * *" }, // Every 30 minutes
   ];
 

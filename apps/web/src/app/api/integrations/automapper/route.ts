@@ -215,6 +215,24 @@ function findBestMatch(
     }
   }
 
+  // Initials match — console/device names like "JRI-FW" or "TMH-SW-01"
+  // abbreviate the client's initials (Joint Replacement Institute → JRI)
+  const prefix = extLower.split(/[-_\s]/)[0] ?? "";
+  if (prefix.length >= 2 && prefix.length <= 6 && /^[a-z]+$/.test(prefix)) {
+    const initialMatches = haloCustomers.filter((hc) => {
+      const initials = normalize(hc.name)
+        .split(" ")
+        .filter(Boolean)
+        .map((word) => word[0])
+        .join("");
+      return initials.length >= 2 && initials === prefix;
+    });
+    // Only trust initials when they identify exactly one client
+    if (initialMatches.length === 1) {
+      return { customer: initialMatches[0], confidence: 85, type: "fuzzy" };
+    }
+  }
+
   // Fuzzy match — Levenshtein-based
   let bestScore = 0;
   let bestCustomer: { id: number | string; name: string } | null = null;
