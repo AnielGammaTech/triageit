@@ -89,3 +89,23 @@ export function extractPublicIps(text: string): string[] {
     return true;
   }).slice(0, 3);
 }
+
+/** http(s) URLs in free text (deduped, capped). */
+export function extractUrls(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? [];
+  return [...new Set(matches)].slice(0, 3);
+}
+
+/** Bare domains from emails/URLs in text, excluding the client's own domain. */
+export function extractForeignDomains(text: string, ownDomains: ReadonlyArray<string>): string[] {
+  const own = new Set(ownDomains.map((d) => d.toLowerCase()));
+  const found = new Set<string>();
+  for (const m of text.match(/[a-z0-9][a-z0-9.-]*\.[a-z]{2,}/gi) ?? []) {
+    const domain = m.toLowerCase().replace(/^www\./, "");
+    // Keep registrable-looking domains only, skip client + common infra noise
+    if (own.has(domain)) continue;
+    if (/(microsoft|office|outlook|google|gamma)\.(com|net|tech)$/.test(domain)) continue;
+    if (domain.split(".").length >= 2 && domain.length <= 60) found.add(domain);
+  }
+  return [...found].slice(0, 3);
+}
