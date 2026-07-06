@@ -337,14 +337,17 @@ Respond with ONLY valid JSON:
       // No mapping found, try auto-match
     }
 
-    // Auto-match: search CIPP tenants by name
+    // Auto-match: search CIPP tenants by name, comparing normalized forms —
+    // Halo says "ALLEN CONCRETE & MASONRY, INC" while CIPP says "Allen Concrete"
     try {
       const tenants = await client.listTenants();
-      const nameLower = customerName.toLowerCase();
-      const match = tenants.find((t) =>
-        t.displayName.toLowerCase().includes(nameLower) ||
-        nameLower.includes(t.displayName.toLowerCase()),
-      );
+      const normalize = (name: string) =>
+        name.toLowerCase().replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/g, "").replace(/[^a-z0-9]/g, "");
+      const target = normalize(customerName);
+      const match = tenants.find((t) => {
+        const tenant = normalize(t.displayName);
+        return tenant.length >= 4 && target.length >= 4 && (tenant.includes(target) || target.includes(tenant));
+      });
 
       if (match) {
         // Save mapping for future use

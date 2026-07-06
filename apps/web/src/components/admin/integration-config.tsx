@@ -206,20 +206,28 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
         </div>
       </div>
 
-      {/* Status bar */}
+      {/* Status bar — health wins over configuration state: a failing
+          heartbeat must never render a green "Connected" banner */}
       <div className={cn(
         "flex flex-wrap items-center gap-2 rounded-lg px-4 py-3 text-sm",
-        status === "connected" ? "bg-emerald-500/10 text-emerald-400" :
-        status === "configured" ? "bg-amber-500/10 text-amber-400" :
+        healthStatus === "down" ? "bg-red-500/10 text-red-400" :
+        healthStatus === "degraded" ? "bg-amber-500/10 text-amber-400" :
+        status === "connected" && healthStatus === "healthy" ? "bg-emerald-500/10 text-emerald-400" :
+        status === "connected" || status === "configured" ? "bg-amber-500/10 text-amber-400" :
         "bg-white/5 text-white/50",
       )}>
         <span className={cn(
           "inline-block h-2 w-2 rounded-full",
-          status === "connected" ? "bg-emerald-400" :
-          status === "configured" ? "bg-amber-400" :
+          healthStatus === "down" ? "bg-red-400" :
+          healthStatus === "degraded" ? "bg-amber-400" :
+          status === "connected" && healthStatus === "healthy" ? "bg-emerald-400" :
+          status === "connected" || status === "configured" ? "bg-amber-400" :
           "bg-white/30",
         )} />
-        {status === "connected" ? "Connected" :
+        {healthStatus === "down" ? "Connection failed — check credentials" :
+         healthStatus === "degraded" ? "Connected with issues" :
+         status === "connected" && healthStatus === "healthy" ? "Connected" :
+         status === "connected" ? "Enabled — awaiting health check" :
          status === "configured" ? "Configured — not tested" :
          "Not configured"}
         {healthStatus && (
