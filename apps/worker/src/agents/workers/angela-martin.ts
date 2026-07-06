@@ -9,7 +9,7 @@ import {
   type DattoEdrConfig,
   type EdrAlert,
 } from "../../integrations/datto-edr/client.js";
-import { ApiNinjasClient, extractPublicIps } from "../../integrations/apininjas/client.js";
+import { ApiNinjasClient, extractPublicIps, extractForeignDomains } from "../../integrations/apininjas/client.js";
 
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
@@ -253,13 +253,27 @@ Respond with ONLY valid JSON:
   private async fetchIpIntel(context: TriageContext): Promise<string[]> {
     const client = ApiNinjasClient.fromEnv();
     if (!client) return [];
-    const ips = extractPublicIps(`${context.summary} ${context.details ?? ""}`);
+    const text = `${context.summary} ${context.details ?? ""}`;
     const lines: string[] = [];
-    for (const ip of ips) {
+
+    for (const ip of extractPublicIps(text)) {
       const info = await client.ipLookup(ip);
       if (!info) continue;
       const parts = [info.city, info.region, info.country, info.isp].filter(Boolean);
-      if (parts.length > 0) lines.push(`${ip}: ${parts.join(", ")}`);
+      if (parts.length > 0) lines.push(`IP ${ip}: ${parts.join(", ")}`);
+    }
+
+    // Domain age on foreign domains (sender domains, links) — a domain
+    // registered days/weeks ago is a top phishing signal
+    const ownDomain = context.userEmail?.split("@")[1] ?? "";
+    for (const domain of extractForeignDomains(text, [ownDomain])) {
+      const who = await client.whois(domain);
+      const created = who?.creation_date;
+      if (typeof created === "number" && created > 0) {
+        const ageDays = Math.floor((Date.now() / 1000 - created) / 86400);
+        const flag = ageDays < 90 ? " ⚠ YOUNG DOMAIN — strong phishing signal" : "";
+        lines.push(`Domain ${domain}: registered ${ageDays} days ago (registrar ${who?.registrar ?? "unknown"})${flag}`);
+      }
     }
     return lines;
   }
