@@ -14,6 +14,8 @@ export class DattoClient {
   private readonly apiKey: string;
   private readonly apiSecret: string;
   private cachedToken: { token: string; expiresAt: number } | null = null;
+  private siteUidCache: Map<string, string> | null = null;
+  private siteUidCacheAt = 0;
 
   constructor(config: DattoConfig) {
     this.baseUrl = config.api_url.replace(/\/$/, "");
@@ -104,8 +106,35 @@ export class DattoClient {
     return extractArray<DattoSite>(result, ["sites", "items", "data", "results"]).map(normalizeSite);
   }
 
+  /**
+   * The v2 /site/{ref} endpoints take the site UID (a GUID), but integration
+   * mappings store the numeric site id — resolve via the account sites list.
+   */
+  private async resolveSiteRef(siteId: number | string): Promise<string> {
+    const ref = String(siteId);
+    if (!/^\d+$/.test(ref)) return ref;
+
+    const CACHE_MS = 10 * 60 * 1000;
+    if (!this.siteUidCache || Date.now() - this.siteUidCacheAt > CACHE_MS) {
+      const result = await this.request<unknown>("/api/v2/account/sites");
+      const sites = extractArray<Record<string, unknown>>(result, ["sites", "items", "data", "results"]);
+      const map = new Map<string, string>();
+      for (const site of sites) {
+        const uid = (site.uid ?? site.siteUid) as string | undefined;
+        if (uid && site.id !== undefined) map.set(String(site.id), uid);
+      }
+      this.siteUidCache = map;
+      this.siteUidCacheAt = Date.now();
+    }
+
+    const uid = this.siteUidCache.get(ref);
+    if (!uid) console.warn(`[DATTO] No UID found for numeric site id ${ref}; using it as-is`);
+    return uid ?? ref;
+  }
+
   async getSite(siteId: number | string): Promise<DattoSite> {
-    const result = await this.request<unknown>(`/api/v2/site/${siteId}`);
+    const ref = await this.resolveSiteRef(siteId);
+    const result = await this.request<unknown>(`/api/v2/site/${ref}`);
     return normalizeSite(unwrapRecord<DattoSite>(result, ["site", "data", "result"]));
   }
 
@@ -114,7 +143,8 @@ export class DattoClient {
   async getDevices(siteId?: number | string): Promise<ReadonlyArray<DattoDevice>> {
     if (siteId) {
       try {
-        const siteResult = await this.request<unknown>(`/api/v2/site/${siteId}/devices`);
+        const siteRef = await this.resolveSiteRef(siteId);
+        const siteResult = await this.request<unknown>(`/api/v2/site/${siteRef}/devices`);
         const siteDevices = extractArray<DattoDevice>(siteResult, ["devices", "items", "data", "results"]).map(normalizeDevice);
         if (siteDevices.length > 0) return siteDevices;
       } catch (error) {
@@ -180,7 +210,7 @@ export class DattoClient {
 
     let path = "/api/v2/account/alerts";
     if (params?.deviceId) path = `/api/v2/device/${params.deviceId}/alerts`;
-    else if (params?.siteId) path = `/api/v2/site/${params.siteId}/alerts`;
+    else if (params?.siteId) path = `/api/v2/site/${await this.resolveSiteRef(params.siteId)}/alerts`;
 
     const result = await this.request<unknown>(path, queryParams);
     return extractArray<DattoAlert>(result, ["alerts", "items", "data", "results"]).map(normalizeAlert);
