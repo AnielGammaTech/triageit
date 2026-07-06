@@ -14,8 +14,33 @@ interface RetryResult {
  * Auto-retry tickets stuck in error status.
  * After 3 failed retries, marks as permanently failed and sends escalation.
  */
+const STUCK_AFTER_MS = 30 * 60 * 1000;
+
 export async function retryErroredTickets(): Promise<RetryResult> {
   const supabase = createSupabaseClient();
+
+  // Fold in tickets stranded mid-triage (worker crashed, deploy killed the
+  // container, job lost) — mark them errored so the retry flow below picks
+  // them up. Nothing else in the system ever recovers a stale "triaging".
+  const stuckCutoff = new Date(Date.now() - STUCK_AFTER_MS).toISOString();
+  const { data: stuckTickets } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .in("status", ["triaging", "pending"])
+    .eq("halo_is_open", true)
+    .lt("updated_at", stuckCutoff);
+
+  if (stuckTickets && stuckTickets.length > 0) {
+    console.log(`[ERROR-RETRY] Unsticking ${stuckTickets.length} tickets stalled in triaging/pending > 30 min`);
+    await supabase
+      .from("tickets")
+      .update({
+        status: "error",
+        error_message: "Stalled in triaging — worker restarted or job lost",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", stuckTickets.map((t) => t.id));
+  }
 
   // Only retry tickets still open in Halo — closed tickets that errored
   // historically stay as-is instead of burning retries on dead work
