@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../llm-text.js";
 import type { AgentFinding } from "@triageit/shared";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -131,7 +132,7 @@ export async function generateCustomerResponse(
     messages: [{ role: "user", content: userMessage }],
   });
 
-  const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+  const text = extractResponseText(response, "{}");
   const result = parseLlmJson<CustomerResponseResult>(text);
 
   return {

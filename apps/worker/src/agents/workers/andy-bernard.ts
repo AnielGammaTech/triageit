@@ -1,4 +1,5 @@
 import type { MemoryMatch, DattoConfig } from "@triageit/shared";
+import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -137,7 +138,7 @@ Respond with ONLY valid JSON:
     });
 
     const text =
-      response.content[0].type === "text" ? response.content[0].text : "{}";
+      extractResponseText(response, "{}");
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     // Attach deterministic console deep links for the ticket's devices —

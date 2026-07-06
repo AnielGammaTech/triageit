@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../llm-text.js";
 import type { TicketImageContext } from "../types.js";
 
 // ── Vision Pre-Processor ──────────────────────────────────────────────
@@ -43,7 +44,7 @@ export async function describeTicketImages(
   });
 
   const description =
-    response.content[0].type === "text" ? response.content[0].text : null;
+    extractResponseText(response) || null;
 
   return description;
 }

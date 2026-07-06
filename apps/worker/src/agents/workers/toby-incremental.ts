@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../llm-text.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
 import { SkillLoader } from "../../memory/skill-loader.js";
@@ -390,7 +391,7 @@ async function refreshTechSummary(
       messages: [{ role: "user", content: context }],
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+    const text = extractResponseText(response, "{}");
     return parseLlmJson(text);
   } catch (err) {
     console.error(`[TOBY-LIVE] AI refresh failed for tech ${techName}:`, err);
@@ -440,7 +441,7 @@ async function refreshCustomerSummary(
       messages: [{ role: "user", content: context }],
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+    const text = extractResponseText(response, "{}");
     return parseLlmJson(text);
   } catch (err) {
     console.error(`[TOBY-LIVE] AI refresh failed for client ${clientName}:`, err);

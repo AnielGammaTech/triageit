@@ -4,6 +4,7 @@ import { HELPDESK_TECHNICIANS, type Ticket, type AgentFinding } from "@triageit/
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
+import { extractResponseText } from "../llm-text.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import type { HaloConfig, TeamsConfig } from "@triageit/shared";
 import { TeamsClient } from "../../integrations/teams/client.js";
@@ -928,15 +929,28 @@ async function synthesizeFindings(
   const systemWithMemory = `${MICHAEL_SYSTEM_PROMPT}\n\n${REMEMBER_INSTRUCTIONS}`;
 
   const routingDecision = selectManagerModel(classification, successfulSpecialists.length);
-  const response = await client.messages.create({
+  const request = {
     model: routingDecision.model,
     max_tokens: routingDecision.maxTokens,
     system: systemWithMemory,
-    messages: [{ role: "user", content: messageContent }],
-  });
+    messages: [{ role: "user" as const, content: messageContent }],
+  };
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  let response = await client.messages.create(request);
+  let text = extractResponseText(response);
+
+  // An empty response is usually a transient API blip — one retry beats
+  // erroring the ticket with "Unexpected end of JSON input"
+  if (!text) {
+    console.warn("[MICHAEL] Empty synthesis response — retrying once");
+    response = await client.messages.create(request);
+    text = extractResponseText(response);
+  }
+  if (!text) {
+    throw new Error(
+      `Michael synthesis returned no text (stop_reason: ${response.stop_reason ?? "unknown"})`,
+    );
+  }
   const rawResult = parseLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
