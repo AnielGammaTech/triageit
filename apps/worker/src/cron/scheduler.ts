@@ -400,8 +400,6 @@ async function reconcileRequiredSystemCronJobs(
 async function processCronJob(job: Job<CronJobData>): Promise<void> {
   const { endpoint, name } = job.data;
 
-  console.log(`[CRON] Running "${name}" (${endpoint})`);
-
   const handler = ENDPOINT_HANDLERS[endpoint];
   if (!handler) {
     console.error(`[CRON] No handler for endpoint: ${endpoint}`);
@@ -412,10 +410,23 @@ async function processCronJob(job: Job<CronJobData>): Promise<void> {
   const supabase = createSupabaseClient();
   const { data: dbJob } = await supabase
     .from("cron_jobs")
-    .select("id")
+    .select("id, schedule, last_run_at")
     .eq("endpoint", endpoint)
     .eq("is_active", true)
     .maybeSingle();
+
+  // Redundant-run guard: deploy catch-ups and backlog can stack several
+  // copies of the same endpoint in the queue. If this endpoint already ran
+  // successfully within 60% of its interval, this copy adds nothing — skip.
+  if (dbJob?.last_run_at && dbJob.schedule) {
+    const sinceLastRun = Date.now() - new Date(dbJob.last_run_at).getTime();
+    if (sinceLastRun < cronIntervalMs(dbJob.schedule) * 0.6) {
+      console.log(`[CRON] Skipping redundant "${name}" — ran ${Math.round(sinceLastRun / 1000)}s ago`);
+      return;
+    }
+  }
+
+  console.log(`[CRON] Running "${name}" (${endpoint})`);
 
   try {
     await handler();
@@ -450,7 +461,9 @@ export async function startCronScheduler(): Promise<void> {
   // Create the worker that processes cron jobs
   cronWorker = new Worker<CronJobData>(CRON_QUEUE_NAME, processCronJob, {
     connection,
-    concurrency: 3, // Allow parallel cron jobs to prevent starvation
+    // Cron handlers are I/O-bound (Halo/Datto/AI API calls) and some run for
+    // minutes — 3 slots let two slow jobs starve the every-minute ticket sync
+    concurrency: 8,
   });
 
   cronWorker.on("ready", () => {
