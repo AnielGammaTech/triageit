@@ -9,7 +9,7 @@ import {
   type DattoEdrConfig,
   type EdrAlert,
 } from "../../integrations/datto-edr/client.js";
-import { ApiNinjasClient, extractPublicIps, extractForeignDomains, extractEmails } from "../../integrations/apininjas/client.js";
+import { ApiNinjasClient, extractPublicIps, extractForeignDomains, extractEmails, extractUrls } from "../../integrations/apininjas/client.js";
 
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
@@ -289,6 +289,29 @@ Respond with ONLY valid JSON:
         lines.push(`Email ${email}: not a deliverable address (possible spoof/typo)`);
       }
     }
+
+    // Clicked-link reputation — where URLs in the ticket actually resolve.
+    // Phishing links often host in unexpected countries or are already dead.
+    for (const url of extractUrls(text)) {
+      let host: string;
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      if (ownDomain2 && host.endsWith(ownDomain2)) continue;
+      if (/(?:^|\.)(microsoft|office|outlook|google|sharepoint|gamma)\.(com|net|tech)$/.test(host)) continue;
+
+      const info = await client.urlLookup(url);
+      if (!info) continue;
+      if (info.is_valid === false) {
+        lines.push(`URL ${host}: does not resolve — dead link or takedown (possible phishing)`);
+        continue;
+      }
+      const parts = [info.city, info.region, info.country, info.isp].filter(Boolean);
+      if (parts.length > 0) lines.push(`URL ${host}: resolves to ${parts.join(", ")}`);
+    }
+
     return lines;
   }
 

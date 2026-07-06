@@ -1,5 +1,6 @@
 import type { HealthStatus } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
+import { CoveClient } from "../integrations/cove/client.js";
 import { DattoClient } from "../integrations/datto/client.js";
 import { DattoEdrClient } from "../integrations/datto-edr/client.js";
 import { HuduClient } from "../integrations/hudu/client.js";
@@ -312,9 +313,49 @@ async function checkDattoEdr(config: Record<string, unknown>): Promise<CheckResu
   };
 }
 
+async function checkCove(config: Record<string, unknown>): Promise<CheckResult> {
+  const missing = required(config, ["partner_name", "api_username", "api_token"]);
+  if (missing) return { status: "down", message: missing };
+
+  const cove = new CoveClient({
+    partner_name: text(config, "partner_name"),
+    api_username: text(config, "api_username"),
+    api_token: text(config, "api_token"),
+  });
+  await cove.login();
+  return { status: "healthy", message: "Cove login issued a visa token." };
+}
+
+async function checkUnitrends(config: Record<string, unknown>): Promise<CheckResult> {
+  const missing = required(config, ["client_id", "client_secret"]);
+  if (missing) return { status: "down", message: missing };
+
+  // Same OAuth flow the SpanningClient uses for public-api.backup.net
+  const response = await fetchWithTimeout("https://login.backup.net/connect/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: text(config, "client_id"),
+      client_secret: text(config, "client_secret"),
+    }),
+  });
+  return statusFromResponse("Unitrends/Spanning", response, "Unitrends auth token issued (Spanning M365 API).");
+}
+
+async function checkBranding(config: Record<string, unknown>): Promise<CheckResult> {
+  // Branding is local config, not an external service — nothing to probe.
+  if (!text(config, "name")) {
+    return { status: "down", message: "Branding name is not configured." };
+  }
+  return { status: "healthy", message: "Branding config present (local settings, no external service)." };
+}
+
 const CHECKERS: Record<string, Checker> = {
   "ai-provider": checkAiProvider,
+  branding: checkBranding,
   cipp: checkCipp,
+  cove: checkCove,
   datto: checkDatto,
   "datto-edr": checkDattoEdr,
   halo: checkHalo,
@@ -324,6 +365,7 @@ const CHECKERS: Record<string, Checker> = {
   teams: checkTeams,
   twilio: checkTwilio,
   unifi: checkUnifi,
+  unitrends: checkUnitrends,
   vultr: checkVultr,
 };
 

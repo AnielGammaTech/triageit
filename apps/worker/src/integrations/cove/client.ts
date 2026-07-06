@@ -33,6 +33,8 @@ export interface CovePartner {
 interface JsonRpcResponse<T> {
   readonly jsonrpc: string;
   readonly id: string;
+  // Cove returns visa at the top level of the envelope, not inside result
+  readonly visa?: string;
   readonly result?: {
     readonly result?: T;
     readonly visa?: string;
@@ -50,6 +52,7 @@ export class CoveClient {
   private readonly username: string;
   private readonly apiToken: string;
   private visa: string | null = null;
+  private partnerId: number | null = null;
 
   constructor(config: {
     readonly partner_name: string;
@@ -84,14 +87,19 @@ export class CoveClient {
       throw new Error(`Cove login HTTP ${res.status}: ${await res.text()}`);
     }
 
-    const data = (await res.json()) as JsonRpcResponse<{ visa: string }>;
+    const data = (await res.json()) as JsonRpcResponse<{ PartnerId?: number }>;
     if (data.error) {
       throw new Error(`Cove login error: ${data.error.message}`);
     }
 
-    const visa = data.result?.visa;
+    const visa = data.visa ?? data.result?.visa;
     if (!visa) {
       throw new Error("Cove login: no visa token returned");
+    }
+
+    const partnerId = data.result?.result?.PartnerId;
+    if (typeof partnerId === "number") {
+      this.partnerId = partnerId;
     }
 
     this.visa = visa;
@@ -114,8 +122,11 @@ export class CoveClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
+        // Visa rides at the top level of the envelope — inside params the
+        // API rejects it as "Visa is inconsistent/corrupted"
+        visa: this.visa,
         method,
-        params: { ...params, visa: this.visa },
+        params,
         id: method,
       }),
     });
@@ -126,9 +137,10 @@ export class CoveClient {
 
     const data = (await res.json()) as JsonRpcResponse<T>;
 
-    // Update visa if refreshed
-    if (data.result?.visa) {
-      this.visa = data.result.visa;
+    // Update visa if refreshed (top-level on real responses)
+    const refreshedVisa = data.visa ?? data.result?.visa;
+    if (refreshedVisa) {
+      this.visa = refreshedVisa;
     }
 
     if (data.error) {
@@ -142,7 +154,15 @@ export class CoveClient {
    * Get all partner/customer accounts.
    */
   async getPartners(): Promise<ReadonlyArray<CovePartner>> {
-    return this.call<ReadonlyArray<CovePartner>>("EnumeratePartners");
+    // EnumeratePartners requires the authenticated partner's id as the
+    // parent — with empty params the API fails "security reasons"
+    if (!this.partnerId) {
+      await this.login();
+    }
+    return this.call<ReadonlyArray<CovePartner>>("EnumeratePartners", {
+      parentPartnerId: this.partnerId,
+      fields: [0, 1],
+    });
   }
 
   /**

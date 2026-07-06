@@ -14,13 +14,21 @@ interface TicketSyncResult {
   readonly created: number;
   readonly updated: number;
   readonly triageEnqueued: number;
+  readonly closed: number;
 }
 
+const GAMMA_DEFAULT_TYPE_ID = 31;
+
+// Verify at most this many missing-from-open-list tickets per run; the
+// rest carry over to the next run (cron fires every minute).
+const MAX_CLOSE_CHECKS_PER_RUN = 40;
+
 /**
- * Periodic ticket sync — pulls all open tickets from Halo and upserts
- * into the local DB. Catches tickets that missed the webhook.
+ * Periodic ticket sync — pulls all open tickets from Halo, upserts them
+ * into the local DB, and closes local tickets Halo no longer has open.
+ * Catches tickets that missed the webhook.
  *
- * Runs every 30 minutes via BullMQ cron to keep TriageIt in sync with Halo.
+ * Runs every minute via BullMQ cron to keep TriageIt in sync with Halo.
  */
 export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const supabase = createSupabaseClient();
@@ -29,18 +37,20 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
 
   if (!haloConfig) {
     console.log("[TICKET-SYNC] Halo not configured — skipping");
-    return { pulled: 0, created: 0, updated: 0, triageEnqueued: 0 };
+    return { pulled: 0, created: 0, updated: 0, triageEnqueued: 0, closed: 0 };
   }
 
   const halo = new HaloClient(haloConfig);
 
   // Only sync "Gamma Default" tickets (type id=31)
   console.log("[TICKET-SYNC] Fetching Gamma Default open tickets from Halo...");
-  const openTickets = await halo.getOpenTickets(31);
+  const openTickets = await halo.getOpenTickets(GAMMA_DEFAULT_TYPE_ID);
   console.log(`[TICKET-SYNC] Got ${openTickets.length} open tickets from Halo`);
 
   if (openTickets.length === 0) {
-    return { pulled: 0, created: 0, updated: 0, triageEnqueued: 0 };
+    // Empty is more likely a Halo API hiccup than a genuinely empty board —
+    // skip entirely rather than close everything.
+    return { pulled: 0, created: 0, updated: 0, triageEnqueued: 0, closed: 0 };
   }
 
   // Find which tickets already exist locally
@@ -117,6 +127,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: getResolvedAgentName(ticket),
         tickettype_id: ticket.tickettype_id ?? null,
+        halo_is_open: true,
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         created_at: ticket.datecreated ?? now,
@@ -169,6 +180,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: getResolvedAgentName(ticket),
+        halo_is_open: true,
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
         updated_at: now,
@@ -179,11 +191,129 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     if (!updateError) updated++;
   }
 
+  const closed = await reconcileClosedTickets(supabase, halo, haloIds, now);
+
   console.log(
-    `[TICKET-SYNC] Complete: ${openTickets.length} pulled, ${created} created, ${updated} updated, ${triageEnqueued} enqueued for triage`,
+    `[TICKET-SYNC] Complete: ${openTickets.length} pulled, ${created} created, ${updated} updated, ${closed} closed, ${triageEnqueued} enqueued for triage`,
   );
 
-  return { pulled: openTickets.length, created, updated, triageEnqueued };
+  return { pulled: openTickets.length, created, updated, triageEnqueued, closed };
+}
+
+/**
+ * Close local tickets that are no longer open in Halo.
+ *
+ * Halo's open_only filter occasionally omits genuinely open tickets, so a
+ * ticket missing from the open list is never closed on absence alone — each
+ * candidate is verified individually against Halo first. A 404/410 means the
+ * ticket was deleted or merged in Halo, which also counts as closed.
+ */
+async function reconcileClosedTickets(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  halo: HaloClient,
+  openHaloIds: ReadonlyArray<number>,
+  now: string,
+): Promise<number> {
+  const openIdSet = new Set(openHaloIds);
+
+  const { data: localOpen, error: lookupError } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID)
+    .eq("halo_is_open", true);
+
+  if (lookupError) {
+    console.error("[TICKET-SYNC] Local open lookup failed:", lookupError.message);
+    return 0;
+  }
+
+  const candidates = (localOpen ?? []).filter((t) => !openIdSet.has(t.halo_id));
+  if (candidates.length === 0) return 0;
+
+  if (candidates.length > MAX_CLOSE_CHECKS_PER_RUN) {
+    console.log(
+      `[TICKET-SYNC] ${candidates.length} close candidates, checking first ${MAX_CLOSE_CHECKS_PER_RUN} (rest next run)`,
+    );
+  }
+
+  let closed = 0;
+
+  for (const candidate of candidates.slice(0, MAX_CLOSE_CHECKS_PER_RUN)) {
+    try {
+      const full = await halo.getTicket(candidate.halo_id);
+      const statusName = resolveStatusName(full);
+
+      if (isResolvedStatusName(statusName)) {
+        const { error: closeError } = await supabase
+          .from("tickets")
+          .update({
+            halo_is_open: false,
+            halo_status: statusName,
+            halo_status_id: full.status_id,
+            workflow_status: "RESOLVED" as const,
+            workflow_owner_role: null,
+            workflow_past_due: false,
+            updated_at: now,
+          })
+          .eq("id", candidate.id);
+
+        if (closeError) {
+          console.error(`[TICKET-SYNC] Failed to close #${candidate.halo_id}: ${closeError.message}`);
+        } else {
+          closed++;
+        }
+      } else if (full.tickettype_id != null && full.tickettype_id !== GAMMA_DEFAULT_TYPE_ID) {
+        // Reclassified in Halo (e.g. moved to Alerts) — record the new type
+        // so it leaves the Gamma Default open view
+        await supabase
+          .from("tickets")
+          .update({
+            tickettype_id: full.tickettype_id,
+            halo_status: statusName,
+            halo_status_id: full.status_id,
+            updated_at: now,
+          })
+          .eq("id", candidate.id);
+        console.log(`[TICKET-SYNC] #${candidate.halo_id} reclassified to type ${full.tickettype_id}`);
+      }
+      // Still an open Gamma Default ticket (open_only filter missed it) — leave as-is
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (/\((?:404|410)\)/.test(message)) {
+        const { error: closeError } = await supabase
+          .from("tickets")
+          .update({
+            halo_is_open: false,
+            workflow_status: "RESOLVED" as const,
+            workflow_owner_role: null,
+            workflow_past_due: false,
+            updated_at: now,
+          })
+          .eq("id", candidate.id);
+
+        if (!closeError) {
+          closed++;
+          console.log(`[TICKET-SYNC] #${candidate.halo_id} gone from Halo (deleted/merged) — closed`);
+        }
+      } else {
+        console.warn(`[TICKET-SYNC] Close check failed for #${candidate.halo_id}: ${message}`);
+      }
+    }
+  }
+
+  if (closed > 0) {
+    console.log(`[TICKET-SYNC] Closed ${closed} tickets no longer open in Halo`);
+  }
+
+  return closed;
+}
+
+const RESOLVED_STATUS_PATTERNS = ["closed", "resolved", "cancelled", "completed"];
+
+function isResolvedStatusName(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return RESOLVED_STATUS_PATTERNS.some((pattern) => normalized.includes(pattern));
 }
 
 // Simplified status resolver (worker-side doesn't have the full status map fetch)
