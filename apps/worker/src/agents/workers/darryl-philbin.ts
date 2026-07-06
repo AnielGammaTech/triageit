@@ -1,4 +1,5 @@
 import type { MemoryMatch, CippConfig } from "@triageit/shared";
+import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -119,7 +120,7 @@ Respond with ONLY valid JSON:
     });
 
     const text =
-      response.content[0].type === "text" ? response.content[0].text : "{}";
+      extractResponseText(response, "{}");
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
@@ -345,7 +346,7 @@ Respond with ONLY valid JSON:
         name.toLowerCase().replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/g, "").replace(/[^a-z0-9]/g, "");
       const target = normalize(customerName);
       const match = tenants.find((t) => {
-        const tenant = normalize(t.displayName);
+        const tenant = normalize(t.displayName ?? "");
         return tenant.length >= 4 && target.length >= 4 && (tenant.includes(target) || target.includes(tenant));
       });
 

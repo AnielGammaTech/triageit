@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../llm-text.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
@@ -347,7 +348,7 @@ export async function generateTechReview(
     messages: [{ role: "user", content: feedbackPrompt }],
   });
 
-  const feedbackText = feedbackResponse.content[0].type === "text" ? feedbackResponse.content[0].text : "";
+  const feedbackText = extractResponseText(feedbackResponse);
   const feedback = parseLlmJson<TechFeedback>(feedbackText);
 
   // Build the private coaching note

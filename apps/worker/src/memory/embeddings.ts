@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../agents/llm-text.js";
 import { createSupabaseClient } from "../db/supabase.js";
 
 /**
@@ -117,7 +118,7 @@ export async function extractConcepts(
   });
 
   const raw =
-    response.content[0].type === "text" ? response.content[0].text : "[]";
+    extractResponseText(response, "[]");
 
   try {
     const concepts = JSON.parse(raw) as ReadonlyArray<string>;

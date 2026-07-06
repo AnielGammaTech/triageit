@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TriageContext, ClassificationResult } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { extractResponseText } from "../llm-text.js";
 import { ApiNinjasClient } from "../../integrations/apininjas/client.js";
 
 const SYSTEM_PROMPT = `You are Ryan Howard, the Ticket Classification Specialist at Dunder Mifflin IT Triage.
@@ -136,15 +137,28 @@ export async function classifyTicket(
     .filter(Boolean)
     .join("\n");
 
-  const response = await client.messages.create({
+  const request = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
+    messages: [{ role: "user" as const, content: userMessage }],
+  };
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  let response = await client.messages.create(request);
+  let text = extractResponseText(response);
+
+  // An empty response is usually a transient API blip — one retry beats
+  // erroring the ticket with "Unexpected end of JSON input"
+  if (!text) {
+    console.warn(`[RYAN] Empty classification response for #${context.haloId} — retrying once`);
+    response = await client.messages.create(request);
+    text = extractResponseText(response);
+  }
+  if (!text) {
+    throw new Error(
+      `Ryan classification returned no text for #${context.haloId} (stop_reason: ${response.stop_reason ?? "unknown"})`,
+    );
+  }
 
   const parsed = parseLlmJson<ClassificationResult>(text);
 
