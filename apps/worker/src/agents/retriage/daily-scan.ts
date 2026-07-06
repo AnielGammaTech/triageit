@@ -7,7 +7,7 @@ import {
   type HaloTicket,
   type HaloAction,
 } from "@triageit/shared";
-import { HaloClient } from "../../integrations/halo/client.js";
+import { HaloClient, HALO_STATUS_FALLBACK } from "../../integrations/halo/client.js";
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -69,28 +69,6 @@ Respond with ONLY valid JSON:
   "recommendation": "What should the tech do RIGHT NOW? Reference ONLY facts from the action log. Max 2 sentences."
 }`;
 
-// Common Halo status ID → name map (fallback when API doesn't return status name)
-const HALO_STATUS_MAP: Record<number, string> = {
-  1: "New",
-  2: "In Progress",
-  3: "Waiting on Customer",
-  4: "Customer Reply",
-  5: "Scheduled",
-  6: "On Hold",
-  7: "Pending Vendor",
-  8: "Waiting on Tech",
-  9: "Closed",
-  10: "Resolved",
-  23: "In Progress",
-  24: "Resolved Remotely",
-  25: "Waiting on Parts",
-  26: "Resolved Onsite",
-  27: "Cancelled",
-  29: "Waiting on Customer",
-  30: "Waiting on Customer",
-  32: "New",
-};
-
 /**
  * Extract the action date from a Halo action.
  * Halo returns `actiondatecreated` or `datetime` — NOT `datecreated` on the actions endpoint.
@@ -110,7 +88,7 @@ function getStatusName(ticket: HaloTicket): string {
     return name;
   }
 
-  return HALO_STATUS_MAP[ticket.status_id] ?? `Unknown (${ticket.status_id})`;
+  return HALO_STATUS_FALLBACK[ticket.status_id] ?? `Unknown (${ticket.status_id})`;
 }
 
 function daysBetween(date1: string | undefined | null, date2: string): number {

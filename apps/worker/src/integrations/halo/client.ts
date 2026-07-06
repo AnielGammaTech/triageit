@@ -17,6 +17,40 @@ const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "t
 const MAX_IMAGES = 5; // Cap to avoid token explosion
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per image
 
+// Status names verified against this instance's /api/status (2026-07-06).
+// Fallback only — getStatusNameMap() pulls the live list first.
+export const HALO_STATUS_FALLBACK: Record<number, string> = {
+  1: "New",
+  2: "In Progress",
+  3: "Action Required",
+  4: "With User",
+  5: "With Supplier",
+  9: "Resolved",
+  10: "With CAB",
+  12: "Open Order",
+  13: "Closed Order",
+  14: "Open Item",
+  15: "Closed Item",
+  16: "Invoiced",
+  17: "Awaiting Approval",
+  18: "Approved",
+  21: "On Hold",
+  22: "Updated",
+  23: "Scheduled",
+  25: "Awaiting Change Review",
+  29: "Waiting on Customer",
+  30: "Customer Reply",
+  31: "PAST-DUE",
+  32: "Waiting on Tech",
+  33: "Waiting on Parts",
+  34: "Needs Quote",
+  35: "Awaiting Triage Review",
+  36: "Awaiting User Input",
+};
+
+let statusMapCache: { map: Map<number, string>; fetchedAt: number } | null = null;
+const STATUS_MAP_TTL_MS = 10 * 60_000;
+
 export class HaloClient {
   constructor(private readonly config: HaloConfig) {}
 
@@ -140,7 +174,9 @@ export class HaloClient {
     // Halo uses `count` (NOT `page_size`) for result limit. `page_size` caps at 50.
     // Use `count=500` to get all open tickets in one request.
     const typeFilter = ticketTypeId ? `&requesttype_id=${ticketTypeId}` : "";
-    const closedStatusIds = new Set([9, 10, 24, 26, 27]);
+    // 9=Resolved, 13=Closed Order, 15=Closed Item (per this instance's
+    // /api/status — 10 is "With CAB" which is OPEN, don't filter it)
+    const closedStatusIds = new Set([9, 13, 15]);
 
     const result = await this.request<{ tickets: HaloTicket[]; record_count: number }>(
       "GET",
@@ -154,6 +190,39 @@ export class HaloClient {
 
     console.log(`[HALO] getOpenTickets: ${tickets.length} open tickets (${result.record_count ?? "?"} from API)${ticketTypeId ? ` (type ${ticketTypeId})` : ""}`);
     return tickets;
+  }
+
+  /**
+   * Live status id→name map from /api/status, cached module-wide for
+   * 10 minutes. List responses often omit statusname, so resolving by
+   * status_id against this map is the reliable path.
+   */
+  async getStatusNameMap(): Promise<ReadonlyMap<number, string>> {
+    if (statusMapCache && Date.now() - statusMapCache.fetchedAt < STATUS_MAP_TTL_MS) {
+      return statusMapCache.map;
+    }
+
+    const map = new Map<number, string>();
+    try {
+      const raw = await this.request<unknown>("GET", "/status?count=500");
+      const statuses = Array.isArray(raw)
+        ? raw
+        : ((raw as Record<string, unknown>).statuses ??
+           (raw as Record<string, unknown>).records ??
+           []);
+      for (const s of statuses as ReadonlyArray<{ id?: number; name?: string }>) {
+        if (s.id && s.name) map.set(s.id, s.name);
+      }
+    } catch (error) {
+      console.warn("[HALO] Status map fetch failed, using fallback:", error);
+    }
+
+    for (const [id, name] of Object.entries(HALO_STATUS_FALLBACK)) {
+      if (!map.has(Number(id))) map.set(Number(id), name);
+    }
+
+    statusMapCache = { map, fetchedAt: Date.now() };
+    return map;
   }
 
   async getTicketWithSLA(ticketId: number): Promise<HaloTicket & { sla_timer_text?: string }> {

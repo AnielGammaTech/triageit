@@ -1,5 +1,5 @@
 import { createSupabaseClient } from "../db/supabase.js";
-import { HaloClient } from "../integrations/halo/client.js";
+import { HaloClient, HALO_STATUS_FALLBACK } from "../integrations/halo/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import {
@@ -41,6 +41,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   }
 
   const halo = new HaloClient(haloConfig);
+  const statusMap = await halo.getStatusNameMap();
 
   // Only sync "Gamma Default" tickets (type id=31)
   console.log("[TICKET-SYNC] Fetching Gamma Default open tickets from Halo...");
@@ -97,7 +98,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   } {
     const agentName = getResolvedAgentName(ticket);
     const hasAssignedTech = isHelpdeskTechnicianName(agentName);
-    const workflowStatus = deriveWorkflowStatusFromHalo(resolveStatusName(ticket), hasAssignedTech);
+    const workflowStatus = deriveWorkflowStatusFromHalo(resolveStatusName(ticket, statusMap), hasAssignedTech);
     return {
       workflow_status: workflowStatus,
       workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
@@ -122,7 +123,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         user_email: ticket.user_emailaddress ?? null,
         original_priority: ticket.priority_id ?? null,
         status: "pending" as const,
-        halo_status: resolveStatusName(ticket),
+        halo_status: resolveStatusName(ticket, statusMap),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: getResolvedAgentName(ticket),
@@ -176,7 +177,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
       .update({
         summary: ticket.summary,
         client_name: ticket.client_name ?? null,
-        halo_status: resolveStatusName(ticket),
+        halo_status: resolveStatusName(ticket, statusMap),
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: getResolvedAgentName(ticket),
@@ -191,7 +192,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     if (!updateError) updated++;
   }
 
-  const closed = await reconcileClosedTickets(supabase, halo, haloIds, now);
+  const closed = await reconcileClosedTickets(supabase, halo, haloIds, now, statusMap);
 
   console.log(
     `[TICKET-SYNC] Complete: ${openTickets.length} pulled, ${created} created, ${updated} updated, ${closed} closed, ${triageEnqueued} enqueued for triage`,
@@ -213,6 +214,7 @@ async function reconcileClosedTickets(
   halo: HaloClient,
   openHaloIds: ReadonlyArray<number>,
   now: string,
+  statusMap: ReadonlyMap<number, string>,
 ): Promise<number> {
   const openIdSet = new Set(openHaloIds);
 
@@ -241,7 +243,7 @@ async function reconcileClosedTickets(
   for (const candidate of candidates.slice(0, MAX_CLOSE_CHECKS_PER_RUN)) {
     try {
       const full = await halo.getTicket(candidate.halo_id);
-      const statusName = resolveStatusName(full);
+      const statusName = resolveStatusName(full, statusMap);
 
       if (isResolvedStatusName(statusName)) {
         const { error: closeError } = await supabase
@@ -316,8 +318,8 @@ function isResolvedStatusName(status: string): boolean {
   return RESOLVED_STATUS_PATTERNS.some((pattern) => normalized.includes(pattern));
 }
 
-// Simplified status resolver (worker-side doesn't have the full status map fetch)
-function resolveStatusName(ticket: HaloTicket): string {
+/** Prefer the ticket's own statusname, then the live map, then the fallback. */
+function resolveStatusName(ticket: HaloTicket, statusMap: ReadonlyMap<number, string>): string {
   const name =
     (ticket as Record<string, unknown>).statusname ??
     (ticket as Record<string, unknown>).status_name ??
@@ -327,26 +329,9 @@ function resolveStatusName(ticket: HaloTicket): string {
     return name;
   }
 
-  const STATUS_MAP: Record<number, string> = {
-    1: "New",
-    2: "In Progress",
-    3: "Waiting on Customer",
-    4: "Customer Reply",
-    5: "Scheduled",
-    6: "On Hold",
-    7: "Pending Vendor",
-    8: "Waiting on Tech",
-    9: "Closed",
-    10: "Resolved",
-    23: "In Progress",
-    24: "Resolved Remotely",
-    25: "Waiting on Parts",
-    26: "Resolved Onsite",
-    27: "Cancelled",
-    29: "In Progress",
-    30: "Waiting on Customer",
-    32: "New",
-  };
-
-  return STATUS_MAP[ticket.status_id] ?? `Status ${ticket.status_id}`;
+  return (
+    statusMap.get(ticket.status_id) ??
+    HALO_STATUS_FALLBACK[ticket.status_id] ??
+    `Status ${ticket.status_id}`
+  );
 }
