@@ -512,7 +512,21 @@ export async function startCronScheduler(): Promise<void> {
   let addedCount = 0;
   for (const [name, job] of desiredRepeatables) {
     const existing = existingByName.get(name);
-    if (!existing || existing.pattern !== job.schedule) {
+
+    // A repeatable whose next fire time is in the past has a BROKEN repeat
+    // chain: BullMQ schedules the next iteration when the current one is
+    // processed, so a worker killed mid-job (e.g. a deploy) leaves the
+    // repeatable metadata in Redis with no delayed job behind it — it never
+    // fires again even though it "exists". Re-seed it.
+    const chainBroken =
+      existing !== undefined &&
+      (!existing.next || existing.next < Date.now() - 60_000);
+
+    if (!existing || existing.pattern !== job.schedule || chainBroken) {
+      if (existing && chainBroken) {
+        await cronQueue.removeRepeatableByKey(existing.key);
+        console.log(`[CRON] Re-seeding "${job.name}" — repeat chain broken (next was ${existing.next ? new Date(existing.next).toISOString() : "missing"})`);
+      }
       await cronQueue.add(
         name,
         { endpoint: job.endpoint, name: job.name },
@@ -663,14 +677,41 @@ function startHeartbeat(): void {
   const beat = async () => {
     try {
       const supabase = createSupabaseClient();
-      const repeatableCount = cronQueue ? (await cronQueue.getRepeatableJobs()).length : 0;
+      const repeatables = cronQueue ? await cronQueue.getRepeatableJobs() : [];
+
+      // Runtime chain repair: a repeatable whose next fire time slipped into
+      // the past has lost its delayed job (worker killed mid-iteration) and
+      // will never fire again on its own — remove and re-add to re-seed
+      if (cronQueue) {
+        for (const rep of repeatables) {
+          if (!rep.next || rep.next >= Date.now() - 60_000) continue;
+          try {
+            const endpoint = rep.name.replace(/^cron-/, "");
+            const { data: dbJob } = await supabase
+              .from("cron_jobs")
+              .select("name")
+              .eq("endpoint", endpoint)
+              .maybeSingle();
+            await cronQueue.removeRepeatableByKey(rep.key);
+            await cronQueue.add(
+              rep.name,
+              { endpoint, name: dbJob?.name ?? endpoint },
+              { repeat: { pattern: rep.pattern ?? "*/30 * * * *" } },
+            );
+            console.log(`[CRON] Heartbeat re-seeded broken repeat chain: "${rep.name}" (next was ${new Date(rep.next ?? 0).toISOString()})`);
+          } catch (err) {
+            console.error(`[CRON] Failed to re-seed "${rep.name}":`, err);
+          }
+        }
+      }
+
       await supabase
         .from("cron_heartbeat")
         .upsert(
           {
             id: "worker-cron",
             last_heartbeat: new Date().toISOString(),
-            active_jobs: repeatableCount,
+            active_jobs: repeatables.length,
           },
           { onConflict: "id" },
         );
