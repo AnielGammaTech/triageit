@@ -167,12 +167,9 @@ function collectConnectedAppContext(findings: Record<string, AgentFinding>): str
     items.push(...configNotes.map((note) => `Hudu client note: ${note}`));
   }
 
-  for (const [agentName, finding] of Object.entries(findings)) {
-    if (agentName === "dwight_schrute") continue;
-    const label = AGENT_LABELS[agentName] ?? agentName;
-    if (finding.summary) items.push(`${label}: ${finding.summary}`);
-  }
-
+  // Specialist summaries are NOT app context — Michael already synthesizes
+  // them into the plan. Dumping them here doubled everything and buried the
+  // useful Hudu facts under not-applicable essays.
   return uniqueNonEmpty(items);
 }
 
@@ -211,7 +208,9 @@ export function buildHaloNote(
   },
   findings: Record<string, AgentFinding>,
   processingTime: number,
-  similarTickets?: ReadonlyArray<SimilarTicket>,
+  // Similar tickets no longer render in the note but stay in the signature
+  // so callers don't change; they still feed Michael's context upstream.
+  _similarTickets?: ReadonlyArray<SimilarTicket>,
   duplicates?: ReadonlyArray<DuplicateCandidate>,
   slaInfo?: SlaInfo,
   branding?: BrandingConfig,
@@ -230,7 +229,13 @@ export function buildHaloNote(
   const logoHtml = branding?.logoUrl
     ? `<img src="${branding.logoUrl}" alt="${brandName}" style="height:22px;width:auto;vertical-align:middle;margin-right:8px;border-radius:3px;" />`
     : "🤖 ";
-  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">${logoHtml}AI Triage — ${brandName}<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+  // Priority suggestion lives as a small header chip — the ticket itself
+  // already shows the current priority, so no dedicated rows for it
+  const prioritySuggestion =
+    originalPriority && classification.recommended_priority !== originalPriority
+      ? `<span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-right:10px;">Suggests ${priorityLabel(classification.recommended_priority)} ${classification.recommended_priority < originalPriority ? "⬆" : "⬇"}</span>`
+      : "";
+  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">${logoHtml}AI Triage — ${brandName}<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${prioritySuggestion}${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
 
   // SLA Breach — red alert banner, placed first for maximum visibility
   if (slaInfo?.breached) {
@@ -243,15 +248,13 @@ export function buildHaloNote(
   // Classification
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
-  // Priority row — use Halo label
-  const priorityColor = classification.recommended_priority <= 1 ? "#f87171" : classification.recommended_priority === 2 ? "#f59e0b" : classification.recommended_priority === 3 ? "#60a5fa" : "#4ade80";
-  rows.push(`<tr style="background:#1E2028;"><td ${td1} style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#94a3b8;">Priority</td><td ${td2}><strong style="color:${priorityColor};font-size:15px;">${priorityLabel(classification.recommended_priority)}</strong> <span style="color:#64748b;">·</span> <span style="color:#e2e8f0;">${michaelResult.recommended_team}</span></td></tr>`);
-
-  if (michaelResult.manager_summary || michaelResult.assignment_reasoning || michaelResult.recommended_agent) {
-    const assignment = michaelResult.recommended_agent
-      ? `<br/><span style="color:#94a3b8;">Assign to:</span> <strong style="color:#e2e8f0;">${michaelResult.recommended_agent}</strong>${michaelResult.assignment_reasoning ? ` — ${linkifyUrls(michaelResult.assignment_reasoning)}` : ""}`
+  // Assignment suggestion for Bryanna — the manager prose row is gone
+  // (it repeated Root Cause and Workflow nearly verbatim)
+  if (michaelResult.recommended_agent) {
+    const reason = michaelResult.assignment_reasoning
+      ? ` <span style="color:#94a3b8;">— ${linkifyUrls(michaelResult.assignment_reasoning)}</span>`
       : "";
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#93c5fd;">Manager</td><td style="padding:8px 12px;${border}font-size:14px;color:#dbeafe;line-height:1.55;word-break:break-word;">${linkifyUrls(michaelResult.manager_summary ?? "Manager review complete.")}${assignment}</td></tr>`);
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#93c5fd;">Assign</td><td style="padding:8px 12px;${border}font-size:14px;color:#dbeafe;line-height:1.55;word-break:break-word;"><strong style="color:#e2e8f0;">${michaelResult.recommended_agent}</strong> <span style="color:#64748b;">·</span> ${michaelResult.recommended_team}${reason}<br/><span style="font-size:10px;color:#64748b;">Suggestion for Bryanna — not auto-assigned</span></td></tr>`);
   }
 
   // Security
@@ -317,17 +320,8 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
 
-  // Similar tickets — top 2, resolved ones are the actionable signal
-  if (similarTickets && similarTickets.length > 0) {
-    const similarItems = similarTickets
-      .slice(0, 2)
-      .map((t) => {
-        const resolved = t.resolvedAt ? ` — <strong style="color:#4ade80;">RESOLVED</strong>` : "";
-        return `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary}${resolved} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}%${t.clientName ? `, ${t.clientName}` : ""})</span>`;
-      })
-      .join("<br/>");
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#818cf8;">🔗 Similar</td><td style="padding:8px 12px;${border}font-size:13px;color:#c7d2fe;line-height:1.6;word-break:break-word;">${similarItems}</td></tr>`);
-  }
+  // Similar-tickets section removed — it was noise for the techs. Similar
+  // tickets still feed Michael's context and duplicate detection.
 
   // Duplicate warnings
   if (duplicates && duplicates.length > 0) {
@@ -348,12 +342,7 @@ export function buildHaloNote(
 
   // Doc Gaps removed from initial triage — they belong in the close review only
 
-  // Priority Recommendation — inline instead of separate note
-  if (originalPriority && classification.recommended_priority !== originalPriority) {
-    const direction = classification.recommended_priority < originalPriority ? "⬆ Upgrade" : "⬇ Downgrade";
-    const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
-    rows.push(`<tr style="background:linear-gradient(135deg,${classification.recommended_priority < originalPriority ? "#3b2508" : "#162216"},#1E2028);"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:${dirColor};">${direction}</td><td style="padding:8px 12px;${border}font-size:13px;color:#e2e8f0;">Current: <strong>${priorityLabel(originalPriority)}</strong> → Recommended: <strong style="color:${dirColor};">${priorityLabel(classification.recommended_priority)}</strong><br/><span style="font-size:11px;color:#94a3b8;">Priority Recommendation Only · Not Auto-Applied</span></td></tr>`);
-  }
+  // Priority recommendation lives in the header chip — no bottom row
 
   // No footer — the header already carries agent count and timing
 
@@ -392,8 +381,12 @@ export function buildCompactRetriageNote(
   const border = "border-bottom:1px solid #3a3f4b;";
   const rows: string[] = [];
 
-  // Compact header
-  rows.push(`<tr><td colspan="2" style="padding:6px 12px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:12px;font-weight:600;">📋 Retriage — TriageIt<span style="float:right;font-weight:400;font-size:10px;opacity:0.8;">${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+  // Compact header — priority suggestion as a chip, no dedicated rows
+  const compactPriorityChip =
+    originalPriority && classification.recommended_priority !== originalPriority
+      ? `<span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-right:8px;">Suggests ${priorityLabel(classification.recommended_priority)} ${classification.recommended_priority < originalPriority ? "⬆" : "⬇"}</span>`
+      : "";
+  rows.push(`<tr><td colspan="2" style="padding:6px 12px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:12px;font-weight:600;">📋 Retriage — TriageIt<span style="float:right;font-weight:400;font-size:10px;opacity:0.8;">${compactPriorityChip}${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
 
   // SLA Breach — red alert banner
   if (slaInfo?.breached) {
@@ -406,12 +399,11 @@ export function buildCompactRetriageNote(
   const escalationTag = michaelResult.escalation_needed
     ? ` <span style="background:#dc2626;color:white;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;">⬆ ESCALATE</span>`
     : "";
-  rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · ${priorityLabel(classification.recommended_priority)} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
+  rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
 
-  if (michaelResult.manager_summary || michaelResult.recommended_agent) {
-    const summary = michaelResult.manager_summary ?? "Manager review complete.";
-    const owner = michaelResult.recommended_agent ? ` Assign to ${michaelResult.recommended_agent}.` : "";
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#93c5fd;">Manager</td><td style="padding:5px 12px;${border}font-size:11px;color:#dbeafe;line-height:1.4;">${linkifyUrls(`${summary}${owner}`)}</td></tr>`);
+  if (michaelResult.recommended_agent) {
+    const reason = michaelResult.assignment_reasoning ? ` — ${linkifyUrls(michaelResult.assignment_reasoning)}` : "";
+    rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#93c5fd;">Assign</td><td style="padding:5px 12px;${border}font-size:11px;color:#dbeafe;line-height:1.4;"><strong>${michaelResult.recommended_agent}</strong>${reason} <span style="color:#64748b;font-size:9px;">· Suggestion for Bryanna</span></td></tr>`);
   }
 
   // Escalation reason (only if escalating)
@@ -446,12 +438,7 @@ export function buildCompactRetriageNote(
   // KB Article Suggestions
   // KB Ideas and Doc Gaps removed from retriage — they belong in the close review only
 
-  // Priority Recommendation — inline
-  if (originalPriority && classification.recommended_priority !== originalPriority) {
-    const direction = classification.recommended_priority < originalPriority ? "⬆" : "⬇";
-    const dirColor = classification.recommended_priority < originalPriority ? "#f59e0b" : "#4ade80";
-    rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:${dirColor};">${direction} Pri</td><td style="padding:5px 12px;${border}font-size:11px;color:#e2e8f0;">${priorityLabel(originalPriority)} → <strong style="color:${dirColor};">${priorityLabel(classification.recommended_priority)}</strong> <span style="color:#64748b;font-size:10px;">· Not Auto-Applied</span></td></tr>`);
-  }
+  // Priority recommendation lives in the header chip — no bottom row
 
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage · ${Object.keys(findings).length} agents</td></tr>`);
