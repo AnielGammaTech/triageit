@@ -298,7 +298,10 @@ export function buildHaloNote(
   const meredithLinks = (findings.meredith_palmer?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
   const backupLinks = [...oscarLinks, ...meredithLinks];
 
-  const allLinks = [...huduLinks, ...backupLinks];
+  // Andy's Datto console links for the reporter's / ticket-named devices
+  const dattoDeviceLinks = (findings.andy_bernard?.data?.device_links as Array<{ label: string; url: string }>) ?? [];
+
+  const allLinks = [...dattoDeviceLinks, ...huduLinks, ...backupLinks];
 
   if (allLinks.length > 0 || relevantPasswords.length > 0) {
     const linkItems = allLinks

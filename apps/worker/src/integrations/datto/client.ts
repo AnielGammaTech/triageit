@@ -176,18 +176,47 @@ export class DattoClient {
   }
 
   /**
-   * Find devices where the last logged-in user matches (partial, case-insensitive).
+   * Find devices whose lastLoggedInUser matches the ticket reporter.
+   *
+   * Datto reports users as "DOMAIN\\jsmith", "AzureAD\\JohnSmith", or
+   * "jsmith@company.com" while Halo has "John Smith" — so match against
+   * generated username forms (johnsmith, jsmith, johns, john.smith, …)
+   * rather than raw substrings. Strong matches (full-name forms) are
+   * returned alone; weak matches (first or last name only) are used only
+   * when no strong match exists.
    */
   async findDevicesByUser(
     userName: string,
     siteId?: number | string,
+    userEmail?: string | null,
   ): Promise<ReadonlyArray<DattoDevice>> {
     const devices = await this.getDevices(siteId);
-    const nameLower = userName.toLowerCase();
-    return devices.filter((d) => {
-      const lastUser = (d.lastLoggedInUser ?? d.lastUser ?? "").toLowerCase();
-      return lastUser.includes(nameLower) || nameLower.includes(lastUser);
-    });
+    const { strong, weak } = buildUserForms(userName, userEmail);
+    if (strong.size === 0 && weak.size === 0) return [];
+
+    const strongMatches: DattoDevice[] = [];
+    const weakMatches: DattoDevice[] = [];
+
+    for (const device of devices) {
+      const raw = (device.lastLoggedInUser ?? device.lastUser ?? "") as string;
+      const deviceUser = normalizeLoginName(raw);
+      if (!deviceUser) continue;
+
+      const strongHit =
+        strong.has(deviceUser) ||
+        [...strong].some(
+          (form) =>
+            form.length >= 6 &&
+            (deviceUser.includes(form) || (deviceUser.length >= 5 && form.includes(deviceUser))),
+        );
+      if (strongHit) {
+        strongMatches.push(device);
+      } else if (weak.has(deviceUser)) {
+        weakMatches.push(device);
+      }
+    }
+
+    return strongMatches.length > 0 ? strongMatches : weakMatches;
   }
 
   /**
@@ -253,6 +282,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Strip "DOMAIN\\user" prefixes and "@domain" suffixes, then squash to
+ * lowercase alphanumerics: "CYCR\\P.Ellington" → "pellington".
+ */
+export function normalizeLoginName(raw: string): string {
+  let user = raw.toLowerCase().trim();
+  const backslash = user.lastIndexOf("\\");
+  if (backslash !== -1) user = user.slice(backslash + 1);
+  const at = user.indexOf("@");
+  if (at !== -1) user = user.slice(0, at);
+  return user.replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Generate the username forms a person's account is likely to use.
+ * "Philip Ellington" → strong: philipellington, pellington, philipe,
+ * ellingtonp, ellingtonphilip; weak: philip, ellington.
+ */
+function buildUserForms(fullName: string, email?: string | null): { strong: Set<string>; weak: Set<string> } {
+  const strong = new Set<string>();
+  const weak = new Set<string>();
+
+  const parts = fullName
+    .toLowerCase()
+    .replace(/[^a-z\s'.-]/g, " ")
+    .split(/[\s'.-]+/)
+    .filter((p) => p.length > 0);
+
+  if (parts.length >= 2) {
+    const first = parts[0];
+    const last = parts[parts.length - 1];
+    strong.add(parts.join(""));
+    strong.add(first + last);
+    strong.add(last + first);
+    strong.add(first[0] + last);
+    strong.add(first + last[0]);
+    strong.add(last + first[0]);
+    if (first.length >= 4) weak.add(first);
+    if (last.length >= 4) weak.add(last);
+  } else if (parts.length === 1 && parts[0].length >= 4) {
+    strong.add(parts[0]);
+  }
+
+  if (email) {
+    const local = normalizeLoginName(email);
+    if (local.length >= 3) strong.add(local);
+  }
+
+  return { strong, weak };
+}
+
 function unwrapRecord<T>(value: unknown, keys: ReadonlyArray<string>): T {
   if (isRecord(value)) {
     for (const key of keys) {
@@ -312,6 +392,7 @@ function normalizeDevice(raw: DattoDevice): DattoDevice {
     online: (record.online ?? record.isOnline ?? record.status === "Online") as boolean | undefined,
     lastLoggedInUser: (record.lastLoggedInUser ?? record.lastUser ?? record.loggedInUser) as string | undefined,
     intIpAddress: (record.intIpAddress ?? record.ipAddress ?? record.internalIpAddress) as string | undefined,
+    portalUrl: (record.portalUrl ?? record.portal_url) as string | undefined,
   };
 }
 
@@ -374,6 +455,7 @@ export interface DattoDevice {
   readonly lastLoggedInUser?: string;
   readonly lastUser?: string;
   readonly antivirusProduct?: string;
+  readonly portalUrl?: string;
   readonly [key: string]: unknown;
 }
 
