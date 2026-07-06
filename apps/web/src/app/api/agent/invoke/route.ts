@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { workerFetch } from "@/lib/api/worker";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth();
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
   const workerUrl = process.env.WORKER_URL ?? "http://localhost:3001";
 
   try {
-    const res = await fetch(`${workerUrl}/agent/invoke`, {
+    const res = await workerFetch(`${workerUrl}/agent/invoke`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ halo_id, agent_name, prompt }),

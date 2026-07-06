@@ -17,7 +17,7 @@ import {
  */
 
 interface DattoData {
-  readonly siteId: number | null;
+  readonly siteId: number | string | null;
   readonly siteName: string | null;
   readonly devices: ReadonlyArray<DattoDevice>;
   readonly userDevices: ReadonlyArray<DattoDevice>;
@@ -347,7 +347,7 @@ Respond with ONLY valid JSON:
 
   private async fetchDevices(
     datto: DattoClient,
-    siteId: number,
+    siteId: number | string,
   ): Promise<ReadonlyArray<DattoDevice>> {
     try {
       return await datto.getDevices(siteId);
@@ -359,7 +359,7 @@ Respond with ONLY valid JSON:
 
   private async fetchAlerts(
     datto: DattoClient,
-    siteId: number,
+    siteId: number | string,
   ): Promise<ReadonlyArray<DattoAlert>> {
     try {
       return await datto.getOpenAlerts(siteId);

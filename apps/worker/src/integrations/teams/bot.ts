@@ -1,5 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createSupabaseClient } from "../../db/supabase.js";
+
+function getWorkerSecret(): string | undefined {
+  return (
+    process.env.WORKER_SHARED_SECRET ??
+    process.env.TRIAGEIT_WORKER_SECRET ??
+    process.env.INTERNAL_API_SECRET
+  );
+}
+
+function workerHeaders(init: Record<string, string> = {}): Record<string, string> {
+  const secret = getWorkerSecret();
+  if (!secret) return init;
+  return {
+    ...init,
+    Authorization: `Bearer ${secret}`,
+    "X-Worker-Secret": secret,
+  };
+}
 
 /**
  * Lightweight Teams bot — no botbuilder SDK dependency.
@@ -156,22 +175,24 @@ async function sendTypingIndicator(serviceUrl: string, conversationId: string): 
 
 function getMichaelPrompt(): string {
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  const techRoster = HELPDESK_TECHNICIANS.join(", ");
   return `You are Prison Mike (Michael Scott), the Regional Manager at Gamma Tech Services LLC, an MSP in Naples, FL. Chatting via Teams.
 
 Be concise — Teams messages should be short. Use markdown.
 
-Team: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier (techs). Bryanna (dispatcher). David (manager). Jonathan (project manager). Roman, Todd (sales — NOT techs).
+Team: ${techRoster} (techs). Bryanna (dispatcher). David (manager). Jonathan (project manager). Roman, Todd (sales — NOT techs).
 
 RULES: Use tools for data. NEVER make up numbers. Every number must come from a tool. Today: ${today}`;
 }
 
 function getTobyPrompt(): string {
   const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+  const techRoster = HELPDESK_TECHNICIANS.map((name) => name.split(" ")[0]).join(", ");
   return `You are Toby Flenderson, analytics agent at Gamma Tech Services LLC. Chatting via Teams. Brutally honest, data-driven.
 
 Standards: first response under 1hr, customer update every 4hr, no ticket in New over 2hr.
 
-Team: Dylan, Raul, Jarid, Matthew, Ryan, Darren (techs). Jonathan is project manager. Roman/Todd are sales — don't evaluate them.
+Team: ${techRoster} (techs). Jonathan is project manager. Roman/Todd are sales — don't evaluate them.
 
 RULES: Use tools FIRST. NEVER fabricate. Every number from tool results only. Today: ${today}`;
 }
@@ -302,7 +323,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
     }
     case "get_team_overview": {
       const days = (input.days_back as number) ?? 7;
-      const TECHS = ["Dylan Henjum", "Raul Tapanes", "Jarid Carlson", "Matthew Lawyer", "Ryan Fitzpatrick", "Darren Davillier"];
+      const TECHS = [...HELPDESK_TECHNICIANS];
       const [{ data: open }, { data: reviews }] = await Promise.all([
         supabase.from("tickets").select("halo_agent").eq("tickettype_id", 31).eq("halo_is_open", true),
         supabase.from("tech_reviews").select("tech_name, rating").gte("created_at", new Date(Date.now() - days * 86400000).toISOString()),
@@ -333,7 +354,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
       const res = await fetch(`${workerUrl}/triage`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: workerHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ ticket_id: ticket.id }),
       });
       return res.ok ? `Retriage queued for #${haloId}. Pipeline will run classification + specialists.` : `Failed to queue retriage: ${await res.text()}`;
@@ -357,12 +378,12 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
     }
     case "run_toby_analysis": {
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
-      const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+      const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST", headers: workerHeaders() });
       return res.ok ? "Toby's analysis triggered. Tech profiles, customer insights, and trends will update in a few minutes." : `Failed: ${await res.text()}`;
     }
     case "sync_tickets": {
       const workerUrl = `http://localhost:${process.env.PORT ?? 3001}`;
-      const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST" });
+      const res = await fetch(`${workerUrl}/ticket-sync`, { method: "POST", headers: workerHeaders() });
       if (!res.ok) return `Sync failed: ${await res.text()}`;
       const data = (await res.json()) as { pulled?: number; created?: number; updated?: number };
       return `Ticket sync complete: ${data.pulled ?? 0} pulled, ${data.created ?? 0} new, ${data.updated ?? 0} updated.`;

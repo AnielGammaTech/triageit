@@ -88,30 +88,42 @@ export class DattoClient {
   // ── Sites (Clients) ──────────────────────────────────────────────
 
   async getSites(): Promise<ReadonlyArray<DattoSite>> {
-    const result = await this.request<{ sites: DattoSite[] }>("/api/v2/account/sites");
-    return result.sites ?? [];
+    const result = await this.request<unknown>("/api/v2/account/sites");
+    return extractArray<DattoSite>(result, ["sites", "items", "data", "results"]).map(normalizeSite);
   }
 
-  async getSite(siteId: number): Promise<DattoSite> {
-    const result = await this.request<DattoSite>(`/api/v2/site/${siteId}`);
-    return result;
+  async getSite(siteId: number | string): Promise<DattoSite> {
+    const result = await this.request<unknown>(`/api/v2/site/${siteId}`);
+    return normalizeSite(unwrapRecord<DattoSite>(result, ["site", "data", "result"]));
   }
 
   // ── Devices ───────────────────────────────────────────────────────
 
-  async getDevices(siteId?: number): Promise<ReadonlyArray<DattoDevice>> {
-    const path = siteId
-      ? `/api/v2/site/${siteId}/devices`
-      : "/api/v2/account/devices";
-    const result = await this.request<{ devices: DattoDevice[] }>(path);
-    return result.devices ?? [];
+  async getDevices(siteId?: number | string): Promise<ReadonlyArray<DattoDevice>> {
+    if (siteId) {
+      try {
+        const siteResult = await this.request<unknown>(`/api/v2/site/${siteId}/devices`);
+        const siteDevices = extractArray<DattoDevice>(siteResult, ["devices", "items", "data", "results"]).map(normalizeDevice);
+        if (siteDevices.length > 0) return siteDevices;
+      } catch (error) {
+        console.warn(`[DATTO] Site device endpoint failed for site ${siteId}; falling back to account devices:`, error);
+      }
+
+      const accountDevices = await this.getDevices();
+      const filtered = accountDevices.filter((device) => dattoIdEquals(device.siteId, siteId));
+      return filtered.length > 0 ? filtered : accountDevices.filter((device) => dattoIdEquals(device.site?.id, siteId));
+    }
+
+    const result = await this.request<unknown>("/api/v2/account/devices");
+    return extractArray<DattoDevice>(result, ["devices", "items", "data", "results"]).map(normalizeDevice);
   }
 
   async getDevice(deviceId: string): Promise<DattoDevice> {
-    return this.request<DattoDevice>(`/api/v2/device/${deviceId}`);
+    const result = await this.request<unknown>(`/api/v2/device/${deviceId}`);
+    return normalizeDevice(unwrapRecord<DattoDevice>(result, ["device", "data", "result"]));
   }
 
-  async searchDevices(hostname: string, siteId?: number): Promise<ReadonlyArray<DattoDevice>> {
+  async searchDevices(hostname: string, siteId?: number | string): Promise<ReadonlyArray<DattoDevice>> {
     const devices = await this.getDevices(siteId);
     const lower = hostname.toLowerCase();
     return devices.filter(
@@ -126,7 +138,7 @@ export class DattoClient {
    */
   async findDevicesByUser(
     userName: string,
-    siteId?: number,
+    siteId?: number | string,
   ): Promise<ReadonlyArray<DattoDevice>> {
     const devices = await this.getDevices(siteId);
     const nameLower = userName.toLowerCase();
@@ -147,7 +159,7 @@ export class DattoClient {
   // ── Alerts ────────────────────────────────────────────────────────
 
   async getAlerts(params?: {
-    readonly siteId?: number;
+    readonly siteId?: number | string;
     readonly deviceId?: string;
     readonly resolved?: boolean;
   }): Promise<ReadonlyArray<DattoAlert>> {
@@ -158,11 +170,11 @@ export class DattoClient {
     if (params?.deviceId) path = `/api/v2/device/${params.deviceId}/alerts`;
     else if (params?.siteId) path = `/api/v2/site/${params.siteId}/alerts`;
 
-    const result = await this.request<{ alerts: DattoAlert[] }>(path, queryParams);
-    return result.alerts ?? [];
+    const result = await this.request<unknown>(path, queryParams);
+    return extractArray<DattoAlert>(result, ["alerts", "items", "data", "results"]).map(normalizeAlert);
   }
 
-  async getOpenAlerts(siteId?: number): Promise<ReadonlyArray<DattoAlert>> {
+  async getOpenAlerts(siteId?: number | string): Promise<ReadonlyArray<DattoAlert>> {
     return this.getAlerts({ siteId, resolved: false });
   }
 
@@ -182,20 +194,97 @@ export class DattoClient {
 
   async getDeviceSoftware(deviceId: string): Promise<ReadonlyArray<DattoSoftware>> {
     try {
-      const result = await this.request<{ software: DattoSoftware[] }>(
+      const result = await this.request<unknown>(
         `/api/v2/device/${deviceId}/software`,
       );
-      return result.software ?? [];
+      return extractArray<DattoSoftware>(result, ["software", "items", "data", "results"]);
     } catch {
       return [];
     }
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unwrapRecord<T>(value: unknown, keys: ReadonlyArray<string>): T {
+  if (isRecord(value)) {
+    for (const key of keys) {
+      const nested = value[key];
+      if (isRecord(nested)) return nested as T;
+    }
+  }
+  return value as T;
+}
+
+function extractArray<T>(value: unknown, keys: ReadonlyArray<string>): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (!isRecord(value)) return [];
+
+  for (const key of keys) {
+    const nested = value[key];
+    if (Array.isArray(nested)) return nested as T[];
+    if (isRecord(nested)) {
+      const deeper = extractArray<T>(nested, keys);
+      if (deeper.length > 0) return deeper;
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    if (Array.isArray(nested)) return nested as T[];
+  }
+
+  return [];
+}
+
+function dattoIdEquals(left: unknown, right: unknown): boolean {
+  if (left == null || right == null) return false;
+  return String(left) === String(right);
+}
+
+function normalizeSite(raw: DattoSite): DattoSite {
+  const record = raw as Record<string, unknown>;
+  return {
+    ...raw,
+    id: (record.id ?? record.siteId ?? record.siteUid ?? record.uid) as number | string,
+    name: (record.name ?? record.siteName ?? record.description ?? "") as string,
+  };
+}
+
+function normalizeDevice(raw: DattoDevice): DattoDevice {
+  const record = raw as Record<string, unknown>;
+  const site = isRecord(record.site) ? record.site : undefined;
+  return {
+    ...raw,
+    uid: (record.uid ?? record.deviceUid ?? record.deviceId ?? record.id) as string | undefined,
+    id: (record.id ?? record.deviceId ?? record.uid ?? record.deviceUid) as string | undefined,
+    hostname: (record.hostname ?? record.name ?? record.deviceName ?? record.description) as string | undefined,
+    siteId: (record.siteId ?? record.site_id ?? site?.id ?? site?.siteId) as number | string | undefined,
+    siteName: (record.siteName ?? record.site_name ?? site?.name ?? site?.siteName) as string | undefined,
+    operatingSystem: (record.operatingSystem ?? record.os ?? record.osName) as string | undefined,
+    lastSeen: (record.lastSeen ?? record.lastSeenDate ?? record.lastOnline ?? record.lastAuditDate) as string | undefined,
+    online: (record.online ?? record.isOnline ?? record.status === "Online") as boolean | undefined,
+    lastLoggedInUser: (record.lastLoggedInUser ?? record.lastUser ?? record.loggedInUser) as string | undefined,
+    intIpAddress: (record.intIpAddress ?? record.ipAddress ?? record.internalIpAddress) as string | undefined,
+  };
+}
+
+function normalizeAlert(raw: DattoAlert): DattoAlert {
+  const record = raw as Record<string, unknown>;
+  return {
+    ...raw,
+    alertUid: (record.alertUid ?? record.uid ?? record.id) as string | undefined,
+    alertMessage: (record.alertMessage ?? record.message ?? record.description) as string | undefined,
+    hostname: (record.hostname ?? record.deviceName) as string | undefined,
+    siteName: (record.siteName ?? record.site_name) as string | undefined,
+  };
+}
+
 // ── Datto Types ───────────────────────────────────────────────────────
 
 export interface DattoSite {
-  readonly id: number;
+  readonly id: number | string;
   readonly name: string;
   readonly description?: string;
   readonly onDemand?: boolean;
@@ -212,8 +301,14 @@ export interface DattoDevice {
   readonly id?: string;
   readonly hostname?: string;
   readonly description?: string;
-  readonly siteId?: number;
+  readonly siteId?: number | string;
   readonly siteName?: string;
+  readonly site?: {
+    readonly id?: number | string;
+    readonly siteId?: number | string;
+    readonly name?: string;
+    readonly siteName?: string;
+  };
   readonly deviceType?: {
     readonly category?: string;
     readonly type?: string;

@@ -168,6 +168,7 @@ export async function getAgentsForClassification(
   classificationType: string,
   supabase: SupabaseClient,
   customerName: string | null,
+  ticketText = "",
 ): Promise<ReadonlyArray<string>> {
   // Dwight (Hudu documentation + Quick Links) is always included — docs are
   // relevant for every ticket type and Quick Links must always appear.
@@ -176,24 +177,28 @@ export async function getAgentsForClassification(
     telephony: ["kelly_kapoor", "dwight_schrute"],
     phone: ["kelly_kapoor", "dwight_schrute"],
     network: ["andy_bernard", "stanley_hudson", "creed_bratton", "dwight_schrute"],
-    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin", "holly_flax"],
+    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin"],
     endpoint: ["andy_bernard", "dwight_schrute"],
-    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute", "holly_flax"],
+    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute"],
     backup: ["meredith_palmer", "oscar_martinez", "dwight_schrute"],
     security: ["angela_martin", "jim_halpert", "phyllis_vance", "darryl_philbin", "dwight_schrute"],
-    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute", "holly_flax"],
-    application: ["dwight_schrute", "andy_bernard", "holly_flax"],
+    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute"],
+    application: ["dwight_schrute", "andy_bernard"],
     infrastructure: ["andy_bernard", "stanley_hudson", "dwight_schrute"],
-    onboarding: ["jim_halpert", "dwight_schrute", "holly_flax"],
+    onboarding: ["jim_halpert", "dwight_schrute"],
     billing: ["dwight_schrute", "holly_flax"],
     other: ["dwight_schrute"],
   };
 
-  const candidates = mapping[classificationType] ?? ["dwight_schrute"];
+  const candidates = [...(mapping[classificationType] ?? ["dwight_schrute"])];
 
-  // Cross-reference agents — run on EVERY ticket type for holistic analysis.
-  // These catch root causes that don't match the surface classification.
-  const CROSS_REFERENCE_AGENTS = ["holly_flax", "creed_bratton", "phyllis_vance"] as const;
+  if (shouldUseLicensingWorker(classificationType, ticketText)) {
+    candidates.push("holly_flax");
+  }
+
+  // Cross-reference agents catch common root causes without calling every
+  // integration on every ticket. Licensing is deliberately intent-gated above.
+  const CROSS_REFERENCE_AGENTS = ["creed_bratton", "phyllis_vance"] as const;
   const allCandidates = [...new Set([...candidates, ...CROSS_REFERENCE_AGENTS])];
 
   // Filter integration-gated agents by active integration + customer mapping
@@ -224,4 +229,11 @@ export async function getAgentsForClassification(
 
   // Always have at least dwight_schrute as fallback
   return eligible.length > 0 ? eligible : ["dwight_schrute"];
+}
+
+function shouldUseLicensingWorker(classificationType: string, ticketText: string): boolean {
+  if (classificationType === "billing") return true;
+
+  const text = ticketText.toLowerCase();
+  return /\b(license|licence|licensing|subscription|pax8|seat|seats|bill(?:ing)?|invoice|renewal|renew|m365 business|business standard|business premium|exchange online|defender for business|azure subscription|marketplace|add user license|remove license)\b/.test(text);
 }

@@ -9,6 +9,7 @@ import { scanForErrorTickets } from "./error-ticket-scan.js";
 import { scanForResponseAlerts } from "./response-alerts.js";
 import { generateWeeklyReport } from "./weekly-report.js";
 import { retryErroredTickets } from "./error-retry.js";
+import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -22,8 +23,9 @@ import type { TeamsConfig } from "@triageit/shared";
 // - /retriage: */30 * * * * (every 30 min — urgency-based timer decides which tickets to process)
 // - /sla-scan: 0 */3 * * * (every 3 hours)
 // - /toby/analyze: 0 7 * * * (daily at 2 AM ET)
-// - /ticket-sync: */30 * * * * (every 30 minutes)
+// - /ticket-sync: * * * * * (every minute)
 // - /workflow-scan: */15 * * * * (every 15 minutes)
+// - /integration-heartbeat: */5 * * * * (every 5 minutes)
 
 const CRON_QUEUE_NAME = "cron-jobs";
 
@@ -40,6 +42,28 @@ interface CronJobRecord {
   readonly is_active: boolean;
   readonly last_run_at?: string | null;
 }
+
+interface RequiredCronJob {
+  readonly name: string;
+  readonly description: string;
+  readonly schedule: string;
+  readonly endpoint: string;
+}
+
+const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
+  {
+    name: "Halo Ticket Sync",
+    description: "Syncs open tickets from Halo every minute so new customer work enters triage quickly.",
+    schedule: "* * * * *",
+    endpoint: "/ticket-sync",
+  },
+  {
+    name: "Integration Heartbeat",
+    description: "Checks configured integrations and stores health status for Adminland and worker routing.",
+    schedule: "*/5 * * * *",
+    endpoint: "/integration-heartbeat",
+  },
+];
 
 /**
  * Estimate interval in ms from a cron pattern. Handles common patterns.
@@ -66,6 +90,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/sla-scan": runSlaScan,
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/integration-heartbeat": runIntegrationHeartbeatCron,
   "/workflow-scan": runWorkflowScan,
   "/memory/evict": runMemoryEviction,
   "/error-scan": runErrorScan,
@@ -130,6 +155,14 @@ async function runTicketSync(): Promise<void> {
   const result = await syncTicketsFromHalo();
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
+  );
+}
+
+async function runIntegrationHeartbeatCron(): Promise<void> {
+  console.log("[CRON] Starting integration heartbeat");
+  const result = await runIntegrationHeartbeat();
+  console.log(
+    `[CRON] Integration heartbeat complete: ${result.checked} checked, ${result.healthy} healthy, ${result.degraded} degraded, ${result.down} down`,
   );
 }
 
@@ -252,6 +285,85 @@ async function runDailyRetriage(): Promise<void> {
   }
 }
 
+async function reconcileRequiredSystemCronJobs(
+  jobs: CronJobRecord[],
+): Promise<CronJobRecord[]> {
+  const supabase = createSupabaseClient();
+  const reconciled = [...jobs];
+
+  for (const required of REQUIRED_SYSTEM_CRON_JOBS) {
+    const index = reconciled.findIndex((job) => job.endpoint === required.endpoint);
+    const existing = index >= 0 ? reconciled[index] : null;
+
+    if (existing) {
+      const changed =
+        existing.name !== required.name ||
+        existing.schedule !== required.schedule ||
+        existing.endpoint !== required.endpoint ||
+        !existing.is_active;
+
+      if (changed) {
+        const { error } = await supabase
+          .from("cron_jobs")
+          .update({
+            name: required.name,
+            description: required.description,
+            schedule: required.schedule,
+            endpoint: required.endpoint,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+
+        if (error) {
+          console.error(`[CRON] Failed to reconcile "${required.name}": ${error.message}`);
+        } else {
+          console.log(`[CRON] Reconciled required "${required.name}" — "${required.schedule}"`);
+        }
+
+        reconciled[index] = {
+          ...existing,
+          name: required.name,
+          schedule: required.schedule,
+          endpoint: required.endpoint,
+          is_active: true,
+        };
+      }
+      continue;
+    }
+
+    const { data, error } = await supabase
+      .from("cron_jobs")
+      .insert({
+        name: required.name,
+        description: required.description,
+        schedule: required.schedule,
+        endpoint: required.endpoint,
+        is_active: true,
+      })
+      .select("id, name, schedule, endpoint, is_active, last_run_at")
+      .single();
+
+    if (error || !data) {
+      console.error(`[CRON] Failed to create required "${required.name}": ${error?.message ?? "no row returned"}`);
+      reconciled.push({
+        id: `required:${required.endpoint}`,
+        name: required.name,
+        schedule: required.schedule,
+        endpoint: required.endpoint,
+        is_active: true,
+        last_run_at: null,
+      });
+      continue;
+    }
+
+    console.log(`[CRON] Created required "${required.name}" — "${required.schedule}"`);
+    reconciled.push(data as CronJobRecord);
+  }
+
+  return reconciled;
+}
+
 /**
  * Process a cron job from the BullMQ queue.
  */
@@ -345,7 +457,8 @@ export async function startCronScheduler(): Promise<void> {
     return;
   }
 
-  const activeJobs = jobs.filter((j: CronJobRecord) => j.is_active);
+  const reconciledJobs = await reconcileRequiredSystemCronJobs(jobs as CronJobRecord[]);
+  const activeJobs = reconciledJobs.filter((j: CronJobRecord) => j.is_active);
 
   // Build a map of what SHOULD be registered
   const desiredRepeatables = new Map(
@@ -405,10 +518,10 @@ export async function startCronScheduler(): Promise<void> {
       if (handler) {
         handler().then(() => {
           console.log(`[CRON] Catch-up complete: "${job.name}"`);
-          updateJobStatus(job.id, "success");
+          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "success");
         }).catch((err) => {
           console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
-          updateJobStatus(job.id, "error", (err as Error).message);
+          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "error", (err as Error).message);
         });
       }
     }
@@ -423,7 +536,8 @@ export async function startCronScheduler(): Promise<void> {
  */
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
-    { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "*/30 * * * *" }, // Every 30 minutes
+    { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
+    { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)
     { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 */3 * * *" },

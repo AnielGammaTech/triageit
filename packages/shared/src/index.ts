@@ -75,8 +75,11 @@ export {
   WORKFLOW_OWNER_ROLES,
   HELPDESK_TECHNICIANS,
   NON_TECH_STAFF,
+  FORMER_STAFF_NAMES,
+  INTERNAL_STAFF_NAMES,
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
   isKnownNonTechStaffName,
+  isInternalStaffName,
 } from "./constants/workflow.js";

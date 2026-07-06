@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { categorySlug, SOP_CATEGORIES } from "@/lib/categories";
 import { formatDisplayDate, isDueForReview, stripHtml } from "@/lib/format";
 import { SOP_STATUSES, type SopRecord, type SopStatus } from "@/lib/types";
+import { CopyLinkButton } from "./CopyLinkButton";
 import { GammaLogo } from "./GammaLogo";
 
 type SortField = "title" | "category" | "last_reviewed" | "effective_date";
@@ -151,24 +152,40 @@ export function BrowseSops({ sops, initialCategory = "all" }: BrowseSopsProps) {
 
           <section className="sop-grid" aria-label="SOP list">
             {filtered.map((sop) => (
-              <Link className="sop-card" href={`/sop/${sop.slug}`} key={sop.slug}>
+              <article className="sop-card" key={sop.slug}>
                 <div className="sop-card-top">
                   <span className="category-badge">{sop.category}</span>
                   <span className={statusClass(sop.status)}>{sop.status}</span>
                 </div>
-                <h2>{sop.title}</h2>
-                <p>{stripHtml(sop.content_html).slice(0, 150)}...</p>
-                <dl>
-                  <div>
-                    <dt>Owner</dt>
-                    <dd>{sop.owner}</dd>
-                  </div>
-                  <div>
-                    <dt>Last reviewed</dt>
-                    <dd>{formatDisplayDate(sop.last_reviewed)}</dd>
-                  </div>
-                </dl>
-              </Link>
+                <Link className="sop-card-main" href={`/sop/${sop.slug}`}>
+                  <h2>{sop.title}</h2>
+                  <p>{stripHtml(sop.content_html).slice(0, 150)}...</p>
+                  <dl>
+                    <div>
+                      <dt>Owner</dt>
+                      <dd>{sop.owner}</dd>
+                    </div>
+                    <div>
+                      <dt>Last reviewed</dt>
+                      <dd>{formatDisplayDate(sop.last_reviewed)}</dd>
+                    </div>
+                  </dl>
+                </Link>
+                <div className="sop-card-actions">
+                  <Link className="button button-muted button-small" href={`/sop/${sop.slug}/embed`} target="_blank" rel="noreferrer">
+                    <span aria-hidden="true">View</span>
+                    Embed
+                  </Link>
+                  <CopyLinkButton
+                    className="button button-muted button-small"
+                    copiedIcon="OK"
+                    copiedLabel="Copied"
+                    icon="URL"
+                    label="Copy embed"
+                    value={`/sop/${sop.slug}/embed`}
+                  />
+                </div>
+              </article>
             ))}
           </section>
         </main>

@@ -5,6 +5,7 @@ import {
   isHelpdeskTechnicianName,
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
+import { workerFetch } from "@/lib/api/worker";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -223,7 +224,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const workerResponse = await fetch(`${workerUrl}/triage`, {
+    const workerResponse = await workerFetch(`${workerUrl}/triage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticket_id: ticketId }),

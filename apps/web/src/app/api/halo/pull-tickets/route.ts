@@ -7,6 +7,7 @@ import {
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 interface HaloTicket {
   readonly id: number;
@@ -135,7 +136,7 @@ export async function POST() {
     // Pass 1: Halo's "open" tickets
     const openResult = await fetchHaloTicketsPaginated(
       config.base_url, token,
-      `open_only=true&tickettype_id=${GAMMA_DEFAULT_TYPE_ID}`,
+      `open_only=true&requesttype_id=${GAMMA_DEFAULT_TYPE_ID}`,
     );
     console.log(`[HALO SYNC] Pass 1 (open_only): ${openResult.tickets.length} tickets, ${openResult.pages} pages, record_count=${openResult.totalCount}`);
 
@@ -154,7 +155,7 @@ export async function POST() {
 
     const allResult = await fetchHaloTicketsPaginated(
       config.base_url, token,
-      `tickettype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${ninetyDaysAgo}`,
+      `requesttype_id=${GAMMA_DEFAULT_TYPE_ID}&dateoccurred_start=${ninetyDaysAgo}`,
     );
     console.log(`[HALO SYNC] Pass 2 (all 90d): ${allResult.tickets.length} tickets, ${allResult.pages} pages, record_count=${allResult.totalCount}`);
 
@@ -312,7 +313,7 @@ export async function POST() {
         if (workerUrl) {
           for (const ticket of newTickets) {
             try {
-              await fetch(`${workerUrl}/triage`, {
+              await workerFetch(`${workerUrl}/triage`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ halo_id: ticket.id }),
@@ -424,7 +425,7 @@ export async function POST() {
           if (workerUrl) {
             for (const ticket of falsyTriaged) {
               try {
-                await fetch(`${workerUrl}/triage`, {
+                await workerFetch(`${workerUrl}/triage`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ halo_id: ticket.halo_id }),
@@ -520,7 +521,7 @@ export async function POST() {
           const updatedAt = ticket.updated_at ? new Date(ticket.updated_at).getTime() : 0;
           if (updatedAt < twoMinutesAgo) {
             try {
-              await fetch(`${workerUrl}/triage`, {
+              await workerFetch(`${workerUrl}/triage`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ halo_id: ticket.halo_id }),
@@ -578,7 +579,7 @@ export async function POST() {
         // Trigger triage via worker
         if (workerUrl) {
           try {
-            await fetch(`${workerUrl}/triage`, {
+            await workerFetch(`${workerUrl}/triage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ halo_id: breacher.id }),

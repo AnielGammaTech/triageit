@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { workerFetch } from "@/lib/api/worker";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth();
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
   const workerUrl = process.env.WORKER_URL ?? "http://localhost:3001";
 
   try {
-    const res = await fetch(`${workerUrl}/kb-ideas`, {
+    const res = await workerFetch(`${workerUrl}/kb-ideas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ halo_id: body.halo_id }),

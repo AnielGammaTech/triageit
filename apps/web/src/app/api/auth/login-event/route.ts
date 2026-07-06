@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAuth } from "@/lib/api/require-auth";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 
 interface LoginEventBody {
-  readonly user_id: string;
-  readonly user_agent: string;
+  readonly user_agent?: string;
 }
 
 /**
@@ -49,11 +50,13 @@ function parseUserAgent(ua: string): {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const body = (await request.json()) as LoginEventBody;
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
 
-    if (!body.user_id) {
-      return NextResponse.json({ error: "Missing user_id" }, { status: 400 });
-    }
+    const rateLimited = checkRateLimit(auth.user.id, 20, 60_000, "login-event");
+    if (rateLimited) return rateLimited;
+
+    const body = (await request.json()) as LoginEventBody;
 
     const userAgent = body.user_agent || request.headers.get("user-agent") || "";
     const { browser, os, device_type } = parseUserAgent(userAgent);
@@ -67,7 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const serviceClient = await createServiceClient();
 
     const { error } = await serviceClient.from("login_events").insert({
-      user_id: body.user_id,
+      user_id: auth.user.id,
       ip_address: ip,
       user_agent: userAgent,
       device_type,

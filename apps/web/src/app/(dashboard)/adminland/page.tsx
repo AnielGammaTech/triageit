@@ -10,6 +10,7 @@ import {
   type IntegrationItem,
 } from "@/components/admin/adminland-constants";
 import { IntegrationConfig } from "@/components/admin/integration-config";
+import { AutoMapperConfig } from "@/components/admin/automapper-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
 import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
@@ -22,7 +23,15 @@ type ActiveView =
   | { type: "menu" }
   | { type: "section"; id: string }
   | { type: "integrations" }
+  | { type: "automapper" }
   | { type: "integration"; item: IntegrationItem };
+
+interface IntegrationHealth {
+  readonly healthStatus: string | null;
+  readonly lastHealthCheck: string | null;
+  readonly message: string | null;
+  readonly consecutiveFailures: number;
+}
 
 // ── Icons ─────────────────────────────────────────────────────────────
 
@@ -94,11 +103,15 @@ export default function AdminlandPage() {
   const [activeView, setActiveView] = useState<ActiveView>({ type: "menu" });
   const [mappingCounts, setMappingCounts] = useState<Record<string, number>>({});
   const [connectedServices, setConnectedServices] = useState<Set<string>>(new Set());
+  const [integrationHealth, setIntegrationHealth] = useState<Record<string, IntegrationHealth>>({});
+  const [heartbeatRunning, setHeartbeatRunning] = useState(false);
 
   useEffect(() => {
     const section = searchParams.get("section");
     if (section === "integrations") {
       setActiveView({ type: "integrations" });
+    } else if (section === "automapper") {
+      setActiveView({ type: "automapper" });
     } else if (section) {
       // Check if it's an integration drill-in
       for (const cat of INTEGRATION_CATEGORIES) {
@@ -138,16 +151,39 @@ export default function AdminlandPage() {
     // Load connected integrations
     const { data: intData } = await supabase
       .from("integrations")
-      .select("service, is_active");
+      .select("service, is_active, health_status, last_health_check, config");
 
     if (intData) {
       const connected = new Set<string>();
+      const health: Record<string, IntegrationHealth> = {};
       for (const row of intData) {
         if (row.is_active) {
           connected.add(row.service as string);
         }
+        const heartbeat = (row.config as { __heartbeat?: { message?: string; consecutive_failures?: number } } | null)?.__heartbeat;
+        health[row.service as string] = {
+          healthStatus: (row.health_status as string | null) ?? null,
+          lastHealthCheck: (row.last_health_check as string | null) ?? null,
+          message: heartbeat?.message ?? null,
+          consecutiveFailures: heartbeat?.consecutive_failures ?? 0,
+        };
       }
       setConnectedServices(connected);
+      setIntegrationHealth(health);
+    }
+  }
+
+  async function runHeartbeat() {
+    setHeartbeatRunning(true);
+    try {
+      await fetch("/api/integrations/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      await loadIntegrationData();
+    } finally {
+      setHeartbeatRunning(false);
     }
   }
 
@@ -158,6 +194,8 @@ export default function AdminlandPage() {
       router.push(`/adminland?section=${view.id}`);
     } else if (view.type === "integrations") {
       router.push("/adminland?section=integrations");
+    } else if (view.type === "automapper") {
+      router.push("/adminland?section=automapper");
     } else if (view.type === "integration") {
       router.push(`/adminland?section=${view.item.id}`);
     }
@@ -174,6 +212,32 @@ export default function AdminlandPage() {
     const mapCount = mappingCounts[service] ?? 0;
     if (mapCount > 0) return "mapped";
     return "connected";
+  }
+
+  function formatHealth(service: string): { label: string; className: string } {
+    const health = integrationHealth[service];
+    if (!health?.healthStatus) {
+      return { label: "Not checked", className: "border-white/10 text-white/35" };
+    }
+    if (health.healthStatus === "healthy" || health.healthStatus === "connected") {
+      return { label: "Healthy", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" };
+    }
+    if (health.healthStatus === "degraded" || health.healthStatus === "unknown") {
+      return { label: "Degraded", className: "border-amber-500/30 bg-amber-500/10 text-amber-300" };
+    }
+    return { label: "Unhealthy", className: "border-red-500/30 bg-red-500/10 text-red-300" };
+  }
+
+  function formatLastCheck(service: string): string | null {
+    const iso = integrationHealth[service]?.lastHealthCheck;
+    if (!iso) return null;
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
   // ── Integration drill-in view ──────────────────────────────────────
@@ -218,6 +282,22 @@ export default function AdminlandPage() {
           <span className="text-white font-medium">Integrations</span>
         </div>
 
+        <div className="mb-5 flex flex-wrap gap-2">
+          <button
+            onClick={runHeartbeat}
+            disabled={heartbeatRunning}
+            className="rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white disabled:opacity-50"
+          >
+            {heartbeatRunning ? "Checking..." : "Run heartbeat"}
+          </button>
+          <button
+            onClick={() => navigateTo({ type: "automapper" })}
+            className="rounded-lg bg-[#b91c1c] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#a31919]"
+          >
+            Auto-map customers
+          </button>
+        </div>
+
         <div className="space-y-6">
           {INTEGRATION_CATEGORIES.map((group) => (
             <div key={group.category}>
@@ -227,6 +307,8 @@ export default function AdminlandPage() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {group.items.map((integration) => {
                   const status = getIntegrationStatus(integration.service);
+                  const health = formatHealth(integration.service);
+                  const lastCheck = formatLastCheck(integration.service);
                   return (
                     <button
                       key={integration.id}
@@ -260,10 +342,21 @@ export default function AdminlandPage() {
                               Not configured
                             </span>
                           )}
+                          {status !== "not_configured" && (
+                            <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold", health.className)}>
+                              {health.label}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-0.5 text-xs text-white/40">
                           {integration.desc}
                         </p>
+                        {status !== "not_configured" && (
+                          <p className="mt-1 truncate text-[11px] text-white/30">
+                            {lastCheck ? `Last check ${lastCheck}` : "No heartbeat yet"}
+                            {integrationHealth[integration.service]?.message ? ` - ${integrationHealth[integration.service]?.message}` : ""}
+                          </p>
+                        )}
                       </div>
                       <span className="shrink-0 text-white/20 transition-colors group-hover:text-white/40">
                         {CHEVRON_RIGHT}
@@ -274,6 +367,40 @@ export default function AdminlandPage() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (activeView.type === "automapper") {
+    return (
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-6 flex items-center gap-2 text-sm text-white/50">
+          <button onClick={() => navigateTo({ type: "menu" })} className="hover:text-white transition-colors">
+            Adminland
+          </button>
+          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <button onClick={() => navigateTo({ type: "integrations" })} className="hover:text-white transition-colors">
+            Integrations
+          </button>
+          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <span className="text-white font-medium">AutoMapper</span>
+        </div>
+        <div
+          className="rounded-xl border border-white/10 p-6"
+          style={{ backgroundColor: "#241010" }}
+        >
+          <AutoMapperConfig
+            item={{
+              id: "automapper",
+              service: "automapper",
+              label: "AutoMapper",
+              desc: "Match customers across Halo and connected integrations.",
+              iconBg: "bg-red-500/10",
+              iconColor: "text-red-400",
+            }}
+            onBack={() => navigateTo({ type: "integrations" })}
+          />
         </div>
       </div>
     );

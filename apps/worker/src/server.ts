@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { timingSafeEqual } from "node:crypto";
 import { processTriageJob, startTriageWorker } from "./queue/consumer.js";
 import { createSupabaseClient } from "./db/supabase.js";
 import { enqueueTriageJob } from "./queue/producer.js";
@@ -18,6 +19,7 @@ import {
 import { scanForSlaBreaches } from "./cron/sla-scan.js";
 import { syncTicketsFromHalo } from "./cron/ticket-sync.js";
 import { scanWorkflowState } from "./cron/workflow-scan.js";
+import { runIntegrationHeartbeat } from "./cron/integration-heartbeat.js";
 import {
   triageSchema,
   cronTriggerSchema,
@@ -35,6 +37,66 @@ const server = Fastify({ logger: true });
 const TRIAGE_QUEUE_NAME = "triage";
 let redisAvailable = false;
 let pendingTicketInterval: ReturnType<typeof setInterval> | null = null;
+let missingWorkerSecretWarned = false;
+
+function getWorkerSecret(): string | undefined {
+  return (
+    process.env.WORKER_SHARED_SECRET ??
+    process.env.TRIAGEIT_WORKER_SECRET ??
+    process.env.INTERNAL_API_SECRET
+  );
+}
+
+function safeTokenMatches(actual: string | undefined, expected: string): boolean {
+  if (!actual) return false;
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function isPublicRoute(method: string, path: string): boolean {
+  if (method === "OPTIONS") return true;
+  if (method === "GET" && path === "/health") return true;
+  if (method === "POST" && path === "/api/teams/messages") return true;
+  return false;
+}
+
+server.addHook("preHandler", async (request, reply) => {
+  if (isPublicRoute(request.method, request.url.split("?")[0] ?? request.url)) {
+    return;
+  }
+
+  const expectedSecret = getWorkerSecret();
+  if (!expectedSecret) {
+    if (process.env.NODE_ENV !== "production") {
+      if (!missingWorkerSecretWarned) {
+        missingWorkerSecretWarned = true;
+        console.warn("[AUTH] WORKER_SHARED_SECRET missing; protected worker routes are open in local development only.");
+      }
+      return;
+    }
+
+    return reply.status(503).send({
+      error: "WORKER_SHARED_SECRET is required for protected worker routes",
+    });
+  }
+
+  const authHeader = request.headers.authorization;
+  const bearer =
+    typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : undefined;
+  const headerSecret =
+    typeof request.headers["x-worker-secret"] === "string"
+      ? request.headers["x-worker-secret"]
+      : undefined;
+
+  if (!safeTokenMatches(bearer, expectedSecret) && !safeTokenMatches(headerSecret, expectedSecret)) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+});
 
 // ── Teams Bot endpoint ────────────────────────────────────────────────
 // Azure Bot Service sends activities here as JSON.
@@ -188,6 +250,35 @@ server.post<{ Body: Record<string, never> }>(
   async (_request, reply) => {
     try {
       const result = await syncTicketsFromHalo();
+      return { status: "completed", ...result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+// Manual integration heartbeat
+server.post<{ Body: { services?: string[] } }>(
+  "/integrations/heartbeat",
+  async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { services?: string[] };
+      const result = await runIntegrationHeartbeat({ services: body.services });
+      return { status: "completed", ...result };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+server.post<{ Body: { services?: string[] } }>(
+  "/integration-heartbeat",
+  async (request, reply) => {
+    try {
+      const body = (request.body ?? {}) as { services?: string[] };
+      const result = await runIntegrationHeartbeat({ services: body.services });
       return { status: "completed", ...result };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -396,6 +487,10 @@ server.post<{ Body: { halo_id: number } }>(
       return { status: "completed", review };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("already in progress") || message.includes("already exists")) {
+        console.log(`[CLOSE-REVIEW] Skipped ticket #${halo_id}: ${message}`);
+        return { status: "skipped", reason: message };
+      }
       console.error(`[CLOSE-REVIEW] Failed for ticket #${halo_id}:`, message);
       return reply.status(500).send({ error: message });
     }

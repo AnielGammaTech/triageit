@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { SOP_CATEGORIES } from "@/lib/categories";
 import { slugify } from "@/lib/slug";
 import { SOP_STATUSES, type SopRecord, type SopStatus } from "@/lib/types";
+import { CopyLinkButton } from "./CopyLinkButton";
 import { GammaLogo } from "./GammaLogo";
 import { RichHtmlEditor } from "./RichHtmlEditor";
 import { SopDocumentView } from "./SopDocumentView";
@@ -224,6 +225,32 @@ export function AdminWorkspace({ initialSops }: AdminWorkspaceProps) {
               {message && <p>{message}</p>}
             </div>
             <div className="editor-actions">
+              {selected && (
+                <>
+                  <a className="button button-muted" href={`/sop/${selected.slug}/embed`} target="_blank" rel="noreferrer">
+                    <span aria-hidden="true">View</span>
+                    Embed
+                  </a>
+                  <CopyLinkButton
+                    className="button button-muted"
+                    copiedIcon="OK"
+                    copiedLabel="Copied"
+                    icon="URL"
+                    label="Copy embed URL"
+                    value={`/sop/${selected.slug}/embed`}
+                  />
+                  <CopyLinkButton
+                    className="button button-muted"
+                    copiedIcon="OK"
+                    copiedLabel="Copied"
+                    format="iframe"
+                    icon="Code"
+                    label="Copy iframe"
+                    title={`${selected.title} SOP`}
+                    value={`/sop/${selected.slug}/embed`}
+                  />
+                </>
+              )}
               <button className="button button-muted" type="button" onClick={() => setPreview((value) => !value)}>
                 <span aria-hidden="true">View</span>
                 Preview

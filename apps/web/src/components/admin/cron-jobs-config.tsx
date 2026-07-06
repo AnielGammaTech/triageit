@@ -49,6 +49,13 @@ const AVAILABLE_ENDPOINTS: ReadonlyArray<{
   { value: "/retriage", label: "Daily Re-Triage Scan" },
   { value: "/sla-scan", label: "SLA Breach Scan" },
   { value: "/toby/analyze", label: "Toby Learning Analysis" },
+  { value: "/ticket-sync", label: "Halo Ticket Sync" },
+  { value: "/workflow-scan", label: "Workflow Guardrail Scan" },
+  { value: "/memory/evict", label: "Agent Memory Cleanup" },
+  { value: "/error-scan", label: "Errored Ticket Scan" },
+  { value: "/response-alerts", label: "Response Time Alerts" },
+  { value: "/weekly-report", label: "Weekly Report" },
+  { value: "/error-retry", label: "Retry Errored Tickets" },
 ];
 
 function describeCron(expression: string): string {

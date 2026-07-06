@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * POST /api/embed/kb-ideas
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   const workerUrl = process.env.WORKER_URL ?? "http://localhost:3001";
 
   try {
-    const res = await fetch(`${workerUrl}/kb-ideas`, {
+    const res = await workerFetch(`${workerUrl}/kb-ideas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ halo_id }),

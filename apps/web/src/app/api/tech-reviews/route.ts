@@ -60,7 +60,10 @@ export async function GET() {
     return NextResponse.json({ error: "Failed to fetch tech reviews" }, { status: 500 });
   }
 
-  const openReviews = (data ?? []).filter((review) => !isClosedTicket(review.tickets));
+  const openReviews = (data ?? []).filter((review) => {
+    const ticket = Array.isArray(review.tickets) ? review.tickets[0] : review.tickets;
+    return ticket ? !isClosedTicket(ticket) : false;
+  });
 
   return NextResponse.json({ reviews: openReviews });
 }

@@ -35,6 +35,17 @@ export interface AgentResult {
   readonly memories_used?: number;
 }
 
+const WORKER_QUALITY_STANDARD = `## Worker Quality Standard
+You are supporting live MSP technicians. Be evidence-first and operationally useful.
+
+- State exactly which integration data you checked, including the customer/site/user/device/search terms used.
+- Never say a client has no site, no devices, no license, no backup, or no deployment unless the integration returned a successful empty result. If lookup, auth, mapping, or endpoint access failed, say that instead.
+- Separate "integration/mapping problem" from "customer environment problem." Missing mapping means fix mapping; it does not prove the tool is absent at the client.
+- Use only systems that match the ticket intent. Do not ask Pax8/licensing questions unless the ticket mentions licenses, subscriptions, seats, billing, vendor marketplace, Azure subscriptions, or Microsoft 365 plan changes.
+- Give concise technician steps that can be executed now: where to click, what to search, what quick job/report to run, or what private note to post.
+- Include confidence based on evidence quality. Low confidence requires explaining what was missing and the next lookup needed.
+- If you used memory, label it as memory. If live data contradicts memory, live data wins.`;
+
 export abstract class BaseAgent {
   protected readonly definition: AgentDefinition;
   protected readonly supabase: SupabaseClient;
@@ -152,6 +163,8 @@ export abstract class BaseAgent {
       "",
       `Your role: ${this.definition.description}`,
       searchNote,
+      "",
+      WORKER_QUALITY_STANDARD,
       "",
       this.getAgentInstructions(),
       skillsPrompt,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * POST /api/retriage
@@ -25,7 +26,7 @@ export async function POST() {
   }
 
   try {
-    const response = await fetch(`${workerUrl}/retriage`, {
+    const response = await workerFetch(`${workerUrl}/retriage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",

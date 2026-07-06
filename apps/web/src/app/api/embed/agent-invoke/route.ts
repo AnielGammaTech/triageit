@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * POST /api/embed/agent-invoke
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   const workerUrl = process.env.WORKER_URL ?? "http://localhost:3001";
 
   try {
-    const res = await fetch(`${workerUrl}/agent/invoke`, {
+    const res = await workerFetch(`${workerUrl}/agent/invoke`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ halo_id, agent_name }),

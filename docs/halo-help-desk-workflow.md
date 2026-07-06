@@ -44,7 +44,7 @@ the workflow.
 
 ## Personnel Matrix
 
-- Helpdesk technicians: Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew
+- Helpdesk technicians: Raul Tapanes, Jarid Carlson, Matthew
   Lawyer, Ryan Fitzpatrick, Darren Davillier.
 - Triage / dispatcher: Bryanna.
 - Help Desk Manager: David.
@@ -52,7 +52,7 @@ the workflow.
 - Sales / account management: Roman Hernandez, Todd.
 - Owner/admin: Aniel.
 
-Only the six helpdesk technicians should be evaluated as techs for response
+Only the active helpdesk technicians should be evaluated as techs for response
 time, ticket handling, and performance.
 
 ## Escalation Chain

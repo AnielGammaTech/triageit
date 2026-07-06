@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { workerFetch } from "@/lib/api/worker";
 
 /**
  * GET /api/cron-jobs
@@ -178,7 +179,7 @@ async function notifyWorkerReload(): Promise<void> {
   if (!workerUrl) return;
 
   try {
-    await fetch(`${workerUrl}/cron/reload`, {
+    await workerFetch(`${workerUrl}/cron/reload`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",

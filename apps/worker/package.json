@@ -22,7 +22,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.11",
-    "tsx": "^4.19.0",
+    "tsx": "^4.22.5",
     "typescript": "^5.7.0"
   }
 }

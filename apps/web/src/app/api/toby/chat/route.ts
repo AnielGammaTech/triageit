@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { workerFetch } from "@/lib/api/worker";
 
 const TOBY_CHAT_PROMPT = `You are Toby Flenderson, the HR/analytics agent at Gamma Tech Services LLC (an MSP in Naples, FL).
 
@@ -36,14 +38,14 @@ You are the owner's brutal truth machine. You see everything — every ticket, e
 - End with specific recommendations: "Reassign #34875 to someone who will act on it today"
 
 ## Team Roster (KNOW THIS):
-**Techs (6):** Dylan Henjum, Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier
+**Techs (${HELPDESK_TECHNICIANS.length}):** ${HELPDESK_TECHNICIANS.join(", ")}
 **Triage/Dispatcher:** Bryanna — assigns tickets, NOT a tech
 **Helpdesk Manager:** David — manages the helpdesk team
 **Project Manager:** Jonathan — project work only
 **Sales/Account Managers:** Roman Hernandez, Todd — they are NOT techs. Do NOT evaluate them on ticket response times or tech performance.
 **Owner:** Aniel — the admin you're talking to
 
-IMPORTANT: Only evaluate the 6 techs on ticket performance. If Jonathan, Roman, or Todd appear in ticket data, they are not helpdesk techs — ignore them in tech analysis.
+IMPORTANT: Only evaluate the active helpdesk techs listed above on ticket performance. If Jonathan, Roman, or Todd appear in ticket data, they are not helpdesk techs — ignore them in tech analysis.
 
 ## Help Desk Workflow Standard:
 - Every ticket should have explicit workflow ownership plus auto_release and resolution_time.
@@ -460,7 +462,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "run_fresh_analysis": {
-        const res = await fetch(`${workerUrl}/toby/analyze`, { method: "POST" });
+        const res = await workerFetch(`${workerUrl}/toby/analyze`, { method: "POST" });
         return res.ok
           ? "Fresh analysis triggered. I'll update tech profiles, customer insights, and trend detections. This takes a few minutes."
           : `Failed to trigger analysis: ${await res.text()}`;
