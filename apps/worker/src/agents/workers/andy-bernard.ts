@@ -140,6 +140,22 @@ Respond with ONLY valid JSON:
       response.content[0].type === "text" ? response.content[0].text : "{}";
     const result = parseLlmJson<Record<string, unknown>>(text);
 
+    // Attach deterministic console deep links for the ticket's devices —
+    // built from the API's portalUrl, not from whatever the LLM echoed back.
+    // The Halo note builder renders these in Quick Links.
+    const deviceLinks = dattoData.userDevices
+      .map((device) => {
+        const url = device.portalUrl ?? (dattoData.baseUrl ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "") : null);
+        if (!url || !device.hostname) return null;
+        const state = device.online ? "online" : "offline";
+        return { label: `${device.hostname} (${state})`, url };
+      })
+      .filter((link): link is { label: string; url: string } => link !== null)
+      .slice(0, 4);
+    if (deviceLinks.length > 0) {
+      result.device_links = deviceLinks;
+    }
+
     return {
       summary: (result.endpoint_notes as string) ?? "No endpoint data found",
       data: result,
@@ -176,11 +192,12 @@ Respond with ONLY valid JSON:
       this.fetchAlerts(datto, site.id),
     ]);
 
-    // Try to find devices belonging to the ticket reporter
+    // Try to find devices belonging to the ticket reporter — match on
+    // generated username forms plus the email local-part
     let userDevices: ReadonlyArray<DattoDevice> = [];
     if (context.userName) {
       try {
-        userDevices = await datto.findDevicesByUser(context.userName, site.id);
+        userDevices = await datto.findDevicesByUser(context.userName, site.id, context.userEmail);
         if (userDevices.length > 0) {
           console.log(
             `[ANDY] Found ${userDevices.length} device(s) for user "${context.userName}" at site "${site.name}"`,
@@ -189,6 +206,18 @@ Respond with ONLY valid JSON:
       } catch (error) {
         console.error("[ANDY] Failed to search devices by user:", error);
       }
+    }
+
+    // Devices explicitly named in the ticket text are always relevant
+    const ticketText = `${context.summary} ${context.details ?? ""}`.toLowerCase();
+    const mentionedDevices = devices.filter((d) => {
+      const host = d.hostname?.toLowerCase();
+      return host && host.length >= 4 && ticketText.includes(host);
+    });
+    if (mentionedDevices.length > 0) {
+      console.log(`[ANDY] ${mentionedDevices.length} device(s) named directly in the ticket text`);
+      const seen = new Set(userDevices.map((d) => d.uid ?? d.hostname));
+      userDevices = [...userDevices, ...mentionedDevices.filter((d) => !seen.has(d.uid ?? d.hostname))];
     }
 
     return {
@@ -429,9 +458,10 @@ Respond with ONLY valid JSON:
           const patches = device.patchStatus
             ? `Missing: ${device.patchStatus.patchesMissing ?? 0}`
             : "";
-          const consoleUrl = dattoData.baseUrl
-            ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
-            : "N/A";
+          const consoleUrl = device.portalUrl
+            ?? (dattoData.baseUrl
+              ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
+              : "N/A");
           sections.push(
             `- **${device.hostname ?? "Unknown"}** — ${status} | OS: ${device.operatingSystem ?? "N/A"} | Last Seen: ${device.lastSeen ?? "N/A"} | Last User: ${device.lastLoggedInUser ?? device.lastUser ?? "Unknown"} | Console: ${consoleUrl} ${patches ? `| Patches ${patches}` : ""}`,
           );
@@ -448,9 +478,10 @@ Respond with ONLY valid JSON:
             ? `Missing: ${device.patchStatus.patchesMissing ?? 0}`
             : "";
           const lastUser = device.lastLoggedInUser ?? device.lastUser ?? "Unknown";
-          const consoleUrl = dattoData.baseUrl
-            ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
-            : "N/A";
+          const consoleUrl = device.portalUrl
+            ?? (dattoData.baseUrl
+              ? DattoClient.deviceUrl(dattoData.baseUrl, device.uid ?? device.id ?? "")
+              : "N/A");
           sections.push(
             `- **${device.hostname ?? "Unknown"}** — ${status} | OS: ${device.operatingSystem ?? "N/A"} | Last Seen: ${device.lastSeen ?? "N/A"} | Last User: ${lastUser} | IP: ${device.intIpAddress ?? "N/A"} | Console: ${consoleUrl} ${patches ? `| Patches ${patches}` : ""}`,
           );
