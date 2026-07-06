@@ -1,6 +1,7 @@
 import type { HealthStatus } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
 import { DattoClient } from "../integrations/datto/client.js";
+import { DattoEdrClient } from "../integrations/datto-edr/client.js";
 import { HuduClient } from "../integrations/hudu/client.js";
 import { JumpCloudClient } from "../integrations/jumpcloud/client.js";
 import { Pax8Client } from "../integrations/pax8/client.js";
@@ -296,10 +297,26 @@ async function checkTeams(config: Record<string, unknown>): Promise<CheckResult>
   };
 }
 
+async function checkDattoEdr(config: Record<string, unknown>): Promise<CheckResult> {
+  const missing = required(config, ["api_url", "api_key"]);
+  if (missing) return { status: "down", message: missing };
+
+  const edr = new DattoEdrClient({
+    api_url: text(config, "api_url"),
+    api_key: text(config, "api_key"),
+  });
+  const health = await edr.checkHealth();
+  return {
+    status: "healthy",
+    message: `Datto EDR authenticated (${health.organizations} organization${health.organizations === 1 ? "" : "s"}).`,
+  };
+}
+
 const CHECKERS: Record<string, Checker> = {
   "ai-provider": checkAiProvider,
   cipp: checkCipp,
   datto: checkDatto,
+  "datto-edr": checkDattoEdr,
   halo: checkHalo,
   hudu: checkHudu,
   jumpcloud: checkJumpCloud,
