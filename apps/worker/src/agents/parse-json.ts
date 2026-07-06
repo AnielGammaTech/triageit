@@ -128,12 +128,29 @@ function extractJson(text: string): string {
   // 3. Find the first { and last } to extract a JSON object
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace < firstBrace) {
+    // An object opens but never closes (truncated response) — hand the
+    // object fragment to the sanitize step rather than falling through
+    // to array extraction, which would return the wrong shape
+    return trimmed.slice(firstBrace);
+  }
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     const candidate = trimmed.slice(firstBrace, lastBrace + 1);
     try {
       JSON.parse(candidate);
       return candidate;
     } catch {
+      // The last } may belong to trailing junk (e.g. a second JSON object or
+      // prose containing braces) — scan for the first balanced object instead
+      const balanced = extractFirstBalancedObject(trimmed, firstBrace);
+      if (balanced) {
+        try {
+          JSON.parse(balanced);
+          return balanced;
+        } catch {
+          // Fall through to the first/last candidate
+        }
+      }
       // Return as-is and let the caller handle the error
       return candidate;
     }
@@ -153,6 +170,31 @@ function extractJson(text: string): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Scan forward from `start` and return the first brace-balanced JSON object,
+ * respecting string boundaries and escapes. Returns null if never balanced
+ * (e.g. truncated output).
+ */
+function extractFirstBalancedObject(text: string, start: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 /**
@@ -218,9 +260,9 @@ function sanitizeLlmJson(json: string): string {
 
   cleaned = result;
 
-  // Close any unclosed brackets/braces from truncated responses
-  let openBraces = 0;
-  let openBrackets = 0;
+  // Close any unclosed brackets/braces from truncated responses.
+  // Track close-order so nesting like {"a": ["b"  closes as ]} not }].
+  const openStack: string[] = [];
   inString = false;
   escaped = false;
 
@@ -229,16 +271,22 @@ function sanitizeLlmJson(json: string): string {
     if (ch === "\\" && inString) { escaped = true; continue; }
     if (ch === '"') { inString = !inString; continue; }
     if (!inString) {
-      if (ch === "{") openBraces++;
-      if (ch === "}") openBraces--;
-      if (ch === "[") openBrackets++;
-      if (ch === "]") openBrackets--;
+      if (ch === "{" || ch === "[") openStack.push(ch);
+      if (ch === "}" || ch === "]") openStack.pop();
     }
   }
 
-  // Close any remaining open structures
-  for (let i = 0; i < openBrackets; i++) cleaned += "]";
-  for (let i = 0; i < openBraces; i++) cleaned += "}";
+  // A response truncated mid-string needs the string closed first,
+  // after stripping a dangling partial escape sequence
+  if (inString) {
+    if (cleaned.endsWith("\\")) cleaned = cleaned.slice(0, -1);
+    cleaned += '"';
+  }
+
+  // Close remaining open structures innermost-first
+  for (let i = openStack.length - 1; i >= 0; i--) {
+    cleaned += openStack[i] === "{" ? "}" : "]";
+  }
 
   return cleaned;
 }
