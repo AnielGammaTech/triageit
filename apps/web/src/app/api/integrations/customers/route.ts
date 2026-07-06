@@ -603,12 +603,48 @@ async function fetchCippTenants(
   }));
 }
 
+async function fetchDattoEdrTargets(
+  config: Record<string, string>,
+): Promise<ReadonlyArray<NormalizedCustomer>> {
+  // Datto EDR (Infocyte) — LoopBack API; targets are the customer groups
+  const baseUrl = config.api_url.replace(/\/$/, "");
+  const filter = encodeURIComponent(
+    JSON.stringify({
+      fields: ["id", "name", "deleted", "activeAgentCount"],
+      where: { deleted: { neq: true } },
+      order: "name ASC",
+      limit: 500,
+    }),
+  );
+
+  const res = await fetch(
+    `${baseUrl}/api/targets?access_token=${encodeURIComponent(config.api_key)}&filter=${filter}`,
+    { headers: { Accept: "application/json" } },
+  );
+
+  if (!res.ok) throw new Error(`Datto EDR API error: ${res.status}`);
+
+  const data = (await res.json()) as ReadonlyArray<{
+    id: string;
+    name: string;
+    deleted?: boolean;
+    activeAgentCount?: number;
+  }>;
+
+  return data.map((t) => ({
+    id: t.id,
+    name: t.name,
+    is_active: t.deleted !== true,
+  }));
+}
+
 // ── Fetcher registry ─────────────────────────────────────────────────
 
 const CUSTOMER_FETCHERS: Record<string, CustomerFetcher> = {
   halo: fetchHaloCustomers,
   hudu: fetchHuduCustomers,
   datto: fetchDattoCustomers,
+  "datto-edr": fetchDattoEdrTargets,
   jumpcloud: fetchJumpCloudCustomers,
   unifi: fetchUnifiSites,
   pax8: fetchPax8Customers,

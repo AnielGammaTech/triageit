@@ -1,7 +1,19 @@
-import type { MemoryMatch } from "@triageit/shared";
+import type { DattoConfig, MemoryMatch } from "@triageit/shared";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { DattoClient } from "../../integrations/datto/client.js";
+import {
+  DattoEdrClient,
+  dedupeAlerts,
+  type DattoEdrConfig,
+  type EdrAlert,
+} from "../../integrations/datto-edr/client.js";
+
+interface EdrData {
+  readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
+  readonly reporterHostnames: ReadonlyArray<string>;
+}
 
 /**
  * Angela Martin — Security Assessment
@@ -111,6 +123,7 @@ Respond with ONLY valid JSON:
   "immediate_actions": ["<specific action the tech must take NOW — include commands/URLs>"],
   "investigation_steps": ["<deeper investigation steps with specific tools and commands>"],
   "reference_links": ["<relevant CISA/MITRE/vendor security advisory URLs for this issue>"],
+  "edr_correlation": "<if Datto EDR detections were provided: one or two sentences on whether any detection matches what the customer describes, naming the hostname and detection. null if no EDR data or nothing correlates>",
   "escalation_required": <true/false>,
   "escalation_reason": "<why escalation is needed, null if not>",
   "compliance_concerns": "<any regulatory or compliance implications, null if none>",
@@ -124,13 +137,19 @@ Respond with ONLY valid JSON:
     systemPrompt: string,
     _memories: ReadonlyArray<MemoryMatch>,
   ): Promise<AgentResult> {
+    // Pull real EDR detections for this client so the assessment can
+    // correlate the customer's complaint against actual endpoint alerts
+    const edrData = await this.fetchEdrData(context);
+
     // Build detailed context for security analysis
-    const userMessage = this.buildUserMessage(context);
+    const userMessage = this.buildUserMessage(context, edrData);
 
     // Log thinking
     await this.logThinking(
       context.ticketId,
-      `Running security assessment on ticket #${context.haloId}. Analyzing for IOCs, phishing indicators, account compromise, malware signs, and compliance concerns.`,
+      edrData && edrData.alerts.length > 0
+        ? `Running security assessment on ticket #${context.haloId}. Datto EDR has ${edrData.alerts.length} recent detection group(s) for this client — correlating against the reported issue.`
+        : `Running security assessment on ticket #${context.haloId}. Analyzing for IOCs, phishing indicators, account compromise, malware signs, and compliance concerns.`,
     );
 
     const response = await this.anthropic.messages.create({
@@ -162,9 +181,76 @@ Respond with ONLY valid JSON:
     };
   }
 
+  // ── Datto EDR ───────────────────────────────────────────────────────
+
+  private async fetchEdrData(context: TriageContext): Promise<EdrData | null> {
+    if (!context.clientName) return null;
+
+    const { data } = await this.supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "datto-edr")
+      .eq("is_active", true)
+      .single();
+    if (!data) return null;
+
+    try {
+      const edr = new DattoEdrClient(data.config as DattoEdrConfig);
+
+      // Resolve the reporter's device hostnames via Datto RMM so alerts on
+      // THEIR machine can be flagged distinctly from site-wide noise
+      let reporterHostnames: string[] = [];
+      if (context.userName) {
+        try {
+          const { data: dattoRow } = await this.supabase
+            .from("integrations")
+            .select("config")
+            .eq("service", "datto")
+            .eq("is_active", true)
+            .single();
+          if (dattoRow) {
+            const datto = new DattoClient(dattoRow.config as DattoConfig);
+            const devices = await datto.findDevicesByUser(context.userName, undefined, context.userEmail);
+            reporterHostnames = devices
+              .map((d) => d.hostname)
+              .filter((h): h is string => Boolean(h))
+              .slice(0, 5);
+          }
+        } catch {
+          // Datto lookup is best-effort; EDR client-name scoping still applies
+        }
+      }
+
+      const alerts = await edr.getRecentAlerts({
+        clientName: context.clientName,
+        hostnames: reporterHostnames,
+        days: 7,
+        limit: 50,
+      });
+      if (alerts.length === 0) return { alerts: [], reporterHostnames };
+
+      const reporterSet = new Set(reporterHostnames.map((h) => h.toLowerCase()));
+      const deduped = dedupeAlerts(alerts)
+        .map((alert) => ({
+          ...alert,
+          reporterDevice: Boolean(alert.hostname && reporterSet.has(alert.hostname.toLowerCase())),
+        }))
+        .sort((a, b) => Number(b.reporterDevice) - Number(a.reporterDevice))
+        .slice(0, 15);
+
+      console.log(
+        `[ANGELA] EDR: ${alerts.length} alerts (${deduped.length} unique) for "${context.clientName}", ${deduped.filter((a) => a.reporterDevice).length} on reporter's device(s)`,
+      );
+      return { alerts: deduped, reporterHostnames };
+    } catch (error) {
+      console.warn("[ANGELA] Datto EDR fetch failed (continuing without):", error);
+      return null;
+    }
+  }
+
   // ── Message Builder ─────────────────────────────────────────────────
 
-  private buildUserMessage(context: TriageContext): string {
+  private buildUserMessage(context: TriageContext, edrData: EdrData | null): string {
     const sections: string[] = [
       `## Ticket #${context.haloId} — Security Assessment`,
       `**Subject:** ${context.summary}`,
@@ -190,6 +276,30 @@ Respond with ONLY valid JSON:
     sections.push("- References to data sharing, external access, or permission changes");
     sections.push("- Unusual service errors that could indicate an attack");
     sections.push("- Tenant IDs, SharePoint URLs, or cloud service references that could be targeted");
+
+    if (edrData) {
+      sections.push("");
+      sections.push("---");
+      if (edrData.reporterHostnames.length > 0) {
+        sections.push(`**Reporter's devices (from Datto RMM):** ${edrData.reporterHostnames.join(", ")}`);
+      }
+      if (edrData.alerts.length > 0) {
+        sections.push(`## Datto EDR Detections — last 7 days for this client (REAL data)`);
+        for (const alert of edrData.alerts) {
+          const marker = alert.reporterDevice ? " ⚠ REPORTER'S DEVICE" : "";
+          const times = alert.occurrences > 1 ? ` ×${alert.occurrences}` : "";
+          sections.push(
+            `- [${(alert.severity ?? "?").toUpperCase()}]${marker} ${alert.hostname ?? "unknown-host"}: ${alert.description ?? alert.name}${times} (${alert.mitreTactic ?? "n/a"}, latest ${alert.createdOn ?? "n/a"})`,
+          );
+        }
+        sections.push("");
+        sections.push(
+          "## EDR Correlation Task\nCompare what the customer DESCRIBES with the detections above. If the customer's symptoms (slowness, popups, locked files, weird behavior, crashes) plausibly line up with a detection — especially one on the reporter's own device — call it out explicitly in edr_correlation with the hostname and detection, raise severity accordingly, and make isolating/scanning that device an immediate action. If nothing correlates, say so in one sentence.",
+        );
+      } else {
+        sections.push("## Datto EDR: no detections in the last 7 days for this client (REAL data — a clean EDR feed is meaningful evidence against active malware).");
+      }
+    }
 
     return sections.join("\n");
   }
