@@ -56,7 +56,7 @@ const AGENT_REQUIRED_INTEGRATION: Record<string, string | ReadonlyArray<string>>
   jim_halpert: "jumpcloud",
   andy_bernard: "datto",
   kelly_kapoor: "threecx",
-  meredith_palmer: "spanning",
+  meredith_palmer: "unitrends",
   stanley_hudson: "vultr",
   oscar_martinez: ["cove", "unitrends"],
   darryl_philbin: "cipp",

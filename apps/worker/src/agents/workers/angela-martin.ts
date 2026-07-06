@@ -9,6 +9,7 @@ import {
   type DattoEdrConfig,
   type EdrAlert,
 } from "../../integrations/datto-edr/client.js";
+import { ApiNinjasClient, extractPublicIps } from "../../integrations/apininjas/client.js";
 
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
@@ -140,9 +141,10 @@ Respond with ONLY valid JSON:
     // Pull real EDR detections for this client so the assessment can
     // correlate the customer's complaint against actual endpoint alerts
     const edrData = await this.fetchEdrData(context);
+    const ipIntel = await this.fetchIpIntel(context);
 
     // Build detailed context for security analysis
-    const userMessage = this.buildUserMessage(context, edrData);
+    const userMessage = this.buildUserMessage(context, edrData, ipIntel);
 
     // Log thinking
     await this.logThinking(
@@ -248,9 +250,23 @@ Respond with ONLY valid JSON:
     }
   }
 
+  private async fetchIpIntel(context: TriageContext): Promise<string[]> {
+    const client = ApiNinjasClient.fromEnv();
+    if (!client) return [];
+    const ips = extractPublicIps(`${context.summary} ${context.details ?? ""}`);
+    const lines: string[] = [];
+    for (const ip of ips) {
+      const info = await client.ipLookup(ip);
+      if (!info) continue;
+      const parts = [info.city, info.region, info.country, info.isp].filter(Boolean);
+      if (parts.length > 0) lines.push(`${ip}: ${parts.join(", ")}`);
+    }
+    return lines;
+  }
+
   // ── Message Builder ─────────────────────────────────────────────────
 
-  private buildUserMessage(context: TriageContext, edrData: EdrData | null): string {
+  private buildUserMessage(context: TriageContext, edrData: EdrData | null, ipIntel: ReadonlyArray<string> = []): string {
     const sections: string[] = [
       `## Ticket #${context.haloId} — Security Assessment`,
       `**Subject:** ${context.summary}`,
@@ -276,6 +292,17 @@ Respond with ONLY valid JSON:
     sections.push("- References to data sharing, external access, or permission changes");
     sections.push("- Unusual service errors that could indicate an attack");
     sections.push("- Tenant IDs, SharePoint URLs, or cloud service references that could be targeted");
+
+    // IP intelligence: geolocate public IPs mentioned in the ticket so
+    // "sign-in from 203.0.113.7" becomes "sign-in from Lagos, Nigeria (ISP X)"
+    if (ipIntel.length > 0) {
+      sections.push("");
+      sections.push("## IP Intelligence (API Ninjas — REAL lookups)");
+      for (const entry of ipIntel) {
+        sections.push(`- ${entry}`);
+      }
+      sections.push("Compare these locations/ISPs against where this customer's users actually are — an unexpected country or hosting-provider ISP on a sign-in is a strong compromise indicator.");
+    }
 
     if (edrData) {
       sections.push("");
