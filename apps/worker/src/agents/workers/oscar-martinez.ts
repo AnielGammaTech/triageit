@@ -2,6 +2,8 @@ import type { MemoryMatch, CoveConfig, UnitrendsConfig } from "@triageit/shared"
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { DattoClient } from "../../integrations/datto/client.js";
+import type { DattoConfig } from "@triageit/shared";
 import {
   UnitrendsClient,
   type UnitrendsDevice,
@@ -165,13 +167,38 @@ Respond with ONLY valid JSON:
       this.fetchUnitrendsData(context),
     ]);
 
-    const userMessage = this.buildUserMessage(
+    let userMessage = this.buildUserMessage(
       context,
       coveData,
       unitrendsData,
       deviceName,
       errorKeyword,
     );
+
+    // Cross-match backup devices to Datto RMM so the tech knows WHO uses
+    // each machine — backup hostnames and RMM hostnames line up
+    const userByHost = await this.fetchDattoUserMap();
+    if (userByHost.size > 0) {
+      const backupHosts = new Set<string>();
+      for (const d of coveData.devices) {
+        const rec = d as unknown as Record<string, unknown>;
+        const host = String(rec.MachineName ?? rec.ComputerName ?? "");
+        if (host) backupHosts.add(host.toLowerCase());
+      }
+      for (const d of unitrendsData.devices) {
+        const rec = d as unknown as Record<string, unknown>;
+        const host = String(rec.name ?? rec.hostname ?? rec.assetName ?? "");
+        if (host) backupHosts.add(host.toLowerCase());
+      }
+      const lines: string[] = [];
+      for (const host of backupHosts) {
+        const user = userByHost.get(host);
+        if (user) lines.push(`- ${host}: last logged-in user ${user} (Datto RMM)`);
+      }
+      if (lines.length > 0) {
+        userMessage += `\n\n## Device Users (matched via Datto RMM)\n${lines.join("\n")}\nUse these to say WHO is affected by each backup issue.`;
+      }
+    }
 
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
@@ -202,6 +229,32 @@ Respond with ONLY valid JSON:
       data: { ...result, quicklinks },
       confidence: (result.confidence as number) ?? 0.5,
     };
+  }
+
+  /**
+   * hostname (lowercase) -> lastLoggedInUser from Datto RMM. Best-effort.
+   */
+  private async fetchDattoUserMap(): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    try {
+      const { data } = await this.supabase
+        .from("integrations")
+        .select("config")
+        .eq("service", "datto")
+        .eq("is_active", true)
+        .single();
+      if (!data) return map;
+      const datto = new DattoClient(data.config as DattoConfig);
+      const devices = await datto.getDevices();
+      for (const device of devices) {
+        const host = device.hostname?.toLowerCase();
+        const user = device.lastLoggedInUser ?? device.lastUser;
+        if (host && user) map.set(host, String(user).split("\\").pop() ?? String(user));
+      }
+    } catch (error) {
+      console.warn("[OSCAR] Datto user map fetch failed (continuing without):", error);
+    }
+    return map;
   }
 
   // ── Quicklinks Builder ──────────────────────────────────────────────

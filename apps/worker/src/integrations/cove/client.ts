@@ -149,7 +149,7 @@ export class CoveClient {
    * Get all backup devices for a specific partner/customer account.
    */
   async getDevices(partnerId: number): Promise<ReadonlyArray<CoveDevice>> {
-    return this.call<ReadonlyArray<CoveDevice>>("EnumerateAccountStatistics", {
+    const rows = await this.call<ReadonlyArray<Record<string, unknown>>>("EnumerateAccountStatistics", {
       query: {
         PartnerId: partnerId,
         StartRecordNumber: 0,
@@ -171,19 +171,21 @@ export class CoveClient {
         ],
       },
     });
+    return (rows ?? []).map(normalizeCoveRow);
   }
 
   /**
    * Get devices across all partners (for customer name matching).
    */
   async getAllDevices(): Promise<ReadonlyArray<CoveDevice>> {
-    return this.call<ReadonlyArray<CoveDevice>>("EnumerateAccountStatistics", {
+    const rows = await this.call<ReadonlyArray<Record<string, unknown>>>("EnumerateAccountStatistics", {
       query: {
         StartRecordNumber: 0,
         RecordsCount: 500,
         Columns: ["AR", "AN", "MN", "OT", "CV", "TS", "LSS", "LSD", "LST", "US", "SS", "DS", "ER"],
       },
     });
+    return (rows ?? []).map(normalizeCoveRow);
   }
 
   /**
@@ -205,4 +207,66 @@ export class CoveClient {
     );
     return partial ?? null;
   }
+}
+
+// ── Row normalizer ───────────────────────────────────────────────────
+// EnumerateAccountStatistics returns rows as {Settings: [{"AN": ...}, {"AR": ...}]}
+// — a LIST of single-key objects keyed by column code, not the flat
+// friendly-named object the rest of the code consumes. Flatten + rename.
+
+const COVE_COLUMN_NAMES: Record<string, string> = {
+  AR: "CustomerName",
+  AN: "AccountName",
+  MN: "MachineName",
+  OT: "OsType",
+  CV: "ClientVersion",
+  TS: "TimeStamp",
+  LSS: "LastSessionStatus",
+  LSD: "LastSessionTimestamp",
+  LST: "LastSuccessfulSessionTimestamp",
+  US: "UsedStorage",
+  SS: "SelectedSize",
+  DS: "DataSources",
+  ER: "Errors",
+};
+
+// LastSessionStatus numeric codes per N-able docs
+const COVE_SESSION_STATUS: Record<string, string> = {
+  "0": "NoBackup",
+  "1": "InProcess",
+  "2": "Failed",
+  "3": "Aborted",
+  "5": "Completed",
+  "6": "Interrupted",
+  "7": "NotStarted",
+  "8": "CompletedWithErrors",
+  "9": "InProgressWithFaults",
+  "10": "OverQuota",
+  "11": "NoSelection",
+  "12": "Restarted",
+};
+
+function normalizeCoveRow(row: Record<string, unknown>): CoveDevice {
+  const flat: Record<string, unknown> = {};
+  const settings = row.Settings;
+  if (Array.isArray(settings)) {
+    for (const entry of settings) {
+      if (entry && typeof entry === "object") {
+        for (const [code, value] of Object.entries(entry as Record<string, unknown>)) {
+          flat[COVE_COLUMN_NAMES[code] ?? code] = value;
+        }
+      }
+    }
+  } else {
+    Object.assign(flat, row);
+  }
+  // Aliases for consumers that use the older field names
+  if (flat.MachineName && !flat.ComputerName) flat.ComputerName = flat.MachineName;
+  if (!flat.DeviceName) flat.DeviceName = flat.MachineName ?? flat.AccountName ?? "";
+  if (!flat.Status && flat.LastSessionStatus !== undefined) flat.Status = flat.LastSessionStatus;
+  const lss = flat.LastSessionStatus;
+  if (lss !== undefined && COVE_SESSION_STATUS[String(lss)]) {
+    flat.LastSessionStatus = COVE_SESSION_STATUS[String(lss)];
+  }
+  return flat as unknown as CoveDevice;
 }
