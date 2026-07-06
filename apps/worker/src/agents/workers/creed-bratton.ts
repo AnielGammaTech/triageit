@@ -175,13 +175,16 @@ Respond with ONLY valid JSON:
       // 1. Check integration_mappings first
       let mapping: { external_id: string; external_name: string } | null = null;
 
+      // .single() errors when a client has multiple mapped sites (e.g.
+      // BBC-SALES + BBC-SERVICE) — take the first match instead
       if (clientId) {
         const { data } = await this.supabase
           .from("integration_mappings")
           .select("external_id, external_name")
           .eq("service", "unifi")
           .eq("customer_id", String(clientId))
-          .single();
+          .limit(1)
+          .maybeSingle();
         mapping = data;
       }
 
@@ -191,7 +194,8 @@ Respond with ONLY valid JSON:
           .select("external_id, external_name")
           .eq("service", "unifi")
           .ilike("customer_name", clientName)
-          .single();
+          .limit(1)
+          .maybeSingle();
         mapping = data;
       }
 

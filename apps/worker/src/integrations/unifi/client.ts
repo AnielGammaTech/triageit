@@ -149,9 +149,15 @@ export class UnifiClient {
   /**
    * Get a site by host ID.
    */
-  async getSiteByHostId(hostId: string): Promise<UnifiSite | null> {
+  async getSiteByHostId(externalId: string): Promise<UnifiSite | null> {
     const sites = await this.getSites();
-    return sites.find((s) => s.hostId === hostId) ?? null;
+    // Mappings store either the bare hostId or hostId:siteId — the latter
+    // is required to disambiguate multi-site (self-hosted) consoles
+    return (
+      sites.find(
+        (s) => s.hostId === externalId || `${s.hostId}:${s.siteId}` === externalId,
+      ) ?? null
+    );
   }
 }
 
