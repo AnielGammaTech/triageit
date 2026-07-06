@@ -2,6 +2,7 @@ import type { MemoryMatch, ThreeCxConfig, TwilioConfig } from "@triageit/shared"
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { ApiNinjasClient, extractPhoneNumbers } from "../../integrations/apininjas/client.js";
 import {
   ThreeCxClient,
   type ThreeCxSystemStatus,
@@ -201,6 +202,7 @@ Respond with ONLY valid JSON:
       phoneNumber,
     );
 
+    const phoneIntel = await this.fetchPhoneIntel(context);
     const userMessage = this.buildUserMessage(
       context,
       voipData,
@@ -208,6 +210,7 @@ Respond with ONLY valid JSON:
       phoneNumber,
       trunkName,
       fqdn,
+      phoneIntel,
     );
 
     const response = await this.anthropic.messages.create({
@@ -399,6 +402,21 @@ Respond with ONLY valid JSON:
 
   // ── Message Builder ────────────────────────────────────────────────
 
+  private async fetchPhoneIntel(context: TriageContext): Promise<string[]> {
+    const client = ApiNinjasClient.fromEnv();
+    if (!client) return [];
+    const numbers = extractPhoneNumbers(`${context.summary} ${context.details ?? ""}`);
+    const lines: string[] = [];
+    for (const num of numbers) {
+      const info = await client.validatePhone(num);
+      if (!info) continue;
+      const parts = [info.location, info.country, info.carrier, info.line_type].filter(Boolean);
+      const fmt = info.format_international ?? num;
+      lines.push(`${fmt}: ${parts.join(", ") || "valid number"}`);
+    }
+    return lines;
+  }
+
   private buildUserMessage(
     context: TriageContext,
     data: VoipData,
@@ -406,10 +424,14 @@ Respond with ONLY valid JSON:
     phoneNumber: string | null,
     trunkName: string | null,
     fqdn: string | null,
+    phoneIntel: ReadonlyArray<string> = [],
   ): string {
     const sections: string[] = [
       `## Ticket #${context.haloId} — VoIP & Telephony Assessment`,
       `**Subject:** ${context.summary}`,
+      ...(phoneIntel.length > 0
+        ? ["", "**Phone numbers (API Ninjas lookup):**", ...phoneIntel.map((l) => `- ${l}`)]
+        : []),
     ];
 
     if (context.details)

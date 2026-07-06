@@ -75,6 +75,19 @@ export class ApiNinjasClient {
     const data = await this.request<Record<string, unknown>>("/whois", { domain });
     return data ? ApiNinjasClient.clean(data) : null;
   }
+
+  /** Phone number identity — carrier, line type, location, timezone. */
+  async validatePhone(number: string): Promise<Record<string, unknown> | null> {
+    const data = await this.request<Record<string, unknown>>("/validatephone", { number });
+    if (!data || data.is_valid === false) return null;
+    return ApiNinjasClient.clean(data);
+  }
+
+  /** Email validity — deliverable, disposable, free-provider flags. */
+  async validateEmail(email: string): Promise<Record<string, unknown> | null> {
+    const data = await this.request<Record<string, unknown>>("/validateemail", { email });
+    return data ? ApiNinjasClient.clean(data) : null;
+  }
 }
 
 /** Public IPv4 addresses in free text — skips RFC1918 ranges. */
@@ -108,4 +121,19 @@ export function extractForeignDomains(text: string, ownDomains: ReadonlyArray<st
     if (domain.split(".").length >= 2 && domain.length <= 60) found.add(domain);
   }
   return [...found].slice(0, 3);
+}
+
+/** E.164-ish phone numbers in free text (deduped, capped). */
+export function extractPhoneNumbers(text: string): string[] {
+  const matches = text.match(/\+?\d[\d\s().-]{8,16}\d/g) ?? [];
+  const cleaned = matches
+    .map((m) => m.replace(/[^\d+]/g, ""))
+    .filter((m) => m.replace(/\D/g, "").length >= 10 && m.replace(/\D/g, "").length <= 15);
+  return [...new Set(cleaned)].slice(0, 3);
+}
+
+/** Email addresses in free text (deduped, capped). */
+export function extractEmails(text: string): string[] {
+  const matches = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
+  return [...new Set(matches.map((m) => m.toLowerCase()))].slice(0, 5);
 }
