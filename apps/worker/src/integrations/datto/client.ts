@@ -205,14 +205,15 @@ export class DattoClient {
     readonly deviceId?: string;
     readonly resolved?: boolean;
   }): Promise<ReadonlyArray<DattoAlert>> {
-    const queryParams: Record<string, string> = {};
-    if (params?.resolved !== undefined) queryParams.resolved = String(params.resolved);
+    // The v2 API has no bare /alerts resource — alerts live under
+    // /alerts/open and /alerts/resolved on account, site, and device
+    const state = params?.resolved ? "resolved" : "open";
 
-    let path = "/api/v2/account/alerts";
-    if (params?.deviceId) path = `/api/v2/device/${params.deviceId}/alerts`;
-    else if (params?.siteId) path = `/api/v2/site/${await this.resolveSiteRef(params.siteId)}/alerts`;
+    let scope = "/api/v2/account";
+    if (params?.deviceId) scope = `/api/v2/device/${params.deviceId}`;
+    else if (params?.siteId) scope = `/api/v2/site/${await this.resolveSiteRef(params.siteId)}`;
 
-    const result = await this.request<unknown>(path, queryParams);
+    const result = await this.request<unknown>(`${scope}/alerts/${state}`);
     return extractArray<DattoAlert>(result, ["alerts", "items", "data", "results"]).map(normalizeAlert);
   }
 
@@ -223,10 +224,12 @@ export class DattoClient {
   // ── Patch Management ──────────────────────────────────────────────
 
   async getDevicePatchStatus(deviceId: string): Promise<DattoPatchStatus | null> {
+    // There is no /patch-status resource in the v2 API — patch state rides
+    // on the device object's patchManagement field
     try {
-      return await this.request<DattoPatchStatus>(
-        `/api/v2/device/${deviceId}/patch-status`,
-      );
+      const device = await this.getDevice(deviceId);
+      const patch = (device as Record<string, unknown>).patchManagement;
+      return isRecord(patch) ? (patch as DattoPatchStatus) : null;
     } catch {
       return null;
     }
@@ -237,7 +240,7 @@ export class DattoClient {
   async getDeviceSoftware(deviceId: string): Promise<ReadonlyArray<DattoSoftware>> {
     try {
       const result = await this.request<unknown>(
-        `/api/v2/device/${deviceId}/software`,
+        `/api/v2/audit/device/${deviceId}/software`,
       );
       return extractArray<DattoSoftware>(result, ["software", "items", "data", "results"]);
     } catch {
