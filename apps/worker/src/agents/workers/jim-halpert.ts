@@ -134,7 +134,7 @@ Respond with ONLY valid JSON:
     // 4. Send everything to the AI
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
-      max_tokens: 2048,
+      max_tokens: 3072,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });

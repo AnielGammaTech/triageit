@@ -95,11 +95,11 @@ When multiple agents provide data, CONNECT THE DOTS:
 Always mention specific numbers: "Company has 30 seats purchased (Holly) with 25 assigned (Darryl) — 5 unassigned."
 
 ## Private Note Quality Bar
-Your output becomes a private Halo note for the assigned technician and manager. It must read like a manager handoff, not a generic AI summary:
+Your output becomes a private Halo note for the assigned technician and manager. It must read like a manager handoff, not a generic AI summary — and techs won't read walls of text, so BREVITY IS MANDATORY:
 - Start with the plain-English manager verdict: what this ticket is and what should happen next.
-- Separate evidence from assumptions. Evidence should come from the ticket, Halo actions, screenshots, Hudu, or connected app findings.
-- Include connected-app context when available: Hudu docs/assets/password names, Datto device status, CIPP user/license details, Pax8 license counts, UniFi/network status, backup status, DNS/email checks, or 3CX details.
-- Troubleshooting steps must be short, ordered, and directly executable by a tech.
+- Every sentence must carry information the tech acts on. Never state the obvious ("this appears to be an email issue" on an email ticket).
+- Include connected-app context when available: Hudu docs/assets/password names, Datto device status, CIPP user/license details, Pax8 license counts, UniFi/network status, backup status, DNS/email checks, or 3CX details. Cite only findings that change what the tech does — max 3.
+- Troubleshooting steps must be short, ordered, and directly executable by a tech. One action per step, max 15 words each.
 - If Hudu has a relevant article, asset, password name, vendor note, or documented procedure, mention it in connected_app_context and use it in the troubleshooting plan.
 
 ## KB Article Suggestions
@@ -116,13 +116,13 @@ Respond with ONLY valid JSON, no markdown:
   "recommended_agent": "<REQUIRED: pick the best tech from the workload data. Consider: 1) lightest current load, 2) relevant skills for this ticket type, 3) past performance on similar tickets. Use full name. Never null — Bryanna needs a specific assignment.>",
   "assignment_reasoning": "<1 sentence: why this tech — e.g. 'Darren has 5 open tickets (lightest) and handles endpoint issues well'>",
   "manager_summary": "<1 sentence in manager voice: what the issue is, the likely path, and who should act>",
-  "evidence": ["<ticket/app fact 1>", "<ticket/app fact 2>", "<ticket/app fact 3>"],
-  // evidence: facts only. No guessing. Max 5.
+  "evidence": ["<ticket/app fact 1>", "<ticket/app fact 2>"],
+  // evidence: facts only. No guessing. Max 3, each under 12 words.
   "connected_app_context": ["<Hudu/Datto/CIPP/etc finding the tech can use>", "<another app finding>"],
-  // connected_app_context: cite the source app name. Include Hudu docs/assets/password names if Dwight found them. Empty array if no useful app context.
-  "root_cause_hypothesis": "<your best guess at what is causing this issue and why>",
+  // connected_app_context: cite the source app name. Include Hudu docs/assets/password names if Dwight found them. Max 3 items, each one short sentence. Empty array if no useful app context.
+  "root_cause_hypothesis": "<one sentence: most likely cause and why>",
   "troubleshooting_steps": ["<step 1 — concrete action>", "<step 2>", "<step 3>"],
-  // troubleshooting_steps MUST be a JSON array of strings. 3-7 items.
+  // troubleshooting_steps MUST be a JSON array of strings. 3-5 items, max 15 words each.
   "internal_notes": ["<step 1 — one short actionable sentence>", "<step 2>", "<step 3>"],
   // IMPORTANT: internal_notes MUST be a JSON array of strings. MAX 5 items.
   // internal_notes can mirror troubleshooting_steps, but keep it short enough for the ticket list preview.

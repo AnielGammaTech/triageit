@@ -158,7 +158,7 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     // 4. Send everything to the AI
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
-      max_tokens: 2048,
+      max_tokens: 3072,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
