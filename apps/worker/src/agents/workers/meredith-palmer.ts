@@ -1,4 +1,4 @@
-import type { MemoryMatch, SpanningConfig } from "@triageit/shared";
+import type { MemoryMatch, UnitrendsConfig } from "@triageit/shared";
 import { BaseAgent, type AgentResult } from "../base-agent.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -238,9 +238,29 @@ Respond with ONLY valid JSON:
       };
     }
 
-    const client = new SpanningClient(config);
+    const client = new SpanningClient({
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+    });
 
     try {
+      // Scope to this customer's M365 domains (by reporter email domain,
+      // falling back to client-name match)
+      const scoped = await client.resolveScope({
+        userEmail: userEmail ?? context.userEmail,
+        clientName: context.clientName,
+      });
+      if (!scoped) {
+        await this.logThinking(
+          context.ticketId,
+          `No Spanning-protected M365 domain found for "${context.clientName}" — skipping backup data.`,
+        );
+        return {
+          tenant: null, tenantStatus: null, backupSummary: null,
+          recentErrors: [], matchedErrors: [], affectedUser: null, affectedUserBackup: null,
+        };
+      }
+
       // Fetch all data in parallel
       const [tenant, tenantStatus, backupSummary, recentErrors] =
         await Promise.all([
@@ -252,7 +272,7 @@ Respond with ONLY valid JSON:
 
       // Match errors by error code or site URL
       const matchedErrors = recentErrors.filter((e) => {
-        if (errorCode && e.errorCode === errorCode) return true;
+        if (errorCode && String(e.errorCode) === String(errorCode)) return true;
         if (
           siteUrl &&
           e.siteUrl?.toLowerCase().includes(siteUrl.toLowerCase())
@@ -309,15 +329,15 @@ Respond with ONLY valid JSON:
 
   // ── Config ──────────────────────────────────────────────────────────
 
-  private async getSpanningConfig(): Promise<SpanningConfig | null> {
+  private async getSpanningConfig(): Promise<UnitrendsConfig | null> {
     const { data } = await this.supabase
       .from("integrations")
       .select("config")
-      .eq("service", "spanning")
+      .eq("service", "unitrends")
       .eq("is_active", true)
       .single();
 
-    return data ? (data.config as SpanningConfig) : null;
+    return data ? (data.config as UnitrendsConfig) : null;
   }
 
   // ── Message Builder ────────────────────────────────────────────────
@@ -429,8 +449,9 @@ Respond with ONLY valid JSON:
       sections.push(`**SharePoint:** ${data.affectedUserBackup.sharePointBackupStatus ?? "Unknown"}`);
       sections.push(`**Calendar:** ${data.affectedUserBackup.calendarBackupStatus ?? "Unknown"}`);
       sections.push(`**Contacts:** ${data.affectedUserBackup.contactsBackupStatus ?? "Unknown"}`);
-      if (data.affectedUserBackup.errors?.length) {
-        sections.push(`**Errors:** ${data.affectedUserBackup.errors.join(", ")}`);
+      const backupErrors = data.affectedUserBackup.errors;
+      if (Array.isArray(backupErrors) && backupErrors.length > 0) {
+        sections.push(`**Errors:** ${backupErrors.join(", ")}`);
       }
     }
 
