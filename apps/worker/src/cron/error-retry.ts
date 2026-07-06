@@ -17,10 +17,13 @@ interface RetryResult {
 export async function retryErroredTickets(): Promise<RetryResult> {
   const supabase = createSupabaseClient();
 
+  // Only retry tickets still open in Halo — closed tickets that errored
+  // historically stay as-is instead of burning retries on dead work
   const { data: errorTickets } = await supabase
     .from("tickets")
     .select("id, halo_id, summary, client_name, retry_count, error_message")
     .eq("status", "error")
+    .eq("halo_is_open", true)
     .order("updated_at", { ascending: true });
 
   if (!errorTickets || errorTickets.length === 0) {

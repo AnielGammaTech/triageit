@@ -409,7 +409,7 @@ async function chat(agent: "michael" | "toby", message: string, convKey: string)
 
   for (let i = 0; i < 5; i++) {
     const res = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 2048,
       system,
       tools: getTools(),

@@ -1182,7 +1182,7 @@ export async function POST(request: NextRequest) {
 
   // Stream response from Claude with tool use support
   const client = new Anthropic();
-  const modelId = "claude-sonnet-4-20250514";
+  const modelId = "claude-sonnet-5";
 
   // Build the message loop — Michael may use tools, then respond with text
   let currentMessages: Anthropic.Messages.MessageParam[] = messages.map((m) => ({

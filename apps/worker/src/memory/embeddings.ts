@@ -1,54 +1,103 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createSupabaseClient } from "../db/supabase.js";
 
 /**
- * Generate embeddings using Anthropic's voyage model via the embeddings API.
- * Falls back to a simple hash-based approach if the API is unavailable.
+ * Generate embeddings using OpenAI's text-embedding-3-small (1536 dimensions,
+ * matching the pgvector columns on agent_memories and ticket_embeddings).
  *
- * Uses voyage-3-large (1536 dimensions) for high-quality semantic search.
+ * The API key is read from the OPENAI_API_KEY env var when set, otherwise
+ * from the ai-provider integration config in the DB (Adminland-managed).
+ * Failures back off for a cooldown window instead of disabling embeddings
+ * until the next restart.
  */
 
-const EMBEDDING_MODEL = "voyage-3-large";
+const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS = 1536;
+const KEY_CACHE_MS = 10 * 60 * 1000;
+const FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 
-let voyageAvailable: boolean | null = null;
+let cachedKey: { key: string | null; fetchedAt: number } | null = null;
+let lastFailureAt: number | null = null;
+
+async function getOpenAiKey(): Promise<string | null> {
+  const envKey = process.env.OPENAI_API_KEY;
+  if (envKey) return envKey;
+
+  if (cachedKey && Date.now() - cachedKey.fetchedAt < KEY_CACHE_MS) {
+    return cachedKey.key;
+  }
+
+  try {
+    const supabase = createSupabaseClient();
+    const { data } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "ai-provider")
+      .eq("is_active", true)
+      .single();
+
+    const config = (data?.config ?? {}) as Record<string, unknown>;
+    const key =
+      typeof config.openai_api_key === "string" && config.openai_api_key.length > 0
+        ? config.openai_api_key
+        : null;
+    cachedKey = { key, fetchedAt: Date.now() };
+    return key;
+  } catch (error) {
+    console.warn("[EMBEDDINGS] Failed to load OpenAI key from ai-provider config:", error);
+    cachedKey = { key: null, fetchedAt: Date.now() };
+    return null;
+  }
+}
 
 export async function generateEmbedding(
   text: string,
 ): Promise<ReadonlyArray<number> | null> {
-  // Try Anthropic's embedding endpoint via voyage
-  if (voyageAvailable !== false) {
-    try {
-      const response = await fetch("https://api.voyageai.com/v1/embeddings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.VOYAGE_API_KEY ?? ""}`,
-        },
-        body: JSON.stringify({
-          input: [text.slice(0, 8000)], // Truncate to model limit
-          model: EMBEDDING_MODEL,
-        }),
-      });
-
-      if (response.ok) {
-        voyageAvailable = true;
-        const data = (await response.json()) as {
-          data: ReadonlyArray<{ embedding: ReadonlyArray<number> }>;
-        };
-        return data.data[0].embedding;
-      }
-      voyageAvailable = false;
-    } catch {
-      voyageAvailable = false;
-    }
+  if (lastFailureAt && Date.now() - lastFailureAt < FAILURE_COOLDOWN_MS) {
+    return null;
   }
 
-  // Fallback: Use Anthropic to generate a pseudo-embedding via concept extraction
-  // This is a degraded mode — no vector similarity, but still stores memories
-  console.warn(
-    "[EMBEDDINGS] Voyage API unavailable, memories stored without embeddings",
-  );
-  return null;
+  const apiKey = await getOpenAiKey();
+  if (!apiKey) {
+    console.warn(
+      "[EMBEDDINGS] No OpenAI API key available (env OPENAI_API_KEY or ai-provider config) — memories stored without embeddings",
+    );
+    lastFailureAt = Date.now();
+    return null;
+  }
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        input: text.slice(0, 8000), // Stay well under the model's token limit
+        model: EMBEDDING_MODEL,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.warn(
+        `[EMBEDDINGS] OpenAI embeddings request failed (${response.status}): ${body.slice(0, 200)}`,
+      );
+      lastFailureAt = Date.now();
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      data: ReadonlyArray<{ embedding: ReadonlyArray<number> }>;
+    };
+    lastFailureAt = null;
+    return data.data[0].embedding;
+  } catch (error) {
+    console.warn("[EMBEDDINGS] OpenAI embeddings request errored:", error);
+    lastFailureAt = Date.now();
+    return null;
+  }
 }
 
 /**

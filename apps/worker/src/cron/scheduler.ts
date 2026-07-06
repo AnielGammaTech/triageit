@@ -63,6 +63,36 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     schedule: "*/5 * * * *",
     endpoint: "/integration-heartbeat",
   },
+  {
+    name: "Error Ticket Retry",
+    description: "Re-enqueues open tickets stuck in error status (3 attempts, then permanent-failure escalation).",
+    schedule: "*/30 * * * *",
+    endpoint: "/error-retry",
+  },
+  {
+    name: "Response Time Alerts",
+    description: "Scans open tickets for customer replies awaiting a tech response and escalates via Teams.",
+    schedule: "*/15 * * * *",
+    endpoint: "/response-alerts",
+  },
+  {
+    name: "Error Ticket Scan",
+    description: "Hourly sweep for tickets stuck in triaging or error states so nothing silently stalls.",
+    schedule: "0 */1 * * *",
+    endpoint: "/error-scan",
+  },
+  {
+    name: "Weekly Team Report",
+    description: "Monday 8 AM ET team report card posted to Teams.",
+    schedule: "0 13 * * 1",
+    endpoint: "/weekly-report",
+  },
+  {
+    name: "Memory Eviction",
+    description: "Nightly cleanup of stale agent memories to keep recall sharp.",
+    schedule: "0 8 * * *",
+    endpoint: "/memory/evict",
+  },
 ];
 
 /**

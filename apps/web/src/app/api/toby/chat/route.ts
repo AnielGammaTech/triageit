@@ -495,7 +495,7 @@ export async function POST(request: NextRequest) {
         // Tool use loop
         for (let iteration = 0; iteration < 10; iteration++) {
           const response = await anthropic.messages.create({
-            model: "claude-sonnet-4-20250514",
+            model: "claude-sonnet-5",
             max_tokens: 4096,
             system: systemPrompt,
             tools,
