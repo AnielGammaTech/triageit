@@ -9,7 +9,7 @@ import {
   type DattoEdrConfig,
   type EdrAlert,
 } from "../../integrations/datto-edr/client.js";
-import { ApiNinjasClient, extractPublicIps, extractForeignDomains } from "../../integrations/apininjas/client.js";
+import { ApiNinjasClient, extractPublicIps, extractForeignDomains, extractEmails } from "../../integrations/apininjas/client.js";
 
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
@@ -273,6 +273,20 @@ Respond with ONLY valid JSON:
         const ageDays = Math.floor((Date.now() / 1000 - created) / 86400);
         const flag = ageDays < 90 ? " ⚠ YOUNG DOMAIN — strong phishing signal" : "";
         lines.push(`Domain ${domain}: registered ${ageDays} days ago (registrar ${who?.registrar ?? "unknown"})${flag}`);
+      }
+    }
+
+    // Sender/recipient email hygiene — disposable or malformed addresses on
+    // a security ticket are a phishing/fraud signal
+    const ownDomain2 = context.userEmail?.split("@")[1]?.toLowerCase() ?? "";
+    for (const email of extractEmails(text)) {
+      if (email.split("@")[1] === ownDomain2) continue;
+      const info = await client.validateEmail(email);
+      if (!info) continue;
+      if (info.is_disposable === true) {
+        lines.push(`Email ${email}: ⚠ DISPOSABLE/throwaway address — treat as untrusted`);
+      } else if (info.is_valid === false) {
+        lines.push(`Email ${email}: not a deliverable address (possible spoof/typo)`);
       }
     }
     return lines;
