@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { withMessageCacheBreakpoint, buildCachedSystem } from "@/lib/anthropic-cache";
 import { postInternalHaloNote } from "@/lib/halo-note";
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -226,17 +227,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Volatile context goes in a separate uncached system block — its churn
+  // (live counts, mentioned tickets) must not invalidate the cached prefix
+  let dynamicPrompt = "";
+
   // Lightweight summary — details available via tools
-  systemPrompt += `\n\n## Quick Stats:\n`;
-  systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
+  dynamicPrompt += `\n\n## Quick Stats:\n`;
+  dynamicPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
   if (integrations && integrations.length > 0) {
-    systemPrompt += `- Active integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
+    dynamicPrompt += `- Active integrations: ${integrations.map((i) => i.service).join(", ")}\n`;
     const unhealthy = integrations.filter((i) => i.health_status === "degraded" || i.health_status === "down");
     if (unhealthy.length > 0) {
-      systemPrompt += `- Integrations needing attention: ${unhealthy.map((i) => i.service).join(", ")}\n`;
+      dynamicPrompt += `- Integrations needing attention: ${unhealthy.map((i) => i.service).join(", ")}\n`;
     }
   }
-  systemPrompt += `\nUse the **get_dashboard** tool to see tech workload, customer breakdown, recent trends, and tech reviews when the conversation needs that context. Don't load it preemptively.\n`;
+  dynamicPrompt += `\nUse the **get_dashboard** tool to see tech workload, customer breakdown, recent trends, and tech reviews when the conversation needs that context. Don't load it preemptively.\n`;
 
   // ── Auto-detect ticket numbers (#XXXXX) in the message ──
   const ticketNumbers = [...message.matchAll(/#(\d{4,6})/g)].map((m) => parseInt(m[1], 10));
@@ -249,22 +254,22 @@ export async function POST(request: NextRequest) {
       .order("created_at", { referencedTable: "triage_results", ascending: false });
 
     if (tickets && tickets.length > 0) {
-      systemPrompt += "\n\n## Mentioned Tickets (from database):\n";
+      dynamicPrompt += "\n\n## Mentioned Tickets (from database):\n";
       for (const t of tickets) {
-        systemPrompt += `\n### Ticket #${t.halo_id}\n`;
-        systemPrompt += `- **Summary**: ${t.summary}\n`;
-        if (t.client_name) systemPrompt += `- **Client**: ${t.client_name}\n`;
-        if (t.halo_status) systemPrompt += `- **Status**: ${t.halo_status}\n`;
-        if (t.halo_agent) systemPrompt += `- **Assigned Tech**: ${t.halo_agent}\n`;
-        if (t.details) systemPrompt += `- **Details**: ${t.details.slice(0, 1500)}\n`;
+        dynamicPrompt += `\n### Ticket #${t.halo_id}\n`;
+        dynamicPrompt += `- **Summary**: ${t.summary}\n`;
+        if (t.client_name) dynamicPrompt += `- **Client**: ${t.client_name}\n`;
+        if (t.halo_status) dynamicPrompt += `- **Status**: ${t.halo_status}\n`;
+        if (t.halo_agent) dynamicPrompt += `- **Assigned Tech**: ${t.halo_agent}\n`;
+        if (t.details) dynamicPrompt += `- **Details**: ${t.details.slice(0, 1500)}\n`;
 
         const triageResults = (t.triage_results as ReadonlyArray<Record<string, unknown>>) ?? [];
         const latest = triageResults[0];
         if (latest) {
           const notes = Array.isArray(latest.internal_notes) ? (latest.internal_notes as string[]).join("\n") : String(latest.internal_notes ?? "");
           const classification = latest.classification as Record<string, string> | null;
-          systemPrompt += `\n**Triage:** ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}\n`;
-          if (notes) systemPrompt += `**Notes:** ${notes}\n`;
+          dynamicPrompt += `\n**Triage:** ${classification ? `${classification.type}/${classification.subtype}` : "N/A"}, Urgency: ${latest.urgency_score}/5, P${latest.recommended_priority}\n`;
+          if (notes) dynamicPrompt += `**Notes:** ${notes}\n`;
         }
 
         // Tech review
@@ -277,19 +282,19 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
 
         if (review) {
-          systemPrompt += `**Tech Review:** ${review.rating} (response: ${review.response_time}) — ${review.summary ?? ""}`;
-          if (review.improvement_areas) systemPrompt += ` [Improve: ${review.improvement_areas}]`;
-          systemPrompt += "\n";
+          dynamicPrompt += `**Tech Review:** ${review.rating} (response: ${review.response_time}) — ${review.summary ?? ""}`;
+          if (review.improvement_areas) dynamicPrompt += ` [Improve: ${review.improvement_areas}]`;
+          dynamicPrompt += "\n";
         }
       }
     }
   } else if (ticket_context) {
-    systemPrompt += `\n\n## Current Ticket Context:\n`;
-    if (ticket_context.halo_id) systemPrompt += `- Ticket #${ticket_context.halo_id}\n`;
-    if (ticket_context.summary) systemPrompt += `- Summary: ${ticket_context.summary}\n`;
-    if (ticket_context.client_name) systemPrompt += `- Client: ${ticket_context.client_name}\n`;
-    if (ticket_context.details) systemPrompt += `- Details: ${ticket_context.details.slice(0, 2000)}\n`;
-    if (ticket_context.triage) systemPrompt += `\n### Latest Triage:\n${ticket_context.triage.slice(0, 3000)}\n`;
+    dynamicPrompt += `\n\n## Current Ticket Context:\n`;
+    if (ticket_context.halo_id) dynamicPrompt += `- Ticket #${ticket_context.halo_id}\n`;
+    if (ticket_context.summary) dynamicPrompt += `- Summary: ${ticket_context.summary}\n`;
+    if (ticket_context.client_name) dynamicPrompt += `- Client: ${ticket_context.client_name}\n`;
+    if (ticket_context.details) dynamicPrompt += `- Details: ${ticket_context.details.slice(0, 2000)}\n`;
+    if (ticket_context.triage) dynamicPrompt += `\n### Latest Triage:\n${ticket_context.triage.slice(0, 3000)}\n`;
   }
 
   // Add current messages including the new one
@@ -1144,8 +1149,8 @@ export async function POST(request: NextRequest) {
           const stream = await client.messages.stream({
             model: modelId,
             max_tokens: 2048,
-            system: systemPrompt,
-            messages: currentMessages,
+            system: buildCachedSystem(systemPrompt, dynamicPrompt),
+            messages: withMessageCacheBreakpoint(currentMessages),
             tools,
           });
 

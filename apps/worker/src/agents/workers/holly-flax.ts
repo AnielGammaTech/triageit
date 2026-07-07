@@ -159,7 +159,7 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
       max_tokens: 3072,
-      system: systemPrompt,
+      system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
       messages: [{ role: "user", content: userMessage }],
     });
 

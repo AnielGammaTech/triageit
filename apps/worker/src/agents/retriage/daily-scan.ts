@@ -759,7 +759,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const response = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 256,
-        system: RETRIAGE_PROMPT,
+        system: [{ type: "text" as const, text: RETRIAGE_PROMPT, cache_control: { type: "ephemeral" as const } }],
         messages: [{ role: "user", content: contextMessage }],
       });
 
