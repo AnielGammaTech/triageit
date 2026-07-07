@@ -1,5 +1,6 @@
 import type { MemoryMatch, Pax8Config } from "@triageit/shared";
 import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
+import { logCacheUsage } from "../cache-metrics.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -162,12 +163,14 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
       system: systemBlocks,
       messages: [{ role: "user", content: userMessage }],
     });
+    logCacheUsage(`holly:${this.getModel()}`, response.usage);
 
     const text =
       response.content[0].type === "text" ? response.content[0].text : "{}";
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.licensing_notes as string) ?? "No licensing data found",
       data: result,
       confidence: (result.confidence as number) ?? 0.5,

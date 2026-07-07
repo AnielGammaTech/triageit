@@ -114,6 +114,8 @@ export async function tryNotificationFastPath(
     internal_notes: "Notification/transactional ticket — no action required.",
     processing_time_ms: fastProcessingTime,
     model_tokens_used: { manager: 0, workers: {} },
+    analyzed_files: null,
+    duplicates: null,
   };
 }
 
@@ -241,5 +243,7 @@ export async function tryAlertFastPath(
     internal_notes: `Alert: ${alertResult.summary}. Action: ${alertResult.suggested_action}`,
     processing_time_ms: alertProcessingTime,
     model_tokens_used: { manager: 0, workers: { erin_hannon: 0 } },
+    analyzed_files: null,
+    duplicates: null,
   };
 }

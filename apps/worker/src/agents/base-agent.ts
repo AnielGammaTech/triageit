@@ -33,6 +33,7 @@ export interface AgentResult {
   readonly data: Record<string, unknown>;
   readonly confidence: number;
   readonly memories_used?: number;
+  readonly tokensUsed?: number;
 }
 
 /**
@@ -136,6 +137,7 @@ export abstract class BaseAgent {
       await this.log(context.ticketId, "completed", {
         output: result.summary,
         duration,
+        tokens: result.tokensUsed,
       });
 
       return { ...result, memories_used: allMemories.length };
@@ -420,6 +422,7 @@ export abstract class BaseAgent {
       output?: string;
       error?: string;
       duration?: number;
+      tokens?: number;
     },
   ): Promise<void> {
     await this.supabase.from("agent_logs").insert({
@@ -431,6 +434,7 @@ export abstract class BaseAgent {
       output_summary: details.output ?? null,
       error_message: details.error ?? null,
       duration_ms: details.duration ?? null,
+      tokens_used: details.tokens ?? null,
     });
   }
 

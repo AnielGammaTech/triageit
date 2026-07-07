@@ -2,6 +2,7 @@ import type { MemoryMatch, HuduConfig } from "@triageit/shared";
 import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
 import { logCacheUsage } from "../cache-metrics.js";
+import { extractEmailDomain, domainBaseName, hostnameOf } from "../customer-match.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -208,6 +209,7 @@ Respond with ONLY valid JSON:
     ].slice(0, 3);
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.documentation_notes as string) ?? "No documentation found",
       data: {
         ...result,
@@ -239,7 +241,7 @@ Respond with ONLY valid JSON:
 
     const hudu = new HuduClient(huduConfig);
 
-    const company = await this.findCompany(hudu, context.clientName);
+    const company = await this.findCompany(hudu, context.clientName, extractEmailDomain(context));
     if (!company) return emptyResult;
     const companyId = company.id;
 
@@ -289,22 +291,52 @@ Respond with ONLY valid JSON:
   private async findCompany(
     hudu: HuduClient,
     clientName: string | null,
+    emailDomain: string | null = null,
   ): Promise<{ readonly id: number; readonly slug: string | null } | null> {
-    if (!clientName) return null;
+    if (!clientName && !emailDomain) return null;
 
     try {
-      const companies = await hudu.searchCompanies(clientName);
-      if (companies.length > 0) {
-        const c = companies[0] as Record<string, unknown>;
-        return { id: companies[0].id, slug: (c.slug as string) ?? null };
+      if (clientName) {
+        const companies = await hudu.searchCompanies(clientName);
+        if (companies.length > 0) {
+          const c = companies[0] as Record<string, unknown>;
+          return { id: companies[0].id, slug: (c.slug as string) ?? null };
+        }
+
+        const firstWord = clientName.split(/\s+/)[0];
+        if (firstWord && firstWord.length > 2) {
+          const partialMatch = await hudu.searchCompanies(firstWord);
+          if (partialMatch.length > 0) {
+            const c = partialMatch[0] as Record<string, unknown>;
+            return { id: partialMatch[0].id, slug: (c.slug as string) ?? null };
+          }
+        }
       }
 
-      const firstWord = clientName.split(/\s+/)[0];
-      if (firstWord && firstWord.length > 2) {
-        const partialMatch = await hudu.searchCompanies(firstWord);
-        if (partialMatch.length > 0) {
-          const c = partialMatch[0] as Record<string, unknown>;
-          return { id: partialMatch[0].id, slug: (c.slug as string) ?? null };
+      // Domain fallback — match the reporter's email domain against each
+      // company's website (handles renamed clients + multi-domain orgs)
+      if (emailDomain) {
+        const all = await hudu.getCompanies();
+        const byWebsite = all.find((co) => {
+          const site = (co as Record<string, unknown>).website as string | undefined;
+          const host = site ? hostnameOf(site) : null;
+          return host === emailDomain;
+        });
+        if (byWebsite) {
+          console.log(`[DWIGHT] Matched Hudu company by website domain ${emailDomain}: ${byWebsite.name}`);
+          const c = byWebsite as unknown as Record<string, unknown>;
+          return { id: byWebsite.id, slug: (c.slug as string) ?? null };
+        }
+
+        // Last try: domain base name as a search term ("evllc" from evllc.com)
+        const base = domainBaseName(emailDomain);
+        if (base.length > 3) {
+          const byBase = await hudu.searchCompanies(base);
+          if (byBase.length > 0) {
+            console.log(`[DWIGHT] Matched Hudu company by domain base "${base}": ${byBase[0].name}`);
+            const c = byBase[0] as Record<string, unknown>;
+            return { id: byBase[0].id, slug: (c.slug as string) ?? null };
+          }
         }
       }
 
