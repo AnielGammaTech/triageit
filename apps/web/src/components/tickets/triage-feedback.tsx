@@ -289,7 +289,7 @@ export function TriageFeedback({ triageResultId, ticketId }: TriageFeedbackProps
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               submitting
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#b91c1c]/20 text-[#b91c1c] hover:bg-[#b91c1c]/30",
+                : "bg-[#6c5ce7]/20 text-[#6c5ce7] hover:bg-[#6c5ce7]/30",
             )}
           >
             {submitting ? "Saving..." : "Submit Feedback"}
