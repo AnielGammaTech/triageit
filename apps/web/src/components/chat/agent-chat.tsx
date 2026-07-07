@@ -311,7 +311,7 @@ export function AgentChat({ config, ticketContext }: AgentChatProps) {
             {conversations.map((conv) => (
               <div key={conv.id} className={cn("group flex items-center gap-2 px-3 py-2.5 cursor-pointer transition-colors", activeConversationId === conv.id ? "bg-white/[0.08] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.04]")} onClick={() => selectConversation(conv.id)}>
                 <span className="flex-1 truncate text-sm">{conv.title}</span>
-                <button onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }} className="hidden group-hover:block shrink-0 rounded p-0.5 text-white/30 hover:text-red-400 transition-colors">
+                <button onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }} className="shrink-0 cursor-pointer rounded p-0.5 text-white/25 opacity-60 transition-colors hover:text-red-400 hover:opacity-100 group-hover:opacity-100">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>

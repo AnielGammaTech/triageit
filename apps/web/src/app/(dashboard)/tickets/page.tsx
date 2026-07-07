@@ -89,36 +89,39 @@ export default function TicketsPage() {
       close_reviews(id)
     `;
 
+    // Supabase caps each request at 1000 rows — page in batches so no tab
+    // silently truncates (Resolved was capped at exactly 1000)
+    const BATCH = 1000;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function fetchAllRows(
+      applyFilters: (q: any) => any,
+    ): Promise<{ rows: any[]; error: { message: string } | null }> {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows: any[] = [];
+      for (let from = 0; from < 25_000; from += BATCH) {
+        const { data, error } = await applyFilters(
+          supabase.from("tickets").select(ticketFields),
+        )
+          .order("created_at", { ascending: false })
+          .range(from, from + BATCH - 1);
+        if (error) return { rows, error };
+        rows.push(...(data ?? []));
+        if (!data || data.length < BATCH) break;
+      }
+      return { rows, error: null };
+    }
+
     const [openResult, closedResult, alertsResult] = await Promise.all([
       // All open Gamma Default tickets (no date limit)
-      supabase
-        .from("tickets")
-        .select(ticketFields)
-        .eq("tickettype_id", 31)
-        .eq("halo_is_open", true)
-        .order("created_at", { ascending: false })
-        .limit(500),
+      fetchAllRows((q) => q.eq("tickettype_id", 31).eq("halo_is_open", true)),
       // Recently closed Gamma Default (last 90 days for Resolved tab)
-      supabase
-        .from("tickets")
-        .select(ticketFields)
-        .eq("tickettype_id", 31)
-        .eq("halo_is_open", false)
-        .gte("created_at", threeMonthsAgo)
-        .order("created_at", { ascending: false })
-        .limit(1000),
+      fetchAllRows((q) => q.eq("tickettype_id", 31).eq("halo_is_open", false).gte("created_at", threeMonthsAgo)),
       // Alert tickets (type 36) — recent, for Alerts tab
-      supabase
-        .from("tickets")
-        .select(ticketFields)
-        .eq("tickettype_id", 36)
-        .gte("created_at", threeMonthsAgo)
-        .order("created_at", { ascending: false })
-        .limit(500),
+      fetchAllRows((q) => q.eq("tickettype_id", 36).gte("created_at", threeMonthsAgo)),
     ]);
 
     const dbError = openResult.error ?? closedResult.error ?? alertsResult.error;
-    const data = [...(openResult.data ?? []), ...(closedResult.data ?? []), ...(alertsResult.data ?? [])]
+    const data = [...openResult.rows, ...closedResult.rows, ...alertsResult.rows]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     if (dbError) {
@@ -252,6 +255,18 @@ export default function TicketsPage() {
   // On mount: load DB tickets immediately, then auto-pull from Halo in the background
   useEffect(() => {
     loadTickets();
+  }, [loadTickets]);
+
+  // Auto-refresh every 60s (only while the tab is visible) — the worker
+  // closes/opens tickets server-side every minute, so counts stay current
+  // without a manual refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadTickets();
+      }
+    }, 60_000);
+    return () => clearInterval(interval);
   }, [loadTickets]);
 
   // Auto-pull disabled — use Health & Maintenance > Sync Now instead

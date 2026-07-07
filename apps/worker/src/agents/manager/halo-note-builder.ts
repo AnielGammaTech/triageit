@@ -329,14 +329,8 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">App Context</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;word-break:break-word;">${linkifyKnownEntities(formatBulletList(appContext), allLinks)}</td></tr>`);
   }
 
-  // Tech plan — blue tinted dark background, parsed into numbered list
-  const stepSource = michaelResult.troubleshooting_steps && michaelResult.troubleshooting_steps.length > 0
-    ? michaelResult.troubleshooting_steps
-    : michaelResult.internal_notes;
-  const formattedNotes = linkifyKnownEntities(formatTechNotes(stepSource), allLinks);
-  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">Tech Plan</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
-
-  // Quick Links — everything the specialists linked, in one place
+  // Quick Links — directly under App Context, above the Tech Plan, so the
+  // tech sees the doors before the steps that walk through them
   if (allLinks.length > 0 || relevantPasswords.length > 0) {
     const linkItems = allLinks
       .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;">${l.label}</a>`)
@@ -350,6 +344,13 @@ export function buildHaloNote(
       .join("");
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">📎 Quick Links</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.6;word-break:break-word;">${content}</td></tr>`);
   }
+
+  // Tech plan — blue tinted dark background, parsed into numbered list
+  const stepSource = michaelResult.troubleshooting_steps && michaelResult.troubleshooting_steps.length > 0
+    ? michaelResult.troubleshooting_steps
+    : michaelResult.internal_notes;
+  const formattedNotes = linkifyKnownEntities(formatTechNotes(stepSource), allLinks);
+  rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">Tech Plan</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
   // Similar-tickets section removed — it was noise for the techs. Similar
   // tickets still feed Michael's context and duplicate detection.

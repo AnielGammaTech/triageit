@@ -472,6 +472,9 @@ function CustomerMappingTab({
   const [autoMapSuggestions, setAutoMapSuggestions] = useState<ReadonlyArray<AutoMapSuggestion>>([]);
   const [autoMapSelected, setAutoMapSelected] = useState<Set<string>>(new Set());
   const [showAutoMap, setShowAutoMap] = useState(false);
+  const [mappedSearch, setMappedSearch] = useState("");
+  const [mappedPage, setMappedPage] = useState(1);
+  const [unmappedPage, setUnmappedPage] = useState(1);
 
   const isHaloService = service === "halo";
   const serviceLabel = service.charAt(0).toUpperCase() + service.slice(1);
@@ -533,11 +536,31 @@ function CustomerMappingTab({
     (c) => !mappedExternalIds.has(String(c.id)),
   );
 
+  const filteredMappings = mappedSearch.trim()
+    ? mappings.filter(
+        (m) =>
+          m.external_name.toLowerCase().includes(mappedSearch.toLowerCase()) ||
+          (m.customer_name ?? "").toLowerCase().includes(mappedSearch.toLowerCase()),
+      )
+    : mappings;
+  const mappedTotalPages = Math.max(1, Math.ceil(filteredMappings.length / PAGE_SIZE));
+  const mappedPageSafe = Math.min(mappedPage, mappedTotalPages);
+  const pagedMappings = filteredMappings.slice(
+    (mappedPageSafe - 1) * PAGE_SIZE,
+    mappedPageSafe * PAGE_SIZE,
+  );
+
   const filteredUnmapped = searchExternal.trim()
     ? unmappedCustomers.filter((c) =>
         c.name.toLowerCase().includes(searchExternal.toLowerCase()),
       )
     : unmappedCustomers;
+  const unmappedTotalPages = Math.max(1, Math.ceil(filteredUnmapped.length / PAGE_SIZE));
+  const unmappedPageSafe = Math.min(unmappedPage, unmappedTotalPages);
+  const pagedUnmapped = filteredUnmapped.slice(
+    (unmappedPageSafe - 1) * PAGE_SIZE,
+    unmappedPageSafe * PAGE_SIZE,
+  );
 
   const filteredHaloCustomers = haloSearch.trim()
     ? haloCustomers.filter((c) =>
@@ -568,6 +591,21 @@ function CustomerMappingTab({
 
   return (
     <div className="space-y-5">
+      {/* Overview chips */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          {mappings.length} mapped
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          {loading ? "…" : unmappedCustomers.length} unmapped
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/50">
+          {loading ? "…" : externalCustomers.length} total in {serviceLabel}
+        </span>
+      </div>
+
       {/* Mapping picker modal */}
       {mappingTarget && (
         <div className="rounded-xl border border-[#b91c1c]/30 bg-[#b91c1c]/5 p-4">
@@ -633,9 +671,20 @@ function CustomerMappingTab({
       {/* Mapped customers */}
       {mappings.length > 0 && (
         <div>
-          <h4 className="mb-2 text-sm font-medium text-white/70">
-            Mapped ({mappings.length})
-          </h4>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h4 className="text-sm font-medium text-white/70">
+              Mapped ({filteredMappings.length}{mappedSearch.trim() ? ` of ${mappings.length}` : ""})
+            </h4>
+            <input
+              value={mappedSearch}
+              onChange={(e) => {
+                setMappedSearch(e.target.value);
+                setMappedPage(1);
+              }}
+              placeholder="Search mapped..."
+              className="w-56 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
+            />
+          </div>
           <div className="overflow-hidden rounded-lg border border-white/10">
             <table className="w-full text-sm">
               <thead>
@@ -668,7 +717,7 @@ function CustomerMappingTab({
                 </tr>
               </thead>
               <tbody>
-                {mappings.map((m) => (
+                {pagedMappings.map((m) => (
                   <tr
                     key={m.id}
                     className="border-b border-white/5 transition-colors hover:bg-white/5"
@@ -713,9 +762,23 @@ function CustomerMappingTab({
                     </td>
                   </tr>
                 ))}
+                {pagedMappings.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-xs text-white/30">
+                      No mapped customers match &quot;{mappedSearch}&quot;
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={mappedPageSafe}
+            totalPages={mappedTotalPages}
+            totalItems={filteredMappings.length}
+            pageSize={PAGE_SIZE}
+            onChange={setMappedPage}
+          />
         </div>
       )}
 
@@ -890,8 +953,13 @@ function CustomerMappingTab({
         )}
 
         {loading && (
-          <div className="flex items-center justify-center py-8">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          <div className="space-y-1.5 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex animate-pulse items-center justify-between rounded-lg px-3 py-2">
+                <div className="h-4 w-48 rounded bg-white/10" />
+                <div className="h-6 w-12 rounded-lg bg-white/5" />
+              </div>
+            ))}
           </div>
         )}
 
@@ -899,12 +967,15 @@ function CustomerMappingTab({
           <>
             <input
               value={searchExternal}
-              onChange={(e) => setSearchExternal(e.target.value)}
+              onChange={(e) => {
+                setSearchExternal(e.target.value);
+                setUnmappedPage(1);
+              }}
               placeholder={`Search ${serviceLabel} customers...`}
               className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
             />
-            <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
-              {filteredUnmapped.map((customer) => (
+            <div className="space-y-1 rounded-lg border border-white/10 bg-white/[0.02] p-2">
+              {pagedUnmapped.map((customer) => (
                 <div
                   key={customer.id}
                   className="flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-white/5"
@@ -933,18 +1004,81 @@ function CustomerMappingTab({
                 </p>
               )}
             </div>
+            <Pagination
+              page={unmappedPageSafe}
+              totalPages={unmappedTotalPages}
+              totalItems={filteredUnmapped.length}
+              pageSize={PAGE_SIZE}
+              onChange={setUnmappedPage}
+            />
           </>
         )}
 
         {!loading && unmappedCustomers.length === 0 && !fetchError && (
           <div className="rounded-lg border border-white/10 bg-white/[0.02] p-6 text-center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-2 text-emerald-400/60">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <path d="m9 11 3 3L22 4" />
+            </svg>
             <p className="text-sm text-white/50">
               {externalCustomers.length === 0
                 ? "No customers found in this integration."
-                : "All customers are mapped!"}
+                : "All customers are mapped."}
             </p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Pagination ────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 25;
+
+interface PaginationProps {
+  readonly page: number;
+  readonly totalPages: number;
+  readonly totalItems: number;
+  readonly pageSize: number;
+  readonly onChange: (page: number) => void;
+}
+
+function Pagination({ page, totalPages, totalItems, pageSize, onChange }: PaginationProps) {
+  if (totalItems <= pageSize) return null;
+
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalItems);
+
+  return (
+    <div className="mt-2 flex items-center justify-between px-1 text-xs text-white/40">
+      <span>
+        {from}–{to} of {totalItems}
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page <= 1}
+          aria-label="Previous page"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-white/50 transition-colors duration-200 hover:bg-white/5 hover:text-white disabled:cursor-default disabled:opacity-30"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <span className="min-w-[70px] text-center tabular-nums">
+          {page} / {totalPages}
+        </span>
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page >= totalPages}
+          aria-label="Next page"
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg border border-white/10 text-white/50 transition-colors duration-200 hover:bg-white/5 hover:text-white disabled:cursor-default disabled:opacity-30"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m9 18 6-6-6-6" />
+          </svg>
+        </button>
       </div>
     </div>
   );
