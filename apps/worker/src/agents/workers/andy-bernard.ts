@@ -1,6 +1,8 @@
 import type { MemoryMatch, DattoConfig } from "@triageit/shared";
 import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
+import { logCacheUsage } from "../cache-metrics.js";
+import { extractEmailDomain, domainBaseName } from "../customer-match.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -136,6 +138,7 @@ Respond with ONLY valid JSON:
       system: systemBlocks,
       messages: [{ role: "user", content: userMessage }],
     });
+    logCacheUsage(`andy:${this.getModel()}`, response.usage);
 
     const text =
       extractResponseText(response, "{}");
@@ -158,6 +161,7 @@ Respond with ONLY valid JSON:
     }
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.endpoint_notes as string) ?? "No endpoint data found",
       data: result,
       confidence: (result.confidence as number) ?? 0.5,
@@ -184,7 +188,7 @@ Respond with ONLY valid JSON:
     const baseUrl = config.api_url.replace(/\/$/, "");
 
     // Find the site by client name/ID
-    const site = await this.findSite(datto, context.clientName, context.clientId);
+    const site = await this.findSite(datto, context.clientName, context.clientId, extractEmailDomain(context));
     if (!site) return { ...emptyResult, baseUrl };
 
     // Fetch devices and alerts in parallel
@@ -236,6 +240,7 @@ Respond with ONLY valid JSON:
     datto: DattoClient,
     clientName: string | null,
     clientId?: number | null,
+    emailDomain: string | null = null,
   ): Promise<DattoSite | null> {
     if (!clientName) return null;
 
@@ -362,6 +367,21 @@ Respond with ONLY valid JSON:
             `[ANDY] Matched Datto site (word overlap ${Math.round(bestScore * 100)}%): "${bestMatch.name}" (ID: ${bestMatch.id}) for "${clientName}"`,
           );
           return bestMatch;
+        }
+      }
+
+      // Domain fallback — the email domain's base name often matches the
+      // site name even when the Halo client name doesn't (multi-domain orgs)
+      if (emailDomain) {
+        const base = domainBaseName(emailDomain);
+        if (base.length > 3) {
+          const byDomain = sites.find((s) => normalize(s.name).replace(/\s+/g, "").includes(base));
+          if (byDomain) {
+            console.log(
+              `[ANDY] Matched Datto site by email domain base "${base}": "${byDomain.name}" (ID: ${byDomain.id})`,
+            );
+            return byDomain;
+          }
         }
       }
 

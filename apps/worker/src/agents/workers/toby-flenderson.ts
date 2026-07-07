@@ -185,6 +185,60 @@ export async function runTobyAnalysis(
       ),
     ];
 
+    // ── Escalation follow-through ─────────────────────────────────
+    // Escalation events = daily-scan retriage rows at critical/warning
+    // severity. Measure whether/when the assigned tech acted afterwards
+    // (tickets.last_tech_action_at). Deterministic — no LLM needed.
+    interface EscalationStats {
+      escalations: number;
+      responded: number;
+      unanswered_24h: number;
+      totalLatencyHours: number;
+    }
+    const escalationStats = new Map<string, EscalationStats>();
+    {
+      const ticketById = new Map(tickets.map((t) => [t.id, t]));
+      const escalationEvents = triageResults.filter((r) => {
+        if (r.triage_type !== "retriage") return false;
+        const sub = (r.classification as { subtype?: string } | null)?.subtype;
+        return sub === "critical" || sub === "warning";
+      });
+
+      // Fetch tickets referenced by events but outside the 30-day window
+      const missingIds = [...new Set(escalationEvents.map((e) => e.ticket_id))].filter(
+        (id) => !ticketById.has(id),
+      );
+      if (missingIds.length > 0) {
+        const { data: extraTickets } = await supabase
+          .from("tickets")
+          .select("id, halo_agent, last_tech_action_at")
+          .in("id", missingIds.slice(0, 200));
+        for (const t of extraTickets ?? []) ticketById.set(t.id, t as (typeof tickets)[number]);
+      }
+
+      for (const event of escalationEvents) {
+        const t = ticketById.get(event.ticket_id);
+        const tech = t?.halo_agent;
+        if (!tech) continue;
+
+        const stats = escalationStats.get(tech) ?? {
+          escalations: 0, responded: 0, unanswered_24h: 0, totalLatencyHours: 0,
+        };
+        stats.escalations++;
+
+        const eventTime = new Date(event.created_at as string).getTime();
+        const lastAction = t.last_tech_action_at ? new Date(t.last_tech_action_at as string).getTime() : 0;
+        if (lastAction > eventTime) {
+          stats.responded++;
+          stats.totalLatencyHours += (lastAction - eventTime) / (1000 * 60 * 60);
+        } else if (Date.now() - eventTime > 24 * 60 * 60 * 1000) {
+          stats.unanswered_24h++;
+        }
+        escalationStats.set(tech, stats);
+      }
+      console.log(`[TOBY] Escalation follow-through computed for ${escalationStats.size} techs (${escalationEvents.length} events)`);
+    }
+
     for (const techName of techNames) {
       try {
         const techTickets = tickets.filter((t) => t.halo_agent === techName);
@@ -225,6 +279,16 @@ export async function runTobyAnalysis(
           `Average communication: ${avgComm.toFixed(2)}/5`,
           `Average response gap: ${avgResponseHours.toFixed(1)} hours`,
           `Rating breakdown: ${JSON.stringify(ratingCounts)}`,
+          ...(escalationStats.has(techName)
+            ? [
+                `Escalation follow-through (30d): ${escalationStats.get(techName)!.escalations} escalation notes, ` +
+                  `${escalationStats.get(techName)!.responded} acted on` +
+                  (escalationStats.get(techName)!.responded > 0
+                    ? ` (avg ${(escalationStats.get(techName)!.totalLatencyHours / escalationStats.get(techName)!.responded).toFixed(1)}h to act)`
+                    : "") +
+                  `, ${escalationStats.get(techName)!.unanswered_24h} ignored >24h`,
+              ]
+            : []),
           ``,
           `Recent ticket types:`,
           ...techTickets.slice(0, 20).map(
@@ -276,7 +340,22 @@ export async function runTobyAnalysis(
             poor_count: ratingCounts.poor,
             strong_categories: profile.strong_categories ?? [],
             weak_categories: profile.weak_categories ?? [],
-            patterns: profile.patterns ?? {},
+            patterns: {
+              ...(profile.patterns ?? {}),
+              ...(escalationStats.has(techName)
+                ? {
+                    escalation_follow_through: {
+                      escalations_30d: escalationStats.get(techName)!.escalations,
+                      responded: escalationStats.get(techName)!.responded,
+                      ignored_over_24h: escalationStats.get(techName)!.unanswered_24h,
+                      avg_hours_to_act:
+                        escalationStats.get(techName)!.responded > 0
+                          ? Number((escalationStats.get(techName)!.totalLatencyHours / escalationStats.get(techName)!.responded).toFixed(1))
+                          : null,
+                    },
+                  }
+                : {}),
+            },
             summary: profile.summary ?? null,
             updated_at: new Date().toISOString(),
           },

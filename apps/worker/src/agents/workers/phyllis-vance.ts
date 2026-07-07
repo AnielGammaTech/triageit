@@ -1,6 +1,7 @@
 import type { MemoryMatch } from "@triageit/shared";
 import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
+import { logCacheUsage } from "../cache-metrics.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -147,12 +148,14 @@ Respond with ONLY valid JSON:
       system: systemBlocks,
       messages: [{ role: "user", content: userMessage }],
     });
+    logCacheUsage(`phyllis:${this.getModel()}`, response.usage);
 
     const text =
       extractResponseText(response, "{}");
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.email_notes as string) ?? "No email/DNS data found",
       data: result,
       confidence: (result.confidence as number) ?? 0.5,

@@ -75,4 +75,6 @@ export interface TriageOutput {
     readonly manager: number;
     readonly workers: Record<string, number>;
   };
+  readonly analyzed_files: ReadonlyArray<string> | null;
+  readonly duplicates: ReadonlyArray<{ halo_id: number; summary: string; similarity: number }> | null;
 }

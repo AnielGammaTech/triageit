@@ -180,6 +180,7 @@ Respond with ONLY valid JSON:
     }
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.security_notes as string) ?? "No security concerns",
       data: result,
       confidence: (result.confidence as number) ?? 0.5,

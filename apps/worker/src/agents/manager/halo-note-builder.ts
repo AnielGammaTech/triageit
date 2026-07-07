@@ -245,6 +245,7 @@ export function buildHaloNote(
   slaInfo?: SlaInfo,
   branding?: BrandingConfig,
   originalPriority?: number | null,
+  analyzedFiles?: ReadonlyArray<string>,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -393,6 +394,13 @@ export function buildHaloNote(
   // Doc Gaps removed from initial triage — they belong in the close review only
 
   // Priority recommendation lives in the header chip — no bottom row
+
+  // Evidence trail — which attachments the AI actually read for this triage
+  if (analyzedFiles && analyzedFiles.length > 0) {
+    rows.push(
+      `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;font-size:10.5px;color:#64748b;">Analyzed attachments: ${analyzedFiles.map((f) => `<span style="color:#94a3b8;">${f}</span>`).join(" · ")}</td></tr>`,
+    );
+  }
 
   // No footer — the header already carries agent count and timing
 

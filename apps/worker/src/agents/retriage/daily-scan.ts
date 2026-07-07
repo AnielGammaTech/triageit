@@ -722,7 +722,31 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       // Quick rule-based check (free, no tokens) — collect flags but ALWAYS run AI too
       const ruleResult = quickRuleCheck(enrichedTicket, actions);
 
-      // EVERY eligible ticket gets a full AI evaluation — rule flags are supplementary
+      // ── Change gate ──
+      // If the ticket has had NO new actions since the last evaluation AND
+      // the free rule check raises no flags, there is nothing for the AI to
+      // re-assess — skip the LLM call and just stamp the review time.
+      // Rule flags are time-based (wot_overdue, sla_breached, aging), so a
+      // ticket that goes stale still reaches the AI via its rule flags.
+      const latestActionTime = actions.length > 0
+        ? Math.max(...actions.map((a) => new Date(actionDate(a) || 0).getTime()).filter((t) => !isNaN(t)))
+        : 0;
+      const noNewActions = latestActionTime > 0 && latestActionTime < lastTriageTime;
+      const noRuleFlags = !ruleResult || ruleResult.flags.length === 0;
+
+      if (noNewActions && noRuleFlags && !hasNewCustomerActivity) {
+        console.log(`[RETRIAGE] #${enrichedTicket.id}: unchanged since last eval, no rule flags — skipping AI`);
+        const localId = await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        if (localId) {
+          await supabase
+            .from("tickets")
+            .update({ last_retriage_at: new Date().toISOString() })
+            .eq("id", localId);
+        }
+        continue;
+      }
+
+      // EVERY changed ticket gets a full AI evaluation — rule flags are supplementary
       const now = new Date().toISOString();
       const daysOpen = daysBetween(enrichedTicket.datecreated, now);
       const lastActivity = getLastActivity(actions);

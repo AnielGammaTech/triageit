@@ -760,6 +760,12 @@ export async function runTriage(
 
   // ── Return triage output ───────────────────────────────────────────
 
+  // Evidence trail: which attachments the AI actually read this run
+  const analyzedFiles = [
+    ...(context.images ?? []).map((i) => i.filename),
+    ...(context.documents ?? []).map((d) => d.filename),
+  ];
+
   const triageId = crypto.randomUUID();
 
   return {
@@ -783,6 +789,10 @@ export async function runTriage(
       manager: michaelResult._managerTokens ?? 0,
       workers: workerTokens,
     },
+    analyzed_files: analyzedFiles.length > 0 ? analyzedFiles : null,
+    duplicates: duplicates.length > 0
+      ? duplicates.map((d) => ({ halo_id: d.haloId, summary: d.summary, similarity: d.similarity }))
+      : null,
   };
 }
 
@@ -1081,10 +1091,14 @@ async function postHaloNotes(
     }
   } else {
     try {
+      const analyzedFiles = [
+        ...(context.images ?? []).map((i) => i.filename),
+        ...(context.documents ?? []).map((d) => d.filename),
+      ];
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
         similarTickets, duplicates, slaInfo, branding,
-        ticket.original_priority,
+        ticket.original_priority, analyzedFiles,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {

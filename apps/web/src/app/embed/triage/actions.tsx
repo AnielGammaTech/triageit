@@ -896,6 +896,77 @@ export function AutoRefresh() {
   );
 }
 
+// ── Triage Feedback (thumbs up / down) ──────────────────────────────────
+
+export function TriageFeedback({
+  haloId,
+  triageResultId,
+  token,
+}: {
+  readonly haloId: number;
+  readonly triageResultId: string;
+  readonly token: string;
+}) {
+  const [state, setState] = useState<"idle" | "sending" | "up" | "down" | "error">("idle");
+
+  const send = useCallback(async (rating: "up" | "down") => {
+    if (state === "sending" || state === "up" || state === "down") return;
+    setState("sending");
+    try {
+      const res = await fetch("/api/embed/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId, token, rating, triage_result_id: triageResultId }),
+      });
+      setState(res.ok ? rating : "error");
+      if (!res.ok) setTimeout(() => setState("idle"), 3000);
+    } catch {
+      setState("error");
+      setTimeout(() => setState("idle"), 3000);
+    }
+  }, [haloId, token, triageResultId, state]);
+
+  if (state === "up" || state === "down") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "9.5px", color: T.green, fontFamily: T.mono }}>
+        Thanks — feedback recorded
+      </span>
+    );
+  }
+
+  const btnStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    padding: "3px 9px",
+    fontSize: "9.5px",
+    fontWeight: 600,
+    fontFamily: T.mono,
+    color: state === "error" ? T.red : T.textMute,
+    backgroundColor: "transparent",
+    border: `1px solid ${state === "error" ? "rgba(255,77,94,0.3)" : T.line}`,
+    borderRadius: "6px",
+    cursor: state === "sending" ? "wait" : "pointer",
+    transition: "color 0.15s ease, border-color 0.15s ease",
+  };
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+      <span style={{ fontSize: "9px", color: T.textFaint, fontFamily: T.mono, letterSpacing: "0.06em" }}>
+        RATE THIS TRIAGE
+      </span>
+      <button onClick={() => send("up")} disabled={state === "sending"} style={btnStyle} className="tg-btn-ghost" aria-label="Triage was helpful">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>
+        Good
+      </button>
+      <button onClick={() => send("down")} disabled={state === "sending"} style={btnStyle} className="tg-btn-ghost" aria-label="Triage was not helpful">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>
+        Off
+      </button>
+    </span>
+  );
+}
+
 // ── Shared small styles ─────────────────────────────────────────────────
 
 const dismissBtnStyle: React.CSSProperties = {

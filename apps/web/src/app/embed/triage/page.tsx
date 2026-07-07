@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AGENTS } from "@triageit/shared";
-import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh } from "./actions";
+import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh, TriageFeedback } from "./actions";
 import {
   T,
   PRIORITY_THEME,
@@ -15,6 +15,7 @@ import {
   IconUsers,
   IconZap,
   IconAlertTriangle,
+  IconPaperclip,
 } from "./theme";
 
 /**
@@ -65,6 +66,8 @@ interface TriageData {
   readonly processing_time_ms: number | null;
   readonly created_at: string;
   readonly triage_type?: string;
+  readonly analyzed_files: ReadonlyArray<string> | null;
+  readonly duplicates: ReadonlyArray<{ halo_id: number; summary: string; similarity: number }> | null;
 }
 
 interface AgentLog {
@@ -432,6 +435,29 @@ export default async function EmbedTriagePage({
         </div>
       )}
 
+      {/* ── Duplicate suggestion ───────────────────────────── */}
+      {latest.duplicates && latest.duplicates.length > 0 && (
+        <div style={css.dupeBar} className="tg-reveal tg-d2">
+          <span style={css.dupeLabel}>POSSIBLE DUPLICATE</span>
+          {latest.duplicates.slice(0, 3).map((d) => (
+            <span key={d.halo_id} style={css.dupeChip}>
+              #{d.halo_id} <span style={css.dupePct}>{Math.round(d.similarity * 100)}%</span>
+              <span style={css.dupeSummary}> — {d.summary.slice(0, 60)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* ── Evidence: attachments the AI read ──────────────── */}
+      {latest.analyzed_files && latest.analyzed_files.length > 0 && (
+        <div style={css.analyzedBar} className="tg-reveal tg-d2">
+          <IconPaperclip size={10} color={T.textMute} />
+          <span style={css.analyzedText}>
+            Analyzed: {latest.analyzed_files.join(" · ")}
+          </span>
+        </div>
+      )}
+
       {/* ── Action Deck ────────────────────────────────────── */}
       <div style={css.actionsWrap} className="tg-reveal tg-d2">
         <QuickActions
@@ -567,6 +593,8 @@ export default async function EmbedTriagePage({
             {(latest.processing_time_ms / 1000).toFixed(1)}s
           </span>
         )}
+        <span style={{ width: "1px", height: "14px", backgroundColor: T.line }} />
+        <TriageFeedback haloId={ticket.halo_id} triageResultId={latest.id} token={embedSecret} />
       </footer>
     </div>
   );
@@ -880,6 +908,63 @@ const css = {
     margin: 0,
     fontSize: "11.5px",
     lineHeight: 1.55,
+  } as React.CSSProperties,
+
+  // ── Duplicates + evidence
+  dupeBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap" as const,
+    marginBottom: "10px",
+    padding: "7px 12px",
+    background: "linear-gradient(135deg, rgba(245,200,76,0.07), rgba(245,200,76,0.02))",
+    border: "1px solid rgba(245,200,76,0.2)",
+    borderRadius: "8px",
+  } as React.CSSProperties,
+  dupeLabel: {
+    fontSize: "8px",
+    fontWeight: 700,
+    color: T.amber,
+    letterSpacing: "0.12em",
+    fontFamily: T.mono,
+  } as React.CSSProperties,
+  dupeChip: {
+    fontSize: "10.5px",
+    fontWeight: 600,
+    color: T.text,
+    backgroundColor: "rgba(245,200,76,0.08)",
+    padding: "2px 9px",
+    borderRadius: "6px",
+  } as React.CSSProperties,
+  dupePct: {
+    color: T.amber,
+    fontFamily: T.mono,
+    fontSize: "9.5px",
+    fontWeight: 700,
+  } as React.CSSProperties,
+  dupeSummary: {
+    color: T.textMute,
+    fontWeight: 400,
+    fontSize: "10px",
+  } as React.CSSProperties,
+  analyzedBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    marginBottom: "10px",
+    padding: "5px 12px",
+    background: T.surface1,
+    border: `1px solid ${T.lineSoft}`,
+    borderRadius: "7px",
+  } as React.CSSProperties,
+  analyzedText: {
+    fontSize: "10px",
+    color: T.textMute,
+    fontFamily: T.mono,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
   } as React.CSSProperties,
 
   // ── Actions

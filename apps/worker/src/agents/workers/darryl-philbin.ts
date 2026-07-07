@@ -1,6 +1,8 @@
 import type { MemoryMatch, CippConfig } from "@triageit/shared";
 import { extractResponseText } from "../llm-text.js";
 import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
+import { logCacheUsage } from "../cache-metrics.js";
+import { extractEmailDomain } from "../customer-match.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -118,12 +120,14 @@ Respond with ONLY valid JSON:
       system: systemBlocks,
       messages: [{ role: "user", content: userMessage }],
     });
+    logCacheUsage(`darryl:${this.getModel()}`, response.usage);
 
     const text =
       extractResponseText(response, "{}");
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
+      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
       summary: (result.m365_findings as string) ?? "M365 analysis based on ticket context",
       data: result,
       confidence: (result.confidence as number) ?? (cippData ? 0.7 : 0.4),
@@ -442,25 +446,3 @@ Respond with ONLY valid JSON:
   }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Pull the most likely customer email domain out of the ticket context.
- * Prefers the reporting user's email; falls back to any email found in
- * the summary/details. Gamma's own domains are excluded.
- */
-function extractEmailDomain(context: TriageContext): string | null {
-  const INTERNAL_DOMAINS = new Set(["gamma.tech", "gtmail.us"]);
-  const candidates: string[] = [];
-
-  if (context.userEmail) candidates.push(context.userEmail);
-  const text = `${context.summary} ${context.details ?? ""}`;
-  const found = text.match(/[\w.+-]+@[\w.-]+\.\w{2,}/g) ?? [];
-  candidates.push(...found);
-
-  for (const email of candidates) {
-    const domain = email.split("@")[1]?.toLowerCase().trim();
-    if (domain && !INTERNAL_DOMAINS.has(domain)) return domain;
-  }
-  return null;
-}
