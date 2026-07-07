@@ -18,6 +18,14 @@ export interface TicketImageContext {
   readonly who: string | null;
 }
 
+export interface TicketDocumentContext {
+  readonly filename: string;
+  readonly kind: "pdf" | "text";
+  readonly base64Data?: string;
+  readonly textContent?: string;
+  readonly who: string | null;
+}
+
 export interface TriageContext {
   readonly ticketId: string;
   readonly haloId: number;
@@ -39,6 +47,7 @@ export interface TriageContext {
   }>;
   readonly images?: ReadonlyArray<TicketImageContext>;
   readonly imageDescriptions?: string;
+  readonly documents?: ReadonlyArray<TicketDocumentContext>;
   readonly slaBreached?: boolean;
   readonly slaFixTargetMet?: boolean;
   readonly slaResponseTargetMet?: boolean;

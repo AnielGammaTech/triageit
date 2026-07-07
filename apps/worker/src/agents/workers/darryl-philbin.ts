@@ -241,8 +241,8 @@ Respond with ONLY valid JSON:
     try {
       const client = new CippClient(config);
 
-      // Find the tenant for this customer
-      const tenantDomain = await this.getTenantForCustomer(client, context.clientName);
+      // Find the tenant for this customer (name match + email-domain match)
+      const tenantDomain = await this.getTenantForCustomer(client, context);
       if (!tenantDomain) return null;
 
       // Extract email or name from ticket context
@@ -321,51 +321,113 @@ Respond with ONLY valid JSON:
     }
   }
 
-  private async getTenantForCustomer(client: CippClient, customerName: string | null): Promise<string | null> {
-    if (!customerName) return null;
+  private async getTenantForCustomer(client: CippClient, context: TriageContext): Promise<string | null> {
+    const customerName = context.clientName;
+    const emailDomain = extractEmailDomain(context);
 
-    // Check integration_mappings first
-    try {
-      const { data: mapping } = await this.supabase
-        .from("integration_mappings")
-        .select("external_id")
-        .eq("service", "cipp")
-        .ilike("customer_name", customerName)
-        .single();
-
-      if (mapping?.external_id) return mapping.external_id;
-    } catch {
-      // No mapping found, try auto-match
+    // 1. Saved mapping by customer name
+    if (customerName) {
+      const mapped = await this.lookupMapping(customerName);
+      if (mapped) return mapped;
     }
 
-    // Auto-match: search CIPP tenants by name, comparing normalized forms —
-    // Halo says "ALLEN CONCRETE & MASONRY, INC" while CIPP says "Allen Concrete"
+    // 2. Saved mapping by email domain (handles multi-domain tenants —
+    //    e.g. evllc.com lives under the Quality Enterprise tenant)
+    if (emailDomain) {
+      const mapped = await this.lookupMapping(`domain:${emailDomain}`);
+      if (mapped) return mapped;
+    }
+
     try {
       const tenants = await client.listTenants();
-      const normalize = (name: string) =>
-        name.toLowerCase().replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/g, "").replace(/[^a-z0-9]/g, "");
-      const target = normalize(customerName);
-      const match = tenants.find((t) => {
-        const tenant = normalize(t.displayName ?? "");
-        return tenant.length >= 4 && target.length >= 4 && (tenant.includes(target) || target.includes(tenant));
-      });
 
-      if (match) {
-        // Save mapping for future use
-        await this.supabase.from("integration_mappings").upsert({
-          service: "cipp",
-          customer_name: customerName,
-          external_id: match.defaultDomainName,
-          external_name: match.displayName,
-        }, { onConflict: "service,customer_name" }).then(() => {});
+      // 3. Exact match on a tenant's default domain
+      if (emailDomain) {
+        const byDefault = tenants.find(
+          (t) => (t.defaultDomainName ?? "").toLowerCase() === emailDomain,
+        );
+        if (byDefault) {
+          await this.saveMapping(customerName, `domain:${emailDomain}`, byDefault);
+          return byDefault.defaultDomainName;
+        }
+      }
 
-        return match.defaultDomainName;
+      // 4. Auto-match by normalized name — Halo says "ALLEN CONCRETE &
+      //    MASONRY, INC" while CIPP says "Allen Concrete"
+      if (customerName) {
+        const normalize = (name: string) =>
+          name.toLowerCase().replace(/\b(inc|llc|ltd|corp|co|the|company|group|services|solutions)\b/g, "").replace(/[^a-z0-9]/g, "");
+        const target = normalize(customerName);
+        const match = tenants.find((t) => {
+          const tenant = normalize(t.displayName ?? "");
+          return tenant.length >= 4 && target.length >= 4 && (tenant.includes(target) || target.includes(tenant));
+        });
+
+        if (match) {
+          await this.saveMapping(customerName, emailDomain ? `domain:${emailDomain}` : null, match);
+          return match.defaultDomainName;
+        }
+      }
+
+      // 5. Last resort for multi-domain tenants: scan each tenant's full
+      //    domain list for the email domain. One-time cost — the result is
+      //    persisted, so future tickets resolve via the mapping in step 2.
+      if (emailDomain) {
+        for (const tenant of tenants.slice(0, 60)) {
+          try {
+            const domains = await client.listDomains(tenant.defaultDomainName);
+            if (domains.some((d) => (d.id ?? "").toLowerCase() === emailDomain)) {
+              console.log(`[DARRYL] Domain scan matched ${emailDomain} → tenant ${tenant.displayName}`);
+              await this.saveMapping(customerName, `domain:${emailDomain}`, tenant);
+              return tenant.defaultDomainName;
+            }
+          } catch {
+            // Skip tenants that error — non-critical
+          }
+        }
       }
     } catch (error) {
       console.warn("[DARRYL] Failed to auto-match tenant:", error);
     }
 
     return null;
+  }
+
+  private async lookupMapping(key: string): Promise<string | null> {
+    try {
+      const { data: mapping } = await this.supabase
+        .from("integration_mappings")
+        .select("external_id")
+        .eq("service", "cipp")
+        .ilike("customer_name", key)
+        .single();
+      return mapping?.external_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async saveMapping(
+    customerName: string | null,
+    domainKey: string | null,
+    tenant: { defaultDomainName: string; displayName: string },
+  ): Promise<void> {
+    const rows = [customerName, domainKey]
+      .filter((k): k is string => Boolean(k))
+      .map((key) => ({
+        service: "cipp",
+        customer_name: key,
+        external_id: tenant.defaultDomainName,
+        external_name: tenant.displayName,
+      }));
+    if (rows.length === 0) return;
+    try {
+      await this.supabase
+        .from("integration_mappings")
+        .upsert(rows, { onConflict: "service,customer_name" });
+    } catch {
+      // Mapping cache is best-effort
+    }
   }
 
   private async getCippConfig(): Promise<CippConfig | null> {
@@ -378,4 +440,27 @@ Respond with ONLY valid JSON:
 
     return data ? (data.config as CippConfig) : null;
   }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Pull the most likely customer email domain out of the ticket context.
+ * Prefers the reporting user's email; falls back to any email found in
+ * the summary/details. Gamma's own domains are excluded.
+ */
+function extractEmailDomain(context: TriageContext): string | null {
+  const INTERNAL_DOMAINS = new Set(["gamma.tech", "gtmail.us"]);
+  const candidates: string[] = [];
+
+  if (context.userEmail) candidates.push(context.userEmail);
+  const text = `${context.summary} ${context.details ?? ""}`;
+  const found = text.match(/[\w.+-]+@[\w.-]+\.\w{2,}/g) ?? [];
+  candidates.push(...found);
+
+  for (const email of candidates) {
+    const domain = email.split("@")[1]?.toLowerCase().trim();
+    if (domain && !INTERNAL_DOMAINS.has(domain)) return domain;
+  }
+  return null;
 }

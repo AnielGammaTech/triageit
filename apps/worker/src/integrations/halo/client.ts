@@ -17,6 +17,25 @@ const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "t
 const MAX_IMAGES = 5; // Cap to avoid token explosion
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB per image
 
+/**
+ * A non-image ticket attachment (PDF or plain-text) ready for the API.
+ * PDFs go in as base64 document blocks; text files are inlined as text.
+ */
+export interface TicketDocument {
+  readonly filename: string;
+  readonly kind: "pdf" | "text";
+  readonly base64Data?: string;
+  readonly textContent?: string;
+  readonly who: string | null;
+}
+
+const TEXT_EXTENSIONS = new Set(["txt", "log", "csv", "md", "json", "eml", "xml", "ini", "conf"]);
+const MAX_PDFS = 2; // PDFs are token-heavy — two is plenty for triage
+const MAX_PDF_SIZE_BYTES = 8 * 1024 * 1024; // 8MB per PDF
+const MAX_TEXT_FILES = 3;
+const MAX_TEXT_SIZE_BYTES = 512 * 1024; // raw download cap
+const MAX_TEXT_CHARS = 20_000; // inlined content cap per file
+
 // Status names verified against this instance's /api/status (2026-07-06).
 // Fallback only — getStatusNameMap() pulls the live list first.
 export const HALO_STATUS_FALLBACK: Record<number, string> = {
@@ -590,6 +609,81 @@ export class HaloClient {
 
     return images;
   }
+}
+
+// ── Document Attachments (PDFs + text files) ─────────────────────────
+
+/**
+ * Fetch non-image document attachments for a ticket (PDFs and plain-text
+ * files) so triage can read error reports, logs, exports, etc.
+ * Combines action-level and ticket-level attachments, deduped by ID.
+ */
+export async function collectTicketDocuments(
+  client: HaloClient,
+  ticketId: number,
+  actions?: ReadonlyArray<HaloAction>,
+): Promise<ReadonlyArray<TicketDocument>> {
+  const seen = new Set<number>();
+  const candidates: Array<{ id: number; filename: string; who: string | null }> = [];
+
+  for (const action of actions ?? []) {
+    for (const att of action.attachments ?? []) {
+      if (seen.has(att.id)) continue;
+      seen.add(att.id);
+      candidates.push({ id: att.id, filename: att.filename, who: action.who ?? null });
+    }
+  }
+
+  try {
+    const ticketAtts = await client.getTicketAttachments(ticketId);
+    for (const att of ticketAtts) {
+      if (seen.has(att.id)) continue;
+      seen.add(att.id);
+      candidates.push({ id: att.id, filename: att.filename, who: null });
+    }
+  } catch {
+    // Non-critical — documents are supplementary
+  }
+
+  const documents: TicketDocument[] = [];
+  let pdfCount = 0;
+  let textCount = 0;
+
+  for (const cand of candidates) {
+    if (pdfCount >= MAX_PDFS && textCount >= MAX_TEXT_FILES) break;
+    const ext = cand.filename.split(".").pop()?.toLowerCase() ?? "";
+
+    if (ext === "pdf" && pdfCount < MAX_PDFS) {
+      const data = await client.downloadAttachment(cand.id);
+      if (!data || data.byteLength === 0 || data.byteLength > MAX_PDF_SIZE_BYTES) continue;
+      documents.push({
+        filename: cand.filename,
+        kind: "pdf",
+        base64Data: Buffer.from(data).toString("base64"),
+        who: cand.who,
+      });
+      pdfCount++;
+    } else if (TEXT_EXTENSIONS.has(ext) && textCount < MAX_TEXT_FILES) {
+      const data = await client.downloadAttachment(cand.id);
+      if (!data || data.byteLength === 0 || data.byteLength > MAX_TEXT_SIZE_BYTES) continue;
+      const text = Buffer.from(data).toString("utf-8");
+      // Reject binary masquerading as text (high ratio of replacement chars)
+      const badChars = (text.slice(0, 2000).match(/�/g) ?? []).length;
+      if (badChars > 20) continue;
+      documents.push({
+        filename: cand.filename,
+        kind: "text",
+        textContent:
+          text.length > MAX_TEXT_CHARS
+            ? `${text.slice(0, MAX_TEXT_CHARS)}\n... [truncated ${text.length - MAX_TEXT_CHARS} chars]`
+            : text,
+        who: cand.who,
+      });
+      textCount++;
+    }
+  }
+
+  return documents;
 }
 
 // ── Image Helpers ────────────────────────────────────────────────────
