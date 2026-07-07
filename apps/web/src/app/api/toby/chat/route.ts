@@ -513,6 +513,19 @@ export async function POST(request: NextRequest) {
           content: m.content,
         }));
 
+        // Anti-fabrication guard: a referenced ticket number forces a tool
+        // call on the first pass — no narrating tickets from memory.
+        const lastUserText = (() => {
+          const last = [...currentMessages].reverse().find((m) => m.role === "user");
+          if (!last) return "";
+          return typeof last.content === "string"
+            ? last.content
+            : last.content
+                .map((b) => (typeof b === "object" && b !== null && "text" in b ? String((b as { text?: string }).text ?? "") : ""))
+                .join(" ");
+        })();
+        const referencesTicket = /#\s?\d{4,6}\b|\b\d{5}\b/.test(lastUserText);
+
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
         let model = "";
@@ -525,6 +538,9 @@ export async function POST(request: NextRequest) {
             system: buildCachedSystem(systemPrompt, dynamicPrompt),
             tools,
             messages: withMessageCacheBreakpoint(currentMessages),
+            ...(referencesTicket && iteration === 0
+              ? { tool_choice: { type: "any" as const } }
+              : {}),
           });
 
           model = response.model;

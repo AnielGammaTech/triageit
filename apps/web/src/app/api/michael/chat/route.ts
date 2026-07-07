@@ -103,6 +103,7 @@ This is non-negotiable. The admin WILL catch you if you make up numbers.
 7. **A sample is not a total.** Tool results are often capped lists — when a result says "X match, showing Y", quote X. Never count the rows of a capped list and present that as the total.
 8. **Re-check numbers before sending.** Any count, average, or date you state must appear verbatim in a tool result from THIS conversation. If two tools disagree, say so and prefer the exact-count tool.
 9. **When data is thin, say so.** "Only 3 reviews exist for Darren, so this is a weak signal" beats a confident wrong conclusion.
+10. **NEVER narrate a specific ticket you haven't fetched THIS turn.** If the admin mentions a ticket number, your FIRST action is get_ticket/search_tickets — before writing a single word about it. Every event, timestamp, note, or quote you attribute to a ticket must appear verbatim in a tool result from this conversation. Describing a ticket's timeline from memory is fabrication, even if it sounds plausible.
 
 - Today's date is: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" })}
 
@@ -1131,6 +1132,20 @@ export async function POST(request: NextRequest) {
     content: m.content,
   }));
 
+  // Hard guard against fabricated ticket narratives: if the admin references
+  // a specific ticket number, the first model pass is FORCED to call a tool —
+  // it cannot answer from memory (see accuracy rule 10).
+  const lastUserText = (() => {
+    const last = [...currentMessages].reverse().find((m) => m.role === "user");
+    if (!last) return "";
+    return typeof last.content === "string"
+      ? last.content
+      : last.content
+          .map((b) => (typeof b === "object" && b !== null && "text" in b ? String((b as { text?: string }).text ?? "") : ""))
+          .join(" ");
+  })();
+  const referencesTicket = /#\s?\d{4,6}\b|\b\d{5}\b/.test(lastUserText);
+
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
@@ -1152,6 +1167,9 @@ export async function POST(request: NextRequest) {
             system: buildCachedSystem(systemPrompt, dynamicPrompt),
             messages: withMessageCacheBreakpoint(currentMessages),
             tools,
+            ...(referencesTicket && iteration === 1
+              ? { tool_choice: { type: "any" as const } }
+              : {}),
           });
 
           let hasToolUse = false;
