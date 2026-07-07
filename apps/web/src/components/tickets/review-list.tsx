@@ -86,9 +86,10 @@ const CLOSED_STATUS_MARKERS = ["closed", "resolved", "cancelled", "canceled", "c
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function isClosedTicket(ticket: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }): boolean {
+  // Strict open-only: if we don't positively know the ticket is open, keep it out of Review
+  if (ticket.halo_is_open !== true) return true;
   const status = (ticket.halo_status ?? "").toLowerCase();
-  if (CLOSED_STATUS_MARKERS.some((marker) => status.includes(marker))) return true;
-  return ticket.halo_is_open === false;
+  return CLOSED_STATUS_MARKERS.some((marker) => status.includes(marker));
 }
 
 function resolveTechName(review: TechReview): { name: string; isDispatch: boolean } {
