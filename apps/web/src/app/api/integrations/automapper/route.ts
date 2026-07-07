@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fetchUnifiSiteList } from "@/lib/unifi-sites";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { requireAdmin } from "@/lib/api/require-admin";
@@ -387,14 +388,8 @@ async function fetchPax8Direct(config: Record<string, string>) {
 }
 
 async function fetchUnifiDirect(config: Record<string, string>) {
-  const res = await fetch("https://api.ui.com/ea/sites", {
-    headers: { "X-API-Key": config.api_key, "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`UniFi error: ${res.status}`);
-  const data = await res.json();
-  return extractArray<{ id?: string; site_id?: string; name?: string; meta?: { name?: string } }>(data, ["data", "sites", "items", "results"])
-    .map((site) => ({ id: site.id ?? site.site_id ?? site.name ?? "", name: site.name ?? site.meta?.name ?? site.id ?? "Unnamed site" }))
-    .filter((site) => site.id && site.name);
+  const sites = await fetchUnifiSiteList(config as Record<string, unknown>);
+  return sites.filter((s) => s.id && s.name);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

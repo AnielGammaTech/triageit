@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { fetchUnifiSiteList } from "@/lib/unifi-sites";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
@@ -248,68 +249,8 @@ async function fetchJumpCloudCustomers(
 async function fetchUnifiSites(
   config: Record<string, string>,
 ): Promise<ReadonlyArray<NormalizedCustomer>> {
-  const headers = {
-    "x-api-key": config.api_key,
-    Accept: "application/json",
-  };
-
-  // Fetch sites and hosts in parallel — hosts have the meaningful console names
-  const [sitesRes, hostsRes] = await Promise.all([
-    fetch("https://api.ui.com/ea/sites", { headers }),
-    fetch("https://api.ui.com/ea/hosts", { headers }),
-  ]);
-
-  if (!sitesRes.ok) throw new Error(`UniFi Sites API error: ${sitesRes.status}`);
-
-  const sitesData = (await sitesRes.json()) as {
-    data?: ReadonlyArray<{
-      hostId?: string;
-      siteId?: string;
-      meta?: { name?: string; desc?: string };
-    }>;
-  };
-
-  // Build host name lookup: hostId → console name
-  const hostNames = new Map<string, string>();
-  if (hostsRes.ok) {
-    const hostsData = (await hostsRes.json()) as {
-      data?: ReadonlyArray<{
-        id?: string;
-        reportedState?: {
-          name?: string;
-          hostname?: string;
-        };
-        userData?: {
-          name?: string;
-        };
-        ipAddress?: string;
-      }>;
-    };
-
-    for (const host of hostsData.data ?? []) {
-      if (host.id) {
-        const name =
-          host.reportedState?.name ||
-          host.userData?.name ||
-          host.reportedState?.hostname ||
-          null;
-        if (name) hostNames.set(host.id, name);
-      }
-    }
-  }
-
-  // Join: use host console name, fall back to site meta.desc, then hostId
-  return (sitesData.data ?? []).map((s) => {
-    const hostId = s.hostId ?? "";
-    const hostName = hostNames.get(hostId);
-    const siteName = s.meta?.desc !== "Default" ? s.meta?.desc : null;
-
-    return {
-      id: hostId || s.siteId || "",
-      name: hostName || siteName || s.meta?.name || `Site ${hostId.substring(0, 8)}`,
-      is_active: true,
-    };
-  });
+  const sites = await fetchUnifiSiteList(config as Record<string, unknown>);
+  return sites.map((s) => ({ id: s.id, name: s.name, is_active: true }));
 }
 
 async function fetchPax8Customers(
