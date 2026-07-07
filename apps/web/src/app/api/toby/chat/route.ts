@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { withMessageCacheBreakpoint, buildCachedSystem } from "@/lib/anthropic-cache";
 import { postInternalHaloNote } from "@/lib/halo-note";
 import Anthropic from "@anthropic-ai/sdk";
 import { HELPDESK_TECHNICIANS } from "@triageit/shared";
@@ -162,28 +163,29 @@ export async function POST(request: NextRequest) {
     // Non-critical — Toby can still work without cached profiles
   }
 
-  systemPrompt += `\n\n## Current Data Snapshot (use tools for deeper dives):\n`;
-  systemPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
+  let dynamicPrompt = "";
+  dynamicPrompt += `\n\n## Current Data Snapshot (use tools for deeper dives):\n`;
+  dynamicPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
 
   if (techProfiles && techProfiles.length > 0) {
-    systemPrompt += "\n### Tech Profiles:\n";
+    dynamicPrompt += "\n### Tech Profiles:\n";
     for (const tp of techProfiles) {
       const avgH = typeof tp.avg_response_hours === "number" ? tp.avg_response_hours.toFixed(1) : "?";
-      systemPrompt += `- **${String(tp.tech_name ?? "?")}**: ${String(tp.ticket_count ?? "?")} tickets, avg response ${avgH}h, strong: ${String(tp.strong_categories ?? "?")}, weak: ${String(tp.weak_categories ?? "?")}\n`;
+      dynamicPrompt += `- **${String(tp.tech_name ?? "?")}**: ${String(tp.ticket_count ?? "?")} tickets, avg response ${avgH}h, strong: ${String(tp.strong_categories ?? "?")}, weak: ${String(tp.weak_categories ?? "?")}\n`;
     }
   }
 
   if (customerInsights && customerInsights.length > 0) {
-    systemPrompt += "\n### Top Clients:\n";
+    dynamicPrompt += "\n### Top Clients:\n";
     for (const ci of customerInsights) {
-      systemPrompt += `- **${String(ci.client_name ?? "?")}**: ${String(ci.ticket_count ?? "?")} tickets, top issues: ${String(ci.top_issue_types ?? "?")}, update requests: ${String(ci.update_request_count ?? 0)}\n`;
+      dynamicPrompt += `- **${String(ci.client_name ?? "?")}**: ${String(ci.ticket_count ?? "?")} tickets, top issues: ${String(ci.top_issue_types ?? "?")}, update requests: ${String(ci.update_request_count ?? 0)}\n`;
     }
   }
 
   if (recentTrends && recentTrends.length > 0) {
-    systemPrompt += "\n### Recent Trends:\n";
+    dynamicPrompt += "\n### Recent Trends:\n";
     for (const t of recentTrends) {
-      systemPrompt += `- [${String(t.severity ?? "?")}] ${String(t.trend_type ?? "?")}: ${String(t.description ?? "?")}\n`;
+      dynamicPrompt += `- [${String(t.severity ?? "?")}] ${String(t.trend_type ?? "?")}: ${String(t.description ?? "?")}\n`;
     }
   }
 
@@ -197,9 +199,9 @@ export async function POST(request: NextRequest) {
       .order("created_at", { referencedTable: "triage_results", ascending: false });
 
     if (tickets && tickets.length > 0) {
-      systemPrompt += "\n\n## Mentioned Tickets:\n";
+      dynamicPrompt += "\n\n## Mentioned Tickets:\n";
       for (const t of tickets) {
-        systemPrompt += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"}\n`;
+        dynamicPrompt += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"}\n`;
       }
     }
   }
@@ -520,9 +522,9 @@ export async function POST(request: NextRequest) {
           const response = await anthropic.messages.create({
             model: "claude-sonnet-5",
             max_tokens: 4096,
-            system: systemPrompt,
+            system: buildCachedSystem(systemPrompt, dynamicPrompt),
             tools,
-            messages: currentMessages,
+            messages: withMessageCacheBreakpoint(currentMessages),
           });
 
           model = response.model;

@@ -140,7 +140,7 @@ export async function classifyTicket(
   const request = {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: [{ type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } }],
     messages: [{ role: "user" as const, content: userMessage }],
   };
 

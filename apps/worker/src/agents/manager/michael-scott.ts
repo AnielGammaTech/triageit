@@ -945,7 +945,7 @@ async function synthesizeFindings(
   const request = {
     model: routingDecision.model,
     max_tokens: routingDecision.maxTokens,
-    system: systemWithMemory,
+    system: [{ type: "text" as const, text: systemWithMemory, cache_control: { type: "ephemeral" as const } }],
     messages: [{ role: "user" as const, content: messageContent }],
   };
 

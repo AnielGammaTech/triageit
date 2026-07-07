@@ -133,7 +133,7 @@ Respond with ONLY valid JSON:
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
       max_tokens: 3072,
-      system: systemPrompt,
+      system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
       messages: [{ role: "user", content: userMessage }],
     });
 
