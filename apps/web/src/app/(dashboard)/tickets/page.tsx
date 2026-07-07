@@ -787,7 +787,7 @@ function CloseReviewCards({
                 )}
 
                 <div className="flex items-center gap-3 pt-2 border-t border-white/[0.04]">
-                  <button onClick={() => onSelectTicket(ticket.id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#6c5ce7] hover:bg-[#991b1b] transition-colors">
+                  <button onClick={() => onSelectTicket(ticket.id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#b91c1c] hover:bg-[#991b1b] transition-colors">
                     View Ticket
                   </button>
                   {haloLink && (
@@ -831,7 +831,7 @@ function TabButton({
       className={cn(
         "rounded-full px-3.5 py-1.5 text-xs font-medium transition-all border",
         active
-          ? "border-[#8b7cff]/40 bg-[#6c5ce7]/15 text-white shadow-[0_0_16px_-6px_rgba(139,124,255,0.5)]"
+          ? "border-[#f87171]/40 bg-[#b91c1c]/15 text-white shadow-[0_0_16px_-6px_rgba(248,113,113,0.5)]"
           : "border-transparent text-white/40 hover:text-white/70 hover:bg-white/[0.04]",
       )}
     >

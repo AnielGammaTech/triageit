@@ -85,7 +85,7 @@ export function LoginForm() {
             onChange={(e) => setEmail(e.target.value)}
             required
             autoFocus
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-[16px] text-[#171233] transition-shadow placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#6c5ce7]/40 sm:text-sm"
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-[16px] text-[#171233] transition-shadow placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#b91c1c]/40 sm:text-sm"
             placeholder="you@gamma.tech"
           />
         </div>
@@ -106,7 +106,7 @@ export function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-[16px] text-[#171233] transition-shadow placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#6c5ce7]/40 sm:text-sm"
+            className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-[16px] text-[#171233] transition-shadow placeholder:text-slate-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#b91c1c]/40 sm:text-sm"
             placeholder="Enter your password"
           />
           <button
@@ -124,7 +124,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={loading}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8b7cff] to-[#6c5ce7] text-sm font-semibold text-white shadow-lg shadow-[#6c5ce7]/25 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f87171] to-[#b91c1c] text-sm font-semibold text-white shadow-lg shadow-[#b91c1c]/25 transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
       >
         {loading ? (
           <>

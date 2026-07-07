@@ -104,7 +104,7 @@ export function TicketList({
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           placeholder="Search resolved tickets..."
-          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#6c5ce7]/50 focus:outline-none focus:ring-1 focus:ring-[#6c5ce7]/30"
+          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#b91c1c]/50 focus:outline-none focus:ring-1 focus:ring-[#b91c1c]/30"
         />
         {search && (
           <button
@@ -147,7 +147,7 @@ export function TicketList({
                 </div>
               )}
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="font-mono text-xs font-medium text-[#6c5ce7]">#{ticket.halo_id}</span>
+                <span className="font-mono text-xs font-medium text-[#b91c1c]">#{ticket.halo_id}</span>
                 <span
                   className={cn(
                     "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
@@ -246,7 +246,7 @@ export function TicketList({
                     </td>
                   )}
                   <td
-                    className="px-4 py-3 font-mono text-xs font-medium text-[#6c5ce7]"
+                    className="px-4 py-3 font-mono text-xs font-medium text-[#b91c1c]"
                     onClick={() => onSelectTicket(ticket.id)}
                   >
                     #{ticket.halo_id}

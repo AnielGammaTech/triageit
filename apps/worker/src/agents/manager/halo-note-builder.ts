@@ -271,7 +271,7 @@ export function buildHaloNote(
   const classificationChip = `<span style="display:inline-block;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.28);padding:3px 11px;border-radius:12px;font-size:11.5px;font-weight:700;color:#fff;text-transform:capitalize;">${classification.classification.type} / ${classification.classification.subtype}&nbsp;&nbsp;<span style="font-weight:600;opacity:0.75;">${confidencePct}%</span></span>`;
   rows.push(
     `<tr><td colspan="2" style="padding:0;">` +
-      `<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(120deg,#4338ca 0%,#6d28d9 60%,#8b5cf6 100%);">` +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(120deg,#7f1d1d 0%,#991b1b 60%,#b91c1c 100%);">` +
       `<tr>` +
       `<td style="padding:13px 14px 12px;vertical-align:middle;">` +
       `${logoHtml}<span style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.01em;vertical-align:middle;">AI Triage</span>` +

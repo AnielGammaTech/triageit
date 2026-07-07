@@ -288,9 +288,9 @@ export function KBBuilder({
                 )}
                 <button
                   onClick={() => handleSelectIdea(idea)}
-                  style={btn("#8b7cff", "rgba(139,124,255,0.08)", "rgba(139,124,255,0.2)")}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(139,124,255,0.15)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(139,124,255,0.08)"; }}
+                  style={btn("#f87171", "rgba(248,113,113,0.08)", "rgba(248,113,113,0.2)")}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(248,113,113,0.15)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(248,113,113,0.08)"; }}
                 >
                   Build This Article
                 </button>
@@ -326,8 +326,8 @@ export function KBBuilder({
           {/* Draft preview */}
           <div style={{
             fontSize: "11px", color: "#98a0b8", lineHeight: 1.7, marginBottom: "14px",
-            padding: "12px 14px", background: "rgba(139,124,255,0.04)", borderRadius: "6px",
-            border: "1px solid rgba(139,124,255,0.12)", borderLeft: "3px solid #8b7cff",
+            padding: "12px 14px", background: "rgba(248,113,113,0.04)", borderRadius: "6px",
+            border: "1px solid rgba(248,113,113,0.12)", borderLeft: "3px solid #f87171",
             maxHeight: "150px", overflow: "auto", fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
             whiteSpace: "pre-wrap" as const,
           }}>
@@ -369,7 +369,7 @@ export function KBBuilder({
                         borderRadius: "8px",
                         outline: "none",
                       }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = "#8b7cff"; e.currentTarget.style.boxShadow = "0 0 0 2px rgba(139,124,255,0.15)"; }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = "#f87171"; e.currentTarget.style.boxShadow = "0 0 0 2px rgba(248,113,113,0.15)"; }}
                       onBlur={(e) => { e.currentTarget.style.borderColor = "rgba(140,150,190,0.18)"; e.currentTarget.style.boxShadow = "none"; }}
                     />
                   </div>
@@ -383,7 +383,7 @@ export function KBBuilder({
           <div style={{ display: "flex", gap: "8px", paddingTop: "4px" }}>
             <button
               onClick={handleBuildArticle}
-              style={{ ...btn("#fff", "#8b7cff", "#8b7cff"), padding: "8px 16px", fontSize: "11px", fontWeight: 700 }}
+              style={{ ...btn("#fff", "#f87171", "#f87171"), padding: "8px 16px", fontSize: "11px", fontWeight: 700 }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
             >
@@ -416,7 +416,7 @@ export function KBBuilder({
           <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 0" }}>
             <span style={{
               display: "inline-block", width: "14px", height: "14px",
-              border: "2px solid rgba(139,124,255,0.3)", borderTopColor: "#8b7cff",
+              border: "2px solid rgba(248,113,113,0.3)", borderTopColor: "#f87171",
               borderRadius: "50%", animation: "spin 0.6s linear infinite",
             }} />
             <span style={{ fontSize: "11px", color: "#98a0b8", fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
@@ -460,8 +460,8 @@ export function KBBuilder({
               onClick={handleCopy}
               style={btn(
                 copied ? "#3ddc84" : "#fff",
-                copied ? "rgba(61,220,132,0.08)" : "#8b7cff",
-                copied ? "rgba(61,220,132,0.2)" : "#8b7cff",
+                copied ? "rgba(61,220,132,0.08)" : "#f87171",
+                copied ? "rgba(61,220,132,0.2)" : "#f87171",
               )}
             >
               {copied ? "Copied!" : "Copy Article"}
@@ -487,7 +487,7 @@ const panelStyle: React.CSSProperties = {
   padding: "10px 12px",
   background: "#0c0e15",
   border: "1px solid rgba(140,150,190,0.10)",
-  borderLeft: "2px solid #8b7cff",
+  borderLeft: "2px solid #f87171",
   borderRadius: "8px",
 };
 
@@ -501,7 +501,7 @@ const panelHeader: React.CSSProperties = {
 const panelTitle: React.CSSProperties = {
   fontSize: "9px",
   fontWeight: 800,
-  color: "#8b7cff",
+  color: "#f87171",
   letterSpacing: "0.1em",
   flex: 1,
 };

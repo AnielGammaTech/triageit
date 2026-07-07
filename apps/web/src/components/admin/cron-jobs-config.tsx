@@ -238,7 +238,7 @@ function CreateJobForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-xl border border-[#6c5ce7]/30 bg-[#6c5ce7]/5 p-5 space-y-4"
+      className="rounded-xl border border-[#b91c1c]/30 bg-[#b91c1c]/5 p-5 space-y-4"
     >
       <h4 className="text-sm font-semibold text-white">New Cron Job</h4>
 
@@ -251,7 +251,7 @@ function CreateJobForm({
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Nightly Cleanup"
           required
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#6c5ce7]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#b91c1c]"
         />
       </div>
 
@@ -263,7 +263,7 @@ function CreateJobForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="What this job does..."
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#6c5ce7]"
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#b91c1c]"
         />
       </div>
 
@@ -279,7 +279,7 @@ function CreateJobForm({
               className={cn(
                 "rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
                 endpoint === ep.value
-                  ? "border-[#6c5ce7] bg-[#6c5ce7]/10 text-white"
+                  ? "border-[#b91c1c] bg-[#b91c1c]/10 text-white"
                   : "border-white/10 text-white/50 hover:border-white/20",
               )}
             >
@@ -296,7 +296,7 @@ function CreateJobForm({
           <button
             type="button"
             onClick={() => setCustomSchedule(!customSchedule)}
-            className="text-[10px] text-[#6c5ce7] hover:text-[#818cf8] transition-colors"
+            className="text-[10px] text-[#b91c1c] hover:text-[#818cf8] transition-colors"
           >
             {customSchedule ? "Use presets" : "Custom expression"}
           </button>
@@ -309,7 +309,7 @@ function CreateJobForm({
             onChange={(e) => setSchedule(e.target.value)}
             placeholder="* * * * *"
             required
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-mono text-white placeholder-white/30 outline-none transition-colors focus:border-[#6c5ce7]"
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-mono text-white placeholder-white/30 outline-none transition-colors focus:border-[#b91c1c]"
           />
         ) : (
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -321,7 +321,7 @@ function CreateJobForm({
                 className={cn(
                   "rounded-lg border px-2.5 py-2 text-xs transition-all",
                   schedule === s.cron
-                    ? "border-[#6c5ce7] bg-[#6c5ce7]/10 text-white"
+                    ? "border-[#b91c1c] bg-[#b91c1c]/10 text-white"
                     : "border-white/10 text-white/50 hover:border-white/20",
                 )}
               >
@@ -349,7 +349,7 @@ function CreateJobForm({
           disabled={submitting || !name.trim()}
           className={cn(
             "rounded-lg px-4 py-2 text-sm font-medium transition-all",
-            "bg-[#6c5ce7] text-white hover:bg-[#5a4bd4]",
+            "bg-[#b91c1c] text-white hover:bg-[#7f1d1d]",
             (submitting || !name.trim()) && "opacity-50 cursor-not-allowed",
           )}
         >
@@ -513,7 +513,7 @@ export function CronJobsSection() {
             "flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-all",
             showCreateForm
               ? "border border-white/10 text-white/50 hover:text-white/70"
-              : "bg-[#6c5ce7] text-white hover:bg-[#5a4bd4]",
+              : "bg-[#b91c1c] text-white hover:bg-[#7f1d1d]",
           )}
         >
           {showCreateForm ? (
@@ -724,7 +724,7 @@ export function CronJobsSection() {
                         disabled={isToggling}
                         className={cn(
                           "relative h-6 w-11 rounded-full transition-colors",
-                          job.is_active ? "bg-[#6c5ce7]" : "bg-white/10",
+                          job.is_active ? "bg-[#b91c1c]" : "bg-white/10",
                           isToggling && "opacity-50",
                         )}
                       >
@@ -746,7 +746,7 @@ export function CronJobsSection() {
                         onClick={(e) => { e.stopPropagation(); handleTrigger(job.id); }}
                         disabled={isTriggering}
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-all hover:border-[#6c5ce7]/50 hover:text-white hover:bg-[#6c5ce7]/10",
+                          "flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-all hover:border-[#b91c1c]/50 hover:text-white hover:bg-[#b91c1c]/10",
                           isTriggering && "opacity-50 cursor-not-allowed",
                         )}
                       >

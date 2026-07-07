@@ -18,7 +18,7 @@ const NAV_ITEMS = [
   },
 ] as const;
 
-const PRIMARY_COLOR = "#6c5ce7";
+const PRIMARY_COLOR = "#b91c1c";
 const HEADER_BG = "#1a0a0a";
 const DROPDOWN_BG = "#241010";
 
