@@ -35,6 +35,18 @@ export interface AgentResult {
   readonly memories_used?: number;
 }
 
+/**
+ * System prompt as content blocks. The first (stable) block carries the
+ * cache breakpoint; per-ticket content (skills, memories) follows it so
+ * its churn never invalidates the cached prefix. Prompt caching is a
+ * prefix match — see platform.claude.com → prompt caching.
+ */
+export type SystemBlocks = Array<{
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+}>;
+
 const WORKER_QUALITY_STANDARD = `## Worker Quality Standard
 You are supporting live MSP technicians. Be evidence-first and operationally useful.
 
@@ -103,11 +115,12 @@ export abstract class BaseAgent {
       const validatedMemories = await validateMemories(allMemories);
       const memoriesPrompt = formatValidatedMemories(validatedMemories);
 
-      // 4. Build the full system prompt (now includes <remember> instructions)
-      const systemPrompt = this.buildSystemPrompt(skillsPrompt, memoriesPrompt);
+      // 4. Build the system prompt as blocks: stable prefix (cached) +
+      //    per-ticket skills/memories (uncached, after the breakpoint)
+      const systemBlocks = this.buildSystemBlocks(skillsPrompt, memoriesPrompt);
 
       // 5. Execute the agent's specific logic
-      const result = await this.process(context, systemPrompt, allMemories);
+      const result = await this.process(context, systemBlocks, allMemories);
 
       // 6. Extract <remember> tags from agent output and store as memories
       await this.extractAndStoreMemories(context, result);
@@ -143,22 +156,27 @@ export abstract class BaseAgent {
    */
   protected abstract process(
     context: TriageContext,
-    systemPrompt: string,
+    systemBlocks: SystemBlocks,
     memories: ReadonlyArray<MemoryMatch>,
   ): Promise<AgentResult>;
 
   /**
-   * Build the full system prompt with character, skills, and memories.
+   * Build the system prompt as cache-aware blocks.
+   *
+   * The stable block (character, role, quality standard, instructions) is
+   * byte-identical for every ticket this agent handles, so it carries the
+   * cache breakpoint. Skills and memories vary per ticket and go in a
+   * second block after the breakpoint — they never invalidate the prefix.
    */
-  protected buildSystemPrompt(
+  protected buildSystemBlocks(
     skillsPrompt: string,
     memoriesPrompt: string,
-  ): string {
+  ): SystemBlocks {
     const searchNote = this.webSearch
       ? "\n\nYou have access to web search. If your memories and skills don't fully cover this issue, the orchestrator can search the web for you. Include specific search queries in your response if you need live information (driver downloads, firmware updates, vendor KB articles)."
       : "";
 
-    return [
+    const stable = [
       `You are ${this.definition.character}, the ${this.definition.specialty} at Dunder Mifflin IT Triage.`,
       "",
       `Your role: ${this.definition.description}`,
@@ -167,8 +185,6 @@ export abstract class BaseAgent {
       WORKER_QUALITY_STANDARD,
       "",
       this.getAgentInstructions(),
-      skillsPrompt,
-      memoriesPrompt,
       "",
       REMEMBER_INSTRUCTIONS,
       "",
@@ -176,6 +192,16 @@ export abstract class BaseAgent {
     ]
       .filter(Boolean)
       .join("\n");
+
+    const volatile = [skillsPrompt, memoriesPrompt].filter(Boolean).join("\n");
+
+    const blocks: SystemBlocks = [
+      { type: "text", text: stable, cache_control: { type: "ephemeral" } },
+    ];
+    if (volatile.trim().length > 0) {
+      blocks.push({ type: "text", text: volatile });
+    }
+    return blocks;
   }
 
   /**

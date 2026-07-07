@@ -30,8 +30,8 @@ export function btnBase(s: BtnStyle): React.CSSProperties {
     display: "inline-flex",
     alignItems: "center",
     gap: "6px",
-    padding: "7px 12px",
-    fontSize: "10.5px",
+    padding: "5px 10px",
+    fontSize: "10px",
     fontWeight: 600,
     fontFamily: T.sans,
     color: s.color,
@@ -738,7 +738,7 @@ export function CollapsibleSection({
           alignItems: "center",
           gap: "8px",
           width: "100%",
-          padding: "9px 13px",
+          padding: "7px 12px",
           backgroundColor: "transparent",
           border: "none",
           cursor: "pointer",
@@ -937,8 +937,8 @@ export function GlobalStyles() {
             to { opacity: 1; transform: translateY(0); }
           }
           @keyframes revealUp {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to { opacity: 1; }
           }
           @keyframes pulse {
             0%, 100% { opacity: 1; }

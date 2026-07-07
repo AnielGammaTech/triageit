@@ -15,6 +15,7 @@ import {
 import { findSimilarTickets, storeTicketEmbedding } from "../similar-tickets.js";
 import { detectDuplicates } from "../duplicate-detector.js";
 import { selectManagerModel } from "../model-router.js";
+import { logCacheUsage } from "../cache-metrics.js";
 import type { SimilarTicket } from "../similar-tickets.js";
 import type { DuplicateCandidate } from "../duplicate-detector.js";
 
@@ -975,6 +976,7 @@ async function synthesizeFindings(
   };
 
   let response = await client.messages.create(request);
+  logCacheUsage(`michael-synthesis:${routingDecision.model}`, response.usage);
   let text = extractResponseText(response);
 
   // An empty response is usually a transient API blip — one retry beats

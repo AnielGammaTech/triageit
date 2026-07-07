@@ -1,6 +1,7 @@
 import type { MemoryMatch, HuduConfig } from "@triageit/shared";
 import { extractResponseText } from "../llm-text.js";
-import { BaseAgent, type AgentResult } from "../base-agent.js";
+import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js";
+import { logCacheUsage } from "../cache-metrics.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import {
@@ -159,7 +160,7 @@ Respond with ONLY valid JSON:
 
   protected async process(
     context: TriageContext,
-    systemPrompt: string,
+    systemBlocks: SystemBlocks,
     _memories: ReadonlyArray<MemoryMatch>,
   ): Promise<AgentResult> {
     const huduData = await this.fetchHuduData(context);
@@ -177,9 +178,10 @@ Respond with ONLY valid JSON:
     const response = await this.anthropic.messages.create({
       model: this.getModel(),
       max_tokens: 3072,
-      system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
+      system: systemBlocks,
       messages: [{ role: "user", content: userMessage }],
     });
+    logCacheUsage(`dwight:${this.getModel()}`, response.usage);
 
     const text =
       extractResponseText(response, "{}");

@@ -678,7 +678,7 @@ const css = {
     backgroundColor: T.bg,
     color: T.textSoft,
     minHeight: "100vh",
-    padding: "16px 18px 20px",
+    padding: "12px 14px 16px",
     fontSize: "12px",
     lineHeight: 1.5,
     maxWidth: "1100px",
@@ -690,7 +690,7 @@ const css = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "14px",
+    marginBottom: "10px",
   } as React.CSSProperties,
   headerLeft: {
     display: "flex",
@@ -699,8 +699,8 @@ const css = {
     minWidth: 0,
   } as React.CSSProperties,
   logoMark: {
-    width: "30px",
-    height: "30px",
+    width: "26px",
+    height: "26px",
     borderRadius: "8px",
     background: `linear-gradient(135deg, ${T.brand}, ${T.brandDeep})`,
     display: "flex",
@@ -789,7 +789,7 @@ const css = {
   } as React.CSSProperties,
   sevCell: {
     flex: "1 1 0",
-    padding: "12px 14px",
+    padding: "8px 12px",
     display: "flex",
     flexDirection: "column" as const,
     gap: "3px",
@@ -812,7 +812,7 @@ const css = {
     fontFamily: T.mono,
   } as React.CSSProperties,
   sevValueBig: {
-    fontSize: "17px",
+    fontSize: "14px",
     fontWeight: 700,
     lineHeight: 1.15,
     letterSpacing: "-0.01em",
@@ -854,7 +854,7 @@ const css = {
     display: "flex",
     gap: "12px",
     marginBottom: "12px",
-    padding: "12px 14px",
+    padding: "8px 12px",
     background: "linear-gradient(135deg, rgba(255,77,94,0.08), rgba(255,77,94,0.02))",
     border: "1px solid rgba(255,77,94,0.22)",
     borderRadius: "10px",
@@ -884,7 +884,9 @@ const css = {
 
   // ── Actions
   actionsWrap: {
-    marginBottom: "14px",
+    marginBottom: "10px",
+    position: "relative" as const,
+    zIndex: 30,
   } as React.CSSProperties,
 
   // ── Sections
@@ -1061,7 +1063,7 @@ const css = {
     gap: "14px",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: "16px",
+    marginTop: "12px",
     paddingTop: "12px",
     borderTop: `1px solid ${T.lineSoft}`,
   } as React.CSSProperties,
