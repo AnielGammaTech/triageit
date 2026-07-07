@@ -503,10 +503,14 @@ export async function runTriage(
   const processingTime = Date.now() - startTime;
 
   // ── Detect retriage vs first triage ────────────────────────────────
+  // Only FULL triages count — the daily scan inserts triage_type='retriage'
+  // flag rows, and counting those flipped a ticket's very first full triage
+  // into a compact retriage note (#40782)
   const { data: existingTriages } = await supabase
     .from("triage_results")
     .select("id, created_at, classification, urgency_score, recommended_priority, security_flag")
     .eq("ticket_id", ticket.id)
+    .neq("triage_type", "retriage")
     .order("created_at", { ascending: false })
     .limit(1);
   const isRetriage = (existingTriages?.length ?? 0) > 0;

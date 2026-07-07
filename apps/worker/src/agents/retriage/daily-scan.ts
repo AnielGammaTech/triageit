@@ -11,6 +11,7 @@ import { HaloClient, HALO_STATUS_FALLBACK } from "../../integrations/halo/client
 import { isUpdateRequest, handleUpdateRequest } from "./update-request.js";
 import { isAlertTicket } from "../workers/erin-hannon.js";
 import { parseLlmJson } from "../parse-json.js";
+import { extractResponseText } from "../llm-text.js";
 import { getStaffNames } from "../../db/staff.js";
 import { getCachedHaloConfig } from "../../integrations/get-config.js";
 
@@ -674,6 +675,15 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       // Look up the last triage's urgency score from pre-fetched maps
       const localIdForUrgency = localTicketMap.get(enrichedTicket.id) ?? null;
       const latestTriage = localIdForUrgency ? triageMap.get(localIdForUrgency) ?? null : null;
+
+      // Never-triaged tickets belong to the initial-triage flow (ticket-sync
+      // enqueues them within a minute). Retriaging here races the first full
+      // triage — and the loser's compact note becomes the ticket's first note.
+      if (!latestTriage) {
+        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        continue;
+      }
+
       const urgencyScore: number | null = (latestTriage?.urgency_score as number) ?? null;
       const lastTriageAt: string | null = (latestTriage?.created_at as string) ?? null;
 
@@ -755,8 +765,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
 
       tokensUsed += response.usage.input_tokens + response.usage.output_tokens;
 
-      const text =
-        response.content[0].type === "text" ? response.content[0].text : "{}";
+      const text = extractResponseText(response, "{}");
       const parsed = parseLlmJson<{
         flags: string[];
         positives?: string[];
