@@ -78,7 +78,10 @@ export interface MemoryConfig {
 }
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
-  match_threshold: 0.65,
+  // Calibrated for text-embedding-3-small (2026-07-07): related content
+  // scores 0.40-0.60 on cosine — the old 0.65 (Voyage-era) returned ZERO
+  // recalls. Precision comes from composite re-ranking, not the gate.
+  match_threshold: 0.4,
   max_recall: 5,
   decay_rate: 0.01,
   similarity_weight: 0.6,

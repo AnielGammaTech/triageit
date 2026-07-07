@@ -41,7 +41,7 @@ export async function detectDuplicates(
   const { data, error } = await supabase.rpc("match_duplicate_tickets", {
     query_embedding: JSON.stringify(embedding),
     exclude_ticket_id: params.currentTicketId,
-    match_threshold: 0.82,
+    match_threshold: 0.7, // calibrated for text-embedding-3-small
     match_count: 5,
     filter_client: params.clientName,
   });

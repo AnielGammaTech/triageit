@@ -35,7 +35,8 @@ export async function findSimilarTickets(
   },
 ): Promise<ReadonlyArray<SimilarTicket>> {
   const maxResults = params.maxResults ?? 5;
-  const minSimilarity = params.minSimilarity ?? 0.78;
+  // 0.78 (Voyage-era) returned zero — 3-small neighbors score 0.45-0.60
+  const minSimilarity = params.minSimilarity ?? 0.45;
 
   // Generate embedding for the current ticket's content
   const queryText = `${params.summary} ${params.details ?? ""}`.trim();

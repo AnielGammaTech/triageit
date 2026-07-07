@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { postInternalHaloNote } from "@/lib/halo-note";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   deriveWorkflowOwnerRole,
@@ -103,6 +104,12 @@ This is non-negotiable. The admin WILL catch you if you make up numbers.
 9. **When data is thin, say so.** "Only 3 reviews exist for Darren, so this is a weak signal" beats a confident wrong conclusion.
 
 - Today's date is: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" })}
+
+## Proactive Follow-ups (IMPORTANT)
+When the conversation surfaces a ticket in bad shape — stale, SLA breached, tech unresponsive, customer waiting — do not just report it. End your answer with ONE concrete offer, e.g.:
+- "Want me to post an internal note on #40321 asking @Matthew to update it today?"
+- "Should I flag this to Bryanna to reassign?"
+Only act when the admin says yes, then use post_halo_note (with an @mention so the tech gets pinged). Keep the note professional and specific: what's stalled, what's needed, by when. Never email the customer.
 
 ## Format:
 - Use markdown for formatting
@@ -698,92 +705,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "post_halo_note": {
-        const haloId = input.halo_id as number;
-        const noteContent = input.note as string;
-
-        if (!noteContent?.trim()) return "Note content is empty — nothing to post.";
-
-        // Get Halo config
-        const { data: haloNoteIntegration } = await serviceClient
-          .from("integrations")
-          .select("config")
-          .eq("service", "halo")
-          .eq("is_active", true)
-          .single();
-
-        if (!haloNoteIntegration) return "Halo PSA is not configured.";
-
-        const haloCfgNote = haloNoteIntegration.config as { base_url: string; client_id: string; client_secret: string; tenant?: string };
-
-        try {
-          // Authenticate
-          const tokenUrl = haloCfgNote.tenant
-            ? `${haloCfgNote.base_url}/auth/token?tenant=${haloCfgNote.tenant}`
-            : `${haloCfgNote.base_url}/auth/token`;
-          const tokenRes = await fetch(tokenUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({
-              grant_type: "client_credentials",
-              client_id: haloCfgNote.client_id,
-              client_secret: haloCfgNote.client_secret,
-              scope: "all",
-            }),
-          });
-
-          if (!tokenRes.ok) return `Failed to authenticate with Halo: ${tokenRes.status}`;
-          const { access_token } = await tokenRes.json() as { access_token: string };
-
-          // Resolve @mentions — replace @Name with Halo's mention HTML
-          let resolvedNote = noteContent;
-          const mentionMatches = noteContent.match(/@[\w]+(?:\s[\w]+)?/g);
-          if (mentionMatches) {
-            for (const mention of mentionMatches) {
-              const name = mention.slice(1); // strip @
-              try {
-                const agentRes = await fetch(
-                  `${haloCfgNote.base_url}/api/agent?search=${encodeURIComponent(name)}&count=3`,
-                  { headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" } },
-                );
-                if (agentRes.ok) {
-                  const agentData = await agentRes.json() as { agents?: ReadonlyArray<{ id: number; name: string }> };
-                  const agents = agentData.agents ?? [];
-                  const match = agents.find((a) => a.name.toLowerCase().includes(name.toLowerCase()));
-                  if (match) {
-                    const mentionHtml = `<span class="atwho-inserted" data-atwho-at="@"><span class="agent-tag" data-agent-id="${match.id}">@${match.name}</span></span>`;
-                    resolvedNote = resolvedNote.replace(mention, mentionHtml);
-                  }
-                }
-              } catch {
-                // Keep plain text @mention if resolution fails
-              }
-            }
-          }
-
-          // Post internal note
-          const actionRes = await fetch(`${haloCfgNote.base_url}/api/actions`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${access_token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify([{
-              ticket_id: haloId,
-              note: resolvedNote,
-              hiddenfromuser: true,
-              outcome: "note",
-            }]),
-          });
-
-          if (!actionRes.ok) {
-            const errText = await actionRes.text();
-            return `Failed to post note to ticket #${haloId}: ${actionRes.status} — ${errText}`;
-          }
-
-          return `Internal note posted to ticket #${haloId} successfully.`;
-        } catch (err) {
-          return `Error posting note: ${err instanceof Error ? err.message : String(err)}`;
-        }
+        return postInternalHaloNote(serviceClient, input.halo_id as number, input.note as string);
       }
 
       case "search_tickets": {
