@@ -676,9 +676,12 @@ function CustomerMappingTab({
                     <td className="px-4 py-2.5">
                       <div>
                         <p className="text-white">{m.external_name}</p>
-                        <p className="text-xs text-white/30">
-                          ID: {m.external_id}
-                        </p>
+                        {/* Long opaque ids (UniFi hostId:siteId) are noise — show short ids only */}
+                        {m.external_id && m.external_id.length <= 24 && (
+                          <p className="text-xs text-white/30">
+                            ID: {m.external_id}
+                          </p>
+                        )}
                       </div>
                     </td>
                     {!isHaloService && (
@@ -908,9 +911,11 @@ function CustomerMappingTab({
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-white">{customer.name}</p>
-                    <p className="text-xs text-white/30">
-                      ID: {customer.id}
-                    </p>
+                    {String(customer.id).length <= 24 && (
+                      <p className="text-xs text-white/30">
+                        ID: {customer.id}
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() =>

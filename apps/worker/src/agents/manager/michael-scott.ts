@@ -192,6 +192,7 @@ export async function runTriage(
       let slaFixTargetMet: boolean | undefined;
       let slaResponseTargetMet: boolean | undefined;
       let slaFixByDate: string | null = null;
+      let slaRespondByDate: string | null = null;
       let slaTimerText: string | null = null;
 
       try {
@@ -214,6 +215,7 @@ export async function runTriage(
         slaFixTargetMet = slaSource.fixtargetmet;
         slaResponseTargetMet = slaSource.responsetargetmet;
         slaFixByDate = slaSource.fixbydate ?? raw.fixbydate ?? null;
+        slaRespondByDate = slaSource.respondbydate ?? raw.respondbydate ?? null;
         slaTimerText = slaSource.sla_timer_text ?? raw.sla_timer_text ?? null;
         slaBreached = slaFixTargetMet === false || slaResponseTargetMet === false;
       } catch (err) {
@@ -229,6 +231,7 @@ export async function runTriage(
         slaFixTargetMet: slaFixTargetMet ?? undefined,
         slaResponseTargetMet: slaResponseTargetMet ?? undefined,
         slaFixByDate,
+        slaRespondByDate,
         slaTimerText,
       };
 
@@ -845,6 +848,12 @@ async function synthesizeFindings(
       : "",
     "",
     context.assignedTechName ? `**Assigned Tech:** ${context.assignedTechName}` : "",
+    "",
+    "## Workflow / SLA State (REAL — from Halo, do not guess)",
+    `**Resolution due (resolution_time / fix-by):** ${context.slaFixByDate ?? "NOT SET"}`,
+    `**Response due:** ${context.slaRespondByDate ?? "NOT SET"}`,
+    context.slaTimerText ? `**SLA timer:** ${context.slaTimerText}` : "",
+    `**SLA breached:** ${context.slaBreached ? "YES" : "no"}`,
     ...(context.slaBreached
       ? [
           "",

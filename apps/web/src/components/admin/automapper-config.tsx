@@ -329,7 +329,9 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
                       </td>
                       <td className="px-4 py-2.5">
                         <p className="text-white">{s.external_name}</p>
-                        <p className="text-xs text-white/30">ID: {s.external_id}</p>
+                        {String(s.external_id).length <= 24 && (
+                          <p className="text-xs text-white/30">ID: {s.external_id}</p>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <span
