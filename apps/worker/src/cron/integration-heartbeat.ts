@@ -172,10 +172,25 @@ async function checkUnifi(config: Record<string, unknown>): Promise<CheckResult>
   const missing = required(config, ["api_key"]);
   if (missing) return { status: "down", message: missing };
 
-  const unifi = new UnifiClient({ api_key: text(config, "api_key") });
+  const extraKeys = Array.isArray(config.extra_api_keys)
+    ? (config.extra_api_keys as string[]).filter((k) => typeof k === "string" && k.trim())
+    : [];
+  const unifi = new UnifiClient({ api_key: text(config, "api_key"), extra_api_keys: extraKeys });
   const hosts = await unifi.getHosts();
 
-  const disconnected = hosts.filter((h) => h.reportedState?.state === "disconnected");
+  // Ignore abandoned console records superseded by a same-named connected
+  // console in another account (e.g. re-adopted hardware)
+  const connectedNames = new Set(
+    hosts
+      .filter((h) => h.reportedState?.state === "connected")
+      .map((h) => (h.reportedState?.name ?? h.reportedState?.hostname ?? "").toLowerCase())
+      .filter(Boolean),
+  );
+  const disconnected = hosts.filter((h) => {
+    if (h.reportedState?.state !== "disconnected") return false;
+    const name = (h.reportedState?.name ?? h.reportedState?.hostname ?? "").toLowerCase();
+    return !name || !connectedNames.has(name);
+  });
   if (disconnected.length > 0) {
     const names = disconnected
       .map((h) => {

@@ -79,6 +79,8 @@ export interface TwilioConfig {
 
 export interface UnifiConfig {
   readonly api_key: string;
+  /** Additional Site Manager API keys — consoles can live under multiple UI accounts. */
+  readonly extra_api_keys?: ReadonlyArray<string>;
 }
 
 export interface GenericApiKeyConfig {

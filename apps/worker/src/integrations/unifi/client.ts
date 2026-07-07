@@ -80,16 +80,18 @@ export interface UnifiHost {
 const BASE_URL = "https://api.ui.com";
 
 export class UnifiClient {
-  private readonly apiKey: string;
+  private readonly apiKeys: ReadonlyArray<string>;
 
   constructor(config: UnifiConfig) {
-    this.apiKey = config.api_key;
+    // Consoles can live under multiple UI accounts — one Site Manager key
+    // only sees its own account's consoles, so query every key and merge
+    this.apiKeys = [config.api_key, ...(config.extra_api_keys ?? [])].filter(Boolean);
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(path: string, apiKey: string): Promise<T> {
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: {
-        "X-API-Key": this.apiKey,
+        "X-API-Key": apiKey,
         Accept: "application/json",
       },
     });
@@ -103,11 +105,11 @@ export class UnifiClient {
   }
 
   /**
-   * Fetch every page of a Site Manager list endpoint. Responses carry a
-   * nextToken when more pages exist — without following it, anything past
-   * the first page is silently dropped as the fleet grows.
+   * Fetch every page of a Site Manager list endpoint for one API key.
+   * Responses carry a nextToken when more pages exist — without following
+   * it, anything past the first page is silently dropped as the fleet grows.
    */
-  private async requestAllPages<T>(path: string): Promise<T[]> {
+  private async requestAllPagesForKey<T>(path: string, apiKey: string): Promise<T[]> {
     const items: T[] = [];
     let nextToken: string | undefined;
     let pages = 0;
@@ -117,6 +119,7 @@ export class UnifiClient {
       const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : "";
       const response = await this.request<{ data?: T[]; nextToken?: string }>(
         `${path}${sep}pageSize=200${tokenParam}`,
+        apiKey,
       );
       items.push(...(response.data ?? []));
       nextToken = response.nextToken;
@@ -124,6 +127,24 @@ export class UnifiClient {
     } while (nextToken && pages < 50);
 
     return items;
+  }
+
+  /**
+   * Fetch a list endpoint across ALL configured accounts and merge.
+   * A failing key logs and is skipped — the other accounts still return.
+   */
+  private async requestAllPages<T>(path: string): Promise<T[]> {
+    const results = await Promise.all(
+      this.apiKeys.map(async (key, index) => {
+        try {
+          return await this.requestAllPagesForKey<T>(path, key);
+        } catch (error) {
+          console.warn(`[UNIFI] Account ${index + 1}/${this.apiKeys.length} failed for ${path}:`, error);
+          return [] as T[];
+        }
+      }),
+    );
+    return results.flat();
   }
 
   /**
