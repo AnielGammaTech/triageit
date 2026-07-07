@@ -259,7 +259,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
             className={cn(
               "px-4 py-2 text-sm font-medium transition-colors",
               activeTab === "config"
-                ? "border-b-2 border-[#b91c1c] text-white"
+                ? "border-b-2 border-[#6c5ce7] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
@@ -270,13 +270,13 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
             className={cn(
               "px-4 py-2 text-sm font-medium transition-colors",
               activeTab === "mappings"
-                ? "border-b-2 border-[#b91c1c] text-white"
+                ? "border-b-2 border-[#6c5ce7] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
             Customer Mapping
             {mappings.length > 0 && (
-              <span className="ml-2 rounded-full bg-[#b91c1c]/20 px-2 py-0.5 text-xs text-[#b91c1c]">
+              <span className="ml-2 rounded-full bg-[#6c5ce7]/20 px-2 py-0.5 text-xs text-[#6c5ce7]">
                 {mappings.length}
               </span>
             )}
@@ -303,7 +303,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
                       className={cn(
                         "flex-1 rounded-lg border px-4 py-2.5 text-sm font-medium transition-all",
                         values[field.key] === opt.value
-                          ? "border-[#b91c1c] bg-[#b91c1c]/10 text-white"
+                          ? "border-[#6c5ce7] bg-[#6c5ce7]/10 text-white"
                           : "border-white/10 bg-white/5 text-white/50 hover:border-white/20 hover:text-white",
                       )}
                     >
@@ -317,7 +317,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
                   value={values[field.key] ?? ""}
                   onChange={(e) => handleFieldChange(field.key, e.target.value)}
                   placeholder={field.placeholder}
-                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c] focus:ring-1 focus:ring-[#b91c1c]"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6c5ce7] focus:ring-1 focus:ring-[#6c5ce7]"
                 />
               )}
             </div>
@@ -332,7 +332,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-lg bg-[#b91c1c] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#a31919] disabled:opacity-50"
+            className="rounded-lg bg-[#6c5ce7] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#5a4bd4] disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Configuration"}
           </button>
@@ -608,7 +608,7 @@ function CustomerMappingTab({
 
       {/* Mapping picker modal */}
       {mappingTarget && (
-        <div className="rounded-xl border border-[#b91c1c]/30 bg-[#b91c1c]/5 p-4">
+        <div className="rounded-xl border border-[#6c5ce7]/30 bg-[#6c5ce7]/5 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <p className="text-xs text-white/50">
@@ -633,7 +633,7 @@ function CustomerMappingTab({
             onChange={(e) => setHaloSearch(e.target.value)}
             placeholder="Search Halo customers..."
             autoFocus
-            className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
+            className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6c5ce7]"
           />
           {loadingHalo ? (
             <div className="flex items-center justify-center py-4">
@@ -645,7 +645,7 @@ function CustomerMappingTab({
                 <button
                   key={hc.id}
                   onClick={() => handleSelectHaloCustomer(hc)}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-white transition-colors hover:bg-[#b91c1c]/10"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-white transition-colors hover:bg-[#6c5ce7]/10"
                 >
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-blue-500/10 text-[10px] font-bold text-blue-400">
                     {hc.name.charAt(0).toUpperCase()}
@@ -682,7 +682,7 @@ function CustomerMappingTab({
                 setMappedPage(1);
               }}
               placeholder="Search mapped..."
-              className="w-56 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
+              className="w-56 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white outline-none placeholder:text-white/30 focus:border-[#6c5ce7]"
             />
           </div>
           <div className="overflow-hidden rounded-lg border border-white/10">
@@ -972,7 +972,7 @@ function CustomerMappingTab({
                 setUnmappedPage(1);
               }}
               placeholder={`Search ${serviceLabel} customers...`}
-              className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#b91c1c]"
+              className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#6c5ce7]"
             />
             <div className="space-y-1 rounded-lg border border-white/10 bg-white/[0.02] p-2">
               {pagedUnmapped.map((customer) => (
@@ -992,7 +992,7 @@ function CustomerMappingTab({
                     onClick={() =>
                       handleMapClick(String(customer.id), customer.name)
                     }
-                    className="shrink-0 rounded-lg bg-[#b91c1c]/10 px-3 py-1.5 text-xs font-medium text-[#b91c1c] transition-colors hover:bg-[#b91c1c]/20"
+                    className="shrink-0 rounded-lg bg-[#6c5ce7]/10 px-3 py-1.5 text-xs font-medium text-[#6c5ce7] transition-colors hover:bg-[#6c5ce7]/20"
                   >
                     Map
                   </button>

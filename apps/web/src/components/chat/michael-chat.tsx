@@ -477,7 +477,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                   className={cn(
                     "rounded-xl px-4 py-2.5 text-sm leading-relaxed",
                     msg.role === "user"
-                      ? "bg-[#b91c1c] text-white"
+                      ? "bg-[#6c5ce7] text-white"
                       : "bg-white/[0.06] text-white/90",
                   )}
                 >
@@ -584,7 +584,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <button
                 onClick={sendMessage}
                 disabled={!input.trim()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6c5ce7] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="22" y1="2" x2="11" y2="13" />

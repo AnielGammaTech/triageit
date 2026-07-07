@@ -634,7 +634,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               retriaging || isTriaging
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#b91c1c]/10 text-[#b91c1c] hover:bg-[#b91c1c]/20",
+                : "bg-[#6c5ce7]/10 text-[#6c5ce7] hover:bg-[#6c5ce7]/20",
             )}
           >
             {retriaging ? (
@@ -967,7 +967,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             className={cn(
               "px-4 py-2 text-sm font-medium capitalize transition-colors whitespace-nowrap",
               activeTab === tab
-                ? "border-b-2 border-[#b91c1c] text-white"
+                ? "border-b-2 border-[#6c5ce7] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >
@@ -1037,8 +1037,8 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           )}
 
           {triage?.suggested_response && (
-            <div className="rounded-xl border border-[#b91c1c]/20 bg-[#b91c1c]/5 p-5">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#b91c1c]/60">Suggested Client Response</h4>
+            <div className="rounded-xl border border-[#6c5ce7]/20 bg-[#6c5ce7]/5 p-5">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#6c5ce7]/60">Suggested Client Response</h4>
               <p className="whitespace-pre-wrap text-sm text-white/70">{triage.suggested_response}</p>
             </div>
           )}
@@ -1094,7 +1094,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
                       isThinking
                         ? "border border-amber-500/10 bg-amber-500/[0.03]"
                         : "border border-white/10 bg-white/[0.02]",
-                      isLatest && "ring-1 ring-[#b91c1c]/30",
+                      isLatest && "ring-1 ring-[#6c5ce7]/30",
                     )}
                   >
                     <div className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white", AGENT_COLORS[log.agent_name] ?? "bg-white/20")}>
@@ -1387,7 +1387,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
 }
 
 const NOTE_TYPE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  triage: { bg: "bg-[#b91c1c]/10", text: "text-[#b91c1c]", label: "Triage" },
+  triage: { bg: "bg-[#6c5ce7]/10", text: "text-[#6c5ce7]", label: "Triage" },
   retriage: { bg: "bg-violet-500/10", text: "text-violet-400", label: "Retriage" },
   "tech-review": { bg: "bg-emerald-500/10", text: "text-emerald-400", label: "Tech Review" },
   "close-review": { bg: "bg-teal-500/10", text: "text-teal-400", label: "Close Review" },

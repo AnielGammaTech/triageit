@@ -292,7 +292,7 @@ export default function AdminlandPage() {
           </button>
           <button
             onClick={() => navigateTo({ type: "automapper" })}
-            className="rounded-lg bg-[#b91c1c] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#a31919]"
+            className="rounded-lg bg-[#6c5ce7] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#5a4bd4]"
           >
             Auto-map customers
           </button>
@@ -456,7 +456,7 @@ export default function AdminlandPage() {
     <div className="mx-auto max-w-3xl">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#b91c1c] text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6c5ce7] text-white">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
             </svg>

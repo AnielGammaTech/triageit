@@ -44,22 +44,22 @@ const STATUS_KEYWORDS: ReadonlyArray<{
   readonly match: string;
   readonly style: string;
 }> = [
-  { match: "new", style: "bg-blue-500/20 text-blue-400" },
-  { match: "in progress", style: "bg-emerald-500/20 text-emerald-400" },
-  { match: "scheduled", style: "bg-purple-500/20 text-purple-400" },
-  { match: "waiting on customer", style: "bg-yellow-500/20 text-yellow-400" },
-  { match: "customer reply", style: "bg-orange-500/20 text-orange-400" },
-  { match: "waiting on tech", style: "bg-red-500/20 text-red-400" },
-  { match: "waiting on parts", style: "bg-cyan-500/20 text-cyan-400" },
-  { match: "pending vendor", style: "bg-indigo-500/20 text-indigo-400" },
-  { match: "on hold", style: "bg-gray-500/20 text-gray-400" },
-  { match: "needs quote", style: "bg-pink-500/20 text-pink-400" },
+  { match: "new", style: "bg-blue-500/10 text-blue-300 border border-blue-400/25" },
+  { match: "in progress", style: "bg-emerald-500/10 text-emerald-300 border border-emerald-400/25" },
+  { match: "scheduled", style: "bg-purple-500/10 text-purple-300 border border-purple-400/25" },
+  { match: "waiting on customer", style: "bg-yellow-500/10 text-yellow-300 border border-yellow-400/25" },
+  { match: "customer reply", style: "bg-orange-500/10 text-orange-300 border border-orange-400/25" },
+  { match: "waiting on tech", style: "bg-red-500/10 text-red-300 border border-red-400/25" },
+  { match: "waiting on parts", style: "bg-cyan-500/10 text-cyan-300 border border-cyan-400/25" },
+  { match: "pending vendor", style: "bg-indigo-500/10 text-indigo-300 border border-indigo-400/25" },
+  { match: "on hold", style: "bg-gray-500/10 text-gray-300 border border-gray-400/25" },
+  { match: "needs quote", style: "bg-pink-500/10 text-pink-300 border border-pink-400/25" },
 ];
 
 function getStatusStyle(status: string): string {
   const lower = status.toLowerCase();
   const found = STATUS_KEYWORDS.find((s) => lower.includes(s.match));
-  return found?.style ?? "bg-gray-500/20 text-gray-400";
+  return found?.style ?? "bg-gray-500/10 text-gray-300 border border-gray-400/25";
 }
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -68,6 +68,14 @@ const PRIORITY_COLORS: Record<number, string> = {
   3: "text-yellow-400",
   4: "text-green-400",
   5: "text-gray-400",
+};
+
+const PRIORITY_DOTS: Record<number, string> = {
+  1: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]",
+  2: "bg-orange-400",
+  3: "bg-yellow-400",
+  4: "bg-green-400",
+  5: "bg-gray-500",
 };
 
 const PRIORITY_LABELS: Record<number, string> = {
@@ -207,7 +215,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           placeholder="Search tickets..."
-          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#b91c1c]/50 focus:outline-none focus:ring-1 focus:ring-[#b91c1c]/30"
+          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#6c5ce7]/50 focus:outline-none focus:ring-1 focus:ring-[#6c5ce7]/30"
         />
         <select
           value={statusFilter}
@@ -267,12 +275,12 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="font-mono text-xs text-[#b91c1c] hover:text-[#818cf8]"
+                      className="font-mono text-xs text-[#6c5ce7] hover:text-[#818cf8]"
                     >
                       #{ticket.halo_id}
                     </a>
                   ) : (
-                    <span className="font-mono text-xs text-[#b91c1c]">#{ticket.halo_id}</span>
+                    <span className="font-mono text-xs text-[#6c5ce7]">#{ticket.halo_id}</span>
                   )}
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
@@ -315,18 +323,18 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
       </div>
 
       {/* Desktop: table layout */}
-      <div className="hidden md:block overflow-hidden rounded-lg border border-[var(--border)]">
+      <div className="hidden md:block overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]/40">
         <table className="w-full text-sm">
-          <thead className="bg-[var(--card)]">
+          <thead className="bg-gradient-to-b from-white/[0.04] to-transparent">
             <tr className="border-b border-[var(--border)]">
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">#</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Summary</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Client</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Status</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Pri</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Activity</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Triaged</th>
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--muted-foreground)]">Assigned To</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">#</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Summary</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Client</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Status</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Pri</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Activity</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Triaged</th>
+              <th className="px-3 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Assigned To</th>
             </tr>
           </thead>
           <tbody>
@@ -351,20 +359,18 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                   key={ticket.id}
                   onClick={() => onSelectTicket(ticket.id)}
                   className={cn(
-                    "border-b border-[var(--border)] transition-colors cursor-pointer",
-                    hasCritical
-                      ? "hover:bg-red-500/5 bg-red-500/[0.02]"
-                      : "hover:bg-[var(--accent)]",
+                    "border-b border-[var(--border)] transition-colors cursor-pointer hover:bg-white/[0.035]",
+                    hasCritical && "shadow-[inset_2px_0_0_0_rgba(255,77,94,0.7)] bg-red-500/[0.02]",
                   )}
                 >
-                  <td className="px-3 py-2 font-mono text-xs">
+                  <td className="px-3 py-2.5 font-mono text-xs">
                     {haloBaseUrl ? (
                       <a
                         href={`${haloBaseUrl}/tickets?id=${ticket.halo_id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[#b91c1c] hover:text-[#818cf8] transition-colors"
+                        className="inline-flex items-center gap-1 text-[#6c5ce7] hover:text-[#818cf8] transition-colors"
                         title="Open in Halo"
                       >
                         {ticket.halo_id}
@@ -375,16 +381,16 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         </svg>
                       </a>
                     ) : (
-                      <span className="text-[#b91c1c]">{ticket.halo_id}</span>
+                      <span className="text-[#6c5ce7]">{ticket.halo_id}</span>
                     )}
                   </td>
-                  <td className="max-w-sm px-3 py-2">
+                  <td className="max-w-sm px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <span className="truncate">{ticket.summary}</span>
                       <TicketTags ticket={ticket} />
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
+                  <td className="px-3 py-2.5 text-[11px] uppercase tracking-wide text-white/40">
                     {ticket.client_name ?? "—"}
                   </td>
                   <td className="px-3 py-2">
@@ -392,8 +398,15 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       {ticket.halo_status ?? "Unknown"}
                     </span>
                   </td>
-                  <td className={cn("px-3 py-2 text-xs font-medium", PRIORITY_COLORS[ticket.original_priority ?? 0] ?? "text-[var(--muted-foreground)]")}>
-                    {ticket.original_priority ? (PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`) : "—"}
+                  <td className="px-3 py-2.5 text-xs font-medium">
+                    {ticket.original_priority ? (
+                      <span className={cn("inline-flex items-center gap-1.5", PRIORITY_COLORS[ticket.original_priority] ?? "text-[var(--muted-foreground)]")}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", PRIORITY_DOTS[ticket.original_priority] ?? "bg-gray-500")} />
+                        {PRIORITY_LABELS[ticket.original_priority] ?? `P${ticket.original_priority}`}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-3 py-2 text-xs text-[var(--muted-foreground)]">
                     {activityLabel}
@@ -420,9 +433,14 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       return <span className="text-white/20">—</span>;
                     })()}
                   </td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className="px-3 py-2.5 text-xs">
                     {ticket.halo_agent ? (
-                      <span className="text-[var(--muted-foreground)]">{ticket.halo_agent}</span>
+                      <span className="inline-flex items-center gap-2 text-[var(--muted-foreground)]">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#8b7cff]/30 to-[#6c5ce7]/20 border border-[#8b7cff]/25 font-mono text-[8px] font-bold text-[#a99cff]">
+                          {ticket.halo_agent.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+                        </span>
+                        {ticket.halo_agent}
+                      </span>
                     ) : (
                       <span className={cn("inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium", FLAG_STYLES.warning)}>
                         Unassigned
