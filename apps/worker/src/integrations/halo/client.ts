@@ -479,6 +479,8 @@ export class HaloClient {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        // Attachment downloads must never hang a triage — hard cap
+        signal: AbortSignal.timeout(20_000),
       });
 
       if (!response.ok) return null;
