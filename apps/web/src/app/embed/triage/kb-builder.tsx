@@ -32,11 +32,11 @@ const btn = (color: string, bg: string, border: string): React.CSSProperties => 
   padding: "6px 10px",
   fontSize: "10px",
   fontWeight: 600,
-  fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+  fontFamily: "'IBM Plex Mono', 'SF Mono', monospace",
   color,
   backgroundColor: bg,
   border: `1px solid ${border}`,
-  borderRadius: "4px",
+  borderRadius: "8px",
   cursor: "pointer",
   transition: "all 0.15s ease",
   whiteSpace: "nowrap" as const,
@@ -45,19 +45,19 @@ const btn = (color: string, bg: string, border: string): React.CSSProperties => 
 });
 
 const CONF_COLORS: Record<string, string> = {
-  high: "#00b894",
-  medium: "#fdcb6e",
-  low: "#636e72",
+  high: "#3ddc84",
+  medium: "#f5c84c",
+  low: "#5c6480",
 };
 
 const CAT_COLORS: Record<string, string> = {
-  article: "#74b9ff",
+  article: "#60a5fa",
   procedure: "#a29bfe",
-  vendor: "#fd79a8",
-  asset: "#00cec9",
-  password_note: "#ff4757",
-  network: "#0984e3",
-  environment: "#00b894",
+  vendor: "#f472b6",
+  asset: "#2dd4bf",
+  password_note: "#ff4d5e",
+  network: "#60a5fa",
+  environment: "#3ddc84",
 };
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -213,15 +213,15 @@ export function KBBuilder({
       <button
         onClick={handleGenerate}
         style={btn(
-          hasError ? "#ff4757" : "#636e72",
-          hasError ? "rgba(255,71,87,0.06)" : "#12131a",
-          hasError ? "rgba(255,71,87,0.2)" : "#1e2028",
+          hasError ? "#ff4d5e" : "#5c6480",
+          hasError ? "rgba(255,77,94,0.06)" : "#0c0e15",
+          hasError ? "rgba(255,77,94,0.2)" : "rgba(140,150,190,0.10)",
         )}
         onMouseEnter={(e) => {
-          if (!hasError) { e.currentTarget.style.borderColor = "#2d3040"; e.currentTarget.style.color = "#8b8fa3"; }
+          if (!hasError) { e.currentTarget.style.borderColor = "rgba(140,150,190,0.18)"; e.currentTarget.style.color = "#98a0b8"; }
         }}
         onMouseLeave={(e) => {
-          if (!hasError) { e.currentTarget.style.borderColor = "#1e2028"; e.currentTarget.style.color = "#636e72"; }
+          if (!hasError) { e.currentTarget.style.borderColor = "rgba(140,150,190,0.10)"; e.currentTarget.style.color = "#5c6480"; }
         }}
       >
         {hasError ? error : "Gen KB"}
@@ -232,10 +232,10 @@ export function KBBuilder({
   // ── GENERATING: spinner button
   if (phase === "generating") {
     return (
-      <button disabled style={{ ...btn("#74b9ff", "rgba(116,185,255,0.08)", "rgba(116,185,255,0.2)"), cursor: "not-allowed", opacity: 0.8 }}>
+      <button disabled style={{ ...btn("#60a5fa", "rgba(96,165,250,0.08)", "rgba(96,165,250,0.2)"), cursor: "not-allowed", opacity: 0.8 }}>
         <span style={{
           display: "inline-block", width: "10px", height: "10px",
-          border: "1.5px solid rgba(116,185,255,0.3)", borderTopColor: "#74b9ff",
+          border: "1.5px solid rgba(96,165,250,0.3)", borderTopColor: "#60a5fa",
           borderRadius: "50%", animation: "spin 0.6s linear infinite",
         }} />
         Analyzing ticket...
@@ -250,7 +250,7 @@ export function KBBuilder({
         <div style={panelStyle}>
           <div style={panelHeader}>
             <span style={panelTitle}>KB IDEAS</span>
-            <span style={{ fontSize: "9px", color: "#3d4051" }}>{ideas.length} ideas</span>
+            <span style={{ fontSize: "9px", color: "#3a4058" }}>{ideas.length} ideas</span>
             <button onClick={handleBack} style={dismissBtn}>close</button>
           </div>
 
@@ -259,8 +259,8 @@ export function KBBuilder({
               <div key={i} style={ideaCard}>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
                   <span style={{
-                    fontSize: "8px", fontWeight: 800, color: CAT_COLORS[idea.category] ?? "#636e72",
-                    backgroundColor: `${CAT_COLORS[idea.category] ?? "#636e72"}15`,
+                    fontSize: "8px", fontWeight: 800, color: CAT_COLORS[idea.category] ?? "#5c6480",
+                    backgroundColor: `${CAT_COLORS[idea.category] ?? "#5c6480"}15`,
                     padding: "1px 5px", borderRadius: "2px", letterSpacing: "0.08em",
                     textTransform: "uppercase" as const,
                   }}>
@@ -273,24 +273,24 @@ export function KBBuilder({
                     {idea.confidence}
                   </span>
                   <span style={{ flex: 1 }} />
-                  <span style={{ fontSize: "9px", color: "#3d4051" }}>{idea.hudu_section}</span>
+                  <span style={{ fontSize: "9px", color: "#3a4058" }}>{idea.hudu_section}</span>
                 </div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#c8ccd4", marginBottom: "3px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#e8eaf2", marginBottom: "3px", fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
                   {idea.title}
                 </div>
-                <div style={{ fontSize: "10px", color: "#636e72", lineHeight: 1.5, marginBottom: "6px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+                <div style={{ fontSize: "10px", color: "#5c6480", lineHeight: 1.5, marginBottom: "6px", fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
                   {idea.why}
                 </div>
                 {idea.needs_info.length > 0 && (
-                  <div style={{ fontSize: "9px", color: "#fdcb6e", marginBottom: "6px" }}>
+                  <div style={{ fontSize: "9px", color: "#f5c84c", marginBottom: "6px" }}>
                     {idea.needs_info.length} question{idea.needs_info.length > 1 ? "s" : ""} for you
                   </div>
                 )}
                 <button
                   onClick={() => handleSelectIdea(idea)}
-                  style={btn("#6c5ce7", "rgba(108,92,231,0.08)", "rgba(108,92,231,0.2)")}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(108,92,231,0.15)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(108,92,231,0.08)"; }}
+                  style={btn("#8b7cff", "rgba(139,124,255,0.08)", "rgba(139,124,255,0.2)")}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(139,124,255,0.15)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "rgba(139,124,255,0.08)"; }}
                 >
                   Build This Article
                 </button>
@@ -317,18 +317,18 @@ export function KBBuilder({
 
           {/* Title */}
           <div style={{
-            fontSize: "13px", fontWeight: 700, color: "#e4e6ed", marginBottom: "10px",
-            fontFamily: "'Inter', system-ui, sans-serif", lineHeight: 1.4,
+            fontSize: "13px", fontWeight: 700, color: "#e8eaf2", marginBottom: "10px",
+            fontFamily: "'IBM Plex Sans', system-ui, sans-serif", lineHeight: 1.4,
           }}>
             {selectedIdea.title}
           </div>
 
           {/* Draft preview */}
           <div style={{
-            fontSize: "11px", color: "#8b8fa3", lineHeight: 1.7, marginBottom: "14px",
-            padding: "12px 14px", background: "rgba(108,92,231,0.04)", borderRadius: "6px",
-            border: "1px solid rgba(108,92,231,0.12)", borderLeft: "3px solid #6c5ce7",
-            maxHeight: "150px", overflow: "auto", fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: "11px", color: "#98a0b8", lineHeight: 1.7, marginBottom: "14px",
+            padding: "12px 14px", background: "rgba(139,124,255,0.04)", borderRadius: "6px",
+            border: "1px solid rgba(139,124,255,0.12)", borderLeft: "3px solid #8b7cff",
+            maxHeight: "150px", overflow: "auto", fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
             whiteSpace: "pre-wrap" as const,
           }}>
             {selectedIdea.content}
@@ -338,8 +338,8 @@ export function KBBuilder({
           {hasQuestions && (
             <div style={{ marginBottom: "14px" }}>
               <div style={{
-                fontSize: "10px", fontWeight: 800, color: "#fdcb6e", letterSpacing: "0.08em",
-                marginBottom: "12px", paddingBottom: "6px", borderBottom: "1px solid rgba(253,203,110,0.12)",
+                fontSize: "10px", fontWeight: 800, color: "#f5c84c", letterSpacing: "0.08em",
+                marginBottom: "12px", paddingBottom: "6px", borderBottom: "1px solid rgba(245,200,76,0.12)",
               }}>
                 DWIGHT NEEDS YOUR INPUT
               </div>
@@ -347,10 +347,10 @@ export function KBBuilder({
                 {questions.map((q, i) => (
                   <div key={q}>
                     <label style={{
-                      display: "block", fontSize: "12px", color: "#c8ccd4", marginBottom: "6px",
-                      lineHeight: 1.5, fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 500,
+                      display: "block", fontSize: "12px", color: "#e8eaf2", marginBottom: "6px",
+                      lineHeight: 1.5, fontFamily: "'IBM Plex Sans', system-ui, sans-serif", fontWeight: 500,
                     }}>
-                      <span style={{ color: "#fdcb6e", fontWeight: 700, marginRight: "6px", fontSize: "10px" }}>{i + 1}.</span>
+                      <span style={{ color: "#f5c84c", fontWeight: 700, marginRight: "6px", fontSize: "10px" }}>{i + 1}.</span>
                       {q}
                     </label>
                     <input
@@ -362,15 +362,15 @@ export function KBBuilder({
                         width: "100%",
                         padding: "8px 10px",
                         fontSize: "11px",
-                        fontFamily: "'Inter', system-ui, sans-serif",
-                        color: "#e4e6ed",
-                        backgroundColor: "#0c0d10",
-                        border: "1px solid #2d3040",
-                        borderRadius: "4px",
+                        fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                        color: "#e8eaf2",
+                        backgroundColor: "#06070b",
+                        border: "1px solid rgba(140,150,190,0.18)",
+                        borderRadius: "8px",
                         outline: "none",
                       }}
-                      onFocus={(e) => { e.currentTarget.style.borderColor = "#6c5ce7"; e.currentTarget.style.boxShadow = "0 0 0 2px rgba(108,92,231,0.15)"; }}
-                      onBlur={(e) => { e.currentTarget.style.borderColor = "#2d3040"; e.currentTarget.style.boxShadow = "none"; }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = "#8b7cff"; e.currentTarget.style.boxShadow = "0 0 0 2px rgba(139,124,255,0.15)"; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = "rgba(140,150,190,0.18)"; e.currentTarget.style.boxShadow = "none"; }}
                     />
                   </div>
                 ))}
@@ -378,12 +378,12 @@ export function KBBuilder({
             </div>
           )}
 
-          {error && <div style={{ fontSize: "9px", color: "#ff4757", marginBottom: "6px" }}>{error}</div>}
+          {error && <div style={{ fontSize: "9px", color: "#ff4d5e", marginBottom: "6px" }}>{error}</div>}
 
           <div style={{ display: "flex", gap: "8px", paddingTop: "4px" }}>
             <button
               onClick={handleBuildArticle}
-              style={{ ...btn("#fff", "#6c5ce7", "#6c5ce7"), padding: "8px 16px", fontSize: "11px", fontWeight: 700 }}
+              style={{ ...btn("#fff", "#8b7cff", "#8b7cff"), padding: "8px 16px", fontSize: "11px", fontWeight: 700 }}
               onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
             >
@@ -392,9 +392,9 @@ export function KBBuilder({
             {hasQuestions && (
               <button
                 onClick={() => { setAnswers({}); handleBuildArticle(); }}
-                style={btn("#636e72", "#12131a", "#1e2028")}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "#8b8fa3"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = "#636e72"; }}
+                style={btn("#5c6480", "#0c0e15", "rgba(140,150,190,0.10)")}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "#98a0b8"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#5c6480"; }}
               >
                 Skip Questions
               </button>
@@ -416,10 +416,10 @@ export function KBBuilder({
           <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 0" }}>
             <span style={{
               display: "inline-block", width: "14px", height: "14px",
-              border: "2px solid rgba(108,92,231,0.3)", borderTopColor: "#6c5ce7",
+              border: "2px solid rgba(139,124,255,0.3)", borderTopColor: "#8b7cff",
               borderRadius: "50%", animation: "spin 0.6s linear infinite",
             }} />
-            <span style={{ fontSize: "11px", color: "#8b8fa3", fontFamily: "'Inter', system-ui, sans-serif" }}>
+            <span style={{ fontSize: "11px", color: "#98a0b8", fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
               Dwight is writing the KB article...
             </span>
           </div>
@@ -438,18 +438,18 @@ export function KBBuilder({
             <button onClick={handleBack} style={dismissBtn}>back</button>
           </div>
 
-          <div style={{ fontSize: "11px", fontWeight: 700, color: "#00b894", marginBottom: "2px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#3ddc84", marginBottom: "2px", fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
             {article.title}
           </div>
-          <div style={{ fontSize: "9px", color: "#3d4051", marginBottom: "8px" }}>
+          <div style={{ fontSize: "9px", color: "#3a4058", marginBottom: "8px" }}>
             {article.hudu_section}
           </div>
 
           {/* Article content */}
           <div style={{
-            fontSize: "11px", color: "#c8ccd4", lineHeight: 1.7,
-            padding: "10px 12px", background: "#0c0d10", borderRadius: "4px", border: "1px solid #1e2028",
-            maxHeight: "300px", overflow: "auto", fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: "11px", color: "#e8eaf2", lineHeight: 1.7,
+            padding: "10px 12px", background: "#06070b", borderRadius: "8px", border: "1px solid rgba(140,150,190,0.10)",
+            maxHeight: "300px", overflow: "auto", fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
             whiteSpace: "pre-wrap" as const,
           }}>
             {article.content}
@@ -459,16 +459,16 @@ export function KBBuilder({
             <button
               onClick={handleCopy}
               style={btn(
-                copied ? "#00b894" : "#fff",
-                copied ? "rgba(0,184,148,0.08)" : "#6c5ce7",
-                copied ? "rgba(0,184,148,0.2)" : "#6c5ce7",
+                copied ? "#3ddc84" : "#fff",
+                copied ? "rgba(61,220,132,0.08)" : "#8b7cff",
+                copied ? "rgba(61,220,132,0.2)" : "#8b7cff",
               )}
             >
               {copied ? "Copied!" : "Copy Article"}
             </button>
             <button
               onClick={() => { setPhase("idle"); setIdeas([]); setSelectedIdea(null); setArticle(null); }}
-              style={btn("#636e72", "#12131a", "#1e2028")}
+              style={btn("#5c6480", "#0c0e15", "rgba(140,150,190,0.10)")}
             >
               Done
             </button>
@@ -485,10 +485,10 @@ export function KBBuilder({
 
 const panelStyle: React.CSSProperties = {
   padding: "10px 12px",
-  background: "#12131a",
-  border: "1px solid #1e2028",
-  borderLeft: "2px solid #6c5ce7",
-  borderRadius: "4px",
+  background: "#0c0e15",
+  border: "1px solid rgba(140,150,190,0.10)",
+  borderLeft: "2px solid #8b7cff",
+  borderRadius: "8px",
 };
 
 const panelHeader: React.CSSProperties = {
@@ -501,26 +501,26 @@ const panelHeader: React.CSSProperties = {
 const panelTitle: React.CSSProperties = {
   fontSize: "9px",
   fontWeight: 800,
-  color: "#6c5ce7",
+  color: "#8b7cff",
   letterSpacing: "0.1em",
   flex: 1,
 };
 
 const ideaCard: React.CSSProperties = {
   padding: "10px 12px",
-  background: "#0c0d10",
-  border: "1px solid #1e2028",
-  borderRadius: "4px",
+  background: "#06070b",
+  border: "1px solid rgba(140,150,190,0.10)",
+  borderRadius: "8px",
 };
 
 const dismissBtn: React.CSSProperties = {
   padding: "2px 6px",
   fontSize: "9px",
   fontWeight: 600,
-  color: "#636e72",
+  color: "#5c6480",
   backgroundColor: "transparent",
-  border: "1px solid #1e2028",
-  borderRadius: "3px",
+  border: "1px solid rgba(140,150,190,0.10)",
+  borderRadius: "5px",
   cursor: "pointer",
-  fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+  fontFamily: "'IBM Plex Mono', 'SF Mono', monospace",
 };

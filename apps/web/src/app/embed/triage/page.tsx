@@ -1,6 +1,21 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AGENTS } from "@triageit/shared";
-import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, AutoRefresh } from "./actions";
+import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh } from "./actions";
+import {
+  T,
+  PRIORITY_THEME,
+  urgencyColor,
+  ConfidenceRing,
+  UrgencyMeter,
+  IconShieldAlert,
+  IconRadar,
+  IconClock,
+  IconCpu,
+  IconNote,
+  IconUsers,
+  IconZap,
+  IconAlertTriangle,
+} from "./theme";
 
 /**
  * Embeddable Triage Tab — loaded inside Halo PSA as a custom web tab.
@@ -11,30 +26,19 @@ import { QuickActions, CollapsibleSection, SpinnerStyles, EmbedTriageButton, Aut
 
 // ── Constants ───────────────────────────────────────────────────────────
 
-const PRIORITY_CONFIG: Record<number, { label: string; color: string; track: string }> = {
-  1: { label: "Critical", color: "#ff4757", track: "linear-gradient(90deg, #ff4757, #ff6b81)" },
-  2: { label: "High", color: "#ff8c42", track: "linear-gradient(90deg, #ff8c42, #ffa563)" },
-  3: { label: "Medium", color: "#ffc312", track: "linear-gradient(90deg, #ffc312, #ffd43b)" },
-  4: { label: "Low", color: "#2ed573", track: "linear-gradient(90deg, #2ed573, #7bed9f)" },
-  5: { label: "Minimal", color: "#636e72", track: "linear-gradient(90deg, #636e72, #a4b0be)" },
-};
-
-const URGENCY_COLOR = (score: number): string =>
-  score >= 4 ? "#ff4757" : score >= 3 ? "#ffc312" : "#2ed573";
-
 const AGENT_CHARACTERS: Record<string, string> = Object.fromEntries(
   AGENTS.map((a) => [a.name, a.character]),
 );
 
 const NOTE_TYPE_CONFIG: Record<string, { label: string; accent: string; tag: string }> = {
-  triage: { label: "AI Triage", accent: "#6c5ce7", tag: "TRIAGE" },
-  retriage: { label: "Re-Triage", accent: "#fdcb6e", tag: "RETRIAGE" },
-  "tech-review": { label: "Tech Review", accent: "#00b894", tag: "REVIEW" },
-  "close-review": { label: "Close Review", accent: "#00cec9", tag: "CLOSE" },
-  alert: { label: "Alert", accent: "#ff4757", tag: "ALERT" },
-  priority: { label: "Priority", accent: "#a29bfe", tag: "PRIORITY" },
-  documentation: { label: "Docs", accent: "#74b9ff", tag: "DOCS" },
-  other: { label: "Note", accent: "#636e72", tag: "NOTE" },
+  triage: { label: "AI Triage", accent: T.brand, tag: "TRIAGE" },
+  retriage: { label: "Re-Triage", accent: T.amber, tag: "RETRIAGE" },
+  "tech-review": { label: "Tech Review", accent: T.green, tag: "REVIEW" },
+  "close-review": { label: "Close Review", accent: T.teal, tag: "CLOSE" },
+  alert: { label: "Alert", accent: T.red, tag: "ALERT" },
+  priority: { label: "Priority", accent: T.blue, tag: "PRIORITY" },
+  documentation: { label: "Docs", accent: T.blue, tag: "DOCS" },
+  other: { label: "Note", accent: T.gray, tag: "NOTE" },
 };
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -231,12 +235,12 @@ export default async function EmbedTriagePage({
   if (!ticket) {
     return (
       <div style={css.page}>
-        <SpinnerStyles />
+        <GlobalStyles />
         <div style={css.emptyWrap}>
-          <div style={css.emptyIcon}>?</div>
-          <p style={css.emptyText}>
-            No triage data for ticket #{haloId}
-          </p>
+          <div style={css.emptyIcon}>
+            <IconRadar size={22} color={T.textMute} strokeWidth={1.5} />
+          </div>
+          <p style={css.emptyText}>No triage data for ticket #{haloId}</p>
           <EmbedTriageButton haloId={Number(haloId)} token={embedSecret} />
         </div>
       </div>
@@ -261,22 +265,21 @@ export default async function EmbedTriagePage({
   const logs = (agentLogsRes.data ?? []) as ReadonlyArray<AgentLog>;
 
   if (triageResults.length === 0) {
+    const isTriaging = ticket.status === "triaging";
     return (
       <div style={css.page}>
-        <SpinnerStyles />
+        <GlobalStyles />
         <div style={css.emptyWrap}>
-          <div style={{
-            ...css.emptyIcon,
-            color: ticket.status === "triaging" ? "#6c5ce7" : "#636e72",
-          }}>
-            {ticket.status === "triaging" ? "..." : "--"}
+          <div style={{ ...css.emptyIcon, ...(isTriaging ? { borderColor: `${T.brand}44` } : {}) }}>
+            <IconRadar
+              size={22}
+              color={isTriaging ? T.brand : T.textMute}
+              strokeWidth={1.5}
+              style={isTriaging ? { animation: "pulse 1.6s ease-in-out infinite" } : undefined}
+            />
           </div>
-          <p style={css.emptyText}>
-            {ticket.status === "triaging"
-              ? "Triage in progress"
-              : "Awaiting triage"}
-          </p>
-          {ticket.status === "triaging" ? (
+          <p style={css.emptyText}>{isTriaging ? "Triage in progress" : "Awaiting triage"}</p>
+          {isTriaging ? (
             <AutoRefresh />
           ) : (
             <EmbedTriageButton haloId={ticket.halo_id} token={embedSecret} />
@@ -287,91 +290,150 @@ export default async function EmbedTriagePage({
   }
 
   const latest = triageResults[0];
-  const pri = PRIORITY_CONFIG[latest.recommended_priority] ?? {
+  const pri = PRIORITY_THEME[latest.recommended_priority] ?? {
     label: `P${latest.recommended_priority}`,
-    color: "#636e72",
-    track: "linear-gradient(90deg, #636e72, #a4b0be)",
+    color: T.gray,
+    glow: "rgba(122,129,148,0.18)",
   };
+  const urgColor = urgencyColor(latest.urgency_score);
   const findingsEntries = Object.entries(latest.findings);
   const completedAgents = logs.filter((l) => l.status === "completed").length;
+  const totalTokens = logs.reduce((sum, l) => sum + (l.tokens_used ?? 0), 0);
 
   return (
     <div style={css.page}>
-      <SpinnerStyles />
+      <GlobalStyles />
 
-      {/* ── Top Bar: Logo + Client + Time ─────────────────── */}
-      <div style={css.topBar}>
-        <div style={css.topBarLeft}>
-          <div style={css.logo}>T</div>
-          <span style={css.brandName}>TriageIT</span>
-          {ticket.client_name && (
-            <>
-              <span style={css.topBarSep}>/</span>
-              <span style={css.clientName}>{ticket.client_name}</span>
-            </>
+      {/* Severity edge — hairline gradient across the top of the panel */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "2px",
+          background: `linear-gradient(90deg, transparent, ${pri.color}, transparent)`,
+          zIndex: 100,
+        }}
+      />
+
+      {/* ── Command Header ─────────────────────────────────── */}
+      <header style={css.header} className="tg-reveal">
+        <div style={css.headerLeft}>
+          <div style={css.logoMark}>
+            <IconRadar size={15} color="#fff" strokeWidth={2} />
+          </div>
+          <div style={css.headerText}>
+            <div style={css.brandRow}>
+              <span style={css.brandName}>TRIAGEIT</span>
+              <span style={css.ticketNum}>#{ticket.halo_id}</span>
+            </div>
+            {ticket.client_name && <div style={css.clientName}>{ticket.client_name}</div>}
+          </div>
+        </div>
+        <div style={css.headerRight}>
+          {latest.security_flag && (
+            <span style={css.secBadge}>
+              <span style={css.secDot} className="tg-pulse" />
+              SECURITY
+            </span>
+          )}
+          <span style={css.timestamp}>
+            <IconClock size={10} color={T.textFaint} />
+            {formatTimestamp(latest.created_at)}
+          </span>
+        </div>
+      </header>
+
+      {/* ── Severity Band ──────────────────────────────────── */}
+      <div
+        style={{
+          ...css.severityBand,
+          boxShadow: `inset 0 1px 0 ${T.lineSoft}, 0 0 40px -18px ${pri.glow}`,
+        }}
+        className="tg-reveal tg-d1"
+      >
+        {/* Priority */}
+        <div style={{ ...css.sevCell, flex: "1.1 1 0" }}>
+          <div style={css.sevLabel}>Priority</div>
+          <div
+            style={{
+              ...css.sevValueBig,
+              color: pri.color,
+              textShadow: `0 0 18px ${pri.glow}`,
+            }}
+          >
+            {pri.label}
+          </div>
+          <div style={css.sevTrack}>
+            <div
+              style={{
+                height: "100%",
+                width: `${((6 - latest.recommended_priority) / 5) * 100}%`,
+                background: `linear-gradient(90deg, ${pri.color}88, ${pri.color})`,
+                borderRadius: "2px",
+                boxShadow: `0 0 8px ${pri.glow}`,
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={css.sevDivider} />
+
+        {/* Urgency */}
+        <div style={css.sevCell}>
+          <div style={css.sevLabel}>
+            <IconZap size={9} color={urgColor} /> Urgency
+          </div>
+          <div style={{ ...css.sevValueBig, color: urgColor, fontFamily: T.mono }}>
+            {latest.urgency_score}
+            <span style={css.sevDim}>/5</span>
+          </div>
+          <UrgencyMeter score={latest.urgency_score} />
+        </div>
+
+        <div style={css.sevDivider} />
+
+        {/* Classification */}
+        <div style={{ ...css.sevCell, flex: "1.6 1 0" }}>
+          <div style={css.sevLabel}>Classification</div>
+          <div style={css.sevValue}>{latest.classification.type.replace(/_/g, " ")}</div>
+          {latest.classification.subtype && (
+            <div style={css.sevSub}>{latest.classification.subtype.replace(/_/g, " ")}</div>
           )}
         </div>
-        <div style={css.topBarRight}>
-          {latest.security_flag && <span style={css.secBadge}>SEC</span>}
-          <span style={css.timestamp}>{formatTimestamp(latest.created_at)}</span>
-        </div>
-      </div>
 
-      {/* ── Status Strip: Priority / Urgency / Type / Team ── */}
-      <div style={css.statusStrip}>
-        <div style={css.statusItem}>
-          <div style={css.statusLabel}>PRI</div>
-          <div style={{ ...css.statusValue, color: pri.color }}>{pri.label}</div>
-          <div style={css.statusTrack}>
-            <div style={{
-              height: "100%",
-              width: `${(latest.recommended_priority / 5) * 100}%`,
-              background: pri.track,
-              borderRadius: "2px",
-            }} />
-          </div>
-        </div>
-        <div style={css.statusDivider} />
-        <div style={css.statusItem}>
-          <div style={css.statusLabel}>URG</div>
-          <div style={{ ...css.statusValue, color: URGENCY_COLOR(latest.urgency_score), fontFamily: "'JetBrains Mono', 'SF Mono', monospace" }}>
-            {latest.urgency_score}<span style={css.statusDim}>/5</span>
-          </div>
-        </div>
-        <div style={css.statusDivider} />
-        <div style={{ ...css.statusItem, flex: "1.5 1 0" }}>
-          <div style={css.statusLabel}>TYPE</div>
-          <div style={css.statusValue}>
-            {latest.classification.type.replace(/_/g, " ")}
-            {latest.classification.subtype && (
-              <span style={css.statusSub}> / {latest.classification.subtype.replace(/_/g, " ")}</span>
-            )}
-          </div>
-        </div>
         {latest.recommended_team && (
           <>
-            <div style={css.statusDivider} />
-            <div style={css.statusItem}>
-              <div style={css.statusLabel}>TEAM</div>
-              <div style={css.statusValue}>{latest.recommended_team}</div>
+            <div style={css.sevDivider} />
+            <div style={css.sevCell}>
+              <div style={css.sevLabel}>
+                <IconUsers size={9} color={T.textMute} /> Team
+              </div>
+              <div style={css.sevValue}>{latest.recommended_team}</div>
+              {latest.recommended_agent && (
+                <div style={css.sevSub}>{latest.recommended_agent}</div>
+              )}
             </div>
           </>
         )}
       </div>
 
-      {/* ── Security Alert ──────────────────────────────── */}
+      {/* ── Security Alert ─────────────────────────────────── */}
       {latest.security_flag && latest.security_notes && (
-        <div style={css.secAlert}>
-          <div style={css.secAlertBar} />
-          <div style={css.secAlertContent}>
-            <div style={css.secAlertTitle}>SECURITY FLAG</div>
+        <div style={css.secAlert} className="tg-reveal tg-d2">
+          <div style={css.secAlertIcon}>
+            <IconShieldAlert size={16} color={T.red} strokeWidth={2} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={css.secAlertTitle}>Security flag raised</div>
             <p style={css.secAlertText}>{latest.security_notes}</p>
           </div>
         </div>
       )}
 
-      {/* ── Actions ────────────────────────────────────── */}
-      <div style={css.actionsWrap}>
+      {/* ── Action Deck ────────────────────────────────────── */}
+      <div style={css.actionsWrap} className="tg-reveal tg-d2">
         <QuickActions
           ticketId={ticket.id}
           haloId={ticket.halo_id}
@@ -381,105 +443,136 @@ export default async function EmbedTriagePage({
         />
       </div>
 
-      {/* ── Agent Findings (collapsible) ──────────────── */}
+      {/* ── Agent Findings ─────────────────────────────────── */}
       {findingsEntries.length > 0 && (
-        <CollapsibleSection
-          title="Agent Findings"
-          badge={`${findingsEntries.length} agents`}
-          accent="#a29bfe"
-          defaultOpen={findingsEntries.length <= 3}
-        >
-          <div style={css.findingsGrid}>
-            {findingsEntries.map(([name, finding]) => (
-              <FindingCard
-                key={name}
-                agentName={name}
-                summary={finding.summary}
-                confidence={finding.confidence}
-              />
-            ))}
-          </div>
-        </CollapsibleSection>
+        <div className="tg-reveal tg-d3">
+          <CollapsibleSection
+            title="Agent Findings"
+            badge={`${findingsEntries.length} agents`}
+            accent={T.brand}
+            icon="radar"
+            defaultOpen={findingsEntries.length <= 3}
+          >
+            <div style={css.findingsGrid}>
+              {findingsEntries.map(([name, finding]) => (
+                <FindingCard
+                  key={name}
+                  agentName={name}
+                  summary={finding.summary}
+                  confidence={finding.confidence}
+                />
+              ))}
+            </div>
+          </CollapsibleSection>
+        </div>
       )}
 
-      {/* ── TriageIT Notes ─────────────────────────────── */}
+      {/* ── TriageIT Notes Timeline ────────────────────────── */}
       {triageItNotes.length > 0 && (
-        <div style={css.notesSection}>
+        <div style={css.notesSection} className="tg-reveal tg-d3">
           <div style={css.sectionHeader}>
-            <span style={css.sectionTitle}>Halo Notes</span>
+            <IconNote size={11} color={T.textMute} />
+            <span style={css.sectionTitle}>Activity Timeline</span>
             <span style={css.sectionCount}>{triageItNotes.length}</span>
           </div>
-          <div style={css.notesList}>
-            {triageItNotes.map((note, i) => (
-              <NoteCard key={note.id} note={note} defaultOpen={i === 0} />
-            ))}
+          <div style={css.timeline}>
+            {triageItNotes.map((note, i) => {
+              const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
+              return (
+                <div key={note.id} style={css.timelineRow}>
+                  <div style={css.timelineRail}>
+                    <div
+                      style={{
+                        ...css.timelineNode,
+                        backgroundColor: cfg.accent,
+                        boxShadow: `0 0 8px ${cfg.accent}66`,
+                      }}
+                    />
+                    {i < triageItNotes.length - 1 && <div style={css.timelineLine} />}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, paddingBottom: "8px" }}>
+                    <CollapsibleSection
+                      title={cfg.label}
+                      accent={cfg.accent}
+                      defaultOpen={i === 0}
+                      badge={formatTimestamp(note.date)}
+                      tag={cfg.tag}
+                    >
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          lineHeight: 1.6,
+                          overflow: "auto",
+                          maxHeight: "500px",
+                          fontFamily: T.sans,
+                        }}
+                        dangerouslySetInnerHTML={{ __html: note.html }}
+                      />
+                    </CollapsibleSection>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ── Urgency Reasoning ──────────────────────────── */}
-      <CollapsibleSection title="Urgency Reasoning" accent="#6c5ce7">
-        <p style={css.bodyText}>{latest.urgency_reasoning}</p>
-      </CollapsibleSection>
-
-      {/* ── Internal Notes ─────────────────────────────── */}
-      {latest.internal_notes && (
-        <CollapsibleSection title="Internal Notes" accent="#a29bfe">
-          <p style={css.bodyText}>{latest.internal_notes}</p>
+      {/* ── Urgency Reasoning ──────────────────────────────── */}
+      <div className="tg-reveal tg-d4">
+        <CollapsibleSection title="Urgency Reasoning" accent={T.brand} icon="brain">
+          <p style={css.bodyText}>{latest.urgency_reasoning}</p>
         </CollapsibleSection>
-      )}
-
-      {/* ── Agent Activity Log ─────────────────────────── */}
-      {logs.length > 0 && (
-        <CollapsibleSection
-          title="Agent Pipeline"
-          badge={`${completedAgents}/${logs.length}`}
-          accent="#636e72"
-        >
-          <div style={css.logGrid}>
-            {logs.map((log, i) => (
-              <AgentLogRow key={i} log={log} />
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* ── Footer ─────────────────────────────────────── */}
-      <div style={css.footer}>
-        <span>{completedAgents} agents</span>
-        <span style={css.footerDot} />
-        <span>{logs.reduce((sum, l) => sum + (l.tokens_used ?? 0), 0).toLocaleString()} tok</span>
-        {latest.processing_time_ms != null && (
-          <>
-            <span style={css.footerDot} />
-            <span>{(latest.processing_time_ms / 1000).toFixed(1)}s</span>
-          </>
-        )}
       </div>
+
+      {/* ── Internal Notes ─────────────────────────────────── */}
+      {latest.internal_notes && (
+        <div className="tg-reveal tg-d4">
+          <CollapsibleSection title="Internal Notes" accent={T.blue} icon="note">
+            <p style={css.bodyText}>{latest.internal_notes}</p>
+          </CollapsibleSection>
+        </div>
+      )}
+
+      {/* ── Agent Pipeline ─────────────────────────────────── */}
+      {logs.length > 0 && (
+        <div className="tg-reveal tg-d4">
+          <CollapsibleSection
+            title="Agent Pipeline"
+            badge={`${completedAgents}/${logs.length}`}
+            accent={T.textMute}
+            icon="activity"
+          >
+            <div style={css.logGrid}>
+              {logs.map((log, i) => (
+                <AgentLogRow key={i} log={log} maxDuration={Math.max(...logs.map((l) => l.duration_ms ?? 0), 1)} />
+              ))}
+            </div>
+          </CollapsibleSection>
+        </div>
+      )}
+
+      {/* ── Footer ─────────────────────────────────────────── */}
+      <footer style={css.footer} className="tg-reveal tg-d4">
+        <span style={css.footerStat}>
+          <IconUsers size={10} color={T.textFaint} />
+          {completedAgents} agents
+        </span>
+        <span style={css.footerStat}>
+          <IconCpu size={10} color={T.textFaint} />
+          {totalTokens.toLocaleString()} tok
+        </span>
+        {latest.processing_time_ms != null && (
+          <span style={css.footerStat}>
+            <IconClock size={10} color={T.textFaint} />
+            {(latest.processing_time_ms / 1000).toFixed(1)}s
+          </span>
+        )}
+      </footer>
     </div>
   );
 }
 
 // ── Sub Components ──────────────────────────────────────────────────────
-
-function NoteCard({ note, defaultOpen }: { readonly note: TriageITNote; readonly defaultOpen: boolean }) {
-  const cfg = NOTE_TYPE_CONFIG[note.type] ?? NOTE_TYPE_CONFIG.other;
-
-  return (
-    <CollapsibleSection
-      title={cfg.label}
-      accent={cfg.accent}
-      defaultOpen={defaultOpen}
-      badge={formatTimestamp(note.date)}
-      tag={cfg.tag}
-    >
-      <div
-        style={{ fontSize: "12px", lineHeight: 1.6, overflow: "auto", maxHeight: "500px" }}
-        dangerouslySetInnerHTML={{ __html: note.html }}
-      />
-    </CollapsibleSection>
-  );
-}
 
 function FindingCard({
   agentName,
@@ -492,73 +585,58 @@ function FindingCard({
 }) {
   const character = AGENT_CHARACTERS[agentName] ?? agentName;
   const pct = Math.round(confidence * 100);
-  const barColor = pct >= 80 ? "#00b894" : pct >= 60 ? "#fdcb6e" : "#636e72";
+  const initials = character
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
-    <div style={{
-      padding: "8px 10px",
-      borderBottom: "1px solid #1e2028",
-    }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
-        marginBottom: "4px",
-      }}>
-        <span style={{
-          fontSize: "11px",
-          fontWeight: 700,
-          color: "#a29bfe",
-          fontFamily: "'Inter', system-ui, sans-serif",
-        }}>{character}</span>
-        <span style={{ flex: 1 }} />
-        <div style={{
-          width: "32px",
-          height: "3px",
-          backgroundColor: "#1e2028",
-          borderRadius: "2px",
-          overflow: "hidden",
-        }}>
-          <div style={{
-            height: "100%",
-            width: `${pct}%`,
-            backgroundColor: barColor,
-            borderRadius: "2px",
-          }} />
-        </div>
-        <span style={{
-          fontSize: "9px",
-          fontWeight: 700,
-          color: barColor,
-          minWidth: "24px",
-          textAlign: "right" as const,
-        }}>{pct}%</span>
+    <div style={css.findingCard} className="tg-card">
+      <div style={css.findingTop}>
+        <div style={css.findingAvatar}>{initials}</div>
+        <span style={css.findingName}>{character}</span>
+        <ConfidenceRing pct={pct} />
       </div>
-      <p style={{
-        color: "#8b8fa3",
-        margin: 0,
-        fontSize: "11px",
-        lineHeight: 1.6,
-        fontFamily: "'Inter', system-ui, sans-serif",
-      }}>{summary}</p>
+      <p style={css.findingText}>{summary}</p>
     </div>
   );
 }
 
-function AgentLogRow({ log }: { readonly log: AgentLog }) {
+function AgentLogRow({
+  log,
+  maxDuration,
+}: {
+  readonly log: AgentLog;
+  readonly maxDuration: number;
+}) {
   const character = AGENT_CHARACTERS[log.agent_name] ?? log.agent_name;
-  const statusMap: Record<string, { symbol: string; color: string }> = {
-    completed: { symbol: "+", color: "#00b894" },
-    error: { symbol: "x", color: "#ff4757" },
-    skipped: { symbol: "-", color: "#636e72" },
+  const statusColor: Record<string, string> = {
+    completed: T.green,
+    error: T.red,
+    skipped: T.textFaint,
   };
-  const st = statusMap[log.status] ?? { symbol: "~", color: "#fdcb6e" };
+  const color = statusColor[log.status] ?? T.amber;
+  const durationPct = log.duration_ms != null ? Math.max((log.duration_ms / maxDuration) * 100, 2) : 0;
 
   return (
     <div style={css.logRow}>
-      <span style={{ ...css.logStatus, color: st.color }}>{st.symbol}</span>
+      <span style={{ ...css.logDot, backgroundColor: color, boxShadow: `0 0 6px ${color}55` }} />
       <span style={css.logName}>{character}</span>
       <span style={css.logRole}>{log.agent_role}</span>
+      <div style={css.logDurTrack}>
+        {log.duration_ms != null && (
+          <div
+            style={{
+              height: "100%",
+              width: `${durationPct}%`,
+              backgroundColor: `${color}66`,
+              borderRadius: "1.5px",
+            }}
+          />
+        )}
+      </div>
       {log.duration_ms != null && (
         <span style={css.logTime}>{(log.duration_ms / 1000).toFixed(1)}s</span>
       )}
@@ -569,10 +647,12 @@ function AgentLogRow({ log }: { readonly log: AgentLog }) {
 function ErrorState({ message }: { readonly message: string }) {
   return (
     <div style={css.page}>
-      <SpinnerStyles />
+      <GlobalStyles />
       <div style={css.emptyWrap}>
-        <div style={{ ...css.emptyIcon, color: "#ff4757" }}>!</div>
-        <p style={{ ...css.emptyText, color: "#ff4757" }}>{message}</p>
+        <div style={{ ...css.emptyIcon, borderColor: `${T.red}33` }}>
+          <IconAlertTriangle size={22} color={T.red} strokeWidth={1.5} />
+        </div>
+        <p style={{ ...css.emptyText, color: T.red }}>{message}</p>
       </div>
     </div>
   );
@@ -594,173 +674,212 @@ function formatTimestamp(iso: string): string {
 
 const css = {
   page: {
-    fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
-    backgroundColor: "#0c0d10",
-    color: "#c8ccd4",
+    fontFamily: T.sans,
+    backgroundColor: T.bg,
+    color: T.textSoft,
     minHeight: "100vh",
-    padding: "14px 16px",
+    padding: "16px 18px 20px",
     fontSize: "12px",
     lineHeight: 1.5,
+    maxWidth: "1100px",
+    margin: "0 auto",
   } as React.CSSProperties,
 
-  // ── Top Bar
-  topBar: {
+  // ── Header
+  header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "12px",
-    paddingBottom: "10px",
-    borderBottom: "1px solid #1e2028",
+    marginBottom: "14px",
   } as React.CSSProperties,
-  topBarLeft: {
+  headerLeft: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "10px",
+    minWidth: 0,
   } as React.CSSProperties,
-  logo: {
-    width: "22px",
-    height: "22px",
-    borderRadius: "4px",
-    background: "#6c5ce7",
+  logoMark: {
+    width: "30px",
+    height: "30px",
+    borderRadius: "8px",
+    background: `linear-gradient(135deg, ${T.brand}, ${T.brandDeep})`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: "11px",
-    fontWeight: 900,
-    color: "#fff",
-    letterSpacing: "-0.02em",
+    flexShrink: 0,
+    boxShadow: `0 0 20px -6px ${T.brand}88`,
+  } as React.CSSProperties,
+  headerText: {
+    minWidth: 0,
+  } as React.CSSProperties,
+  brandRow: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
   } as React.CSSProperties,
   brandName: {
     fontSize: "11px",
     fontWeight: 700,
-    color: "#6c5ce7",
-    letterSpacing: "0.04em",
+    color: T.text,
+    letterSpacing: "0.18em",
+    fontFamily: T.mono,
   } as React.CSSProperties,
-  topBarSep: {
-    color: "#2d3040",
-    fontSize: "11px",
-    fontWeight: 400,
+  ticketNum: {
+    fontSize: "10px",
+    fontWeight: 600,
+    color: T.brand,
+    fontFamily: T.mono,
+    letterSpacing: "0.04em",
   } as React.CSSProperties,
   clientName: {
     fontSize: "11px",
     fontWeight: 500,
-    color: "#636e72",
-    maxWidth: "200px",
+    color: T.textMute,
+    maxWidth: "300px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap" as const,
+    marginTop: "1px",
   } as React.CSSProperties,
-  topBarRight: {
+  headerRight: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "10px",
+    flexShrink: 0,
   } as React.CSSProperties,
   secBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
     fontSize: "8px",
-    fontWeight: 800,
-    padding: "2px 6px",
-    borderRadius: "3px",
-    backgroundColor: "rgba(255, 71, 87, 0.12)",
-    color: "#ff4757",
-    border: "1px solid rgba(255, 71, 87, 0.25)",
-    letterSpacing: "0.1em",
+    fontWeight: 700,
+    padding: "3px 8px",
+    borderRadius: "99px",
+    backgroundColor: "rgba(255,77,94,0.10)",
+    color: T.red,
+    border: `1px solid rgba(255,77,94,0.28)`,
+    letterSpacing: "0.14em",
+    fontFamily: T.mono,
+  } as React.CSSProperties,
+  secDot: {
+    width: "5px",
+    height: "5px",
+    borderRadius: "50%",
+    backgroundColor: T.red,
   } as React.CSSProperties,
   timestamp: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
     fontSize: "10px",
-    color: "#3d4051",
+    color: T.textFaint,
     fontWeight: 500,
+    fontFamily: T.mono,
   } as React.CSSProperties,
 
-  // ── Status Strip
-  statusStrip: {
+  // ── Severity band
+  severityBand: {
     display: "flex",
     alignItems: "stretch",
-    gap: "0",
     marginBottom: "12px",
-    background: "#12131a",
-    border: "1px solid #1e2028",
-    borderRadius: "6px",
+    background: `linear-gradient(180deg, ${T.surface2}, ${T.surface1})`,
+    border: `1px solid ${T.line}`,
+    borderRadius: "10px",
     overflow: "hidden",
   } as React.CSSProperties,
-  statusItem: {
+  sevCell: {
     flex: "1 1 0",
-    padding: "10px 12px",
+    padding: "12px 14px",
     display: "flex",
     flexDirection: "column" as const,
     gap: "3px",
     minWidth: 0,
   } as React.CSSProperties,
-  statusDivider: {
+  sevDivider: {
     width: "1px",
-    backgroundColor: "#1e2028",
+    background: `linear-gradient(180deg, transparent, ${T.line}, transparent)`,
     alignSelf: "stretch",
   } as React.CSSProperties,
-  statusLabel: {
+  sevLabel: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
     fontSize: "8px",
-    fontWeight: 700,
-    color: "#3d4051",
-    letterSpacing: "0.12em",
+    fontWeight: 600,
+    color: T.textMute,
+    letterSpacing: "0.14em",
     textTransform: "uppercase" as const,
+    fontFamily: T.mono,
   } as React.CSSProperties,
-  statusValue: {
+  sevValueBig: {
+    fontSize: "17px",
+    fontWeight: 700,
+    lineHeight: 1.15,
+    letterSpacing: "-0.01em",
+  } as React.CSSProperties,
+  sevValue: {
     fontSize: "13px",
-    fontWeight: 800,
-    color: "#e4e6ed",
+    fontWeight: 600,
+    color: T.text,
     textTransform: "capitalize" as const,
-    lineHeight: 1.2,
+    lineHeight: 1.3,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap" as const,
   } as React.CSSProperties,
-  statusDim: {
+  sevSub: {
     fontSize: "10px",
+    color: T.textMute,
+    fontWeight: 500,
+    textTransform: "capitalize" as const,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  } as React.CSSProperties,
+  sevDim: {
+    fontSize: "11px",
     fontWeight: 500,
     opacity: 0.4,
   } as React.CSSProperties,
-  statusSub: {
-    fontSize: "10px",
-    color: "#636e72",
-    fontWeight: 500,
-  } as React.CSSProperties,
-  statusTrack: {
-    height: "3px",
-    backgroundColor: "#1e2028",
+  sevTrack: {
+    height: "4px",
+    backgroundColor: T.surface3,
     borderRadius: "2px",
     overflow: "hidden",
-    marginTop: "2px",
+    marginTop: "6px",
   } as React.CSSProperties,
 
-  // ── Security Alert
+  // ── Security alert
   secAlert: {
     display: "flex",
+    gap: "12px",
     marginBottom: "12px",
-    background: "rgba(255, 71, 87, 0.04)",
-    border: "1px solid rgba(255, 71, 87, 0.15)",
-    borderRadius: "6px",
-    overflow: "hidden",
+    padding: "12px 14px",
+    background: "linear-gradient(135deg, rgba(255,77,94,0.08), rgba(255,77,94,0.02))",
+    border: "1px solid rgba(255,77,94,0.22)",
+    borderRadius: "10px",
   } as React.CSSProperties,
-  secAlertBar: {
-    width: "3px",
-    backgroundColor: "#ff4757",
+  secAlertIcon: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "8px",
+    backgroundColor: "rgba(255,77,94,0.12)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     flexShrink: 0,
   } as React.CSSProperties,
-  secAlertContent: {
-    padding: "10px 12px",
-    flex: 1,
-  } as React.CSSProperties,
   secAlertTitle: {
-    fontSize: "9px",
-    fontWeight: 800,
-    color: "#ff4757",
-    letterSpacing: "0.1em",
-    marginBottom: "4px",
+    fontSize: "11px",
+    fontWeight: 700,
+    color: T.red,
+    marginBottom: "3px",
   } as React.CSSProperties,
   secAlertText: {
-    color: "#ff6b81",
+    color: "#ffb3ba",
     margin: 0,
-    fontSize: "11px",
-    lineHeight: 1.5,
-    fontFamily: "'Inter', system-ui, sans-serif",
+    fontSize: "11.5px",
+    lineHeight: 1.55,
   } as React.CSSProperties,
 
   // ── Actions
@@ -772,168 +891,189 @@ const css = {
   sectionHeader: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
+    gap: "6px",
     marginBottom: "8px",
   } as React.CSSProperties,
   sectionTitle: {
     fontSize: "9px",
-    fontWeight: 800,
-    color: "#3d4051",
+    fontWeight: 600,
+    color: T.textMute,
     textTransform: "uppercase" as const,
-    letterSpacing: "0.12em",
+    letterSpacing: "0.14em",
     flex: 1,
+    fontFamily: T.mono,
   } as React.CSSProperties,
   sectionCount: {
     fontSize: "9px",
-    fontWeight: 700,
-    color: "#6c5ce7",
-    backgroundColor: "rgba(108, 92, 231, 0.1)",
-    padding: "1px 6px",
-    borderRadius: "3px",
+    fontWeight: 600,
+    color: T.brand,
+    backgroundColor: "rgba(139,124,255,0.10)",
+    padding: "1px 7px",
+    borderRadius: "99px",
+    fontFamily: T.mono,
   } as React.CSSProperties,
 
   // ── Findings
-  findingsSection: {
-    marginBottom: "14px",
-  } as React.CSSProperties,
   findingsGrid: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "6px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gap: "8px",
   } as React.CSSProperties,
   findingCard: {
-    background: "#12131a",
-    border: "1px solid #1e2028",
-    borderRadius: "6px",
+    background: T.surface1,
+    border: `1px solid ${T.lineSoft}`,
+    borderRadius: "8px",
     padding: "10px 12px",
   } as React.CSSProperties,
   findingTop: {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    marginBottom: "6px",
+    marginBottom: "7px",
   } as React.CSSProperties,
   findingAvatar: {
-    width: "20px",
-    height: "20px",
-    borderRadius: "4px",
-    backgroundColor: "rgba(108, 92, 231, 0.15)",
-    color: "#a29bfe",
+    width: "24px",
+    height: "24px",
+    borderRadius: "6px",
+    background: "linear-gradient(135deg, rgba(139,124,255,0.22), rgba(139,124,255,0.08))",
+    border: "1px solid rgba(139,124,255,0.25)",
+    color: T.brand,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontWeight: 800,
+    fontWeight: 700,
+    fontSize: "8px",
     flexShrink: 0,
+    fontFamily: T.mono,
+    letterSpacing: "0.05em",
   } as React.CSSProperties,
   findingName: {
-    fontSize: "11px",
-    fontWeight: 700,
-    color: "#a29bfe",
+    fontSize: "11.5px",
+    fontWeight: 600,
+    color: T.text,
     flex: 1,
-  } as React.CSSProperties,
-  findingConfWrap: {
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  } as React.CSSProperties,
-  findingConfTrack: {
-    width: "40px",
-    height: "3px",
-    backgroundColor: "#1e2028",
-    borderRadius: "2px",
     overflow: "hidden",
-  } as React.CSSProperties,
-  findingConfPct: {
-    fontSize: "9px",
-    fontWeight: 700,
-    minWidth: "28px",
-    textAlign: "right" as const,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
   } as React.CSSProperties,
   findingText: {
-    color: "#8b8fa3",
+    color: T.textSoft,
     margin: 0,
     fontSize: "11px",
     lineHeight: 1.6,
-    fontFamily: "'Inter', system-ui, sans-serif",
   } as React.CSSProperties,
 
-  // ── Notes
+  // ── Timeline
   notesSection: {
-    marginBottom: "14px",
+    marginBottom: "12px",
   } as React.CSSProperties,
-  notesList: {
+  timeline: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "6px",
+  } as React.CSSProperties,
+  timelineRow: {
+    display: "flex",
+    gap: "10px",
+  } as React.CSSProperties,
+  timelineRail: {
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "center",
+    width: "10px",
+    flexShrink: 0,
+    paddingTop: "13px",
+  } as React.CSSProperties,
+  timelineNode: {
+    width: "7px",
+    height: "7px",
+    borderRadius: "50%",
+    flexShrink: 0,
+  } as React.CSSProperties,
+  timelineLine: {
+    width: "1px",
+    flex: 1,
+    background: `linear-gradient(180deg, ${T.line}, ${T.lineSoft})`,
+    marginTop: "4px",
   } as React.CSSProperties,
 
   // ── Body text
   bodyText: {
-    color: "#8b8fa3",
+    color: T.textSoft,
     margin: 0,
     whiteSpace: "pre-wrap" as const,
-    fontSize: "11px",
+    fontSize: "11.5px",
     lineHeight: 1.7,
-    fontFamily: "'Inter', system-ui, sans-serif",
   } as React.CSSProperties,
 
   // ── Agent logs
   logGrid: {
     display: "flex",
     flexDirection: "column" as const,
-    gap: "2px",
+    gap: "1px",
   } as React.CSSProperties,
   logRow: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
-    padding: "4px 6px",
-    borderRadius: "4px",
+    gap: "10px",
+    padding: "5px 6px",
+    borderRadius: "5px",
     fontSize: "11px",
   } as React.CSSProperties,
-  logStatus: {
-    width: "14px",
-    textAlign: "center" as const,
-    fontWeight: 800,
-    fontSize: "10px",
+  logDot: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
     flexShrink: 0,
   } as React.CSSProperties,
   logName: {
     fontWeight: 600,
-    color: "#c8ccd4",
-    minWidth: "100px",
+    color: T.text,
+    minWidth: "110px",
     fontSize: "11px",
   } as React.CSSProperties,
   logRole: {
-    color: "#3d4051",
-    flex: 1,
+    color: T.textFaint,
     fontSize: "10px",
+    minWidth: "120px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  } as React.CSSProperties,
+  logDurTrack: {
+    flex: 1,
+    height: "3px",
+    backgroundColor: T.surface2,
+    borderRadius: "1.5px",
+    overflow: "hidden",
   } as React.CSSProperties,
   logTime: {
-    color: "#3d4051",
+    color: T.textMute,
     fontSize: "10px",
     fontWeight: 500,
+    fontFamily: T.mono,
+    minWidth: "36px",
+    textAlign: "right" as const,
   } as React.CSSProperties,
 
   // ── Footer
   footer: {
     display: "flex",
-    gap: "8px",
+    gap: "14px",
     justifyContent: "center",
     alignItems: "center",
-    color: "#2d3040",
-    fontSize: "9px",
-    marginTop: "14px",
-    paddingTop: "10px",
-    borderTop: "1px solid #1e2028",
-    fontWeight: 500,
-    letterSpacing: "0.04em",
+    marginTop: "16px",
+    paddingTop: "12px",
+    borderTop: `1px solid ${T.lineSoft}`,
   } as React.CSSProperties,
-  footerDot: {
-    width: "2px",
-    height: "2px",
-    borderRadius: "50%",
-    backgroundColor: "#1e2028",
+  footerStat: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    color: T.textFaint,
+    fontSize: "9.5px",
+    fontWeight: 500,
+    fontFamily: T.mono,
+    letterSpacing: "0.04em",
   } as React.CSSProperties,
 
   // ── Empty / Error
@@ -942,27 +1082,24 @@ const css = {
     flexDirection: "column" as const,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: "240px",
-    gap: "12px",
+    minHeight: "260px",
+    gap: "14px",
   } as React.CSSProperties,
   emptyIcon: {
-    fontSize: "18px",
-    color: "#3d4051",
-    width: "40px",
-    height: "40px",
-    borderRadius: "6px",
-    background: "#12131a",
-    border: "1px solid #1e2028",
+    width: "48px",
+    height: "48px",
+    borderRadius: "12px",
+    background: `linear-gradient(180deg, ${T.surface2}, ${T.surface1})`,
+    border: `1px solid ${T.line}`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontWeight: 800,
   } as React.CSSProperties,
   emptyText: {
-    color: "#3d4051",
+    color: T.textMute,
     textAlign: "center" as const,
-    maxWidth: "280px",
-    fontSize: "12px",
+    maxWidth: "300px",
+    fontSize: "12.5px",
     lineHeight: 1.5,
     fontWeight: 500,
   } as React.CSSProperties,

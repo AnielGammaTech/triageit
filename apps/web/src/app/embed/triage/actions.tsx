@@ -2,6 +2,20 @@
 
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 import { KBBuilder } from "./kb-builder";
+import {
+  T,
+  IconRefresh,
+  IconSparkles,
+  IconClipboardCheck,
+  IconCopy,
+  IconReply,
+  IconBot,
+  IconChevron,
+  IconRadar,
+  IconBrain,
+  IconNote,
+  IconActivity,
+} from "./theme";
 
 // ── Shared Button Style Helper ─────────────────────────────────────────
 
@@ -9,27 +23,25 @@ interface BtnStyle {
   readonly color: string;
   readonly bg: string;
   readonly border: string;
-  readonly hoverBg?: string;
-  readonly hoverBorder?: string;
 }
 
-function btnBase(s: BtnStyle): React.CSSProperties {
+export function btnBase(s: BtnStyle): React.CSSProperties {
   return {
     display: "inline-flex",
     alignItems: "center",
-    gap: "5px",
-    padding: "6px 10px",
-    fontSize: "10px",
+    gap: "6px",
+    padding: "7px 12px",
+    fontSize: "10.5px",
     fontWeight: 600,
-    fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+    fontFamily: T.sans,
     color: s.color,
     backgroundColor: s.bg,
     border: `1px solid ${s.border}`,
-    borderRadius: "4px",
+    borderRadius: "7px",
     cursor: "pointer",
-    transition: "all 0.15s ease",
+    transition: "border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, opacity 0.18s ease",
     whiteSpace: "nowrap" as const,
-    letterSpacing: "0.02em",
+    letterSpacing: "0.01em",
     lineHeight: 1,
   };
 }
@@ -88,26 +100,12 @@ function CopyButton({
   }, [text]);
 
   const style = copied
-    ? btnBase({ color: "#00b894", bg: "rgba(0,184,148,0.08)", border: "rgba(0,184,148,0.25)" })
-    : btnBase({ color: "#636e72", bg: "#12131a", border: "#1e2028" });
+    ? btnBase({ color: T.green, bg: "rgba(61,220,132,0.08)", border: "rgba(61,220,132,0.28)" })
+    : btnBase({ color: T.textMute, bg: T.surface1, border: T.line });
 
   return (
-    <button
-      onClick={handleCopy}
-      style={style}
-      onMouseEnter={(e) => {
-        if (!copied) {
-          e.currentTarget.style.borderColor = "#2d3040";
-          e.currentTarget.style.color = "#8b8fa3";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!copied) {
-          e.currentTarget.style.borderColor = "#1e2028";
-          e.currentTarget.style.color = "#636e72";
-        }
-      }}
-    >
+    <button onClick={handleCopy} style={style} className={copied ? undefined : "tg-btn-ghost"}>
+      <IconCopy size={11} />
       {copied ? "Copied" : label}
     </button>
   );
@@ -148,11 +146,11 @@ function ReTriageButton({
     }
   }, [haloId, token, state]);
 
-  const styles: Record<string, BtnStyle> = {
-    idle: { color: "#fff", bg: "#6c5ce7", border: "#6c5ce7" },
-    loading: { color: "#fff", bg: "#6c5ce7", border: "#6c5ce7" },
-    done: { color: "#fff", bg: "#00b894", border: "#00b894" },
-    error: { color: "#fff", bg: "#ff4757", border: "#ff4757" },
+  const bg: Record<string, string> = {
+    idle: `linear-gradient(135deg, ${T.brand}, ${T.brandDeep})`,
+    loading: `linear-gradient(135deg, ${T.brand}, ${T.brandDeep})`,
+    done: T.green,
+    error: T.red,
   };
 
   const labels: Record<string, string> = {
@@ -166,20 +164,17 @@ function ReTriageButton({
     <button
       onClick={handleRetriage}
       disabled={state === "loading" || state === "done"}
+      className="tg-btn-primary"
       style={{
-        ...btnBase(styles[state]),
+        ...btnBase({ color: "#fff", bg: "transparent", border: "transparent" }),
+        background: bg[state],
         fontWeight: 700,
+        boxShadow: state === "idle" ? `0 2px 14px -4px ${T.brand}99` : "none",
         cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
-        opacity: state === "loading" ? 0.8 : 1,
-      }}
-      onMouseEnter={(e) => {
-        if (state === "idle") e.currentTarget.style.opacity = "0.85";
-      }}
-      onMouseLeave={(e) => {
-        if (state === "idle") e.currentTarget.style.opacity = "1";
+        opacity: state === "loading" ? 0.85 : 1,
       }}
     >
-      {state === "loading" && <Spinner color="#fff" />}
+      {state === "loading" ? <Spinner color="#fff" /> : <IconRefresh size={11} color="#fff" />}
       {labels[state]}
     </button>
   );
@@ -224,10 +219,10 @@ function SummarizeITButton({
   }, [haloId, token, state]);
 
   const styles: Record<string, BtnStyle> = {
-    idle: { color: "#fdcb6e", bg: "rgba(253,203,110,0.06)", border: "rgba(253,203,110,0.2)" },
-    loading: { color: "#fdcb6e", bg: "rgba(253,203,110,0.1)", border: "rgba(253,203,110,0.25)" },
-    done: { color: "#fdcb6e", bg: "rgba(253,203,110,0.06)", border: "rgba(253,203,110,0.2)" },
-    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+    idle: { color: T.amber, bg: "rgba(245,200,76,0.06)", border: "rgba(245,200,76,0.22)" },
+    loading: { color: T.amber, bg: "rgba(245,200,76,0.10)", border: "rgba(245,200,76,0.28)" },
+    done: { color: T.amber, bg: "rgba(245,200,76,0.06)", border: "rgba(245,200,76,0.22)" },
+    error: { color: T.red, bg: "rgba(255,77,94,0.06)", border: "rgba(255,77,94,0.22)" },
   };
 
   const labels: Record<string, string> = {
@@ -242,23 +237,14 @@ function SummarizeITButton({
       <button
         onClick={handleSummarize}
         disabled={state === "loading"}
+        className="tg-btn-amber"
         style={{
           ...btnBase(styles[state]),
           cursor: state === "loading" ? "not-allowed" : "pointer",
-          opacity: state === "loading" ? 0.8 : 1,
-        }}
-        onMouseEnter={(e) => {
-          if (state !== "loading") {
-            e.currentTarget.style.borderColor = "rgba(253,203,110,0.35)";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (state !== "loading") {
-            e.currentTarget.style.borderColor = "rgba(253,203,110,0.2)";
-          }
+          opacity: state === "loading" ? 0.85 : 1,
         }}
       >
-        {state === "loading" && <Spinner color="#fdcb6e" />}
+        {state === "loading" ? <Spinner color={T.amber} /> : <IconSparkles size={11} />}
         {labels[state]}
       </button>
 
@@ -266,41 +252,33 @@ function SummarizeITButton({
         <div
           style={{
             gridColumn: "1 / -1",
-            padding: "10px 12px",
-            background: "rgba(253,203,110,0.04)",
-            border: "1px solid rgba(253,203,110,0.12)",
-            borderRadius: "4px",
+            width: "100%",
+            padding: "12px 14px",
+            background: "linear-gradient(135deg, rgba(245,200,76,0.05), rgba(245,200,76,0.01))",
+            border: "1px solid rgba(245,200,76,0.16)",
+            borderRadius: "8px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-            <span style={{ fontSize: "9px", fontWeight: 800, color: "#fdcb6e", letterSpacing: "0.1em" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "7px" }}>
+            <IconSparkles size={10} color={T.amber} />
+            <span style={{ fontSize: "9px", fontWeight: 700, color: T.amber, letterSpacing: "0.12em", fontFamily: T.mono }}>
               SUMMARY
             </span>
             <button
               onClick={() => { setState("idle"); setSummary(null); }}
-              style={{
-                marginLeft: "auto",
-                padding: "2px 6px",
-                fontSize: "9px",
-                fontWeight: 600,
-                color: "#636e72",
-                backgroundColor: "transparent",
-                border: "1px solid #1e2028",
-                borderRadius: "3px",
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
+              style={dismissBtnStyle}
+              className="tg-btn-ghost"
             >
               dismiss
             </button>
           </div>
           <p style={{
-            color: "#8b8fa3",
+            color: T.textSoft,
             margin: 0,
             whiteSpace: "pre-wrap" as const,
-            fontSize: "11px",
-            lineHeight: 1.6,
-            fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: "11.5px",
+            lineHeight: 1.65,
+            fontFamily: T.sans,
           }}>
             {summary}
           </p>
@@ -377,53 +355,41 @@ function SuggestReplyButton({
 
   if (state === "done" && reply) {
     return (
-      <div style={{ gridColumn: "1 / -1" }}>
+      <div style={{ gridColumn: "1 / -1", width: "100%" }}>
         <div style={{
-          backgroundColor: "rgba(162, 155, 254, 0.04)",
-          border: "1px solid rgba(162, 155, 254, 0.12)",
-          borderRadius: "4px",
-          padding: "10px 12px",
+          background: "linear-gradient(135deg, rgba(139,124,255,0.06), rgba(139,124,255,0.01))",
+          border: "1px solid rgba(139,124,255,0.16)",
+          borderRadius: "8px",
+          padding: "12px 14px",
         }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-            <span style={{ fontSize: "9px", fontWeight: 800, color: "#a29bfe", letterSpacing: "0.1em" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "7px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "9px", fontWeight: 700, color: T.brand, letterSpacing: "0.12em", fontFamily: T.mono }}>
+              <IconReply size={10} color={T.brand} />
               SUGGESTED REPLY
             </span>
-            <div style={{ display: "flex", gap: "4px" }}>
+            <div style={{ display: "flex", gap: "5px" }}>
               <button
                 onClick={handleCopy}
                 style={{
-                  padding: "2px 6px",
-                  fontSize: "9px",
-                  fontWeight: 600,
-                  color: copied ? "#00b894" : "#636e72",
-                  backgroundColor: "transparent",
-                  border: `1px solid ${copied ? "rgba(0,184,148,0.25)" : "#1e2028"}`,
-                  borderRadius: "3px",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
+                  ...dismissBtnStyle,
+                  marginLeft: 0,
+                  color: copied ? T.green : T.textMute,
+                  borderColor: copied ? "rgba(61,220,132,0.28)" : T.line,
                 }}
+                className="tg-btn-ghost"
               >
                 {copied ? "copied" : "copy"}
               </button>
               <button
                 onClick={() => { setState("idle"); setReply(null); }}
-                style={{
-                  padding: "2px 6px",
-                  fontSize: "9px",
-                  fontWeight: 600,
-                  color: "#636e72",
-                  backgroundColor: "transparent",
-                  border: "1px solid #1e2028",
-                  borderRadius: "3px",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
+                style={{ ...dismissBtnStyle, marginLeft: 0 }}
+                className="tg-btn-ghost"
               >
                 dismiss
               </button>
             </div>
           </div>
-          <p style={{ fontSize: "11px", color: "#8b8fa3", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" as const, fontFamily: "'Inter', system-ui, sans-serif" }}>
+          <p style={{ fontSize: "11.5px", color: T.textSoft, lineHeight: 1.65, margin: 0, whiteSpace: "pre-wrap" as const, fontFamily: T.sans }}>
             {reply}
           </p>
         </div>
@@ -432,34 +398,23 @@ function SuggestReplyButton({
   }
 
   const styles: Record<string, BtnStyle> = {
-    idle: { color: "#636e72", bg: "#12131a", border: "#1e2028" },
-    loading: { color: "#a29bfe", bg: "rgba(162,155,254,0.08)", border: "rgba(162,155,254,0.2)" },
-    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
-    done: { color: "#00b894", bg: "rgba(0,184,148,0.06)", border: "rgba(0,184,148,0.2)" },
+    idle: { color: T.textMute, bg: T.surface1, border: T.line },
+    loading: { color: T.brand, bg: "rgba(139,124,255,0.08)", border: "rgba(139,124,255,0.22)" },
+    error: { color: T.red, bg: "rgba(255,77,94,0.06)", border: "rgba(255,77,94,0.22)" },
+    done: { color: T.green, bg: "rgba(61,220,132,0.06)", border: "rgba(61,220,132,0.22)" },
   };
 
   return (
     <button
       onClick={handleSuggest}
       disabled={state === "loading"}
+      className="tg-btn-ghost"
       style={{
         ...btnBase(styles[state]),
         cursor: state === "loading" ? "not-allowed" : "pointer",
       }}
-      onMouseEnter={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "#2d3040";
-          e.currentTarget.style.color = "#8b8fa3";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "#1e2028";
-          e.currentTarget.style.color = "#636e72";
-        }
-      }}
     >
-      {state === "loading" && <Spinner color="#a29bfe" />}
+      {state === "loading" ? <Spinner color={T.brand} /> : <IconReply size={11} />}
       {state === "error" ? "Failed" : state === "loading" ? "Generating..." : "Suggest Reply"}
     </button>
   );
@@ -468,14 +423,14 @@ function SuggestReplyButton({
 // ── Ask Agent Dropdown Button ──────────────────────────────────────────
 
 const INVOKABLE_AGENTS = [
-  { id: "dwight_schrute", name: "Dwight", desc: "Hudu / KB", color: "#00b894" },
-  { id: "darryl_philbin", name: "Darryl", desc: "M365 / CIPP", color: "#74b9ff" },
-  { id: "andy_bernard", name: "Andy", desc: "Datto RMM", color: "#00cec9" },
-  { id: "holly_flax", name: "Holly", desc: "Licensing", color: "#fd79a8" },
-  { id: "angela_martin", name: "Angela", desc: "Security", color: "#ff4757" },
-  { id: "jim_halpert", name: "Jim", desc: "Identity", color: "#a29bfe" },
-  { id: "phyllis_vance", name: "Phyllis", desc: "Email/DNS", color: "#ff8c42" },
-  { id: "creed_bratton", name: "Creed", desc: "UniFi", color: "#0984e3" },
+  { id: "dwight_schrute", name: "Dwight", desc: "Hudu / KB", color: T.green },
+  { id: "darryl_philbin", name: "Darryl", desc: "M365 / CIPP", color: T.blue },
+  { id: "andy_bernard", name: "Andy", desc: "Datto RMM", color: T.teal },
+  { id: "holly_flax", name: "Holly", desc: "Licensing", color: T.pink },
+  { id: "angela_martin", name: "Angela", desc: "Security", color: T.red },
+  { id: "jim_halpert", name: "Jim", desc: "Identity", color: T.brand },
+  { id: "phyllis_vance", name: "Phyllis", desc: "Email/DNS", color: T.orange },
+  { id: "creed_bratton", name: "Creed", desc: "UniFi", color: T.blue },
 ] as const;
 
 function AskAgentButton({
@@ -533,9 +488,9 @@ function AskAgentButton({
       ? result.status === "done" ? `${result.agentName} done` : `${result.agentName} failed`
       : "Ask Agent";
 
-  const color = isLoading ? "#a29bfe" : result ? (result.status === "done" ? "#00b894" : "#ff4757") : "#636e72";
-  const bg = isLoading ? "rgba(162,155,254,0.08)" : result ? (result.status === "done" ? "rgba(0,184,148,0.08)" : "rgba(255,71,87,0.06)") : "#12131a";
-  const border = isLoading ? "rgba(162,155,254,0.2)" : result ? (result.status === "done" ? "rgba(0,184,148,0.2)" : "rgba(255,71,87,0.2)") : "#1e2028";
+  const color = isLoading ? T.brand : result ? (result.status === "done" ? T.green : T.red) : T.textMute;
+  const bg = isLoading ? "rgba(139,124,255,0.08)" : result ? (result.status === "done" ? "rgba(61,220,132,0.08)" : "rgba(255,77,94,0.06)") : T.surface1;
+  const border = isLoading ? "rgba(139,124,255,0.22)" : result ? (result.status === "done" ? "rgba(61,220,132,0.22)" : "rgba(255,77,94,0.22)") : T.line;
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -545,27 +500,20 @@ function AskAgentButton({
           if (!isLoading) setOpen(!open);
         }}
         disabled={isLoading}
+        className="tg-btn-ghost"
         style={{
           ...btnBase({ color, bg, border }),
           cursor: isLoading ? "not-allowed" : "pointer",
         }}
-        onMouseEnter={(e) => {
-          if (!isLoading && !result) {
-            e.currentTarget.style.borderColor = "#2d3040";
-            e.currentTarget.style.color = "#8b8fa3";
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isLoading && !result) {
-            e.currentTarget.style.borderColor = "#1e2028";
-            e.currentTarget.style.color = "#636e72";
-          }
-        }}
       >
-        {isLoading && <Spinner color="#a29bfe" />}
+        {isLoading ? <Spinner color={T.brand} /> : <IconBot size={12} />}
         {label}
         {!isLoading && !result && (
-          <span style={{ fontSize: "7px", opacity: 0.4 }}>{open ? "\u25B2" : "\u25BC"}</span>
+          <IconChevron
+            size={10}
+            color={T.textFaint}
+            style={{ transform: open ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform 0.15s ease" }}
+          />
         )}
       </button>
 
@@ -573,16 +521,17 @@ function AskAgentButton({
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 3px)",
+            top: "calc(100% + 4px)",
             left: 0,
             zIndex: 50,
-            minWidth: "180px",
-            background: "#12131a",
-            border: "1px solid #1e2028",
-            borderRadius: "4px",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+            minWidth: "196px",
+            background: T.surface2,
+            border: `1px solid ${T.lineStrong}`,
+            borderRadius: "9px",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.65)",
             overflow: "hidden",
-            animation: "fadeIn 0.1s ease",
+            animation: "fadeIn 0.12s ease",
+            padding: "4px",
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -590,37 +539,34 @@ function AskAgentButton({
             <button
               key={agent.id}
               onClick={() => handleInvoke(agent.id, agent.name)}
+              className="tg-menu-item"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "8px",
                 width: "100%",
-                padding: "7px 10px",
+                padding: "7px 9px",
                 backgroundColor: "transparent",
                 border: "none",
+                borderRadius: "6px",
                 cursor: "pointer",
-                fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+                fontFamily: T.sans,
                 textAlign: "left" as const,
-                transition: "background-color 0.1s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "#1e2028";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
+                transition: "background-color 0.12s ease",
               }}
             >
               <span style={{
                 width: "6px",
                 height: "6px",
-                borderRadius: "2px",
+                borderRadius: "50%",
                 backgroundColor: agent.color,
+                boxShadow: `0 0 6px ${agent.color}66`,
                 flexShrink: 0,
               }} />
-              <span style={{ fontSize: "10px", fontWeight: 700, color: "#c8ccd4", minWidth: "50px" }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: T.text, minWidth: "52px" }}>
                 {agent.name}
               </span>
-              <span style={{ fontSize: "9px", color: "#3d4051" }}>
+              <span style={{ fontSize: "9.5px", color: T.textMute }}>
                 {agent.desc}
               </span>
             </button>
@@ -667,10 +613,10 @@ function CloseReviewButton({
   }, [haloId, token, state]);
 
   const styles: Record<string, BtnStyle> = {
-    idle: { color: "#00cec9", bg: "rgba(0,206,201,0.06)", border: "rgba(0,206,201,0.2)" },
-    loading: { color: "#00cec9", bg: "rgba(0,206,201,0.1)", border: "rgba(0,206,201,0.25)" },
-    done: { color: "#00b894", bg: "rgba(0,184,148,0.1)", border: "rgba(0,184,148,0.25)" },
-    error: { color: "#ff4757", bg: "rgba(255,71,87,0.06)", border: "rgba(255,71,87,0.2)" },
+    idle: { color: T.teal, bg: "rgba(45,212,191,0.06)", border: "rgba(45,212,191,0.22)" },
+    loading: { color: T.teal, bg: "rgba(45,212,191,0.10)", border: "rgba(45,212,191,0.28)" },
+    done: { color: T.green, bg: "rgba(61,220,132,0.10)", border: "rgba(61,220,132,0.28)" },
+    error: { color: T.red, bg: "rgba(255,77,94,0.06)", border: "rgba(255,77,94,0.22)" },
   };
 
   const labels: Record<string, string> = {
@@ -684,22 +630,13 @@ function CloseReviewButton({
     <button
       onClick={handleCloseReview}
       disabled={state === "loading" || state === "done"}
+      className="tg-btn-ghost"
       style={{
         ...btnBase(styles[state]),
         cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
       }}
-      onMouseEnter={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "rgba(0,206,201,0.35)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (state === "idle") {
-          e.currentTarget.style.borderColor = "rgba(0,206,201,0.2)";
-        }
-      }}
     >
-      {state === "loading" && <Spinner color="#00cec9" />}
+      {state === "loading" ? <Spinner color={T.teal} /> : <IconClipboardCheck size={11} />}
       {labels[state]}
     </button>
   );
@@ -734,7 +671,7 @@ export function QuickActions({
       <CloseReviewButton haloId={haloId} token={token} />
 
       {/* Separator */}
-      <div style={{ width: "1px", height: "24px", backgroundColor: "#1e2028", alignSelf: "center" }} />
+      <div style={{ width: "1px", height: "26px", backgroundColor: T.line, alignSelf: "center" }} />
 
       {/* Secondary actions */}
       {suggestedResponse && <CopyButton text={suggestedResponse} label="Copy Resp" />}
@@ -748,12 +685,20 @@ export function QuickActions({
 
 // ── Collapsible Section ─────────────────────────────────────────────────
 
+const SECTION_ICONS: Record<string, (props: { size?: number; color?: string }) => React.ReactElement> = {
+  radar: (p) => <IconRadar {...p} />,
+  brain: (p) => <IconBrain {...p} />,
+  note: (p) => <IconNote {...p} />,
+  activity: (p) => <IconActivity {...p} />,
+};
+
 export function CollapsibleSection({
   title,
-  accent = "#6c5ce7",
+  accent = T.brand,
   defaultOpen = false,
   badge,
   tag,
+  icon,
   children,
 }: {
   readonly title: string;
@@ -761,69 +706,76 @@ export function CollapsibleSection({
   readonly defaultOpen?: boolean;
   readonly badge?: string;
   readonly tag?: string;
+  readonly icon?: string;
   readonly children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const SectionIcon = icon ? SECTION_ICONS[icon] : undefined;
 
   return (
     <div style={{
-      background: "#12131a",
-      border: "1px solid #1e2028",
-      borderLeft: `2px solid ${accent}`,
-      borderRadius: "4px",
-      marginBottom: "6px",
+      background: `linear-gradient(180deg, ${T.surface2}, ${T.surface1})`,
+      border: `1px solid ${T.line}`,
+      borderRadius: "9px",
+      marginBottom: "7px",
       overflow: "hidden",
+      position: "relative",
     }}>
+      {/* Accent hairline */}
+      <div style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        bottom: 0,
+        width: "2px",
+        background: `linear-gradient(180deg, ${accent}, ${accent}33)`,
+      }} />
       <button
         onClick={() => setOpen(!open)}
+        className="tg-section-head"
         style={{
           display: "flex",
           alignItems: "center",
           gap: "8px",
           width: "100%",
-          padding: "8px 12px",
+          padding: "9px 13px",
           backgroundColor: "transparent",
           border: "none",
           cursor: "pointer",
           textAlign: "left" as const,
-          fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = "#1a1b24";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = "transparent";
+          fontFamily: T.mono,
+          transition: "background-color 0.15s ease",
         }}
       >
-        <span style={{
-          fontSize: "8px",
-          color: accent,
-          transition: "transform 0.15s ease",
-          transform: open ? "rotate(90deg)" : "rotate(0deg)",
-          display: "inline-block",
-          opacity: 0.6,
-        }}>
-          &#9654;
-        </span>
+        <IconChevron
+          size={10}
+          color={accent}
+          style={{
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+            transition: "transform 0.18s ease",
+            opacity: 0.7,
+          }}
+        />
+        {SectionIcon && <SectionIcon size={11} color={accent} />}
         {tag && (
           <span style={{
             fontSize: "8px",
-            fontWeight: 800,
+            fontWeight: 700,
             color: accent,
-            backgroundColor: `${accent}15`,
-            padding: "1px 5px",
-            borderRadius: "2px",
-            letterSpacing: "0.08em",
+            backgroundColor: `${accent}18`,
+            padding: "2px 6px",
+            borderRadius: "4px",
+            letterSpacing: "0.1em",
           }}>
             {tag}
           </span>
         )}
         <span style={{
           fontSize: "10px",
-          fontWeight: 700,
-          color: "#636e72",
+          fontWeight: 600,
+          color: T.textSoft,
           textTransform: "uppercase" as const,
-          letterSpacing: "0.06em",
+          letterSpacing: "0.1em",
           flex: 1,
         }}>
           {title}
@@ -832,14 +784,14 @@ export function CollapsibleSection({
           <span style={{
             fontSize: "9px",
             fontWeight: 500,
-            color: "#3d4051",
+            color: T.textFaint,
           }}>
             {badge}
           </span>
         )}
       </button>
       {open && (
-        <div style={{ padding: "0 12px 10px 12px" }}>{children}</div>
+        <div style={{ padding: "2px 13px 12px 13px", animation: "fadeIn 0.18s ease" }}>{children}</div>
       )}
     </div>
   );
@@ -888,15 +840,18 @@ export function EmbedTriageButton({
       <button
         onClick={handleTriage}
         disabled={state === "loading" || state === "done"}
+        className="tg-btn-primary"
         style={{
-          ...btnBase({
-            color: "#fff",
-            bg: state === "done" ? "#00b894" : state === "error" ? "#ff4757" : "#6c5ce7",
-            border: state === "done" ? "#00b894" : state === "error" ? "#ff4757" : "#6c5ce7",
-          }),
-          padding: "10px 24px",
+          ...btnBase({ color: "#fff", bg: "transparent", border: "transparent" }),
+          background:
+            state === "done" ? T.green
+            : state === "error" ? T.red
+            : `linear-gradient(135deg, ${T.brand}, ${T.brandDeep})`,
+          boxShadow: state === "idle" ? `0 4px 20px -6px ${T.brand}99` : "none",
+          padding: "11px 26px",
           fontSize: "12px",
           fontWeight: 700,
+          borderRadius: "9px",
           cursor: state === "loading" || state === "done" ? "not-allowed" : "pointer",
           opacity: state === "loading" ? 0.85 : 1,
         }}
@@ -908,7 +863,7 @@ export function EmbedTriageButton({
         {state === "error" && "Failed -- Try Again"}
       </button>
       {state === "done" && (
-        <span style={{ fontSize: "10px", color: "#3d4051" }}>
+        <span style={{ fontSize: "10px", color: T.textFaint }}>
           Auto-refreshing when complete
         </span>
       )}
@@ -935,33 +890,89 @@ export function AutoRefresh() {
   }, []);
 
   return (
-    <span style={{ fontSize: "10px", color: "#6c5ce7", opacity: 0.7, fontFamily: "'JetBrains Mono', 'SF Mono', monospace" }}>
+    <span style={{ fontSize: "10px", color: T.brand, opacity: 0.75, fontFamily: T.mono }}>
       auto-refreshing{dots}
     </span>
   );
 }
 
-// ── Spinner keyframes ───────────────────────────────────────────────────
+// ── Shared small styles ─────────────────────────────────────────────────
 
-export function SpinnerStyles() {
+const dismissBtnStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  padding: "3px 8px",
+  fontSize: "9px",
+  fontWeight: 600,
+  color: T.textMute,
+  backgroundColor: "transparent",
+  border: `1px solid ${T.line}`,
+  borderRadius: "5px",
+  cursor: "pointer",
+  fontFamily: T.mono,
+  transition: "color 0.15s ease, border-color 0.15s ease",
+};
+
+// ── Global styles (fonts, keyframes, hover classes) ─────────────────────
+
+export function GlobalStyles() {
   return (
     <style
       dangerouslySetInnerHTML={{
         __html: `
-          @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
+          @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+          * { box-sizing: border-box; }
+          body { margin: 0; background: ${T.bg}; }
+
+          ::-webkit-scrollbar { width: 5px; height: 5px; }
+          ::-webkit-scrollbar-track { background: transparent; }
+          ::-webkit-scrollbar-thumb { background: ${T.surface3}; border-radius: 3px; }
+          ::-webkit-scrollbar-thumb:hover { background: ${T.lineStrong}; }
+
+          ::selection { background: rgba(139,124,255,0.30); }
+
+          @keyframes spin { to { transform: rotate(360deg); } }
           @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(2px); }
+            from { opacity: 0; transform: translateY(3px); }
             to { opacity: 1; transform: translateY(0); }
           }
-          * { box-sizing: border-box; }
-          body { margin: 0; background: #0c0d10; }
-          ::-webkit-scrollbar { width: 4px; }
-          ::-webkit-scrollbar-track { background: transparent; }
-          ::-webkit-scrollbar-thumb { background: #1e2028; border-radius: 2px; }
+          @keyframes revealUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+          }
+
+          .tg-reveal { animation: revealUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+          .tg-d1 { animation-delay: 0.05s; }
+          .tg-d2 { animation-delay: 0.10s; }
+          .tg-d3 { animation-delay: 0.16s; }
+          .tg-d4 { animation-delay: 0.22s; }
+
+          .tg-pulse { animation: pulse 1.8s ease-in-out infinite; }
+
+          .tg-btn-primary:not(:disabled):hover { opacity: 0.88 !important; }
+          .tg-btn-ghost:not(:disabled):hover {
+            border-color: ${T.lineStrong} !important;
+            color: ${T.textSoft} !important;
+          }
+          .tg-btn-amber:not(:disabled):hover { border-color: rgba(245,200,76,0.4) !important; }
+          .tg-menu-item:hover { background-color: ${T.surface3} !important; }
+          .tg-section-head:hover { background-color: rgba(140,150,190,0.04); }
+          .tg-card { transition: border-color 0.18s ease, transform 0.18s ease; }
+          .tg-card:hover { border-color: ${T.lineStrong}; }
+
+          button:focus-visible, input:focus-visible {
+            outline: 2px solid ${T.brand};
+            outline-offset: 1px;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .tg-reveal, .tg-pulse { animation: none !important; }
+            * { transition-duration: 0.01ms !important; }
+          }
         `,
       }}
     />
