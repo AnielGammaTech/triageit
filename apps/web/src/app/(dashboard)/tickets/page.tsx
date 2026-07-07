@@ -315,9 +315,6 @@ export default function TicketsPage() {
   const allOpenTickets = gammaDefaultTickets.filter((t) => !isClosed(t));
 
   // Alerts: non-Gamma Default tickets (type 36 and others) — separate tab, ignored by triage
-  const alertTickets = filteredTickets.filter((t) =>
-    t.tickettype_id != null && t.tickettype_id !== GAMMA_DEFAULT_TYPE_ID,
-  );
 
   // Resolved: closed Gamma Default + all legacy (null-type) tickets
   const closedGamma = gammaDefaultTickets.filter((t) => isClosed(t));
@@ -379,6 +376,7 @@ export default function TicketsPage() {
         const { data } = await supabase
           .from("close_reviews")
           .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id, halo_agent, tickettype_id)")
+          .gte("created_at", new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString())
           .order("created_at", { ascending: false })
           .limit(200);
 
@@ -588,15 +586,6 @@ export default function TicketsPage() {
           hideZero
         />
         <TabButton
-          active={activeTab === "alerts"}
-          onClick={() => setActiveTab("alerts")}
-          label="Alerts"
-          count={alertTickets.length}
-          badgeClass="bg-orange-500/20 text-orange-400"
-          pulse={false}
-          hideZero
-        />
-        <TabButton
           active={activeTab === "resolved"}
           onClick={() => setActiveTab("resolved")}
           label="Resolved"
@@ -613,6 +602,14 @@ export default function TicketsPage() {
             : `${allOpenTickets.length} open · ${resolvedTickets.length} resolved`}
         </span>
       </div>
+
+      {/* Plain-language description of the active tab for managers */}
+      <p className="text-xs text-white/35 -mt-1">
+        {activeTab === "open" && "Every live customer ticket, straight from Halo."}
+        {activeTab === "needs_review" && "Open tickets the AI flagged for intervention — overdue responses, waiting customers, or SLA risk. Fix these first."}
+        {activeTab === "review_close" && "Tickets closed in the last 5 days where the AI graded the closure poorly — thin documentation or no real customer answer. Items drop off automatically after 5 days."}
+        {activeTab === "resolved" && "Closed Gamma Default tickets from the last 90 days."}
+      </p>
 
       {statusMessage && (
         <div
@@ -651,14 +648,6 @@ export default function TicketsPage() {
             onSelectTicket={handleSelectTicket}
             haloBaseUrl={haloBaseUrl}
           />
-        )
-      ) : activeTab === "alerts" ? (
-        alertTickets.length === 0 ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
-            <p className="text-[var(--muted-foreground)]">No alert tickets found.</p>
-          </div>
-        ) : (
-          <OpenTicketList tickets={alertTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
         )
       ) : activeTab === "resolved" ? (
         resolvedTickets.length === 0 ? (
