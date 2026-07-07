@@ -313,7 +313,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
   );
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden bg-[#0a0505]">
       {/* Conversation sidebar */}
       {showSidebar && (
         <div className="w-64 shrink-0 border-r border-white/[0.06] bg-white/[0.02] flex flex-col">
@@ -405,7 +405,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
       {/* Main chat area */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Chat header */}
-        <div className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3">
+        <div className="flex items-center gap-3 border-b border-[#7f1d1d]/40 bg-gradient-to-r from-[#450a0a]/40 to-transparent px-4 py-3">
           <button
             onClick={() => setShowSidebar((prev) => !prev)}
             className="rounded-md p-1 text-white/40 hover:text-white hover:bg-white/5 transition-colors lg:hidden"
@@ -419,14 +419,14 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           <img src={agentAvatar} alt="Prison Mike" className="h-8 w-8 rounded-full object-cover" />
           <div>
             <h2 className="text-sm font-semibold text-white">Prison Mike</h2>
-            <p className="text-[11px] text-white/40">The Worst Thing About Prison — AI Triage</p>
+            <p className="text-[11px] text-[#fca5a5]/60">The Worst Thing About Prison — AI Triage</p>
           </div>
           <div className="ml-auto flex items-center gap-3">
             {sessionTokens > 0 && (
               <div className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-1.5">
                 <span className="text-[11px] text-white/30">{sessionTokens.toLocaleString()} tokens</span>
                 <span className="text-[11px] text-white/20">·</span>
-                <span className="text-[11px] font-medium text-amber-400/70">
+                <span className="text-[11px] font-medium text-[#fca5a5]/80">
                   ${sessionCost < 0.01 ? sessionCost.toFixed(4) : sessionCost.toFixed(2)}
                 </span>
               </div>
@@ -458,7 +458,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                   <button
                     key={suggestion}
                     onClick={() => { setInput(suggestion); inputRef.current?.focus(); }}
-                    className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/50 hover:text-white/70 hover:bg-white/[0.06] transition-colors text-left"
+                    className="rounded-lg border border-[#7f1d1d]/30 bg-[#450a0a]/20 px-3 py-2 text-xs text-[#fca5a5]/70 hover:text-white hover:bg-[#7f1d1d]/25 hover:border-[#f87171]/40 transition-colors text-left"
                   >
                     {suggestion}
                   </button>
@@ -477,8 +477,8 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                   className={cn(
                     "rounded-xl px-4 py-2.5 text-sm leading-relaxed",
                     msg.role === "user"
-                      ? "bg-[#6c5ce7] text-white"
-                      : "bg-white/[0.06] text-white/90",
+                      ? "bg-gradient-to-br from-[#991b1b] to-[#7f1d1d] text-white shadow-lg shadow-[#7f1d1d]/25"
+                      : "bg-[#151010] border border-[#7f1d1d]/25 text-white/90",
                   )}
                 >
                   <MessageContent content={msg.content} />
@@ -501,9 +501,9 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           {streaming && streamingText && (
             <div className="flex gap-3">
               <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
-              <div className="max-w-[75%] rounded-xl bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
+              <div className="max-w-[75%] rounded-xl bg-[#151010] border border-[#7f1d1d]/25 px-4 py-2.5 text-sm leading-relaxed text-white/90">
                 <MessageContent content={streamingText} />
-                <span className="inline-block w-1.5 h-4 bg-amber-400/60 animate-pulse ml-0.5" />
+                <span className="inline-block w-1.5 h-4 bg-[#f87171]/70 animate-pulse ml-0.5" />
               </div>
             </div>
           )}
@@ -511,7 +511,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           {streaming && !streamingText && (
             <div className="flex gap-3">
               <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
-              <div className="rounded-xl bg-white/[0.06] px-4 py-3 min-w-[200px]">
+              <div className="rounded-xl bg-[#151010] border border-[#7f1d1d]/25 px-4 py-3 min-w-[200px]">
                 {activityLog.length > 0 && (
                   <div className="mb-2 space-y-1.5">
                     {activityLog.map((entry, i) => {
@@ -524,13 +524,13 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                               <polyline points="20 6 9 17 4 12" />
                             </svg>
                           ) : (
-                            <div className="h-3 w-3 rounded-full border-2 border-amber-400/50 border-t-amber-400 animate-spin" />
+                            <div className="h-3 w-3 rounded-full border-2 border-[#f87171]/50 border-t-[#f87171] animate-spin" />
                           )}
                           <span className={isCompleted ? "text-white/30 line-through" : "text-white/50"}>
                             {parsed.text}
                           </span>
                           {parsed.worker && !isCompleted && (
-                            <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-400/70">{parsed.worker}</span>
+                            <span className="rounded bg-[#f87171]/10 px-1.5 py-0.5 text-[10px] text-[#fca5a5]">{parsed.worker}</span>
                           )}
                         </div>
                       );
@@ -539,9 +539,9 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                 )}
                 <div className="flex items-center gap-2">
                   <div className="flex gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400/50 animate-bounce" style={{ animationDelay: "300ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#f87171]/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#f87171]/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#f87171]/60 animate-bounce" style={{ animationDelay: "300ms" }} />
                   </div>
                   <span className="text-xs text-white/30">{statusText || "Prison Mike is thinking..."}</span>
                 </div>
@@ -562,7 +562,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               onKeyDown={handleKeyDown}
               placeholder="Message Prison Mike..."
               rows={1}
-              className="flex-1 resize-none rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/10 transition-colors"
+              className="flex-1 resize-none rounded-xl border border-[#7f1d1d]/30 bg-[#120a0a] px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-[#f87171]/50 focus:ring-1 focus:ring-[#f87171]/25 transition-colors"
               style={{ maxHeight: "120px" }}
               onInput={(e) => {
                 const el = e.currentTarget;
@@ -584,7 +584,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <button
                 onClick={sendMessage}
                 disabled={!input.trim()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#6c5ce7] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#991b1b] to-[#7f1d1d] text-white shadow-lg shadow-[#7f1d1d]/30 transition-all hover:brightness-125 disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="22" y1="2" x2="11" y2="13" />

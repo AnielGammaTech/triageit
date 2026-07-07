@@ -1145,6 +1145,12 @@ export async function POST(request: NextRequest) {
           .join(" ");
   })();
   const referencesTicket = /#\s?\d{4,6}\b|\b\d{5}\b/.test(lastUserText);
+  // Same guard for per-tech performance questions — first names are enough
+  const referencesTech = HELPDESK_TECHNICIANS.some((t) => {
+    const first = t.split(" ")[0]?.toLowerCase();
+    return first && first.length > 2 && lastUserText.toLowerCase().includes(first);
+  });
+  const mustUseTool = referencesTicket || referencesTech;
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
@@ -1156,7 +1162,7 @@ export async function POST(request: NextRequest) {
       try {
         // Tool use loop — Michael may call tools, get results, then respond
         let iteration = 0;
-        const maxIterations = 5;
+        const maxIterations = 8;
 
         while (iteration < maxIterations) {
           iteration++;
@@ -1167,7 +1173,7 @@ export async function POST(request: NextRequest) {
             system: buildCachedSystem(systemPrompt, dynamicPrompt),
             messages: withMessageCacheBreakpoint(currentMessages),
             tools,
-            ...(referencesTicket && iteration === 1
+            ...(mustUseTool && iteration === 1
               ? { tool_choice: { type: "any" as const } }
               : {}),
           });
