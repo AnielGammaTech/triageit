@@ -151,7 +151,7 @@ function TicketTags({ ticket }: { readonly ticket: TicketRow }) {
   const tags: Array<{ label: string; style: string }> = [];
 
   if (ticket.last_retriage_at) {
-    tags.push({ label: "Re-triaged", style: "bg-violet-500/20 text-violet-400" });
+    tags.push({ label: "Re-triaged", style: "bg-[#f87171]/15 text-[#fca5a5]" });
   }
   if (ticket.tech_reviews && ticket.tech_reviews.length > 0) {
     tags.push({ label: "Reviewed", style: "bg-sky-500/20 text-sky-400" });
@@ -215,7 +215,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           placeholder="Search tickets..."
-          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#6c5ce7]/50 focus:outline-none focus:ring-1 focus:ring-[#6c5ce7]/30"
+          className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-[#b91c1c]/50 focus:outline-none focus:ring-1 focus:ring-[#b91c1c]/30"
         />
         <select
           value={statusFilter}
@@ -275,12 +275,12 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="font-mono text-xs text-[#6c5ce7] hover:text-[#818cf8]"
+                      className="font-mono text-xs text-[#b91c1c] hover:text-[#818cf8]"
                     >
                       #{ticket.halo_id}
                     </a>
                   ) : (
-                    <span className="font-mono text-xs text-[#6c5ce7]">#{ticket.halo_id}</span>
+                    <span className="font-mono text-xs text-[#b91c1c]">#{ticket.halo_id}</span>
                   )}
                   <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", statusStyle)}>
                     {ticket.halo_status ?? "Unknown"}
@@ -370,7 +370,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[#6c5ce7] hover:text-[#818cf8] transition-colors"
+                        className="inline-flex items-center gap-1 text-[#b91c1c] hover:text-[#818cf8] transition-colors"
                         title="Open in Halo"
                       >
                         {ticket.halo_id}
@@ -381,7 +381,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                         </svg>
                       </a>
                     ) : (
-                      <span className="text-[#6c5ce7]">{ticket.halo_id}</span>
+                      <span className="text-[#b91c1c]">{ticket.halo_id}</span>
                     )}
                   </td>
                   <td className="max-w-sm px-3 py-2.5">
@@ -417,7 +417,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                       const triageAt = ticket.triage_results[0]?.created_at;
                       if (retriageAt) {
                         return (
-                          <span className="inline-flex items-center gap-1 text-violet-400" title={`Retriaged: ${new Date(retriageAt).toLocaleString("en-US", { timeZone: "America/New_York" })}`}>
+                          <span className="inline-flex items-center gap-1 text-[#fca5a5]" title={`Retriaged: ${new Date(retriageAt).toLocaleString("en-US", { timeZone: "America/New_York" })}`}>
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
                             {timeAgo(retriageAt)}
                           </span>
@@ -436,7 +436,7 @@ export function OpenTicketList({ tickets, onSelectTicket, haloBaseUrl }: OpenTic
                   <td className="px-3 py-2.5 text-xs">
                     {ticket.halo_agent ? (
                       <span className="inline-flex items-center gap-2 text-[var(--muted-foreground)]">
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#8b7cff]/30 to-[#6c5ce7]/20 border border-[#8b7cff]/25 font-mono text-[8px] font-bold text-[#a99cff]">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-[#f87171]/30 to-[#b91c1c]/20 border border-[#f87171]/25 font-mono text-[8px] font-bold text-[#fca5a5]">
                           {ticket.halo_agent.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
                         </span>
                         {ticket.halo_agent}

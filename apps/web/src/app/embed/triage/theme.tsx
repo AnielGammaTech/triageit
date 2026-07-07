@@ -24,8 +24,8 @@ export const T = {
   textFaint: "#3a4058",
 
   // Brand
-  brand: "#8b7cff",
-  brandDeep: "#6c5ce7",
+  brand: "#f87171",
+  brandDeep: "#b91c1c",
 
   // Status
   green: "#3ddc84",

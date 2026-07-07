@@ -347,7 +347,7 @@ function TechReviewRow({ review: r, expandedId, setExpandedId, onSelectTicket, h
             </div>
           )}
           <div className="flex items-center gap-3 pt-2 border-t border-white/[0.04]">
-            <button onClick={() => onSelectTicket(r.ticket_id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#6c5ce7] hover:bg-[#991b1b] transition-colors">View Ticket</button>
+            <button onClick={() => onSelectTicket(r.ticket_id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#b91c1c] hover:bg-[#991b1b] transition-colors">View Ticket</button>
             {haloLink && (
               <a href={haloLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md px-3 py-1.5 text-xs font-medium text-white/50 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-colors">Open in Halo</a>
             )}
@@ -425,7 +425,7 @@ function ReTriageRow({ item, expandedId, setExpandedId, onSelectTicket, haloBase
 
           {/* Actions */}
           <div className="flex items-center gap-3 pt-2 border-t border-white/[0.04]">
-            <button onClick={() => onSelectTicket(item.ticket_id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#6c5ce7] hover:bg-[#991b1b] transition-colors">View Ticket</button>
+            <button onClick={() => onSelectTicket(item.ticket_id)} className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-[#b91c1c] hover:bg-[#991b1b] transition-colors">View Ticket</button>
             {haloLink && (
               <a href={haloLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md px-3 py-1.5 text-xs font-medium text-white/50 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-colors">Open in Halo</a>
             )}

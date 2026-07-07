@@ -17,11 +17,11 @@ export default function LoginPage() {
           <div className="w-full max-w-md">
             {/* Mobile brand */}
             <div className="mb-8 flex items-center justify-center gap-2.5 lg:hidden">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#8b7cff] to-[#6c5ce7]">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#f87171] to-[#b91c1c]">
                 <Radar className="h-5 w-5 text-white" />
               </div>
               <span className="text-lg font-bold tracking-tight text-[#171233]">
-                Triage<span className="text-[#6c5ce7]">IT</span>
+                Triage<span className="text-[#b91c1c]">IT</span>
               </span>
             </div>
 
@@ -36,7 +36,7 @@ export default function LoginPage() {
 
             <p className="mt-6 text-center text-xs text-slate-500">
               Need access?{" "}
-              <span className="cursor-pointer font-semibold text-[#6c5ce7] hover:underline">
+              <span className="cursor-pointer font-semibold text-[#b91c1c] hover:underline">
                 Ask your administrator
               </span>
             </p>
@@ -60,16 +60,16 @@ function HeroPanel() {
   return (
     <div
       className="relative hidden overflow-hidden lg:flex lg:w-[55%]"
-      style={{ background: "linear-gradient(135deg, #08060f, #131028 45%, #1e1745)" }}
+      style={{ background: "linear-gradient(135deg, #0a0505, #1c0a0a 45%, #3b0d0d)" }}
     >
       {/* Ambient orbs */}
       <div
         className="absolute -right-40 -top-40 h-[500px] w-[500px] rounded-full blur-3xl"
-        style={{ background: "rgba(139,124,255,0.16)" }}
+        style={{ background: "rgba(248,113,113,0.16)" }}
       />
       <div
         className="absolute -bottom-40 -left-20 h-[400px] w-[400px] rounded-full blur-3xl"
-        style={{ background: "rgba(108,92,231,0.12)" }}
+        style={{ background: "rgba(185,28,28,0.12)" }}
       />
       {/* Dot grid */}
       <div
@@ -86,14 +86,14 @@ function HeroPanel() {
           <div
             className="flex h-10 w-10 items-center justify-center rounded-xl"
             style={{
-              background: "linear-gradient(135deg, #8b7cff, #6c5ce7)",
-              boxShadow: "0 0 30px -8px rgba(139,124,255,0.7)",
+              background: "linear-gradient(135deg, #f87171, #b91c1c)",
+              boxShadow: "0 0 30px -8px rgba(248,113,113,0.7)",
             }}
           >
             <Radar className="h-5 w-5 text-white" />
           </div>
           <span className="text-lg font-bold tracking-tight text-white">
-            Triage<span className="text-[#a99cff]">IT</span>
+            Triage<span className="text-[#fca5a5]">IT</span>
           </span>
         </div>
 
@@ -102,18 +102,18 @@ function HeroPanel() {
           <div
             className="mb-6 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold text-white"
             style={{
-              background: "rgba(139,124,255,0.16)",
-              border: "1px solid rgba(139,124,255,0.4)",
+              background: "rgba(248,113,113,0.16)",
+              border: "1px solid rgba(248,113,113,0.4)",
             }}
           >
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8b7cff]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#f87171]" />
             Live · every ticket triaged in under 2 minutes
           </div>
 
           <h2 className="mb-5 text-[48px] font-extrabold leading-[1.05] tracking-tight text-white">
             Every ticket,
             <br />
-            <span className="text-[#a99cff]">already understood.</span>
+            <span className="text-[#fca5a5]">already understood.</span>
           </h2>
           <p className="max-w-md text-lg leading-relaxed text-slate-300/90">
             Thirteen AI specialists read, investigate, and prioritize every
@@ -174,7 +174,7 @@ function HeroPanel() {
 
           {/* Floating agent chip */}
           <div className="absolute -right-6 top-[25rem] flex animate-[float_6s_ease-in-out_infinite] items-center gap-2.5 rounded-xl border border-white/20 bg-white/95 p-3 shadow-2xl backdrop-blur">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#6c5ce7] text-xs font-bold text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#b91c1c] text-xs font-bold text-white">
               AM
             </div>
             <div>
@@ -195,7 +195,7 @@ function HeroPanel() {
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
-              <Zap className="h-4 w-4 text-[#a99cff]" />
+              <Zap className="h-4 w-4 text-[#fca5a5]" />
             </div>
             <div>
               <div className="text-xs font-semibold text-white">

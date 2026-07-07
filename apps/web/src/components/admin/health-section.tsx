@@ -194,7 +194,7 @@ export function HealthSection() {
                         "flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all",
                         state.loading
                           ? "cursor-not-allowed bg-white/5 text-white/20"
-                          : "bg-[#6c5ce7] text-white hover:bg-[#5a4bd4]",
+                          : "bg-[#b91c1c] text-white hover:bg-[#7f1d1d]",
                       )}
                     >
                       {state.loading ? (

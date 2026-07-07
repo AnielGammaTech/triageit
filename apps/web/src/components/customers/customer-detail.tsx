@@ -203,7 +203,7 @@ export function CustomerDetail({
             className={cn(
               "px-4 py-2.5 text-sm font-medium capitalize transition-colors",
               activeTab === tab
-                ? "border-b-2 border-[#6c5ce7] text-white"
+                ? "border-b-2 border-[#b91c1c] text-white"
                 : "text-white/50 hover:text-white",
             )}
           >

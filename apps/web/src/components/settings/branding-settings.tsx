@@ -118,7 +118,7 @@ export function BrandingSettings() {
             value={brandName}
             onChange={(e) => setBrandName(e.target.value)}
             placeholder="TriageIT"
-            className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#6c5ce7] focus:outline-none focus:ring-1 focus:ring-[#6c5ce7]"
+            className="w-full max-w-sm rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#b91c1c] focus:outline-none focus:ring-1 focus:ring-[#b91c1c]"
           />
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Appears in the header of all Halo notes (e.g. &quot;AI Triage — YourName&quot;)
@@ -136,7 +136,7 @@ export function BrandingSettings() {
             value={logoUrl}
             onChange={(e) => setLogoUrl(e.target.value)}
             placeholder="https://example.com/logo.png"
-            className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#6c5ce7] focus:outline-none focus:ring-1 focus:ring-[#6c5ce7]"
+            className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[#b91c1c] focus:outline-none focus:ring-1 focus:ring-[#b91c1c]"
           />
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             Direct URL to your logo image (PNG/SVG recommended, ~22px tall). Leave empty for the default emoji icon.
@@ -160,7 +160,7 @@ export function BrandingSettings() {
             <div className="space-y-2">
               <label
                 className={cn(
-                  "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-all hover:border-[#6c5ce7]/50 hover:text-white hover:bg-[#6c5ce7]/10",
+                  "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-white/60 transition-all hover:border-[#b91c1c]/50 hover:text-white hover:bg-[#b91c1c]/10",
                   uploadingAvatar && "opacity-50 cursor-not-allowed",
                 )}
               >
@@ -195,7 +195,7 @@ export function BrandingSettings() {
             <p className="text-xs font-medium text-[var(--muted-foreground)] mb-2">Preview</p>
             <div
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-white text-sm font-bold"
-              style={{ background: "linear-gradient(135deg, #6c5ce7, #8b5cf6)" }}
+              style={{ background: "linear-gradient(135deg, #b91c1c, #8b5cf6)" }}
             >
               {logoUrl.trim() ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -222,7 +222,7 @@ export function BrandingSettings() {
               "rounded-lg px-4 py-2 text-sm font-medium transition-colors",
               saving || !hasChanges
                 ? "cursor-not-allowed bg-white/5 text-white/20"
-                : "bg-[#6c5ce7] text-white hover:bg-[#5a4bd4]",
+                : "bg-[#b91c1c] text-white hover:bg-[#7f1d1d]",
             )}
           >
             {saving ? "Saving..." : "Save Branding"}
