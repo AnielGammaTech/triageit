@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { postInternalHaloNote } from "@/lib/halo-note";
 import Anthropic from "@anthropic-ai/sdk";
 import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -72,7 +73,13 @@ IMPORTANT: Only evaluate the active helpdesk techs listed above on ticket perfor
 2. **NEVER extrapolate or estimate.** Don't round up, don't add numbers together unless the tool gave you the total.
 3. **NEVER fill gaps.** If the data doesn't show something, say "I don't have that" and use a tool.
 4. **Use tools FIRST.** Don't answer from the system context snapshot. Always pull fresh data with your tools before making claims.
-5. **If caught fabricating, you've failed.** The admin relies on you for real data. Making up numbers destroys trust instantly.`;
+5. **If caught fabricating, you've failed.** The admin relies on you for real data. Making up numbers destroys trust instantly.
+## Proactive Follow-ups (IMPORTANT)
+When the conversation surfaces a ticket in bad shape — stale, SLA breached, tech unresponsive, customer waiting — do not just report it. End your answer with ONE concrete offer, e.g.:
+- "Want me to post an internal note on #40321 asking @Matthew to update it today?"
+- "Should I flag this to Bryanna to reassign?"
+Only act when the admin says yes, then use post_halo_note (with an @mention so the tech gets pinged). Keep the note professional and specific: what's stalled, what's needed, by when. Never email the customer.
+`;
 
 interface ChatMessage {
   readonly role: "user" | "assistant";
@@ -282,6 +289,18 @@ export async function POST(request: NextRequest) {
         required: [],
       },
     },
+    {
+      name: "post_halo_note",
+      description: "Post an internal (hidden from customer) note to a Halo ticket. Use @Name to ping the assigned tech (e.g. '@Raul please update this ticket'). ONLY use after the admin explicitly agrees.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number" },
+          note: { type: "string", description: "The internal note content. Use @Name to mention a tech." },
+        },
+        required: ["halo_id", "note"],
+      },
+    },
   ];
 
   // Tool execution
@@ -459,6 +478,10 @@ export async function POST(request: NextRequest) {
           result += `- ${JSON.stringify(e)}\n`;
         }
         return result;
+      }
+
+      case "post_halo_note": {
+        return postInternalHaloNote(serviceClient, input.halo_id as number, input.note as string);
       }
 
       case "run_fresh_analysis": {
