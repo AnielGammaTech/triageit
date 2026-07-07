@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { TriageContext, ClassificationResult } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
 import { extractResponseText } from "../llm-text.js";
+import { logCacheUsage } from "../cache-metrics.js";
 import { ApiNinjasClient } from "../../integrations/apininjas/client.js";
 
 const SYSTEM_PROMPT = `You are Ryan Howard, the Ticket Classification Specialist at Dunder Mifflin IT Triage.
@@ -145,6 +146,7 @@ export async function classifyTicket(
   };
 
   let response = await client.messages.create(request);
+  logCacheUsage("ryan:claude-haiku-4-5", response.usage);
   let text = extractResponseText(response);
 
   // An empty response is usually a transient API blip — one retry beats

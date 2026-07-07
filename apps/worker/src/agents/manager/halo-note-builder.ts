@@ -254,18 +254,36 @@ export function buildHaloNote(
 
   const rows: string[] = [];
 
-  // Header — gradient with optional logo
+  // Header — two-column hero band: brand identity left, classification
+  // chip + run stats right. Table layout keeps it email/Halo-safe.
   const brandName = branding?.name ?? "TriageIt";
   const logoHtml = branding?.logoUrl
-    ? `<img src="${branding.logoUrl}" alt="${brandName}" style="height:22px;width:auto;vertical-align:middle;margin-right:8px;border-radius:3px;" />`
-    : "🤖 ";
+    ? `<img src="${branding.logoUrl}" alt="${brandName}" style="height:26px;width:auto;vertical-align:middle;margin-right:10px;border-radius:6px;" />`
+    : "";
   // Priority suggestion lives as a small header chip — the ticket itself
   // already shows the current priority, so no dedicated rows for it
   const prioritySuggestion =
     originalPriority && classification.recommended_priority !== originalPriority
-      ? `<span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-right:10px;">Suggests ${priorityLabel(classification.recommended_priority)} ${classification.recommended_priority < originalPriority ? "⬆" : "⬇"}</span>`
+      ? `<span style="display:inline-block;background:rgba(255,255,255,0.22);border:1px solid rgba(255,255,255,0.3);padding:2px 9px;border-radius:11px;font-size:11px;font-weight:700;margin-right:6px;color:#fff;">Suggests ${priorityLabel(classification.recommended_priority)} ${classification.recommended_priority < originalPriority ? "⬆" : "⬇"}</span>`
       : "";
-  rows.push(`<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:15px;font-weight:700;">${logoHtml}AI Triage — ${brandName}<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">${prioritySuggestion}${agentCount} agents · ${(processingTime / 1000).toFixed(1)}s</span></td></tr>`);
+  const confidencePct = (classification.classification.confidence * 100).toFixed(0);
+  const classificationChip = `<span style="display:inline-block;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.28);padding:3px 11px;border-radius:12px;font-size:11.5px;font-weight:700;color:#fff;text-transform:capitalize;">${classification.classification.type} / ${classification.classification.subtype}&nbsp;&nbsp;<span style="font-weight:600;opacity:0.75;">${confidencePct}%</span></span>`;
+  rows.push(
+    `<tr><td colspan="2" style="padding:0;">` +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(120deg,#4338ca 0%,#6d28d9 60%,#8b5cf6 100%);">` +
+      `<tr>` +
+      `<td style="padding:13px 14px 12px;vertical-align:middle;">` +
+      `${logoHtml}<span style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.01em;vertical-align:middle;">AI Triage</span>` +
+      `<span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);margin-left:9px;vertical-align:middle;letter-spacing:0.14em;text-transform:uppercase;">${brandName}</span>` +
+      `</td>` +
+      `<td style="padding:13px 14px 12px;text-align:right;vertical-align:middle;white-space:nowrap;">` +
+      `${prioritySuggestion}${classificationChip}` +
+      `<div style="font-size:10px;color:rgba(255,255,255,0.65);margin-top:5px;letter-spacing:0.04em;">${agentCount} agents &middot; ${(processingTime / 1000).toFixed(1)}s</div>` +
+      `</td>` +
+      `</tr>` +
+      `</table>` +
+      `</td></tr>`,
+  );
 
   // SLA Breach — red alert banner, placed first for maximum visibility
   if (slaInfo?.breached) {
