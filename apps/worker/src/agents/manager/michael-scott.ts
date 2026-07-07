@@ -5,7 +5,7 @@ import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
 import { extractResponseText } from "../llm-text.js";
-import { HaloClient } from "../../integrations/halo/client.js";
+import { HaloClient, collectTicketDocuments } from "../../integrations/halo/client.js";
 import type { HaloConfig, TeamsConfig } from "@triageit/shared";
 import { TeamsClient } from "../../integrations/teams/client.js";
 import {
@@ -174,10 +174,11 @@ export async function runTriage(
         }
       }
 
-      // Fetch images from ticket attachments and inline images
-      const [attachmentImages, inlineImages] = await Promise.all([
+      // Fetch images, inline images, and document attachments (PDFs/text)
+      const [attachmentImages, inlineImages, ticketDocuments] = await Promise.all([
         haloEarly.getTicketImages(ticket.halo_id, rawActions),
         haloEarly.extractInlineImages(rawActions),
+        collectTicketDocuments(haloEarly, ticket.halo_id, rawActions),
       ]);
       const allImages = [...attachmentImages, ...inlineImages].slice(0, 3);
       const imageContexts = allImages.map((img) => ({
@@ -227,6 +228,7 @@ export async function runTriage(
         actions: formattedActions,
         assignedTechName,
         images: imageContexts.length > 0 ? imageContexts : undefined,
+        documents: ticketDocuments.length > 0 ? ticketDocuments : undefined,
         slaBreached,
         slaFixTargetMet: slaFixTargetMet ?? undefined,
         slaResponseTargetMet: slaResponseTargetMet ?? undefined,
@@ -907,6 +909,29 @@ async function synthesizeFindings(
         type: "text",
         text: `[Screenshot: ${img.filename}${img.who ? ` from ${img.who}` : ""}]`,
       });
+    }
+  }
+
+  // Document attachments: PDFs as native document blocks, text files inline
+  if (context.documents && context.documents.length > 0) {
+    for (const doc of context.documents) {
+      const label = `[Attachment: ${doc.filename}${doc.who ? ` from ${doc.who}` : ""}]`;
+      if (doc.kind === "pdf" && doc.base64Data) {
+        messageContent.push({
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: doc.base64Data,
+          },
+        });
+        messageContent.push({ type: "text", text: label });
+      } else if (doc.kind === "text" && doc.textContent) {
+        messageContent.push({
+          type: "text",
+          text: `${label}\n\`\`\`\n${doc.textContent}\n\`\`\``,
+        });
+      }
     }
   }
 

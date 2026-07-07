@@ -162,6 +162,15 @@ export class CippClient {
     return this.request("/ListTenants");
   }
 
+  /**
+   * List all domains registered on a tenant. Tenants often own several
+   * domains beyond defaultDomainName (e.g. evllc.com under Quality
+   * Enterprise), so domain→tenant resolution must check all of them.
+   */
+  async listDomains(tenantFilter: string): Promise<ReadonlyArray<{ id: string }>> {
+    return this.request("/ListDomains", { TenantFilter: tenantFilter });
+  }
+
   /** Get users for a tenant */
   async getUsers(tenantFilter: string): Promise<ReadonlyArray<CippUser>> {
     return this.request("/ListUsers", { TenantFilter: tenantFilter });
