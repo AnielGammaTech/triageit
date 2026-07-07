@@ -346,7 +346,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
                 <span className="flex-1 truncate text-sm">{conv.title}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
-                  className="hidden group-hover:block shrink-0 rounded p-0.5 text-white/30 hover:text-red-400 transition-colors"
+                  className="shrink-0 cursor-pointer rounded p-0.5 text-white/25 opacity-60 transition-colors hover:text-red-400 hover:opacity-100 group-hover:opacity-100"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <line x1="18" y1="6" x2="6" y2="18" />
@@ -601,9 +601,9 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
 function formatModelName(model?: string): string {
   if (!model) return "Unknown";
-  if (model.includes("sonnet")) return "Sonnet 4";
+  if (model.includes("sonnet")) return "Sonnet 5";
   if (model.includes("haiku")) return "Haiku 4.5";
-  if (model.includes("opus")) return "Opus 4";
+  if (model.includes("opus")) return "Opus";
   return model;
 }
 

@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
   { href: "/tickets", label: "Tickets" },
-  { href: "/michael", label: "Prison Mike" },
-  { href: "/toby", label: "Toby" },
+  { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
+  { href: "/toby", label: "Toby", avatar: "/toby.png" },
   { href: "/workers", label: "Workers" },
   {
     href: process.env.NEXT_PUBLIC_FOLLOWIT_URL ?? "http://localhost:3001",
@@ -135,6 +135,14 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   href={item.href}
                   className={className}
                 >
+                  {"avatar" in item && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.avatar}
+                      alt=""
+                      className="h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
+                    />
+                  )}
                   {item.label}
                   {isActive && (
                     <span
@@ -267,6 +275,14 @@ export function Sidebar({ userEmail }: SidebarProps) {
                     className={className}
                     style={style}
                   >
+                    {"avatar" in item && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.avatar}
+                        alt=""
+                        className="mr-2 h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
+                      />
+                    )}
                     {item.label}
                   </Link>
                 );

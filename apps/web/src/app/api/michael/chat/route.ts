@@ -98,6 +98,9 @@ This is non-negotiable. The admin WILL catch you if you make up numbers.
 4. **Quote your sources.** When stating a number, mentally trace it back to which tool returned it. If you can't trace it, don't say it.
 5. **If the admin catches you fabricating, you've failed.** This destroys trust. The admin relies on you for accurate operational data. Making up numbers is worse than saying "I don't know."
 6. **Use tools FIRST, then talk.** Don't answer from memory or the system context. Always pull fresh data with your tools before making claims about ticket counts, tech performance, or client patterns.
+7. **A sample is not a total.** Tool results are often capped lists — when a result says "X match, showing Y", quote X. Never count the rows of a capped list and present that as the total.
+8. **Re-check numbers before sending.** Any count, average, or date you state must appear verbatim in a tool result from THIS conversation. If two tools disagree, say so and prefer the exact-count tool.
+9. **When data is thin, say so.** "Only 3 reviews exist for Darren, so this is a weak signal" beats a confident wrong conclusion.
 
 - Today's date is: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" })}
 
@@ -787,7 +790,7 @@ export async function POST(request: NextRequest) {
         const filters: string[] = [];
         let query = serviceClient
           .from("tickets")
-          .select("halo_id, summary, client_name, halo_status, halo_agent, created_at, original_priority");
+          .select("halo_id, summary, client_name, halo_status, halo_agent, created_at, original_priority", { count: "exact" });
 
         if (input.client_name) {
           query = query.ilike("client_name", `%${input.client_name}%`);
@@ -813,11 +816,14 @@ export async function POST(request: NextRequest) {
         const maxResults = Math.min((input.limit as number) ?? 20, 50);
         query = query.order("created_at", { ascending: false }).limit(maxResults);
 
-        const { data: tickets, error: searchErr } = await query;
+        const { data: tickets, error: searchErr, count: totalMatches } = await query;
         if (searchErr) return `Search failed: ${searchErr.message}`;
         if (!tickets || tickets.length === 0) return `No tickets found matching: ${filters.join(", ")} (last ${daysBack} days)`;
 
-        let result = `Found ${tickets.length} tickets (${filters.join(", ")}, last ${daysBack} days):\n\n`;
+        // Always give the model the EXACT total — a capped list presented as
+        // the full set is how wrong counts end up in answers
+        const total = totalMatches ?? tickets.length;
+        let result = `${total} tickets match (${filters.join(", ")}, last ${daysBack} days). Showing the ${tickets.length} most recent${total > tickets.length ? ` — when quoting counts use ${total}, not ${tickets.length}` : ""}:\n\n`;
         for (const t of tickets) {
           result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString()}\n`;
         }
@@ -827,10 +833,17 @@ export async function POST(request: NextRequest) {
       case "get_tech_activity": {
         const techName = input.tech_name as string;
 
-        // Get their current tickets
-        const { data: tickets } = await serviceClient
+        // Exact open count first — the sampled list below is capped at 25
+        const { count: openCount } = await serviceClient
           .from("tickets")
-          .select("halo_id, summary, client_name, halo_status, created_at, last_customer_reply_at, last_tech_action_at")
+          .select("id", { count: "exact", head: true })
+          .ilike("halo_agent", `%${techName}%`)
+          .eq("halo_is_open", true);
+
+        // Get their current tickets
+        const { data: tickets, count: totalTicketCount } = await serviceClient
+          .from("tickets")
+          .select("halo_id, summary, client_name, halo_status, created_at, last_customer_reply_at, last_tech_action_at", { count: "exact" })
           .ilike("halo_agent", `%${techName}%`)
           .order("created_at", { ascending: false })
           .limit(25);
@@ -866,7 +879,8 @@ export async function POST(request: NextRequest) {
             const s = (t.halo_status ?? "").toLowerCase();
             return !s.includes("closed") && !s.includes("resolved") && !s.includes("cancelled");
           });
-          result += `**Current tickets:** ${openStatuses.length} open / ${tickets.length} total (last 25)\n`;
+          // EXACT counts — the ticket list below is only a 25-row sample
+          result += `**Current tickets (EXACT):** ${openCount ?? openStatuses.length} open / ${totalTicketCount ?? tickets.length} all-time. Sample of recent ones:\n`;
           for (const t of openStatuses.slice(0, 15)) {
             const lastCustomer = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).toLocaleDateString() : "never";
             const lastTech = t.last_tech_action_at ? new Date(t.last_tech_action_at).toLocaleDateString() : "never";
