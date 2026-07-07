@@ -15,15 +15,6 @@ export async function processTriageJob(
   console.log(`[TRIAGE] Processing job ${jobId}: ticket #${data.haloId} (${data.ticketId})`);
   const supabase = createSupabaseClient();
 
-  await supabase
-    .from("tickets")
-    .update({
-      status: "triaging",
-      error_message: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", data.ticketId);
-
   const { data: ticket } = await supabase
     .from("tickets")
     .select("*")
@@ -34,12 +25,36 @@ export async function processTriageJob(
     throw new Error(`Ticket not found: ${data.ticketId}`);
   }
 
+  // In-flight guard: webhook + ticket-sync can enqueue the same new ticket
+  // seconds apart — don't run two full pipelines concurrently
+  if (ticket.status === "triaging" && ticket.updated_at) {
+    const minutesInFlight = (Date.now() - new Date(ticket.updated_at).getTime()) / 60_000;
+    if (minutesInFlight < 10) {
+      console.log(
+        `[TRIAGE] Skipping #${data.haloId} — another triage started ${minutesInFlight.toFixed(0)}m ago`,
+      );
+      return { success: true, skipped: true, reason: "in_flight" };
+    }
+  }
+
+  await supabase
+    .from("tickets")
+    .update({
+      status: "triaging",
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", data.ticketId);
+
   try {
-    // Check if this is a retriage (existing results before this run)
+    // Check if this is a retriage (existing FULL results before this run —
+    // daily-scan flag rows are triage_type='retriage' and don't count, else
+    // a new ticket's first triage gets treated as a retriage)
     const { data: priorTriages } = await supabase
       .from("triage_results")
       .select("id, created_at, classification, urgency_score, recommended_priority, security_flag, internal_notes")
       .eq("ticket_id", data.ticketId)
+      .neq("triage_type", "retriage")
       .order("created_at", { ascending: false });
 
     const priorTriageCount = priorTriages?.length ?? 0;
