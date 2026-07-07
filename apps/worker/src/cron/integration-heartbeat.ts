@@ -174,9 +174,25 @@ async function checkUnifi(config: Record<string, unknown>): Promise<CheckResult>
 
   const unifi = new UnifiClient({ api_key: text(config, "api_key") });
   const hosts = await unifi.getHosts();
+
+  const disconnected = hosts.filter((h) => h.reportedState?.state === "disconnected");
+  if (disconnected.length > 0) {
+    const names = disconnected
+      .map((h) => {
+        const name = h.reportedState?.name ?? h.reportedState?.hostname ?? h.id.slice(0, 8);
+        const since = h.lastConnectionStateChange?.slice(0, 10) ?? "?";
+        return `${name} (since ${since})`;
+      })
+      .join(", ");
+    return {
+      status: "degraded",
+      message: `${hosts.length} consoles, ${disconnected.length} DISCONNECTED from cloud — their sites/devices are invisible to the API: ${names}. Fix requires restoring remote access on the console itself.`,
+    };
+  }
+
   return {
     status: "healthy",
-    message: `UniFi returned ${hosts.length} host${hosts.length === 1 ? "" : "s"}.`,
+    message: `UniFi returned ${hosts.length} host${hosts.length === 1 ? "" : "s"}, all connected.`,
   };
 }
 

@@ -60,6 +60,7 @@ export interface UnifiHost {
   readonly reportedState?: {
     readonly name?: string;
     readonly hostname?: string;
+    readonly state?: string; // "connected" | "disconnected"
     readonly firmwareVersion?: string;
     readonly releaseChannel?: string;
     readonly controllers?: ReadonlyArray<{
@@ -102,33 +103,66 @@ export class UnifiClient {
   }
 
   /**
+   * Fetch every page of a Site Manager list endpoint. Responses carry a
+   * nextToken when more pages exist — without following it, anything past
+   * the first page is silently dropped as the fleet grows.
+   */
+  private async requestAllPages<T>(path: string): Promise<T[]> {
+    const items: T[] = [];
+    let nextToken: string | undefined;
+    let pages = 0;
+
+    do {
+      const sep = path.includes("?") ? "&" : "?";
+      const tokenParam = nextToken ? `&nextToken=${encodeURIComponent(nextToken)}` : "";
+      const response = await this.request<{ data?: T[]; nextToken?: string }>(
+        `${path}${sep}pageSize=200${tokenParam}`,
+      );
+      items.push(...(response.data ?? []));
+      nextToken = response.nextToken;
+      pages++;
+    } while (nextToken && pages < 50);
+
+    return items;
+  }
+
+  /**
    * Get all sites across all hosts.
    */
   async getSites(): Promise<ReadonlyArray<UnifiSite>> {
-    const data = await this.request<{ data?: ReadonlyArray<Record<string, unknown>> }>("/ea/sites");
-    return (data.data ?? []).map(normalizeSite);
+    const data = await this.requestAllPages<Record<string, unknown>>("/v1/sites");
+    return data.map(normalizeSite);
   }
 
   /**
    * Get all hosts (consoles/controllers).
    */
   async getHosts(): Promise<ReadonlyArray<UnifiHost>> {
-    const data = await this.request<{ data?: ReadonlyArray<UnifiHost> }>("/ea/hosts");
-    return data.data ?? [];
+    return this.requestAllPages<UnifiHost>("/v1/hosts");
+  }
+
+  /**
+   * Consoles that are not reporting to the UniFi cloud. Their sites and
+   * devices are frozen at lastConnectionStateChange — the API physically
+   * cannot return current data for them.
+   */
+  async getDisconnectedHosts(): Promise<ReadonlyArray<UnifiHost>> {
+    const hosts = await this.getHosts();
+    return hosts.filter((h) => h.reportedState?.state === "disconnected");
   }
 
   /**
    * Get all devices across all sites (APs, switches, gateways).
    *
-   * /ea/devices returns entries GROUPED BY HOST — {hostId, hostName,
+   * /v1/devices returns entries GROUPED BY HOST — {hostId, hostName,
    * devices: [...]} — so flatten the groups and stamp each device with
    * its hostId. Normalizing the group wrapper itself produces one
    * "Unnamed" device per console with every field unknown.
    */
   async getDevices(): Promise<ReadonlyArray<UnifiDevice>> {
-    const data = await this.request<{ data?: ReadonlyArray<Record<string, unknown>> }>("/ea/devices");
+    const groups = await this.requestAllPages<Record<string, unknown>>("/v1/devices");
     const devices: UnifiDevice[] = [];
-    for (const group of data.data ?? []) {
+    for (const group of groups) {
       const hostId = (group.hostId ?? "") as string;
       const groupDevices = Array.isArray(group.devices) ? (group.devices as Record<string, unknown>[]) : [];
       for (const raw of groupDevices) {

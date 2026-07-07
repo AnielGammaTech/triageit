@@ -21,6 +21,7 @@ import { HuduClient } from "../../integrations/hudu/client.js";
 interface UnifiData {
   readonly site: UnifiSite | null;
   readonly devices: ReadonlyArray<UnifiDevice>;
+  readonly consoleOfflineSince?: string | null;
 }
 
 interface HuduNetworkData {
@@ -157,7 +158,23 @@ Respond with ONLY valid JSON:
 
       const devices = await unifi.getDevicesByHost(site.hostId);
 
-      return { site, devices };
+      // A console that lost its cloud connection serves frozen data — the
+      // stats/devices reflect the disconnect date, not the present
+      let consoleOfflineSince: string | null = null;
+      try {
+        const hosts = await unifi.getHosts();
+        const host = hosts.find((h) => h.id === site.hostId);
+        if (host?.reportedState?.state === "disconnected") {
+          consoleOfflineSince = host.lastConnectionStateChange ?? "unknown date";
+          console.warn(
+            `[CREED] Console "${site.hostName}" is DISCONNECTED from UniFi cloud since ${consoleOfflineSince} — data is stale`,
+          );
+        }
+      } catch {
+        // Host state check is best-effort
+      }
+
+      return { site, devices, consoleOfflineSince };
     } catch (err) {
       console.error("[CREED] Failed to fetch UniFi data:", err);
       return empty;
@@ -379,6 +396,12 @@ Respond with ONLY valid JSON:
         `**Host:** ${s.hostName}`,
         `**Online:** ${s.isOnline ? "Yes" : "NO — OFFLINE"}`,
       );
+
+      if (unifiData.consoleOfflineSince) {
+        sections.push(
+          `**⚠ STALE DATA:** This console has been DISCONNECTED from UniFi cloud since ${unifiData.consoleOfflineSince}. All stats and device data below are frozen at that date — treat as unavailable, not current. Recommend a tech restore the console's cloud connection.`,
+        );
+      }
 
       if (stats?.counts) {
         sections.push(
