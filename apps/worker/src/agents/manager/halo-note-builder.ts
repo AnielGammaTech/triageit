@@ -137,6 +137,36 @@ function uniqueNonEmpty(items: ReadonlyArray<string>): string[] {
   return out;
 }
 
+/**
+ * Hyperlink known entity names (devices, assets, credential entries) where
+ * they're mentioned in note text, using the specialists' link lists.
+ * "Bill-Office32" in App Context becomes a link to its Hudu/Datto page
+ * instead of "(link in Hudu)" prose.
+ */
+function linkifyKnownEntities(
+  html: string,
+  links: ReadonlyArray<{ label: string; url: string }>,
+): string {
+  let out = html;
+  for (const link of links) {
+    // Meaningful tail of the label: "Computer Assets: Bill-Office32" →
+    // "Bill-Office32"; strip "... in Hudu"-style suffixes
+    const entity = (link.label.includes(":") ? link.label.split(":").pop()! : link.label)
+      .replace(/\s+in\s+(hudu|datto(\s+rmm)?|cove|spanning|unifi)\s*$/i, "")
+      .replace(/\s+passwords?\s*$/i, "")
+      .trim();
+    if (entity.length < 4) continue;
+
+    const escaped = entity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // First occurrence only, not already inside an anchor, not a partial word
+    const re = new RegExp(`(?<![\\w-])(${escaped})(?![\\w-])(?![^<]*</a>)`, "i");
+    if (re.test(out)) {
+      out = out.replace(re, `<a href="${link.url}" style="color:#60a5fa;text-decoration:underline;">$1</a>`);
+    }
+  }
+  return out;
+}
+
 function formatBulletList(items: ReadonlyArray<string>, emptyText = "No connected-app findings available."): string {
   const clean = uniqueNonEmpty(items).slice(0, 8);
   if (clean.length === 0) return emptyText;
@@ -248,13 +278,31 @@ export function buildHaloNote(
   // Classification
   rows.push(`<tr style="background:#252830;"><td ${td1}>Classification</td><td ${td2}><strong>${classification.classification.type} / ${classification.classification.subtype}</strong> <span style="color:#64748b;font-size:11px;">(${(classification.classification.confidence * 100).toFixed(0)}%)</span></td></tr>`);
 
-  // Assignment suggestion for Bryanna — the manager prose row is gone
-  // (it repeated Root Cause and Workflow nearly verbatim)
-  if (michaelResult.recommended_agent) {
-    const reason = michaelResult.assignment_reasoning
-      ? ` <span style="color:#94a3b8;">— ${linkifyUrls(michaelResult.assignment_reasoning)}</span>`
-      : "";
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#93c5fd;">Assign</td><td style="padding:8px 12px;${border}font-size:14px;color:#dbeafe;line-height:1.55;word-break:break-word;"><strong style="color:#e2e8f0;">${michaelResult.recommended_agent}</strong> <span style="color:#64748b;">·</span> ${michaelResult.recommended_team}${reason}<br/><span style="font-size:10px;color:#64748b;">Suggestion for Bryanna — not auto-assigned</span></td></tr>`);
+  // Specialist links collected up front so entity names anywhere in the
+  // note can be hyperlinked in place
+  const dwightData = findings.dwight_schrute?.data;
+  const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
+  const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+  const oscarLinks = (findings.oscar_martinez?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
+  const meredithLinks = (findings.meredith_palmer?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
+  const dattoDeviceLinks = (findings.andy_bernard?.data?.device_links as Array<{ label: string; url: string }>) ?? [];
+  const allLinks = [...dattoDeviceLinks, ...huduLinks, ...oscarLinks, ...meredithLinks];
+
+  // Dispatch — one compact row: assignment suggestion + workflow reminder
+  {
+    const dispatchLines: string[] = [];
+    if (michaelResult.recommended_agent) {
+      const reason = michaelResult.assignment_reasoning
+        ? ` <span style="color:#94a3b8;">— ${linkifyUrls(michaelResult.assignment_reasoning)}</span>`
+        : "";
+      dispatchLines.push(`<strong style="color:#e2e8f0;">${michaelResult.recommended_agent}</strong> <span style="color:#64748b;">·</span> ${michaelResult.recommended_team}${reason}`);
+    }
+    if (michaelResult.workflow_reminder) {
+      dispatchLines.push(`<span style="color:#fcd34d;">${linkifyUrls(michaelResult.workflow_reminder)}</span>`);
+    }
+    if (dispatchLines.length > 0) {
+      rows.push(`<tr style="background:#1a2332;"><td style="padding:6px 12px;font-weight:700;width:100px;${border}font-size:12px;vertical-align:top;color:#93c5fd;">Dispatch</td><td style="padding:6px 12px;${border}font-size:12px;color:#dbeafe;line-height:1.5;word-break:break-word;">${dispatchLines.join("<br/>")}<br/><span style="font-size:10px;color:#64748b;">Suggestions for Bryanna — nothing auto-applied</span></td></tr>`);
+    }
   }
 
   // Security
@@ -267,12 +315,9 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.escalation_reason ?? "")}</td></tr>`);
   }
 
-  if (michaelResult.workflow_reminder) {
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">Workflow</td><td style="padding:8px 12px;${border}font-size:13px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.workflow_reminder)}</td></tr>`);
-  }
-
-  // Root Cause — amber tinted dark background
-  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.root_cause_hypothesis)}</td></tr>`);
+  // Root Cause — amber tinted dark background (workflow reminder lives in
+  // the Dispatch row); device/asset names hyperlinked in place
+  rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${linkifyKnownEntities(linkifyUrls(michaelResult.root_cause_hypothesis), allLinks)}</td></tr>`);
 
   // Evidence row removed — root cause + app context carry the signal
 
@@ -281,31 +326,17 @@ export function buildHaloNote(
     ...collectConnectedAppContext(findings),
   ]).slice(0, 3);
   if (appContext.length > 0) {
-    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">App Context</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;word-break:break-word;">${formatBulletList(appContext)}</td></tr>`);
+    rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">App Context</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;word-break:break-word;">${linkifyKnownEntities(formatBulletList(appContext), allLinks)}</td></tr>`);
   }
 
   // Tech plan — blue tinted dark background, parsed into numbered list
   const stepSource = michaelResult.troubleshooting_steps && michaelResult.troubleshooting_steps.length > 0
     ? michaelResult.troubleshooting_steps
     : michaelResult.internal_notes;
-  const formattedNotes = formatTechNotes(stepSource);
+  const formattedNotes = linkifyKnownEntities(formatTechNotes(stepSource), allLinks);
   rows.push(`<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#60a5fa;">Tech Plan</td><td style="padding:8px 12px;${border}font-size:13px;color:#bfdbfe;line-height:1.5;word-break:break-word;">${formattedNotes}</td></tr>`);
 
-  // Quick Links — Hudu links from Dwight + backup quicklinks from Oscar/Meredith
-  const dwightData = findings.dwight_schrute?.data;
-  const huduLinks = (dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? [];
-  const relevantPasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
-
-  // Collect backup quicklinks from Oscar (Cove/Unitrends) and Meredith (Spanning)
-  const oscarLinks = (findings.oscar_martinez?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
-  const meredithLinks = (findings.meredith_palmer?.data?.quicklinks as Array<{ label: string; url: string }>) ?? [];
-  const backupLinks = [...oscarLinks, ...meredithLinks];
-
-  // Andy's Datto console links for the reporter's / ticket-named devices
-  const dattoDeviceLinks = (findings.andy_bernard?.data?.device_links as Array<{ label: string; url: string }>) ?? [];
-
-  const allLinks = [...dattoDeviceLinks, ...huduLinks, ...backupLinks];
-
+  // Quick Links — everything the specialists linked, in one place
   if (allLinks.length > 0 || relevantPasswords.length > 0) {
     const linkItems = allLinks
       .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;">${l.label}</a>`)
@@ -401,18 +432,24 @@ export function buildCompactRetriageNote(
     : "";
   rows.push(`<tr style="background:#252830;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#94a3b8;">Status</td><td style="padding:5px 12px;${border}font-size:12px;color:#e2e8f0;">${classification.classification.type}/${classification.classification.subtype} · ${michaelResult.recommended_team}${escalationTag}</td></tr>`);
 
-  if (michaelResult.recommended_agent) {
-    const reason = michaelResult.assignment_reasoning ? ` — ${linkifyUrls(michaelResult.assignment_reasoning)}` : "";
-    rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#93c5fd;">Assign</td><td style="padding:5px 12px;${border}font-size:11px;color:#dbeafe;line-height:1.4;"><strong>${michaelResult.recommended_agent}</strong>${reason} <span style="color:#64748b;font-size:9px;">· Suggestion for Bryanna</span></td></tr>`);
+  // Dispatch — assignment + workflow in one compact row
+  {
+    const dispatchLines: string[] = [];
+    if (michaelResult.recommended_agent) {
+      const reason = michaelResult.assignment_reasoning ? ` — ${linkifyUrls(michaelResult.assignment_reasoning)}` : "";
+      dispatchLines.push(`<strong>${michaelResult.recommended_agent}</strong>${reason}`);
+    }
+    if (michaelResult.workflow_reminder) {
+      dispatchLines.push(`<span style="color:#fcd34d;">${linkifyUrls(michaelResult.workflow_reminder)}</span>`);
+    }
+    if (dispatchLines.length > 0) {
+      rows.push(`<tr style="background:#1a2332;"><td style="padding:5px 12px;font-weight:600;width:80px;${border}font-size:11px;color:#93c5fd;">Dispatch</td><td style="padding:5px 12px;${border}font-size:11px;color:#dbeafe;line-height:1.4;">${dispatchLines.join("<br/>")} <span style="color:#64748b;font-size:9px;">· Suggestions for Bryanna</span></td></tr>`);
+    }
   }
 
   // Escalation reason (only if escalating)
   if (michaelResult.escalation_needed && michaelResult.escalation_reason) {
     rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Why</td><td style="padding:5px 12px;${border}font-size:12px;color:#fcd34d;">${linkifyUrls(michaelResult.escalation_reason)}</td></tr>`);
-  }
-
-  if (michaelResult.workflow_reminder) {
-    rows.push(`<tr style="background:#3b2508;"><td style="padding:5px 12px;font-weight:700;width:80px;${border}font-size:11px;color:#fbbf24;">Workflow</td><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;line-height:1.4;">${linkifyUrls(michaelResult.workflow_reminder)}</td></tr>`);
   }
 
   const appContext = uniqueNonEmpty([
