@@ -144,6 +144,7 @@ Respond with ONLY valid JSON, no markdown:
   // NOT a paragraph, NOT a single long string with multiple steps.
   "suggested_response": null,
   "workflow_reminder": "<ONE action, max 18 words, only if status/owner/auto_release/resolution_time is missing or inconsistent — e.g. 'Bryanna: set resolution_time; ticket has no SLA target.' Do NOT restate priority or assignment. null if workflow is fine>",
+  // workflow_reminder: the 'Workflow / SLA State' section shows the REAL Halo values. Flag resolution_time ONLY when it literally says NOT SET. NEVER ask Bryanna to 'confirm' or 'verify' a value that is already shown — if it's set, workflow is fine, return null.
   "kb_suggestions": ["<suggested KB article title 1>", "<suggested KB article title 2>"],
   // KB suggestions: article titles to create in Hudu after resolution. Max 3. Empty array if none needed.
   "adjustments": "<any adjustments to Ryan's classification, null if none>",

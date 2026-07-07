@@ -43,6 +43,7 @@ export interface TriageContext {
   readonly slaFixTargetMet?: boolean;
   readonly slaResponseTargetMet?: boolean;
   readonly slaFixByDate?: string | null;
+  readonly slaRespondByDate?: string | null;
   readonly slaTimerText?: string | null;
 }
 
