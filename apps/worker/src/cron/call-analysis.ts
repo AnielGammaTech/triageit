@@ -37,6 +37,8 @@ interface CallInsights {
   readonly suggestions: ReadonlyArray<string>;
   readonly customer_sentiment: string;
   readonly relevant_to_ticket: boolean;
+  /** Outbound calls only: draft "per our call" follow-up email for the tech to send. */
+  readonly suggested_customer_email: string | null;
 }
 
 const MIN_TRANSCRIPT_CHARS = 150;
@@ -428,13 +430,15 @@ async function analyzeCall(
       `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
       `  "next_steps": ["<what should happen next based on the call>"],`,
       `  "suggestions": ["<0-3 concrete suggestions for the tech — follow-ups the transcript shows are needed. Imperatives, no filler>"],`,
-      `  "customer_sentiment": "<one word: satisfied | neutral | frustrated | angry>"`,
+      `  "customer_sentiment": "<one word: satisfied | neutral | frustrated | angry>",`,
+      `  "suggested_customer_email": ${direction === "outbound" ? `"<draft follow-up email the tech can send the customer. Start with 'Hi <first name>,' then 'Per our call...' — recap what was discussed/done in the customer's words, what happens next and when. Warm, plain English, no jargon, 3-5 sentences, sign off as ${techName.split(",").reverse().join(" ").trim()} from Gamma Tech. Only what the transcript supports.>"` : "null"}`,
       `}`,
     ].join("\n");
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-5",
-      max_tokens: 1024,
+      // Room for the outbound email draft on top of the structured fields
+      max_tokens: 1500,
       messages: [{ role: "user", content: prompt }],
     });
     const text = extractResponseText(response);
@@ -486,13 +490,27 @@ function buildCallSummaryNote(
     ? `<tr style="background:#1a2332;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#bfdbfe;line-height:1.5;"><span style="color:#60a5fa;font-weight:700;font-size:11px;">SUGGESTED — </span><ul style="margin:4px 0 0 18px;padding:0;">${list(insights.suggestions)}</ul></td></tr>`
     : "";
 
+  // Outbound follow-up draft — "per our call" customer update the tech can
+  // copy into an email. Suggestion only, nothing is ever sent automatically.
+  const emailDraft = (insights.suggested_customer_email ?? "").trim();
+  const emailRow = direction === "outbound" && emailDraft
+    ? `<tr style="background:#122117;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#bbf7d0;line-height:1.5;"><span style="color:#4ade80;font-weight:700;font-size:11px;">✉ SUGGESTED CUSTOMER UPDATE</span><br/><em style="color:#a7f3d0;">"${emailDraft.replace(/\n/g, "<br/>")}"</em><br/><span style="font-size:10px;color:#64748b;">Draft only — edit before sending</span></td></tr>`
+    : "";
+
+  // Direction at a glance: inbound = blue band, outbound = green band
+  const headerGradient = direction === "inbound"
+    ? "linear-gradient(135deg,#1e3a8a,#2563eb)"
+    : "linear-gradient(135deg,#14532d,#16a34a)";
+  const directionLabel = direction === "inbound" ? "⬇ inbound" : "⬆ outbound";
+
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
-    `<tr><td style="padding:8px 12px;background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:white;font-size:13px;font-weight:700;">📞 Call Summary — ${techName}` +
-    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${direction} · ${when} · ${durationMin} min · <span style="color:${sentimentColor};">${insights.customer_sentiment}</span></span>` +
+    `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">📞 Call Summary — ${techName}` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${directionLabel} · ${when} · ${durationMin} min · <span style="color:${sentimentColor};">${insights.customer_sentiment}</span></span>` +
     `</td></tr>` +
     `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${insights.summary}</td></tr>` +
     suggestionsRow +
+    emailRow +
     (detailBlocks
       ? `<tr style="background:#1E2028;"><td style="padding:0;${border}"><details style="margin:0;"><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ Call detail — actions, commitments &amp; next steps</summary><div style="padding:8px 12px;font-size:12px;line-height:1.5;border-top:1px solid #3a3f4b;">${detailBlocks}</div></details></td></tr>`
       : "") +
