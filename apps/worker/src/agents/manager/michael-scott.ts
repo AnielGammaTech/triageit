@@ -197,22 +197,18 @@ export async function runTriage(
       let slaFixByDate: string | null = null;
       let slaRespondByDate: string | null = null;
       let slaTimerText: string | null = null;
+      let slaName: string | null = null;
+      let slaOnHold = false;
+      let slaHoldHours: number | null = null;
+      let slaTimeLeftHours: number | null = null;
+      let slaPercentUsed: number | null = null;
+      let slaResponseDate: string | null = null;
+      let followUpDate: string | null = null;
 
       try {
         const ticketWithSla = await haloEarly.getTicketWithSLA(ticket.halo_id);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const raw = ticketWithSla as any;
-
-        console.log(`[MICHAEL] SLA raw fields for #${ticket.halo_id}:`, JSON.stringify({
-          fixtargetmet: raw.fixtargetmet,
-          responsetargetmet: raw.responsetargetmet,
-          fixbydate: raw.fixbydate,
-          respondbydate: raw.respondbydate,
-          sla_timer_text: raw.sla_timer_text,
-          sla_id: raw.sla_id,
-          sla: raw.sla,
-          sladetails: raw.sladetails,
-        }));
 
         const slaSource = raw.sla ?? raw.sladetails ?? raw;
         slaFixTargetMet = slaSource.fixtargetmet;
@@ -220,11 +216,31 @@ export async function runTriage(
         slaFixByDate = slaSource.fixbydate ?? raw.fixbydate ?? null;
         slaRespondByDate = slaSource.respondbydate ?? raw.respondbydate ?? null;
         slaTimerText = slaSource.sla_timer_text ?? raw.sla_timer_text ?? null;
+
+        // Full timer state — the ticket object carries everything the Halo
+        // SLA sidebar shows (verified live on #40853 2026-07-08)
+        slaName = [raw.sla_name, raw.priority?.name].filter(Boolean).join(" — ") || null;
+        slaOnHold = raw.onhold === true;
+        slaHoldHours = typeof raw.slaholdtime === "number" ? raw.slaholdtime : null;
+        slaTimeLeftHours =
+          typeof raw.fixtimeleft === "number" ? raw.fixtimeleft
+          : typeof raw.slatimeleft === "number" ? raw.slatimeleft
+          : null;
+        slaPercentUsed = typeof raw.slapercused === "number" ? raw.slapercused : null;
+        slaResponseDate = raw.responsedate ?? null;
+        // Halo uses 1900-01-01 as its "not set" sentinel
+        followUpDate =
+          raw.followupdate && !String(raw.followupdate).startsWith("1900-")
+            ? raw.followupdate
+            : null;
+
         // targetmet=false alone can mean "not reached yet" on a healthy open
-        // ticket — only a by-date in the past makes it a real breach
+        // ticket — only a by-date in the past makes it a real breach, and an
+        // ON-HOLD timer isn't burning at all (targets shift when it resumes)
         slaBreached =
-          isSlaTargetBreached(slaFixTargetMet, slaFixByDate) ||
-          isSlaTargetBreached(slaResponseTargetMet, slaRespondByDate);
+          !slaOnHold &&
+          (isSlaTargetBreached(slaFixTargetMet, slaFixByDate) ||
+            isSlaTargetBreached(slaResponseTargetMet, slaRespondByDate));
       } catch (err) {
         console.warn(`[MICHAEL] Could not fetch SLA info for #${ticket.halo_id}:`, err);
       }
@@ -241,6 +257,13 @@ export async function runTriage(
         slaFixByDate,
         slaRespondByDate,
         slaTimerText,
+        slaName,
+        slaOnHold,
+        slaHoldHours,
+        slaTimeLeftHours,
+        slaPercentUsed,
+        slaResponseDate,
+        followUpDate,
       };
 
       if (slaBreached) {
@@ -887,8 +910,17 @@ async function synthesizeFindings(
     context.assignedTechName ? `**Assigned Tech:** ${context.assignedTechName}` : "",
     "",
     "## Workflow / SLA State (REAL — from Halo, do not guess)",
+    context.slaName ? `**SLA plan:** ${context.slaName}` : "",
     `**Resolution due (resolution_time / fix-by):** ${context.slaFixByDate ?? "NOT SET"}`,
     `**Response due:** ${context.slaRespondByDate ?? "NOT SET"}`,
+    context.slaResponseDate ? `**First response sent:** ${context.slaResponseDate}` : "",
+    context.slaOnHold
+      ? `**⏸ SLA TIMER IS ON HOLD**${context.slaHoldHours != null ? ` (held ${context.slaHoldHours.toFixed(1)}h so far)` : ""} — targets are paused, do NOT treat the fix-by date as burning. Note in workflow_reminder ONLY if hold looks wrong for the current status.`
+      : "",
+    context.slaTimeLeftHours != null && !context.slaOnHold
+      ? `**Time left on resolution timer:** ${context.slaTimeLeftHours.toFixed(1)}h${context.slaPercentUsed != null ? ` (${context.slaPercentUsed.toFixed(0)}% of SLA used)` : ""}`
+      : "",
+    context.followUpDate ? `**Follow-up date set:** ${context.followUpDate} — a follow-up commitment exists; factor it into the plan instead of inventing a new deadline.` : "",
     context.slaTimerText ? `**SLA timer:** ${context.slaTimerText}` : "",
     `**SLA breached:** ${context.slaBreached ? "YES" : "no"}`,
     ...(context.slaBreached

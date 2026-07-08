@@ -92,6 +92,8 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   // actually in the past. targetmet=false alone can mean "not reached yet"
   // on a healthy open ticket. Check both top-level and nested SLA data.
   const breachers = allOpenTickets.filter((t) => {
+    // An on-hold SLA timer isn't burning — targets shift when it resumes
+    if ((t as { onhold?: boolean }).onhold === true) return false;
     const slaSource = t.sla ?? t.sladetails ?? t;
     const fixByDate = slaSource.fixbydate ?? t.fixbydate ?? null;
     const respondByDate = slaSource.respondbydate ?? t.respondbydate ?? null;
