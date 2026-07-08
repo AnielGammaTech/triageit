@@ -386,25 +386,70 @@ function buildCoachingNote(
   _maxResponseGapHours: number,
   ticketAgeHours: number,
 ): string {
-  const ratingColor = feedback.rating === "great" ? "#4ade80" : feedback.rating === "good" ? "#60a5fa" : feedback.rating === "needs_improvement" ? "#fbbf24" : "#f87171";
+  const isBad = feedback.rating === "poor" || feedback.rating === "needs_improvement";
   const ratingEmoji = feedback.rating === "great" ? "🌟" : feedback.rating === "good" ? "👍" : feedback.rating === "needs_improvement" ? "📋" : "⚠️";
+  // Header gradient tracks the verdict — it was always green, so a POOR
+  // review looked like praise at a glance
+  const headerGradient =
+    feedback.rating === "great" ? "linear-gradient(135deg,#059669,#10b981)"
+    : feedback.rating === "good" ? "linear-gradient(135deg,#1d4ed8,#3b82f6)"
+    : feedback.rating === "needs_improvement" ? "linear-gradient(135deg,#b45309,#f59e0b)"
+    : "linear-gradient(135deg,#991b1b,#dc2626)";
   const commScoreBar = "█".repeat(feedback.communication_score) + "░".repeat(5 - feedback.communication_score);
 
   const suggestionsHtml = feedback.suggestions.length > 0
     ? `<ol style="margin:4px 0;padding-left:20px;">${feedback.suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("")}</ol>`
     : "No specific suggestions.";
 
+  // Single header band carries rating + comm score + response time — the
+  // three dedicated rows they used to occupy are gone
+  const header =
+    `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">` +
+    `${ratingEmoji} Tech Review — <span style="letter-spacing:0.03em;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</span>` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;"><span style="font-family:monospace;">${commScoreBar}</span> ${feedback.communication_score}/5 · ${feedback.response_time_assessment} · ${ticketAgeHours.toFixed(1)}h</span>` +
+    `</td></tr>`;
+
+  const strengthsRow = feedback.strengths
+    ? `<div style="margin-bottom:7px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">STRENGTHS</span><br/><span style="color:#bbf7d0;">${feedback.strengths}</span></div>`
+    : "";
+  const improveBlock = feedback.improvement_areas
+    ? `<div style="margin-bottom:7px;"><span style="color:#fbbf24;font-weight:600;font-size:11px;">IMPROVE</span><br/><span style="color:#fde68a;">${feedback.improvement_areas}</span></div>`
+    : "";
+  const suggestionsBlock = `<div style="margin-bottom:7px;"><span style="color:#60a5fa;font-weight:600;font-size:11px;">SUGGESTIONS</span><br/><span style="color:#bfdbfe;">${suggestionsHtml}</span></div>`;
+  const summaryBlock = `<div><span style="color:#94a3b8;font-weight:600;font-size:11px;">SUMMARY</span><br/><span style="color:#e2e8f0;">${feedback.summary}</span></div>`;
+
+  let body: string;
+  if (isBad) {
+    // Bad review: the coaching (Improve + Suggestions) stays visible — that
+    // IS the note. Strengths + full summary collapse.
+    const visible =
+      (feedback.improvement_areas ? `<tr style="background:#332b1a;"><td style="padding:7px 12px;border-bottom:1px solid #3a3f4b;font-size:12.5px;color:#fde68a;line-height:1.5;"><span style="color:#fbbf24;font-weight:700;font-size:11px;">IMPROVE — </span>${feedback.improvement_areas}</td></tr>` : "") +
+      `<tr style="background:#1a2332;"><td style="padding:7px 12px;border-bottom:1px solid #3a3f4b;font-size:12.5px;color:#bfdbfe;line-height:1.5;"><span style="color:#60a5fa;font-weight:700;font-size:11px;">DO THIS — </span>${suggestionsHtml}</td></tr>`;
+    const collapsed = [strengthsRow, summaryBlock].filter(Boolean).join("");
+    body =
+      visible +
+      (collapsed
+        ? `<tr style="background:#1E2028;"><td style="padding:0;border-bottom:1px solid #3a3f4b;"><details style="margin:0;"><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ Full review</summary><div style="padding:8px 12px;font-size:12px;line-height:1.5;border-top:1px solid #3a3f4b;">${collapsed}</div></details></td></tr>`
+        : "");
+  } else {
+    // Good/great: one-line verdict visible, everything else collapsed —
+    // a passing grade shouldn't take half the ticket
+    const shortSummary = feedback.summary.length > 180
+      ? `${feedback.summary.slice(0, 180).replace(/\s+\S*$/, "")}…`
+      : feedback.summary;
+    const collapsed = [strengthsRow, improveBlock, suggestionsBlock, summaryBlock].filter(Boolean).join("");
+    body =
+      `<tr style="background:#252830;"><td style="padding:7px 12px;border-bottom:1px solid #3a3f4b;font-size:12.5px;color:#cbd5e1;line-height:1.5;">${shortSummary}</td></tr>` +
+      (collapsed
+        ? `<tr style="background:#1E2028;"><td style="padding:0;border-bottom:1px solid #3a3f4b;"><details style="margin:0;"><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ Full review — strengths, improvements &amp; suggestions</summary><div style="padding:8px 12px;font-size:12px;line-height:1.5;border-top:1px solid #3a3f4b;">${collapsed}</div></details></td></tr>`
+        : "");
+  }
+
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
-    `<tr><td colspan="2" style="padding:10px 12px;background:linear-gradient(135deg,#059669,#10b981);color:white;font-size:14px;font-weight:700;">${ratingEmoji} Tech Performance Review — TriageIt AI</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Rating</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:${ratingColor};font-weight:700;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</td></tr>` +
-    `<tr style="background:#1E2028;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Communication</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-family:monospace;">${commScoreBar} ${feedback.communication_score}/5</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Response Time</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;">${feedback.response_time_assessment} · ticket age: ${ticketAgeHours.toFixed(1)}h</td></tr>` +
-    (feedback.strengths ? `<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#4ade80;">Strengths</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bbf7d0;">${feedback.strengths}</td></tr>` : "") +
-    (feedback.improvement_areas ? `<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fbbf24;">Improve</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#fde68a;">${feedback.improvement_areas}</td></tr>` : "") +
-    `<tr style="background:#1a2332;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#60a5fa;">Suggestions</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#bfdbfe;">${suggestionsHtml}</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:8px 12px;font-weight:600;width:140px;border-bottom:1px solid #3a3f4b;font-size:13px;color:#94a3b8;">Summary</td><td style="padding:8px 12px;border-bottom:1px solid #3a3f4b;font-size:14px;color:#e2e8f0;font-weight:500;">${feedback.summary}</td></tr>` +
-    `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI · Employee Feedback · Private Note</td></tr>` +
+    header +
+    body +
+    `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">TriageIt AI · Employee Feedback · Private Note · rating color = verdict</td></tr>` +
     `</table>`
   );
 }
