@@ -39,6 +39,8 @@ interface ListenerState {
   readonly halo: HaloClient;
   readonly sessions: Map<number, ActiveSession>;
   readonly answering: Set<number>;
+  /** Participants mid-startSession — reserved synchronously to stop Upsert races */
+  readonly starting: Set<number>;
 }
 
 export async function startVoiceListener(): Promise<void> {
@@ -78,6 +80,7 @@ export async function startVoiceListener(): Promise<void> {
     halo: new HaloClient(haloConfig),
     sessions: new Map(),
     answering: new Set(),
+    starting: new Set(),
   };
 
   state.cc.connectEvents((event) => {
@@ -121,7 +124,19 @@ async function handleParticipantUpsert(state: ListenerState, participantId: numb
   // participants). Once status flips to Connected a second Upsert event
   // arrives and the session starts.
   if (participant.status === "Connected") {
-    await startSession(state, participantId, participant.party_caller_id ?? "unknown");
+    // 3CX fires an Upsert for EVERY participant field change — one real call
+    // produced five of them, and each raced past the sessions.has() check
+    // (the session lands in the map only after startSession's awaits) and
+    // started ANOTHER greeting: five interleaved playback streams = the
+    // garbled, repeating, cutting-in-and-out audio on the first live test.
+    // Reserve the id SYNCHRONOUSLY before any await.
+    if (state.starting.has(participantId)) return;
+    state.starting.add(participantId);
+    try {
+      await startSession(state, participantId, participant.party_caller_id ?? "unknown");
+    } finally {
+      state.starting.delete(participantId);
+    }
     return;
   }
 
