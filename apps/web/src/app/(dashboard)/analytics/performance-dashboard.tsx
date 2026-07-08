@@ -220,7 +220,7 @@ export function PerformanceDashboard({
         <StatCard
           label="Needs Review"
           value={teamOverview.totalNeedsReview}
-          subtitle="Flagged by re-triage"
+          subtitle="In needs_review status"
           accent="rose-400"
           href="/tickets?tab=needs_review"
         />
@@ -229,12 +229,12 @@ export function PerformanceDashboard({
           value={teamOverview.totalStale}
           subtitle="No tech activity"
           accent="orange-400"
-          href="/tickets?tab=stale"
+          href="/tickets?filter=stale"
         />
         <StatCard
           label="Avg Response"
           value={formatHours(teamOverview.avgResponseHours)}
-          subtitle="First tech action"
+          subtitle="Creation → latest tech action"
         />
         <StatCard
           label="Customer Wait"
@@ -404,10 +404,11 @@ export function PerformanceDashboard({
           <span className="text-red-400">● Critical (&gt;48h)</span>
         </div>
         <p className="mt-2 text-xs text-zinc-600">
-          Avg Response = time from ticket creation to first tech action.
-          Customer Wait = time from customer reply to tech follow-up.
+          Avg Response = time from ticket creation to the tech&apos;s LATEST action (long-running tickets inflate this — treat it as ownership age, not first-response speed).
+          Customer Wait = customer reply → tech follow-up; if the tech hasn&apos;t replied yet, the wait counts up to now.
           Stale = open tickets with no tech activity for 3+ days.
-          Needs Review = flagged by re-triage (every 3 hours) for critical/warning issues.
+          Needs Review = tickets currently in needs_review status.
+          Metrics cover open tickets plus the last 90 days.
         </p>
       </div>
     </div>

@@ -70,6 +70,8 @@ export {
 
 export { INTEGRATION_DEFINITIONS } from "./constants/integrations.js";
 
+export { isSlaTargetBreached } from "./constants/sla.js";
+
 export {
   WORKFLOW_STATUSES,
   WORKFLOW_OWNER_ROLES,

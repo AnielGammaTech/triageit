@@ -141,6 +141,11 @@ export function startTriageWorker(): Worker<TriageJobData> {
         max: 10,
         duration: 60_000,
       },
+      // Full triages run for minutes (specialists + synthesis + attachments).
+      // The default 30s lock let a Redis blip mark an in-flight triage
+      // stalled — it would re-run and post a duplicate Halo note.
+      lockDuration: 600_000,
+      maxStalledCount: 2,
     },
   );
 

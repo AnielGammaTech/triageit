@@ -56,15 +56,20 @@ export async function scanForResponseAlerts(): Promise<AlertResult> {
 
   const supabase = createSupabaseClient();
 
-  // Find tickets where customer replied but tech hasn't responded
+  // Find tickets where customer replied but tech hasn't responded.
+  // halo_is_open is the source of truth — tickets closed via the 404 path
+  // keep their last open status name, so status-name filters alone
+  // re-alerted on closed tickets every 3-6h forever.
   const { data: tickets } = await supabase
     .from("tickets")
     .select("id, halo_id, summary, client_name, halo_agent, halo_status, last_customer_reply_at, last_tech_action_at, last_response_alert_at, last_escalation_alert_at")
     .not("last_customer_reply_at", "is", null)
+    .eq("halo_is_open", true)
     .not("halo_status", "ilike", "%waiting on customer%")
     .not("halo_status", "ilike", "%closed%")
     .not("halo_status", "ilike", "%resolved%")
     .not("halo_status", "ilike", "%cancelled%")
+    .not("halo_status", "ilike", "%completed%")
     .not("status", "in", '("error","failed_permanent")');
 
   if (!tickets || tickets.length === 0) {

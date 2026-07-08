@@ -103,6 +103,10 @@ export default function TicketsPage() {
           supabase.from("tickets").select(ticketFields),
         )
           .order("created_at", { ascending: false })
+          // Embedded triage_results rows have no default order — without this,
+          // triage_results[0] (rendered as the latest triage) could be the
+          // FIRST-ever triage on retriaged tickets
+          .order("created_at", { referencedTable: "triage_results", ascending: false })
           .range(from, from + BATCH - 1);
         if (error) return { rows, error };
         rows.push(...(data ?? []));
@@ -333,27 +337,46 @@ export default function TicketsPage() {
   const [reviewCount, setReviewCount] = useState<number>(0);
 
   useEffect(() => {
+    // Mirror ReviewList's logic EXACTLY (strict open-only, dedupe to the
+    // LATEST retriage row per ticket, then drop info) — the badge previously
+    // used a lenient closed-check and counted any critical/warning row in the
+    // window, so it disagreed with what the tab actually rendered.
     const supabase = createClient();
+    const strictClosed = (t: { halo_is_open?: boolean | null; halo_status?: string | null } | null | undefined): boolean => {
+      if (!t || t.halo_is_open !== true) return true;
+      const status = (t.halo_status ?? "").toLowerCase();
+      return ["closed", "resolved", "cancelled", "canceled", "completed"].some((m) => status.includes(m));
+    };
     Promise.all([
       fetch("/api/tech-reviews").then((r) => r.json()).then((d) => {
-        const reviews = (d.reviews ?? []) as ReadonlyArray<{ ticket_id: string }>;
-        return new Set(reviews.map((r) => r.ticket_id)).size;
+        const reviews = (d.reviews ?? []) as ReadonlyArray<{ ticket_id: string; tickets?: { halo_is_open?: boolean | null; halo_status?: string | null } }>;
+        const unique = new Set(reviews.filter((r) => !strictClosed(r.tickets)).map((r) => r.ticket_id));
+        return unique.size;
       }).catch(() => 0),
       supabase
         .from("triage_results")
-        .select("ticket_id, tickets!inner(halo_is_open, halo_status)", { count: "exact", head: false })
+        .select("ticket_id, classification, created_at, tickets!inner(halo_is_open, halo_status)")
         .eq("triage_type", "retriage")
         .gte("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString())
-        .or("classification->>subtype.eq.critical,classification->>subtype.eq.warning")
+        .order("created_at", { ascending: false })
+        .limit(200)
         .then(({ data }) => {
-          const openRows = (data ?? []).filter((r: {
-            readonly tickets?: { readonly halo_is_open?: boolean | null; readonly halo_status?: string | null } | ReadonlyArray<{ readonly halo_is_open?: boolean | null; readonly halo_status?: string | null }>;
-          }) => {
+          const seen = new Set<string>();
+          let count = 0;
+          for (const r of (data ?? []) as ReadonlyArray<{
+            ticket_id: string;
+            classification: { subtype?: string } | null;
+            tickets?: { halo_is_open?: boolean | null; halo_status?: string | null } | ReadonlyArray<{ halo_is_open?: boolean | null; halo_status?: string | null }>;
+          }>) {
+            if (seen.has(r.ticket_id)) continue;
+            seen.add(r.ticket_id);
+            const severity = r.classification?.subtype ?? "info";
+            if (severity === "info") continue;
             const ticket = Array.isArray(r.tickets) ? r.tickets[0] : r.tickets;
-            return ticket ? !isClosedByHaloState(ticket) : false;
-          });
-          const unique = new Set(openRows.map((r: { ticket_id: string }) => r.ticket_id));
-          return unique.size;
+            if (strictClosed(ticket)) continue;
+            count++;
+          }
+          return count;
         }),
     ]).then(([techCount, retriageCount]) => {
       setReviewCount(techCount + retriageCount);
@@ -378,7 +401,9 @@ export default function TicketsPage() {
           .select("halo_id, tech_name, review_data, created_at, tickets!inner(id, summary, client_name, halo_id, halo_agent, tickettype_id)")
           .gte("created_at", new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString())
           .order("created_at", { ascending: false })
-          .limit(200);
+          // Filtering to poor/needs_improvement happens AFTER the fetch — a
+          // low cap here silently dropped bad closures inside the 5-day window
+          .limit(1000);
 
         // Filter: poor/needs_improvement only, Gamma Default only, NO alerts, deduplicate by halo_id
         const ALERT_PATTERNS = ["spanning backup", "3cx alert", "phish911", "backupiq", "datto alert", "datto rms", "report domain"];

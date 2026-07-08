@@ -9,6 +9,7 @@ interface TicketRow {
   readonly halo_agent: string | null;
   readonly halo_team: string | null;
   readonly halo_status: string | null;
+  readonly halo_is_open: boolean | null;
   readonly status: string;
   readonly created_at: string;
   readonly updated_at: string;
@@ -34,9 +35,15 @@ const RESOLVED_STATUSES = [
   "resolved remotely", "resolved onsite", "resolved - awaiting confirmation",
 ];
 
-function isResolved(status: string | null): boolean {
-  if (!status) return false;
-  return RESOLVED_STATUSES.includes(status.toLowerCase());
+// halo_is_open is the source of truth (maintained by ticket-sync and used by
+// the tickets page tabs) — status-name matching is only a fallback for legacy
+// rows where it was never set. This keeps analytics counts consistent with
+// the tabs the stat cards link to.
+function isResolved(t: { halo_is_open: boolean | null; halo_status: string | null }): boolean {
+  if (t.halo_is_open === false) return true;
+  if (t.halo_is_open === true) return false;
+  if (!t.halo_status) return false;
+  return RESOLVED_STATUSES.includes(t.halo_status.toLowerCase());
 }
 
 function hoursBetween(d1: string, d2: string): number {
@@ -73,21 +80,54 @@ export interface TeamOverview {
 export default async function AnalyticsPage() {
   const supabase = await createClient();
 
-  // Fetch all tickets with their triage results
-  const { data: tickets } = await supabase
-    .from("tickets")
-    .select("id, halo_id, summary, client_name, halo_agent, halo_team, halo_status, status, created_at, updated_at, last_retriage_at, last_customer_reply_at, last_tech_action_at")
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  // Supabase caps every request at 1000 rows — .limit(2000) was silently
+  // truncated, so all metrics were computed from the newest 1000 rows and the
+  // oldest (most overdue) tickets fell off first. Page in batches instead.
+  const BATCH = 1000;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function fetchAllRows<T>(applyFilters: () => any, maxRows: number): Promise<T[]> {
+    const rows: T[] = [];
+    for (let from = 0; from < maxRows; from += BATCH) {
+      const { data } = await applyFilters()
+        .order("created_at", { ascending: false })
+        .range(from, from + BATCH - 1);
+      rows.push(...((data ?? []) as T[]));
+      if (!data || data.length < BATCH) break;
+    }
+    return rows;
+  }
 
-  const { data: triageResults } = await supabase
-    .from("triage_results")
-    .select("id, ticket_id, urgency_score, recommended_priority, triage_type, classification, internal_notes, processing_time_ms, created_at")
-    .order("created_at", { ascending: false })
-    .limit(5000);
+  const ticketFields =
+    "id, halo_id, summary, client_name, halo_agent, halo_team, halo_status, halo_is_open, status, created_at, updated_at, last_retriage_at, last_customer_reply_at, last_tech_action_at";
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  const allTickets = (tickets ?? []) as ReadonlyArray<TicketRow>;
-  const allTriage = (triageResults ?? []) as ReadonlyArray<TriageRow>;
+  // Gamma Default only (type 31) to match the tickets page tabs: all open
+  // tickets regardless of age + everything from the last 90 days
+  const [openRows, recentRows, triageRows] = await Promise.all([
+    fetchAllRows<TicketRow>(
+      () => supabase.from("tickets").select(ticketFields).eq("tickettype_id", 31).eq("halo_is_open", true),
+      10_000,
+    ),
+    fetchAllRows<TicketRow>(
+      () => supabase.from("tickets").select(ticketFields).eq("tickettype_id", 31).gte("created_at", ninetyDaysAgo),
+      25_000,
+    ),
+    fetchAllRows<TriageRow>(
+      () =>
+        supabase
+          .from("triage_results")
+          .select("id, ticket_id, urgency_score, recommended_priority, triage_type, classification, internal_notes, processing_time_ms, created_at")
+          .gte("created_at", ninetyDaysAgo),
+      25_000,
+    ),
+  ]);
+
+  const byId = new Map<string, TicketRow>();
+  for (const t of [...openRows, ...recentRows]) byId.set(t.id, t);
+  const allTickets: ReadonlyArray<TicketRow> = [...byId.values()].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  const allTriage: ReadonlyArray<TriageRow> = triageRows;
 
   const now = new Date().toISOString();
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -107,8 +147,8 @@ export default async function AnalyticsPage() {
   for (const [name, techTickets] of techMap) {
     if (name === "Unassigned") continue;
 
-    const open = techTickets.filter((t) => !isResolved(t.halo_status));
-    const resolved = techTickets.filter((t) => isResolved(t.halo_status));
+    const open = techTickets.filter((t) => !isResolved(t));
+    const resolved = techTickets.filter((t) => isResolved(t));
     const needsReview = techTickets.filter((t) => t.status === "needs_review");
 
     // Avg response time: time from ticket creation to first tech action
@@ -123,13 +163,20 @@ export default async function AnalyticsPage() {
       ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
       : null;
 
-    // Avg customer wait: time from last customer reply to last tech action
+    // Avg customer wait: last customer reply → tech's next action. If the tech
+    // has NOT acted since the customer replied, the customer is still waiting
+    // — count the wait as "so far" (up to now). Dropping those rows (the old
+    // hours >= 0 filter) excluded exactly the worst cases from the metric.
     const customerWaits: number[] = [];
     for (const t of techTickets) {
-      if (t.last_customer_reply_at && t.last_tech_action_at) {
-        const hours = hoursBetween(t.last_customer_reply_at, t.last_tech_action_at);
-        if (hours >= 0 && hours < 720) customerWaits.push(hours);
-      }
+      if (!t.last_customer_reply_at) continue;
+      const answered = t.last_tech_action_at && t.last_tech_action_at > t.last_customer_reply_at;
+      const hours = answered
+        ? hoursBetween(t.last_customer_reply_at, t.last_tech_action_at!)
+        : !isResolved(t)
+          ? hoursBetween(t.last_customer_reply_at, now)
+          : -1;
+      if (hours >= 0 && hours < 720) customerWaits.push(hours);
     }
     const avgCustomerWait = customerWaits.length > 0
       ? customerWaits.reduce((a, b) => a + b, 0) / customerWaits.length
@@ -172,8 +219,8 @@ export default async function AnalyticsPage() {
   const sortedMetrics = [...techMetrics].sort((a, b) => b.openTickets - a.openTickets);
 
   // Team overview
-  const allOpen = allTickets.filter((t) => !isResolved(t.halo_status));
-  const allResolved = allTickets.filter((t) => isResolved(t.halo_status));
+  const allOpen = allTickets.filter((t) => !isResolved(t));
+  const allResolved = allTickets.filter((t) => isResolved(t));
   const allResponseTimes: number[] = [];
   const allCustomerWaits: number[] = [];
 
@@ -182,8 +229,13 @@ export default async function AnalyticsPage() {
       const h = hoursBetween(t.created_at, t.last_tech_action_at);
       if (h >= 0 && h < 720) allResponseTimes.push(h);
     }
-    if (t.last_customer_reply_at && t.last_tech_action_at) {
-      const h = hoursBetween(t.last_customer_reply_at, t.last_tech_action_at);
+    if (t.last_customer_reply_at) {
+      const answered = t.last_tech_action_at && t.last_tech_action_at > t.last_customer_reply_at;
+      const h = answered
+        ? hoursBetween(t.last_customer_reply_at, t.last_tech_action_at!)
+        : !isResolved(t)
+          ? hoursBetween(t.last_customer_reply_at, now)
+          : -1;
       if (h >= 0 && h < 720) allCustomerWaits.push(h);
     }
   }
