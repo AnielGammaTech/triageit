@@ -32,10 +32,12 @@ export interface VoiceCallHandler {
   onCallEnd(): Promise<void>;
 }
 
-type MenuState = "starting" | "menu" | "recording" | "ended";
+type MenuState = "starting" | "menu" | "ticketEntry" | "recording" | "ended";
 
 const MAX_RECORDING_BYTES = MAX_RECORDING_SECONDS * BYTES_PER_SECOND;
 const RECORD_PROMPT = "Please leave your message after the tone. Hang up when you are done.";
+const TICKET_ENTRY_PROMPT = "Please enter the ticket number, followed by the pound key.";
+const MENU_REPROMPT = "Press 1 to leave a message, or press 2 to check another ticket.";
 
 /**
  * Stage-1 state machine: play greeting + ticket status (interruptible),
@@ -46,6 +48,7 @@ export class DtmfMenuHandler implements VoiceCallHandler {
   private ctx: VoiceCallContext | null = null;
   private state: MenuState = "starting";
   private callerContext: CallerContext | null = null;
+  private ticketDigits = "";
   private recordedFrames: Buffer[] = [];
   private recordedBytes = 0;
   private capTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,8 +78,24 @@ export class DtmfMenuHandler implements VoiceCallHandler {
     if (!this.ctx || this.state === "ended") return;
     // Barge-in contract: any keypress silences whatever is playing
     this.ctx.stopAudio();
-    if (digit === "1" && this.state !== "recording") {
+
+    if (this.state === "ticketEntry") {
+      if (digit === "#") {
+        void this.speakTicketStatus(this.ticketDigits);
+        this.ticketDigits = "";
+      } else if (/\d/.test(digit) && this.ticketDigits.length < 10) {
+        this.ticketDigits += digit;
+      }
+      return;
+    }
+
+    if (this.state === "recording") return;
+    if (digit === "1") {
       void this.startRecording();
+    } else if (digit === "2") {
+      this.state = "ticketEntry";
+      this.ticketDigits = "";
+      void this.speak(TICKET_ENTRY_PROMPT, "ticketEntry");
     }
   }
 
@@ -95,6 +114,71 @@ export class DtmfMenuHandler implements VoiceCallHandler {
     const wasRecording = this.state === "recording";
     this.state = "ended";
     if (wasRecording) await this.finalizeMessage();
+  }
+
+  /** Speak text if we're still in the expected state when TTS returns. */
+  private async speak(text: string, expectedState: MenuState): Promise<void> {
+    if (!this.ctx) return;
+    const speech = await synthesizeSpeechPcm8k(text);
+    if (speech && this.state === expectedState) this.ctx.sendAudio(speech);
+  }
+
+  /**
+   * Ticket lookup by keyed-in number. Details are only read to callers
+   * whose number maps to the ticket's CLIENT — anyone can dial this line
+   * and probe ticket ids, and other customers' tickets are not their
+   * business. Unknown callers get status only if nothing sensitive: we
+   * decline entirely and offer to take a message.
+   */
+  private async speakTicketStatus(digits: string): Promise<void> {
+    if (!this.ctx || this.state !== "ticketEntry") return;
+    this.state = "menu";
+
+    if (!digits) {
+      await this.speak(`I didn't get a ticket number. ${MENU_REPROMPT}`, "menu");
+      return;
+    }
+
+    // POC MODE (VOICE_OPEN_TICKET_LOOKUP=true on Railway): any caller may
+    // look up any ticket number. RE-LOCK before real customers use this
+    // line — delete the env var and lookups scope back to the caller's own
+    // client.
+    const pocOpenLookup = process.env.VOICE_OPEN_TICKET_LOOKUP === "true";
+    const callerClient = this.callerContext?.clientName ?? null;
+    if (!pocOpenLookup && (!this.callerContext?.knownCaller || !callerClient)) {
+      await this.speak(
+        `I can't share ticket details on this line because I don't recognize your number. Press 1 to leave a message and our team will follow up.`,
+        "menu",
+      );
+      return;
+    }
+
+    try {
+      let query = this.deps.supabase
+        .from("tickets")
+        .select("halo_id, summary, halo_status, halo_agent, client_name")
+        .eq("halo_id", Number(digits));
+      if (!pocOpenLookup && callerClient) query = query.eq("client_name", callerClient);
+      const { data: ticket } = await query
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!ticket) {
+        await this.speak(`I couldn't find ticket ${digits.split("").join(" ")} for your company. ${MENU_REPROMPT}`, "menu");
+        return;
+      }
+
+      const summary = String(ticket.summary ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 80);
+      const tech = ticket.halo_agent ? ` It is assigned to ${ticket.halo_agent}.` : "";
+      await this.speak(
+        `Ticket ${digits.split("").join(" ")}, about ${summary}, is currently ${ticket.halo_status ?? "open"}.${tech} ${MENU_REPROMPT}`,
+        "menu",
+      );
+    } catch (error) {
+      console.error("[VOICE] Ticket lookup failed:", error instanceof Error ? error.message : error);
+      await this.speak(`I couldn't look that up right now. ${MENU_REPROMPT}`, "menu");
+    }
   }
 
   private async startRecording(): Promise<void> {

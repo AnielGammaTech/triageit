@@ -97,7 +97,7 @@ export function composeStatusScript(ctx: CallerContext): string {
     // "we couldn't find you" (user request 2026-07-08)
     parts.push("Hello, and thank you for calling Gamma Tech. This is the automated assistant.");
     parts.push("How can we help you today?");
-    parts.push("Press 1 to leave a message for our team, and we'll get right back to you.");
+    parts.push("Press 1 to leave a message for our team, or press 2 to check a ticket by its number.");
     return parts.join(" ");
   }
 
@@ -115,6 +115,6 @@ export function composeStatusScript(ctx: CallerContext): string {
     }
   }
 
-  parts.push("Press 1 to leave a message for your technician, or hang up when done.");
+  parts.push("Press 1 to leave a message for your technician, or press 2 to check a ticket by its number.");
   return parts.join(" ");
 }
