@@ -587,17 +587,25 @@ Respond with ONLY valid JSON:
 // ── Extraction Helpers ─────────────────────────────────────────────────
 
 function extractSipCode(text: string): number | null {
+  // Strip phone numbers first — "(239) 252-8348" matched the bare-parens
+  // pattern and was reported as "SIP Response Code: 239", steering the
+  // whole root-cause analysis wrong
+  const withoutPhones = text.replace(
+    /\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
+    " ",
+  );
+
   // Match SIP response codes like "404", "replied: Not Found (404)", "SIP 503"
   const patterns = [
-    /\((\d{3})\)/,
     /replied:?\s*\w[\w\s]*\((\d{3})\)/i,
     /sip\s*[:/]?\s*(\d{3})/i,
     /response\s*(\d{3})/i,
     /error\s*(\d{3})/i,
+    /\((\d{3})\)/,
   ];
 
   for (const pattern of patterns) {
-    const match = text.match(pattern);
+    const match = withoutPhones.match(pattern);
     if (match) {
       const code = parseInt(match[1], 10);
       // Only return valid SIP response codes (1xx-6xx)
@@ -630,7 +638,10 @@ function extractTrunkName(text: string): string | null {
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match) return match[0];
+    // Return the capture group when the pattern has one — match[0] for
+    // "trunk: Main Office is not registering" returned the whole phrase,
+    // so trunk matching against real trunk names never succeeded
+    if (match) return (match[1] ?? match[0]).trim();
   }
   return null;
 }

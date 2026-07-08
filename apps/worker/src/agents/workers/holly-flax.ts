@@ -3,6 +3,7 @@ import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js
 import { logCacheUsage } from "../cache-metrics.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { extractResponseText } from "../llm-text.js";
 import {
   Pax8Client,
   type Pax8Subscription,
@@ -165,8 +166,9 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     });
     logCacheUsage(`holly:${this.getModel()}`, response.usage);
 
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "{}";
+    // extractResponseText scans ALL blocks — content[0] can be a non-text
+    // block, which silently discarded the whole analysis as "{}"
+    const text = extractResponseText(response) || "{}";
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
