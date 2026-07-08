@@ -357,6 +357,14 @@ export async function generateTechReview(
     `- Gap over 8 business hrs (a full business day), or zero tech engagement → "poor".`,
     `- Cite the exact gap numbers from RESPONSE FACTS in your summary and improvement_areas.`,
     ``,
+    `## WRITE LIKE A MANAGER, NOT A CHATBOT`,
+    `- NO praise sandwiches. If the verdict is a miss, LEAD with the miss. Do not open with what went well.`,
+    `- Ban the filler: "however", "that said", "overall the intent is solid", "shows good judgment", "for a delivery perspective", "keep up the good work". Every sentence carries a fact or an instruction.`,
+    `- strengths: only something genuinely worth repeating. "Responded politely" is not a strength — null it.`,
+    `- improvement_areas: name the failure and its number. "No customer-visible reply for 3.2 business hrs after the Jul 8 message" — not "communication could be more proactive".`,
+    `- suggestions: imperatives the tech does TODAY. "Reply to Lauren before 2 PM with the call outcome" — not "consider establishing a documentation habit".`,
+    `- summary: max 2 sentences, verdict first, numbers in it. Nobody's feelings are your problem; wrong facts are.`,
+    ``,
     `## USE LOGIC — Don't Over-Penalize`,
     `- Asking clarifying questions IS helpful. A tech asking "what's the user's name?" to proceed is a VALID first step.`,
     `- Gathering info before acting is normal — don't flag it as "missing the point."`,
@@ -427,7 +435,7 @@ export async function generateTechReview(
     `  "strengths": "what they did well, or null if nothing",`,
     `  "improvement_areas": "be direct — what they failed at, or null if nothing",`,
     `  "suggestions": ["actionable, specific steps they should take"],`,
-    `  "summary": "2-3 sentences. Name the tech. Focus on response time, customer satisfaction, and whether they're actually helping."`,
+    `  "summary": "MAX 2 sentences. Verdict first, then the number that drove it. Name the tech. No hedging, no praise padding."`,
     `}`,
   ].filter(Boolean).join("\n");
 
