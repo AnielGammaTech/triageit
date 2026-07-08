@@ -22,7 +22,7 @@ export interface VoicemailDeps {
 export interface RecordedMessage {
   readonly callerNumber: string;
   readonly pcm: Buffer;
-  readonly ticket: CallerTicket | null;
+  readonly ticket: Pick<CallerTicket, "id" | "halo_id"> | null;
 }
 
 async function transcribeRecording(pcm: Buffer): Promise<string | null> {

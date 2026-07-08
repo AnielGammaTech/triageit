@@ -49,6 +49,8 @@ export class DtmfMenuHandler implements VoiceCallHandler {
   private state: MenuState = "starting";
   private callerContext: CallerContext | null = null;
   private ticketDigits = "";
+  /** Ticket the caller looked up via option 2 — voicemails in the same call attach to it */
+  private lastLookedUpTicket: { id: string; halo_id: number } | null = null;
   private recordedFrames: Buffer[] = [];
   private recordedBytes = 0;
   private capTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,7 +158,7 @@ export class DtmfMenuHandler implements VoiceCallHandler {
     try {
       let query = this.deps.supabase
         .from("tickets")
-        .select("halo_id, summary, halo_status, halo_agent, client_name")
+        .select("id, halo_id, summary, halo_status, halo_agent, client_name")
         .eq("halo_id", Number(digits));
       if (!pocOpenLookup && callerClient) query = query.eq("client_name", callerClient);
       const { data: ticket } = await query
@@ -169,6 +171,7 @@ export class DtmfMenuHandler implements VoiceCallHandler {
         return;
       }
 
+      this.lastLookedUpTicket = { id: String(ticket.id), halo_id: Number(ticket.halo_id) };
       const summary = String(ticket.summary ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 80);
       const tech = ticket.halo_agent ? ` It is assigned to ${ticket.halo_agent}.` : "";
       await this.speak(
@@ -220,7 +223,10 @@ export class DtmfMenuHandler implements VoiceCallHandler {
     await processVoicemail(this.deps, {
       callerNumber: this.ctx.callerNumber,
       pcm,
-      ticket: this.callerContext?.voicemailTicket ?? null,
+      // Caller-identity match first; else the ticket they just looked up in
+      // THIS call — "check ticket 40867, then leave a message about it" must
+      // land on 40867 even from an unrecognized number
+      ticket: this.callerContext?.voicemailTicket ?? this.lastLookedUpTicket ?? null,
     });
   }
 }
