@@ -274,7 +274,11 @@ Respond with ONLY valid JSON:
           const matched = allUsers.find((u) => {
             const displayName = (u.displayName ?? "").toLowerCase();
             const upn = (u.userPrincipalName ?? "").toLowerCase();
-            return displayName.includes(nameLower) || nameLower.includes(displayName) || upn.includes(nameLower);
+            // Empty displayName made nameLower.includes("") ALWAYS true —
+            // the first no-name service account matched every reporter and
+            // its licenses/MFA/sign-ins were presented as the reporter's
+            if (displayName.length >= 3 && (displayName.includes(nameLower) || nameLower.includes(displayName))) return true;
+            return upn.length >= 3 && upn.includes(nameLower);
           });
           if (matched) {
             user = matched;

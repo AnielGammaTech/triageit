@@ -3,6 +3,7 @@ import { BaseAgent, type AgentResult, type SystemBlocks } from "../base-agent.js
 import { logCacheUsage } from "../cache-metrics.js";
 import type { TriageContext } from "../types.js";
 import { parseLlmJson } from "../parse-json.js";
+import { extractResponseText } from "../llm-text.js";
 import {
   UnifiClient,
   type UnifiSite,
@@ -29,7 +30,10 @@ interface HuduNetworkData {
   readonly networkAssets: ReadonlyArray<{
     readonly name: string;
     readonly type: string;
-    readonly fields: Record<string, unknown>;
+    // Pre-formatted "Label: value" strings. Hudu returns fields as an ARRAY
+    // of {label, value} — treating it as a record rendered "0: [object
+    // Object]" and destroyed all VLAN/IP/gateway detail.
+    readonly fields: ReadonlyArray<string>;
   }>;
   readonly networkArticles: ReadonlyArray<{
     readonly name: string;
@@ -133,8 +137,9 @@ Respond with ONLY valid JSON:
     });
     logCacheUsage(`creed:${this.getModel()}`, response.usage);
 
-    const text =
-      response.content[0].type === "text" ? response.content[0].text : "{}";
+    // extractResponseText scans ALL blocks — content[0] can be a non-text
+    // block, which silently discarded the whole analysis as "{}"
+    const text = extractResponseText(response) || "{}";
     const result = parseLlmJson<Record<string, unknown>>(text);
 
     return {
@@ -329,7 +334,10 @@ Respond with ONLY valid JSON:
         .map((a) => ({
           name: a.name,
           type: (a.asset_type ?? "Unknown") as string,
-          fields: (a.fields ?? {}) as Record<string, unknown>,
+          fields: (a.fields ?? [])
+            .filter((f) => f.value != null && f.value !== "")
+            .slice(0, 5)
+            .map((f) => `${f.label}: ${f.value}`),
         }));
 
       // Filter for network-related articles
@@ -467,11 +475,7 @@ Respond with ONLY valid JSON:
       if (huduData.networkAssets.length > 0) {
         sections.push("### Network Assets");
         for (const asset of huduData.networkAssets) {
-          const fieldStr = Object.entries(asset.fields)
-            .filter(([, v]) => v != null && v !== "")
-            .slice(0, 5)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(" | ");
+          const fieldStr = asset.fields.join(" | ");
           sections.push(`- **${asset.name}** (${asset.type})${fieldStr ? ` — ${fieldStr}` : ""}`);
         }
       }

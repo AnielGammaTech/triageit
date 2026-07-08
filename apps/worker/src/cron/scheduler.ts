@@ -109,6 +109,12 @@ function cronIntervalMs(pattern: string): number {
   if (/^\*\s/.test(pattern)) return 60 * 1000;
   // "0 7 * * *" -> daily
   if (/^\d+\s\d+\s\*\s\*\s\*$/.test(pattern)) return 24 * 60 * 60 * 1000;
+  // "0 8 * * 1" -> weekly (specific day-of-week). Falling through to the
+  // 3-hour default made the startup catch-up treat the weekly report as
+  // 3-hourly — a full weekly Teams report posted on every deploy from
+  // Monday 11 AM onward, while the redundant-run guard could skip the
+  // real Monday run.
+  if (/^\d+\s\d+\s\*\s\*\s[\d,-]+$/.test(pattern)) return 7 * 24 * 60 * 60 * 1000;
   // Default: 3 hours
   return 3 * 60 * 60 * 1000;
 }
