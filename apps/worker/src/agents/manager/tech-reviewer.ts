@@ -3,7 +3,7 @@ import { extractResponseText } from "../llm-text.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
-import type { HaloConfig } from "@triageit/shared";
+import { isInternalStaffName, type HaloConfig } from "@triageit/shared";
 import type { TriageContext, ClassificationResult } from "../types.js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -19,13 +19,36 @@ interface TechFeedback {
   readonly summary: string;
 }
 
+/** One customer message → next customer-visible staff reply. */
+interface ResponseExchange {
+  readonly customerAt: string;
+  readonly repliedAt: string | null;
+  readonly gapBusinessHours: number;
+  readonly withinStandard: boolean;
+}
+
+/** Deterministic response-speed facts — the backbone of Toby's review. */
+export interface ResponseFacts {
+  /** Business hours from ticket creation to first customer-visible staff reply, null if none yet */
+  readonly firstResponseBh: number | null;
+  readonly exchanges: ReadonlyArray<ResponseExchange>;
+  readonly answered: number;
+  readonly unanswered: number;
+  /** Business hours the customer has CURRENTLY been waiting, null if not waiting */
+  readonly currentlyWaitingBh: number | null;
+}
+
 interface ReviewEligibility {
   readonly eligible: boolean;
   readonly ticketAgeHours: number;
   readonly maxResponseGapHours: number;
+  readonly responseFacts: ResponseFacts;
   readonly customerActions: ReadonlyArray<TriageContext["actions"] extends ReadonlyArray<infer T> | undefined ? T : never>;
   readonly techActions: ReadonlyArray<TriageContext["actions"] extends ReadonlyArray<infer T> | undefined ? T : never>;
 }
+
+/** Universal response standard: 1 business hour after a customer reply. */
+const RESPONSE_STANDARD_BH = 1;
 
 // ── Business Hours Utilities ─────────────────────────────────────────
 
@@ -97,55 +120,83 @@ export function checkReviewEligibility(
   const ticketAgeHours = ticketAgeMs / (1000 * 60 * 60);
   const actions = context.actions ?? [];
 
-  // Identify customer vs tech/staff actions by WHO sent them, not by visibility.
-  // A tech replying to a customer sends a PUBLIC (non-internal) action — that's still a tech action.
-  // Customer actions are those sent by the reporting user (userName/userEmail match).
+  // Identify customer vs staff actions by WHO sent them, not by visibility.
+  // A tech replying to a customer sends a PUBLIC (non-internal) action —
+  // still a staff action. The old heuristic treated ANY public action not
+  // from the assigned tech as a customer message, so a dispatcher's or
+  // second tech's public reply inflated the response-gap math the whole
+  // review is graded on.
   const customerName = (context.userName ?? "").toLowerCase().trim();
   const customerEmail = (context.userEmail ?? "").toLowerCase().trim();
-  const assignedTechLower = (context.assignedTechName ?? "").toLowerCase().trim();
+
+  const isStaffSender = (who: string): boolean =>
+    isInternalStaffName(who) ||
+    who.includes("gamma.tech") ||
+    who.includes("gtmail") ||
+    who.includes("triageit") ||
+    who.includes("triggr");
 
   const isCustomerAction = (a: typeof actions[0]): boolean => {
     const who = (a.who ?? "").toLowerCase().trim();
     if (!who) return !a.isInternal; // fallback: public + unknown sender = likely customer
+    if (isStaffSender(who)) return false;
     if (customerName && who.includes(customerName)) return true;
     if (customerEmail && who.includes(customerEmail)) return true;
-    // If the action is public and the sender is NOT the assigned tech and NOT a known staff member,
-    // assume it's from the customer
-    if (!a.isInternal && assignedTechLower && !who.includes(assignedTechLower)) {
-      // Check if it's from some other staff (dispatchers etc.) — they usually post internal notes
-      // Public actions from non-tech people are most likely customer replies
-      return true;
-    }
-    return false;
+    // Public action from someone who is neither known staff nor the reporter:
+    // most likely another person at the customer (CC'd colleague)
+    return !a.isInternal;
   };
 
   const customerActions = actions.filter(isCustomerAction);
   const techActions = actions.filter((a) => !isCustomerAction(a));
 
-  // Find the longest BUSINESS HOURS gap between a customer message and the next
-  // VISIBLE (external) tech response. Internal notes don't count — the customer
-  // only sees public replies.
+  // Customer-visible staff replies — internal notes don't count, the
+  // customer only sees public replies.
   const visibleTechActions = actions.filter((a) => {
-    if (a.isInternal) return false; // must be visible to customer
-    if (isCustomerAction(a)) return false; // must be from tech, not customer
+    if (a.isInternal) return false;
+    if (isCustomerAction(a)) return false;
     return true;
   });
 
-  const maxResponseGapHours = (() => {
-    let maxGap = 0;
-    for (const custAction of customerActions) {
-      if (!custAction.date) continue;
-      const custTime = new Date(custAction.date).getTime();
-      const nextVisible = visibleTechActions
-        .filter((t) => t.date && new Date(t.date).getTime() > custTime)
-        .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
+  // Deterministic response timeline: each customer message paired with the
+  // NEXT customer-visible staff reply, gaps in business hours
+  const exchanges: ResponseExchange[] = [];
+  for (const custAction of customerActions) {
+    if (!custAction.date) continue;
+    const custTime = new Date(custAction.date).getTime();
+    const nextVisible = visibleTechActions
+      .filter((t) => t.date && new Date(t.date).getTime() > custTime)
+      .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
 
-      const endTime = nextVisible?.date ? new Date(nextVisible.date).getTime() : Date.now();
-      const businessGap = calculateBusinessHoursGap(custTime, endTime);
-      maxGap = Math.max(maxGap, businessGap);
-    }
-    return maxGap;
-  })();
+    const endTime = nextVisible?.date ? new Date(nextVisible.date).getTime() : Date.now();
+    const gapBusinessHours = calculateBusinessHoursGap(custTime, endTime);
+    exchanges.push({
+      customerAt: custAction.date,
+      repliedAt: nextVisible?.date ?? null,
+      gapBusinessHours,
+      withinStandard: gapBusinessHours <= RESPONSE_STANDARD_BH,
+    });
+  }
+  exchanges.sort((a, b) => new Date(a.customerAt).getTime() - new Date(b.customerAt).getTime());
+
+  const maxResponseGapHours = exchanges.reduce((m, e) => Math.max(m, e.gapBusinessHours), 0);
+
+  // First response: ticket creation → first customer-visible staff reply
+  const firstVisibleReply = visibleTechActions
+    .filter((t) => t.date)
+    .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
+  const firstResponseBh = firstVisibleReply?.date
+    ? calculateBusinessHoursGap(new Date(ticketCreatedAt).getTime(), new Date(firstVisibleReply.date).getTime())
+    : null;
+
+  const lastUnanswered = [...exchanges].reverse().find((e) => e.repliedAt === null);
+  const responseFacts: ResponseFacts = {
+    firstResponseBh,
+    exchanges,
+    answered: exchanges.filter((e) => e.repliedAt !== null).length,
+    unanswered: exchanges.filter((e) => e.repliedAt === null).length,
+    currentlyWaitingBh: lastUnanswered ? lastUnanswered.gapBusinessHours : null,
+  };
 
   // Check if ticket has an assigned tech or if it's unassigned (dispatch issue)
   const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
@@ -172,9 +223,37 @@ export function checkReviewEligibility(
     eligible,
     ticketAgeHours,
     maxResponseGapHours,
+    responseFacts,
     customerActions,
     techActions,
   };
+}
+
+/** Render the deterministic response timeline for prompt + note. */
+function formatResponseFacts(facts: ResponseFacts): string {
+  const lines: string[] = [];
+  lines.push(
+    facts.firstResponseBh === null
+      ? "First response: NONE — no customer-visible staff reply yet"
+      : `First response: ${facts.firstResponseBh.toFixed(1)} business hrs after creation ${facts.firstResponseBh <= RESPONSE_STANDARD_BH ? "✓ within standard" : `✗ standard is ${RESPONSE_STANDARD_BH}h`}`,
+  );
+  if (facts.exchanges.length > 0) {
+    lines.push(`Customer messages answered: ${facts.answered}/${facts.exchanges.length}${facts.unanswered > 0 ? ` — ${facts.unanswered} UNANSWERED` : ""}`);
+    for (const e of facts.exchanges.slice(-6)) {
+      const when = new Date(e.customerAt).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      lines.push(
+        e.repliedAt
+          ? `- Customer msg ${when} → replied in ${e.gapBusinessHours.toFixed(1)} business hrs ${e.withinStandard ? "✓" : "✗"}`
+          : `- Customer msg ${when} → NO VISIBLE REPLY YET (${e.gapBusinessHours.toFixed(1)} business hrs and counting) ✗`,
+      );
+    }
+  } else {
+    lines.push("No customer messages to answer yet.");
+  }
+  if (facts.currentlyWaitingBh !== null) {
+    lines.push(`⚠ CUSTOMER IS WAITING RIGHT NOW: ${facts.currentlyWaitingBh.toFixed(1)} business hrs since their last message with no visible reply.`);
+  }
+  return lines.join("\n");
 }
 
 // ── Generate & Post Tech Performance Review ──────────────────────────
@@ -200,15 +279,15 @@ export async function generateTechReview(
     ? `assigned to **${assignedTech}**, who is not one of the helpdesk technicians`
     : "**UNASSIGNED** — no technician has been assigned";
 
-  // Identify who is the dispatcher vs the assigned tech
-  // People who responded but aren't the assigned tech are dispatchers/triage
+  // Other STAFF on the ticket (dispatcher, second tech, manager) — the old
+  // filter was "anyone who isn't the assigned tech", which listed the
+  // CUSTOMER under "DISPATCHERS (do NOT review)"
   const dispatcherNames = actions
     .filter((a) => {
       if (!a.who) return false;
-      // Someone who responded but isn't the assigned tech
-      return assignedTech
-        ? !a.who.toLowerCase().includes(assignedTech.toLowerCase())
-        : false;
+      const whoLower = a.who.toLowerCase();
+      if (assignedTech && whoLower.includes(assignedTech.toLowerCase())) return false;
+      return isInternalStaffName(whoLower) || whoLower.includes("gamma.tech") || whoLower.includes("gtmail");
     })
     .map((a) => a.who!)
     .filter((name, i, arr) => arr.indexOf(name) === i);
@@ -220,7 +299,7 @@ export async function generateTechReview(
 
   const feedbackPrompt = isUnassigned
     ? [
-        `You are an honest IT service delivery manager reviewing ticket handling.`,
+        `You are Toby Flenderson, HR/analytics at Gamma Tech Services — honest, data-obsessed, standards-driven.`,
         `This ticket is ${assignmentGapDescription}. The dispatcher (Bryanna) is responsible for assigning tickets to technicians.`,
         ``,
         `## YOUR JOB`,
@@ -263,13 +342,20 @@ export async function generateTechReview(
         `}`,
       ].filter(Boolean).join("\n")
     : [
-    `You are an honest IT service delivery manager reviewing tech performance.`,
+    `You are Toby Flenderson, HR/analytics at Gamma Tech Services — the honest, data-obsessed reviewer of tech performance. You measure everyone against the same standards, you cite exact numbers, and you never soften a miss. You also never invent one: every claim must trace to the RESPONSE FACTS or the conversation history below.`,
     `Your job: evaluate how **${assignedTech ?? "the assigned technician"}** handled this ticket.`,
     ``,
-    `## WHAT MATTERS MOST (in order)`,
-    `1. **RESPONSE TIME** — How quickly did the tech respond? Long gaps = bad customer experience.`,
-    `2. **CUSTOMER FRUSTRATION** — Is the customer frustrated, repeating themselves, or escalating? That's a red flag.`,
-    `3. **HELPFULNESS** — Is the tech actually moving the ticket forward or just going through motions?`,
+    `## THE STANDARDS (what the rating is anchored to)`,
+    `1. **RESPONSE SPEED IS THE BACKBONE.** A customer-visible reply within ${RESPONSE_STANDARD_BH} business hour of every customer message. The RESPONSE FACTS below are pre-computed in business hours — use those numbers verbatim, do not re-derive them.`,
+    `2. **ARE we responding at all?** An unanswered customer message outweighs everything else. A customer waiting RIGHT NOW is the single most important fact in this review.`,
+    `3. **CUSTOMER FRUSTRATION** — repeating themselves, escalating, chasing updates = red flag regardless of averages.`,
+    `4. **HELPFULNESS** — is the tech moving the ticket forward or going through motions?`,
+    ``,
+    `## RATING ANCHORS (start here, adjust only with cause)`,
+    `- Every customer message answered within ${RESPONSE_STANDARD_BH} business hr → start at "great"/"good".`,
+    `- Any gap over 4 business hrs, or an unanswered message → at best "needs_improvement".`,
+    `- Gap over 8 business hrs (a full business day), or zero tech engagement → "poor".`,
+    `- Cite the exact gap numbers from RESPONSE FACTS in your summary and improvement_areas.`,
     ``,
     `## USE LOGIC — Don't Over-Penalize`,
     `- Asking clarifying questions IS helpful. A tech asking "what's the user's name?" to proceed is a VALID first step.`,
@@ -316,6 +402,9 @@ export async function generateTechReview(
     `- Longest response gap: **${maxResponseGapHours.toFixed(1)} business hours** (excludes nights/weekends).`,
     `- ${assignedTechActions.length === 0 ? `⚠ ${assignedTech ?? "The tech"} has taken ZERO actions. The customer is waiting with no engagement.` : ""}`,
     ``,
+    `## RESPONSE FACTS (pre-computed, business hours, customer-VISIBLE replies only)`,
+    formatResponseFacts(eligibility.responseFacts),
+    ``,
     `## Ticket: #${context.haloId} — ${context.summary}`,
     `Type: ${classification.classification.type}/${classification.classification.subtype} | Urgency: ${classification.urgency_score}/5`,
     ``,
@@ -351,8 +440,25 @@ export async function generateTechReview(
   const feedbackText = extractResponseText(feedbackResponse);
   const feedback = parseLlmJson<TechFeedback>(feedbackText);
 
-  // Build the private coaching note
-  const coachingNote = buildCoachingNote(feedback, maxResponseGapHours, ticketAgeHours);
+  // Build the private coaching note — response facts rendered from the
+  // deterministic timeline, not the LLM's restatement of it
+  const facts = eligibility.responseFacts;
+  const factsBits: string[] = [];
+  factsBits.push(
+    facts.firstResponseBh === null
+      ? `1st reply: <strong style="color:#f87171;">none yet</strong>`
+      : `1st reply: <strong style="color:${facts.firstResponseBh <= RESPONSE_STANDARD_BH ? "#4ade80" : "#f87171"};">${facts.firstResponseBh.toFixed(1)}h</strong>`,
+  );
+  if (facts.exchanges.length > 0) {
+    factsBits.push(`answered: <strong style="color:${facts.unanswered === 0 ? "#4ade80" : "#f87171"};">${facts.answered}/${facts.exchanges.length}</strong>`);
+    factsBits.push(`worst gap: <strong style="color:${maxResponseGapHours <= RESPONSE_STANDARD_BH ? "#4ade80" : maxResponseGapHours <= 4 ? "#fbbf24" : "#f87171"};">${maxResponseGapHours.toFixed(1)}h</strong>`);
+  }
+  if (facts.currentlyWaitingBh !== null) {
+    factsBits.push(`<strong style="color:#f87171;">⚠ customer waiting ${facts.currentlyWaitingBh.toFixed(1)}h NOW</strong>`);
+  }
+  const responseFactsLine = `${factsBits.join(" · ")} <span style="color:#64748b;font-size:10px;">(business hrs · standard ${RESPONSE_STANDARD_BH}h)</span>`;
+
+  const coachingNote = buildCoachingNote(feedback, maxResponseGapHours, ticketAgeHours, responseFactsLine);
   await halo.addInternalNote(context.haloId, coachingNote);
 
   // Store in tech_reviews table for the Review tab
@@ -372,10 +478,10 @@ export async function generateTechReview(
 
   await supabase.from("agent_logs").insert({
     ticket_id: context.ticketId,
-    agent_name: "michael_scott",
-    agent_role: "manager",
+    agent_name: "toby_flenderson",
+    agent_role: "analytics",
     status: "thinking",
-    output_summary: `Employee feedback: ${feedback.rating} (${feedback.communication_score}/5 communication). ${feedback.summary}`,
+    output_summary: `Tech review: ${feedback.rating} (${feedback.communication_score}/5 communication). ${feedback.summary}`,
   });
 }
 
@@ -385,6 +491,7 @@ function buildCoachingNote(
   feedback: TechFeedback,
   _maxResponseGapHours: number,
   ticketAgeHours: number,
+  responseFactsLine: string,
 ): string {
   const isBad = feedback.rating === "poor" || feedback.rating === "needs_improvement";
   const ratingEmoji = feedback.rating === "great" ? "🌟" : feedback.rating === "good" ? "👍" : feedback.rating === "needs_improvement" ? "📋" : "⚠️";
@@ -405,9 +512,12 @@ function buildCoachingNote(
   // three dedicated rows they used to occupy are gone
   const header =
     `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">` +
-    `${ratingEmoji} Tech Review — <span style="letter-spacing:0.03em;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</span>` +
+    `${ratingEmoji} Toby's Tech Review — <span style="letter-spacing:0.03em;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</span>` +
     `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;"><span style="font-family:monospace;">${commScoreBar}</span> ${feedback.communication_score}/5 · ${feedback.response_time_assessment} · ${ticketAgeHours.toFixed(1)}h</span>` +
-    `</td></tr>`;
+    `</td></tr>` +
+    // Deterministic response-speed facts — the backbone of the verdict,
+    // always visible regardless of rating
+    `<tr style="background:#1E2028;"><td style="padding:6px 12px;border-bottom:1px solid #3a3f4b;font-size:11.5px;color:#cbd5e1;">${responseFactsLine}</td></tr>`;
 
   const strengthsRow = feedback.strengths
     ? `<div style="margin-bottom:7px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">STRENGTHS</span><br/><span style="color:#bbf7d0;">${feedback.strengths}</span></div>`
@@ -449,7 +559,7 @@ function buildCoachingNote(
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
     header +
     body +
-    `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">TriageIt AI · Employee Feedback · Private Note · rating color = verdict</td></tr>` +
+    `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">Toby Flenderson · TriageIt AI · Employee Feedback · Private Note</td></tr>` +
     `</table>`
   );
 }
