@@ -7,7 +7,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { workerFetch } from "@/lib/api/worker";
 
-const TOBY_CHAT_PROMPT = `You are Toby Flenderson, the HR/analytics agent at Gamma Tech Services LLC (an MSP in Naples, FL).
+// Built per-request (not a module const) so "Today" inside the prompt is the
+// actual request date, not the date the Railway process booted
+const buildTobyChatPrompt = () => `You are Toby Flenderson, the HR/analytics agent at Gamma Tech Services LLC (an MSP in Naples, FL).
 
 You are the owner's brutal truth machine. You see everything — every ticket, every tech's response time, every customer pattern — and you tell it like it is. No sugarcoating. No "they're doing their best." Just data and honest assessment.
 
@@ -119,18 +121,22 @@ export async function POST(request: NextRequest) {
     convId = conv.id;
   }
 
-  // Load conversation history
+  // Load conversation history — newest 50, re-sorted oldest-first. Ascending
+  // + limit kept the FIRST 50 messages and silently dropped the most recent
+  // turns once a conversation grew past 50.
   const { data: history } = await serviceClient
     .from("toby_messages")
     .select("role, content")
     .eq("conversation_id", convId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(50);
 
-  const messages: ChatMessage[] = (history ?? []).map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  const messages: ChatMessage[] = (history ?? [])
+    .reverse()
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
   // Save user message
   await serviceClient.from("toby_messages").insert({
@@ -140,7 +146,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Build system prompt with context
-  let systemPrompt = TOBY_CHAT_PROMPT;
+  let systemPrompt = buildTobyChatPrompt();
 
   // Load Toby's latest analysis data summaries (graceful — don't crash if tables are empty)
   let techProfiles: Array<Record<string, unknown>> = [];
@@ -153,7 +159,9 @@ export async function POST(request: NextRequest) {
       serviceClient.from("tech_profiles").select("tech_name, avg_response_hours, ticket_count, rating_breakdown, strong_categories, weak_categories").order("updated_at", { ascending: false }).limit(10),
       serviceClient.from("customer_insights").select("client_name, ticket_count, top_issue_types, update_request_count").order("updated_at", { ascending: false }).limit(10),
       serviceClient.from("trend_detections").select("trend_type, description, severity, created_at").order("created_at", { ascending: false }).limit(5),
-      serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
+      // Canonical "open" = Gamma Default + halo_is_open, same as the dashboard
+      // Open tab. The old .or() of NOT-ilike conditions matched EVERY ticket.
+      serviceClient.from("tickets").select("id", { count: "exact", head: true }).eq("tickettype_id", 31).eq("halo_is_open", true),
     ]);
     techProfiles = (tp.data ?? []) as Array<Record<string, unknown>>;
     customerInsights = (ci.data ?? []) as Array<Record<string, unknown>>;
@@ -165,7 +173,7 @@ export async function POST(request: NextRequest) {
 
   let dynamicPrompt = "";
   dynamicPrompt += `\n\n## Current Data Snapshot (use tools for deeper dives):\n`;
-  dynamicPrompt += `- Open tickets: ~${openTicketCount ?? 0}\n`;
+  dynamicPrompt += `- Open tickets (exact): ${openTicketCount ?? 0}\n`;
 
   if (techProfiles && techProfiles.length > 0) {
     dynamicPrompt += "\n### Tech Profiles:\n";
@@ -319,9 +327,11 @@ export async function POST(request: NextRequest) {
         const daysBack = (input.days_back as number) ?? 30;
         const since = new Date(Date.now() - daysBack * 86400000).toISOString();
 
-        const [{ data: tickets }, { data: reviews }, { data: profile }] = await Promise.all([
-          serviceClient.from("tickets").select("halo_id, summary, client_name, halo_status, created_at").ilike("halo_agent", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(30),
-          serviceClient.from("tech_reviews").select("halo_id, rating, response_time, summary, improvement_areas, max_gap_hours, created_at").ilike("tech_name", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(20),
+        // count: "exact" on both lists — the rows are capped samples and the
+        // model must never present a cap as the tech's real total
+        const [{ data: tickets, count: ticketTotal }, { data: reviews, count: reviewTotal }, { data: profile }] = await Promise.all([
+          serviceClient.from("tickets").select("halo_id, summary, client_name, halo_status, created_at", { count: "exact" }).ilike("halo_agent", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(30),
+          serviceClient.from("tech_reviews").select("halo_id, rating, response_time, summary, improvement_areas, max_gap_hours, created_at", { count: "exact" }).ilike("tech_name", `%${techName}%`).gte("created_at", since).order("created_at", { ascending: false }).limit(20),
           serviceClient.from("tech_profiles").select("*").ilike("tech_name", `%${techName}%`).limit(1).maybeSingle(),
         ]);
 
@@ -332,18 +342,20 @@ export async function POST(request: NextRequest) {
           result += `Strong: ${profile.strong_categories ?? "none"} | Weak: ${profile.weak_categories ?? "none"}\n\n`;
         }
 
-        result += `**Recent Tickets (${tickets?.length ?? 0}):**\n`;
+        const exactTickets = ticketTotal ?? tickets?.length ?? 0;
+        result += `**Tickets in period (EXACT): ${exactTickets}**${exactTickets > (tickets?.length ?? 0) ? ` — showing the ${tickets?.length} most recent; when quoting counts use ${exactTickets}` : ""}\n`;
         for (const t of tickets ?? []) {
           result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] (${formatDate(t.created_at)})\n`;
         }
 
-        result += `\n**Reviews (${reviews?.length ?? 0}):**\n`;
+        const exactReviews = reviewTotal ?? reviews?.length ?? 0;
+        result += `\n**Reviews in period (EXACT): ${exactReviews}**${exactReviews > (reviews?.length ?? 0) ? ` — showing ${reviews?.length}; the rating breakdown below covers ONLY this sample` : ""}\n`;
         const ratingCounts: Record<string, number> = {};
         for (const r of reviews ?? []) {
           ratingCounts[r.rating] = (ratingCounts[r.rating] ?? 0) + 1;
           result += `- #${r.halo_id}: ${r.rating} (response: ${r.response_time}, gap: ${r.max_gap_hours?.toFixed(1) ?? "?"}h) — ${r.summary ?? ""}\n`;
         }
-        result += `\nRating breakdown: ${JSON.stringify(ratingCounts)}\n`;
+        result += `\nRating breakdown (of the ${reviews?.length ?? 0} shown): ${JSON.stringify(ratingCounts)}\n`;
 
         return result;
       }
@@ -351,8 +363,8 @@ export async function POST(request: NextRequest) {
       case "get_client_analysis": {
         const clientName = input.client_name as string;
 
-        const [{ data: tickets }, { data: insights }] = await Promise.all([
-          serviceClient.from("tickets").select("halo_id, summary, halo_status, halo_agent, created_at").ilike("client_name", `%${clientName}%`).order("created_at", { ascending: false }).limit(30),
+        const [{ data: tickets, count: clientTotal }, { data: insights }] = await Promise.all([
+          serviceClient.from("tickets").select("halo_id, summary, halo_status, halo_agent, created_at", { count: "exact" }).ilike("client_name", `%${clientName}%`).order("created_at", { ascending: false }).limit(30),
           serviceClient.from("customer_insights").select("*").ilike("client_name", `%${clientName}%`).limit(1).maybeSingle(),
         ]);
 
@@ -363,7 +375,8 @@ export async function POST(request: NextRequest) {
           result += `Top issues: ${insights.top_issue_types ?? "?"}\n\n`;
         }
 
-        result += `**Recent Tickets (${tickets?.length ?? 0}):**\n`;
+        const exactClientTotal = clientTotal ?? tickets?.length ?? 0;
+        result += `**Total tickets all-time (EXACT): ${exactClientTotal}**${exactClientTotal > (tickets?.length ?? 0) ? ` — showing the ${tickets?.length} most recent; when quoting counts use ${exactClientTotal}` : ""}\n`;
         for (const t of tickets ?? []) {
           result += `- #${t.halo_id}: ${t.summary} [${t.halo_status ?? "?"}] Tech: ${t.halo_agent ?? "Unassigned"} (${formatDate(t.created_at)})\n`;
         }
@@ -376,16 +389,19 @@ export async function POST(request: NextRequest) {
         const limit = Math.min((input.limit as number) ?? 20, 50);
         const since = new Date(Date.now() - daysBack * 86400000).toISOString();
 
-        let query = serviceClient.from("tickets").select("halo_id, summary, client_name, halo_status, halo_agent, created_at").gte("created_at", since).order("created_at", { ascending: false }).limit(limit);
+        let query = serviceClient.from("tickets").select("halo_id, summary, client_name, halo_status, halo_agent, created_at", { count: "exact" }).gte("created_at", since).order("created_at", { ascending: false }).limit(limit);
 
         if (input.client_name) query = query.ilike("client_name", `%${input.client_name}%`);
         if (input.tech_name) query = query.ilike("halo_agent", `%${input.tech_name}%`);
         if (input.status) query = query.ilike("halo_status", `%${input.status}%`);
         if (input.keyword) query = query.or(`summary.ilike.%${input.keyword}%,details.ilike.%${input.keyword}%`);
 
-        const { data: tickets } = await query;
+        const { data: tickets, count: matchTotal } = await query;
 
-        let result = `Found ${tickets?.length ?? 0} tickets (last ${daysBack} days):\n\n`;
+        // EXACT total, never the capped row count — this tool is advertised
+        // for "how many tickets this week?" questions
+        const exactMatches = matchTotal ?? tickets?.length ?? 0;
+        let result = `${exactMatches} tickets match (last ${daysBack} days). Showing the ${tickets?.length ?? 0} most recent${exactMatches > (tickets?.length ?? 0) ? ` — when quoting counts use ${exactMatches}, not ${tickets?.length}` : ""}:\n\n`;
         for (const t of tickets ?? []) {
           result += `- **#${t.halo_id}**: ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${formatDate(t.created_at)}\n`;
         }
@@ -394,12 +410,16 @@ export async function POST(request: NextRequest) {
 
       case "lookup_ticket": {
         const haloId = input.halo_id as number;
+        // maybeSingle + limit(1): .single() throws on duplicate halo_id rows,
+        // turning an existing ticket into a false "not found"
         const { data: ticket } = await serviceClient
           .from("tickets")
           .select("halo_id, summary, client_name, details, halo_status, halo_agent, created_at, triage_results(internal_notes, classification, urgency_score, recommended_priority, created_at)")
           .eq("halo_id", haloId)
           .order("created_at", { referencedTable: "triage_results", ascending: false })
-          .single();
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
         if (!ticket) return `Ticket #${haloId} not found.`;
 
@@ -423,12 +443,13 @@ export async function POST(request: NextRequest) {
         const daysBack = (input.days_back as number) ?? 7;
         const since = new Date(Date.now() - daysBack * 86400000).toISOString();
 
-        const [{ data: openTickets }, { data: recentTickets }, { data: reviews }] = await Promise.all([
+        const [{ data: openTickets }, { data: recentTickets, count: recentTotal }, { data: reviews, count: reviewTotal }] = await Promise.all([
           // Currently open Gamma Default tickets only
           serviceClient.from("tickets").select("halo_agent, halo_status").eq("tickettype_id", 31).eq("halo_is_open", true),
-          // Tickets created in the period (for volume tracking)
-          serviceClient.from("tickets").select("halo_agent, halo_status, halo_is_open").eq("tickettype_id", 31).gte("created_at", since),
-          serviceClient.from("tech_reviews").select("tech_name, rating, response_time, max_gap_hours").gte("created_at", since),
+          // Tickets created in the period (for volume tracking). count: "exact"
+          // so a Supabase 1000-row cap on a long window is visible, not silent.
+          serviceClient.from("tickets").select("halo_agent, halo_status, halo_is_open", { count: "exact" }).eq("tickettype_id", 31).gte("created_at", since),
+          serviceClient.from("tech_reviews").select("tech_name, rating, response_time, max_gap_hours", { count: "exact" }).gte("created_at", since),
         ]);
 
         // Workload by tech — based on currently open tickets
@@ -455,6 +476,12 @@ export async function POST(request: NextRequest) {
         }
 
         let result = `## Team Overview (last ${daysBack} days)\n\n`;
+        if ((recentTotal ?? 0) > (recentTickets?.length ?? 0)) {
+          result += `⚠ Period has ${recentTotal} tickets but only ${recentTickets?.length} were fetched — per-tech "Tickets" columns are UNDERCOUNTS. Quote ${recentTotal} as the period total.\n\n`;
+        }
+        if ((reviewTotal ?? 0) > (reviews?.length ?? 0)) {
+          result += `⚠ Period has ${reviewTotal} reviews but only ${reviews?.length} were fetched — review columns are UNDERCOUNTS.\n\n`;
+        }
         result += `| Tech | Tickets | Open | Reviews | Ratings |\n|------|---------|------|---------|---------|\n`;
         for (const [tech, w] of Object.entries(workload).sort((a, b) => b[1].total - a[1].total)) {
           const rs = reviewStats[tech];
@@ -531,6 +558,7 @@ export async function POST(request: NextRequest) {
         let model = "";
 
         // Tool use loop
+        let finished = false;
         for (let iteration = 0; iteration < 10; iteration++) {
           const response = await anthropic.messages.create({
             model: "claude-sonnet-5",
@@ -620,7 +648,22 @@ export async function POST(request: NextRequest) {
             },
           });
 
+          finished = true;
           break;
+        }
+
+        // All 10 iterations ended in tool calls — without this the stream
+        // closed with no `done` event and the turn vanished from history
+        if (!finished) {
+          const fallback = "I hit my tool-call limit before finishing this analysis. Ask me to continue and I'll pick up where I left off.";
+          await serviceClient.from("toby_messages").insert({
+            conversation_id: convId,
+            role: "assistant",
+            content: fallback,
+            metadata: { model, input_tokens: totalInputTokens, output_tokens: totalOutputTokens, truncated: true },
+          });
+          send({ text: fallback });
+          send({ done: true, conversation_id: convId, model, usage: { input_tokens: totalInputTokens, output_tokens: totalOutputTokens } });
         }
       } catch (err) {
         send({ error: (err as Error).message });

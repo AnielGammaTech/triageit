@@ -12,7 +12,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { workerFetch } from "@/lib/api/worker";
 
-const MICHAEL_CHAT_PROMPT = `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage at Gamma Tech Services LLC.
+// Built per-request (not a module const) so "today's date" inside the prompt
+// is the actual request date, not the date the Railway process booted
+const buildMichaelChatPrompt = () => `You are Michael Scott, the Regional Manager of Dunder Mifflin IT Triage at Gamma Tech Services LLC.
 
 You are the admin/owner's AI operations manager — a supercomputer that can pull data from every system, cross-reference it, spot patterns, and figure things out. You don't just read data — you investigate, reason, and connect the dots.
 
@@ -174,18 +176,22 @@ export async function POST(request: NextRequest) {
     convId = conv.id;
   }
 
-  // Load conversation history
+  // Load conversation history — newest 50, re-sorted oldest-first. Ascending
+  // + limit kept the FIRST 50 messages and silently dropped the most recent
+  // turns once a conversation grew past 50.
   const { data: history } = await serviceClient
     .from("michael_messages")
     .select("role, content")
     .eq("conversation_id", convId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(50);
 
-  const messages: ChatMessage[] = (history ?? []).map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  const messages: ChatMessage[] = (history ?? [])
+    .reverse()
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
   // Save user message
   await serviceClient.from("michael_messages").insert({
@@ -195,7 +201,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Build system context with full system knowledge
-  let systemPrompt = MICHAEL_CHAT_PROMPT;
+  let systemPrompt = buildMichaelChatPrompt();
 
   // ── Load only lightweight context into system prompt ──
   // Heavy data (tech profiles, customer insights, reviews, trends) are available
@@ -209,7 +215,11 @@ export async function POST(request: NextRequest) {
     serviceClient.from("michael_learned_skills").select("title, content").eq("is_active", true),
     serviceClient.from("agent_skills").select("title, content").eq("agent_name", "michael_scott").eq("is_active", true),
     serviceClient.from("integrations").select("service, is_active, health_status, last_health_check, config").eq("is_active", true),
-    serviceClient.from("tickets").select("id", { count: "exact", head: true }).or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%"),
+    // Canonical "open" = Gamma Default + halo_is_open, same as the dashboard
+    // Open tab. The old .or() of NOT-ilike conditions matched EVERY ticket
+    // (a "Closed" row still passes not.ilike.%resolved%), so this count was
+    // really the size of the whole tickets table.
+    serviceClient.from("tickets").select("id", { count: "exact", head: true }).eq("tickettype_id", 31).eq("halo_is_open", true),
   ]);
 
   // Learned skills (these are small and directly relevant)
@@ -490,12 +500,16 @@ export async function POST(request: NextRequest) {
 
       case "lookup_ticket": {
         const haloId = input.halo_id as number;
+        // maybeSingle + limit(1): .single() throws on duplicate halo_id rows,
+        // turning an existing ticket into a false "not found"
         const { data: ticket } = await serviceClient
           .from("tickets")
           .select("halo_id, summary, client_name, details, halo_status, halo_agent, created_at, triage_results(internal_notes, classification, urgency_score, recommended_priority, findings, created_at)")
           .eq("halo_id", haloId)
           .order("created_at", { referencedTable: "triage_results", ascending: false })
-          .single();
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
         if (!ticket) return `Ticket #${haloId} not found in local database. Use the fetch_from_halo tool to pull it directly from Halo PSA and import it.`;
 
@@ -753,7 +767,7 @@ export async function POST(request: NextRequest) {
         const total = totalMatches ?? tickets.length;
         let result = `${total} tickets match (${filters.join(", ")}, last ${daysBack} days). Showing the ${tickets.length} most recent${total > tickets.length ? ` — when quoting counts use ${total}, not ${tickets.length}` : ""}:\n\n`;
         for (const t of tickets) {
-          result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString()}\n`;
+          result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}\n`;
         }
         return result;
       }
@@ -810,8 +824,8 @@ export async function POST(request: NextRequest) {
           // EXACT counts — the ticket list below is only a 25-row sample
           result += `**Current tickets (EXACT):** ${openCount ?? openStatuses.length} open / ${totalTicketCount ?? tickets.length} all-time. Sample of recent ones:\n`;
           for (const t of openStatuses.slice(0, 15)) {
-            const lastCustomer = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).toLocaleDateString() : "never";
-            const lastTech = t.last_tech_action_at ? new Date(t.last_tech_action_at).toLocaleDateString() : "never";
+            const lastCustomer = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "never";
+            const lastTech = t.last_tech_action_at ? new Date(t.last_tech_action_at).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "never";
             result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status} | Last customer: ${lastCustomer} | Last tech: ${lastTech}\n`;
           }
           result += "\n";
@@ -831,13 +845,21 @@ export async function POST(request: NextRequest) {
       case "get_client_history": {
         const clientName = input.client_name as string;
 
-        // All tickets for this client
-        const { data: tickets } = await serviceClient
-          .from("tickets")
-          .select("halo_id, summary, halo_status, halo_agent, created_at, original_priority, triage_results(classification, urgency_score)")
-          .ilike("client_name", `%${clientName}%`)
-          .order("created_at", { ascending: false })
-          .limit(30);
+        // Recent tickets for this client (30-row sample) + EXACT totals so the
+        // sample size is never quoted as the client's all-time count
+        const [{ data: tickets, count: totalCount }, { count: openCount }] = await Promise.all([
+          serviceClient
+            .from("tickets")
+            .select("halo_id, summary, halo_status, halo_agent, created_at, original_priority, triage_results(classification, urgency_score)", { count: "exact" })
+            .ilike("client_name", `%${clientName}%`)
+            .order("created_at", { ascending: false })
+            .limit(30),
+          serviceClient
+            .from("tickets")
+            .select("id", { count: "exact", head: true })
+            .ilike("client_name", `%${clientName}%`)
+            .eq("halo_is_open", true),
+        ]);
 
         // Customer insights from Toby
         const { data: insight } = await serviceClient
@@ -874,14 +896,15 @@ export async function POST(request: NextRequest) {
             if (cls?.type) byType[cls.type] = (byType[cls.type] ?? 0) + 1;
           }
 
-          result += `**Total tickets:** ${tickets.length} (${open.length} open)\n`;
-          result += `**Techs:** ${Object.entries(byTech).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
+          const clientTotal = totalCount ?? tickets.length;
+          result += `**Total tickets (EXACT):** ${clientTotal} all-time, ${openCount ?? open.length} open${clientTotal > tickets.length ? ` — breakdowns below are from the ${tickets.length} most recent only` : ""}\n`;
+          result += `**Techs (recent ${tickets.length}):** ${Object.entries(byTech).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
           if (Object.keys(byType).length > 0) {
-            result += `**Issue types:** ${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
+            result += `**Issue types (recent ${tickets.length}):** ${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([n, c]) => `${n}: ${c}`).join(", ")}\n`;
           }
           result += "\n**Recent tickets:**\n";
           for (const t of tickets.slice(0, 15)) {
-            result += `- **#${t.halo_id}** ${t.summary} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString()}\n`;
+            result += `- **#${t.halo_id}** ${t.summary} | ${t.halo_status ?? "?"} | ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}\n`;
           }
         } else {
           result += `No tickets found for client matching "${clientName}"`;
@@ -1017,7 +1040,7 @@ export async function POST(request: NextRequest) {
 
           let result = `Found ${results.length} tickets in Halo (total: ${searchData.record_count ?? results.length}):\n\n`;
           for (const t of results) {
-            result += `- **#${t.id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.statusname ?? t.status_name ?? "?"} | Agent: ${t.agent_name ?? "Unassigned"} | ${t.datecreated ? new Date(t.datecreated as string).toLocaleDateString() : "?"}\n`;
+            result += `- **#${t.id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.statusname ?? t.status_name ?? "?"} | Agent: ${t.agent_name ?? "Unassigned"} | ${t.datecreated ? new Date(t.datecreated as string).toLocaleDateString("en-US", { timeZone: "America/New_York" }) : "?"}\n`;
           }
           return result;
         } catch (err) {
@@ -1030,10 +1053,15 @@ export async function POST(request: NextRequest) {
         let result = "";
 
         if (sections.includes("tech_workload")) {
+          // Same canonical open filter as the dashboard Open tab. The old
+          // .or() of NOT-ilike conditions matched every ticket in the table,
+          // so "Tech Workload" was computed over closed tickets and capped at
+          // Supabase's 1000-row default.
           const { data: tickets } = await serviceClient
             .from("tickets")
             .select("halo_status, halo_agent, client_name")
-            .or("halo_status.is.null,halo_status.not.ilike.%closed%,halo_status.not.ilike.%resolved%,halo_status.not.ilike.%cancelled%");
+            .eq("tickettype_id", 31)
+            .eq("halo_is_open", true);
 
           if (tickets && tickets.length > 0) {
             const byTech: Record<string, number> = {};
