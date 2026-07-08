@@ -115,6 +115,18 @@ export async function runCallAnalysis(): Promise<CallAnalysisResult> {
   return { checked: recordings.length, matched, notesPosted };
 }
 
+/**
+ * Do two person names share a real name token? Handles "Carlson, Jarid" vs
+ * "Jarid Carlson". Tokens under 3 chars (initials) don't count. An
+ * UNASSIGNED ticket never matches — we can't verify the tech belongs to it.
+ */
+function namesOverlap(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const tokens = (s: string) => s.toLowerCase().split(/[^a-z]+/).filter((t) => t.length >= 3);
+  const setA = new Set(tokens(a));
+  return tokens(b).some((t) => setA.has(t));
+}
+
 /** Pick the external (non-extension) side of the call. */
 function externalNumberOf(rec: ThreeCxRecording): { number: string; direction: "inbound" | "outbound" } | null {
   const from = (rec.FromCallerNumber ?? "").replace(/\D/g, "");
@@ -189,6 +201,22 @@ async function processRecording(
         { onConflict: "recording_id" },
       );
     return { matched: false, posted: false };
+  }
+
+  // The tech ON THE CALL must be the tech ON THE TICKET. A different tech's
+  // (or the dispatcher's) call with this customer may be about anything —
+  // it must never land as documentation on someone else's ticket.
+  // 3CX display names come as "Carlson, Jarid" or "Matthew Lawyer"; Halo has
+  // "Jarid Carlson" — compare name tokens instead of exact strings.
+  if (!namesOverlap(techName, ticket.halo_agent)) {
+    await supabase
+      .from("call_analyses")
+      .upsert(
+        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: external.number, direction, tech_name: techName, matched_by: `${matchedBy}_tech_mismatch`, note_posted: false },
+        { onConflict: "recording_id" },
+      );
+    console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: number matches #${ticket.halo_id} but caller "${techName}" is not the assigned tech "${ticket.halo_agent ?? "unassigned"}" — skipping`);
+    return { matched: true, posted: false };
   }
 
   // Analyze the transcript against the ticket
