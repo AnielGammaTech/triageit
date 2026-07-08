@@ -24,6 +24,9 @@ interface UnifiData {
   readonly site: UnifiSite | null;
   readonly devices: ReadonlyArray<UnifiDevice>;
   readonly consoleOfflineSince?: string | null;
+  // true = the UniFi API call itself failed — site: null does NOT mean the
+  // client has no UniFi equipment
+  readonly lookupFailed?: boolean;
 }
 
 interface HuduNetworkData {
@@ -125,7 +128,9 @@ Respond with ONLY valid JSON:
       context.ticketId,
       unifiData.site
         ? `Found UniFi site "${unifiData.site.siteName}" (${unifiData.devices.length} devices). ${huduData.networkAssets.length > 0 ? `Cross-referenced with ${huduData.networkAssets.length} Hudu network assets.` : "No Hudu network assets found."}`
-        : `Could not find client "${context.clientName}" in UniFi. ${huduData.networkAssets.length > 0 ? `Found ${huduData.networkAssets.length} network assets in Hudu.` : "Analyzing from ticket context only."}`,
+        : unifiData.lookupFailed
+          ? `⚠ UniFi lookup FAILED — live network data unavailable. ${huduData.networkAssets.length > 0 ? `Found ${huduData.networkAssets.length} network assets in Hudu.` : "Analyzing from ticket context only."}`
+          : `Could not find client "${context.clientName}" in UniFi. ${huduData.networkAssets.length > 0 ? `Found ${huduData.networkAssets.length} network assets in Hudu.` : "Analyzing from ticket context only."}`,
     );
 
     // 4. Send to AI
@@ -184,8 +189,9 @@ Respond with ONLY valid JSON:
 
       return { site, devices, consoleOfflineSince };
     } catch (err) {
+      // Lookup failed ≠ no equipment — Creed must say the lookup FAILED
       console.error("[CREED] Failed to fetch UniFi data:", err);
-      return empty;
+      return { ...empty, lookupFailed: true };
     }
   }
 
@@ -290,8 +296,10 @@ Respond with ONLY valid JSON:
       console.log(`[CREED] No UniFi site match for "${clientName}" across ${sites.length} sites`);
       return null;
     } catch (err) {
+      // Rethrow so fetchUnifiData flags lookupFailed — returning null here
+      // would be reported as "client not found in UniFi"
       console.error("[CREED] Site search failed:", err);
-      return null;
+      throw err;
     }
   }
 
@@ -461,6 +469,11 @@ Respond with ONLY valid JSON:
           );
         }
       }
+    } else if (unifiData.lookupFailed) {
+      sections.push(
+        "",
+        "**⚠ UniFi lookup FAILED** — live network data unavailable (API error or expired key). State this in your findings; do NOT conclude the client has no UniFi equipment or that the network is healthy. Analyze from ticket context and Hudu documentation only.",
+      );
     } else {
       sections.push(
         "",

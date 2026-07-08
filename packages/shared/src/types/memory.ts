@@ -58,6 +58,11 @@ export interface MemoryMatch {
   readonly tags: ReadonlyArray<string>;
   readonly confidence: number;
   readonly similarity: number;
+  readonly metadata?: Record<string, unknown>;
+  readonly created_at?: string;
+  readonly times_recalled?: number;
+  /** Client this memory was learned from (metadata.client_name), null if client-agnostic */
+  readonly client_name?: string | null;
 }
 
 // ── Memory Manager Config ─────────────────────────────────────────────

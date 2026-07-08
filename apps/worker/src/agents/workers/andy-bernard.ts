@@ -22,9 +22,11 @@ import {
 interface DattoData {
   readonly siteId: number | string | null;
   readonly siteName: string | null;
-  readonly devices: ReadonlyArray<DattoDevice>;
+  // null = lookup failed (render as "could not check"), [] = genuinely none
+  readonly devices: ReadonlyArray<DattoDevice> | null;
   readonly userDevices: ReadonlyArray<DattoDevice>;
-  readonly alerts: ReadonlyArray<DattoAlert>;
+  // null = lookup failed — must NOT be rendered as "no open alerts"
+  readonly alerts: ReadonlyArray<DattoAlert> | null;
   readonly siteStatus: DattoSite | null;
   readonly baseUrl: string | null;
 }
@@ -127,7 +129,7 @@ Respond with ONLY valid JSON:
     await this.logThinking(
       context.ticketId,
       dattoData.siteId
-        ? `Found site "${dattoData.siteName}" in Datto RMM (ID: ${dattoData.siteId}). Retrieved ${dattoData.devices.length} devices (${dattoData.userDevices.length} matched to user), ${dattoData.alerts.length} open alerts. Analyzing endpoint data now.`
+        ? `Found site "${dattoData.siteName}" in Datto RMM (ID: ${dattoData.siteId}). Retrieved ${dattoData.devices?.length ?? "lookup-failed"} devices (${dattoData.userDevices.length} matched to user), ${dattoData.alerts?.length ?? "lookup-failed"} open alerts. Analyzing endpoint data now.`
         : `Could not find client "${context.clientName}" in Datto RMM. Running analysis with ticket info only.`,
     );
 
@@ -215,7 +217,7 @@ Respond with ONLY valid JSON:
 
     // Devices explicitly named in the ticket text are always relevant
     const ticketText = `${context.summary} ${context.details ?? ""}`.toLowerCase();
-    const mentionedDevices = devices.filter((d) => {
+    const mentionedDevices = (devices ?? []).filter((d) => {
       const host = d.hostname?.toLowerCase();
       return host && host.length >= 4 && ticketText.includes(host);
     });
@@ -395,27 +397,29 @@ Respond with ONLY valid JSON:
     }
   }
 
+  // null = lookup failed — must NOT be presented as "site has no devices"
   private async fetchDevices(
     datto: DattoClient,
     siteId: number | string,
-  ): Promise<ReadonlyArray<DattoDevice>> {
+  ): Promise<ReadonlyArray<DattoDevice> | null> {
     try {
       return await datto.getDevices(siteId);
     } catch (error) {
       console.error("[ANDY] Failed to fetch Datto devices:", error);
-      return [];
+      return null;
     }
   }
 
+  // null = lookup failed — must NOT be presented as "no open alerts"
   private async fetchAlerts(
     datto: DattoClient,
     siteId: number | string,
-  ): Promise<ReadonlyArray<DattoAlert>> {
+  ): Promise<ReadonlyArray<DattoAlert> | null> {
     try {
       return await datto.getOpenAlerts(siteId);
     } catch (error) {
       console.error("[ANDY] Failed to fetch Datto alerts:", error);
-      return [];
+      return null;
     }
   }
 
@@ -490,7 +494,12 @@ Respond with ONLY valid JSON:
       }
 
       // All site devices
-      if (dattoData.devices.length > 0) {
+      if (dattoData.devices === null) {
+        sections.push("");
+        sections.push(
+          "### ⚠ Datto RMM device lookup FAILED — live device data unavailable. State this in your findings; do NOT claim the site has no devices or that devices are healthy.",
+        );
+      } else if (dattoData.devices.length > 0) {
         sections.push("");
         sections.push(`### Devices (${dattoData.devices.length} found)`);
         for (const device of dattoData.devices) {
@@ -509,8 +518,13 @@ Respond with ONLY valid JSON:
         }
       }
 
-      // Open Alerts
-      if (dattoData.alerts.length > 0) {
+      // Open Alerts — a failed lookup must never render as "no alerts"
+      if (dattoData.alerts === null) {
+        sections.push("");
+        sections.push(
+          "### ⚠ Datto RMM alert lookup FAILED — live alert data unavailable. State this in your findings; do NOT claim there are no open alerts.",
+        );
+      } else if (dattoData.alerts.length > 0) {
         sections.push("");
         sections.push(
           `### ⚠ Open Alerts (${dattoData.alerts.length} active)`,

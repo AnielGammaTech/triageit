@@ -252,28 +252,35 @@ export class DattoClient {
 
   // ── Patch Management ──────────────────────────────────────────────
 
+  /**
+   * Returns null ONLY when the device genuinely has no patch data; a
+   * failed lookup THROWS — callers must not report a thrown lookup as
+   * "no missing patches".
+   */
   async getDevicePatchStatus(deviceId: string): Promise<DattoPatchStatus | null> {
     // There is no /patch-status resource in the v2 API — patch state rides
     // on the device object's patchManagement field
-    try {
-      const device = await this.getDevice(deviceId);
-      const patch = (device as Record<string, unknown>).patchManagement;
-      return isRecord(patch) ? (patch as DattoPatchStatus) : null;
-    } catch {
-      return null;
-    }
+    const device = await this.getDevice(deviceId);
+    const patch = (device as Record<string, unknown>).patchManagement;
+    return isRecord(patch) ? (patch as DattoPatchStatus) : null;
   }
 
   // ── Software Audit ────────────────────────────────────────────────
 
-  async getDeviceSoftware(deviceId: string): Promise<ReadonlyArray<DattoSoftware>> {
+  /**
+   * Returns [] only for a successful empty audit, and null when the
+   * LOOKUP FAILED — callers must treat null as "could not check", never
+   * as "no software installed".
+   */
+  async getDeviceSoftware(deviceId: string): Promise<ReadonlyArray<DattoSoftware> | null> {
     try {
       const result = await this.request<unknown>(
         `/api/v2/audit/device/${deviceId}/software`,
       );
       return extractArray<DattoSoftware>(result, ["software", "items", "data", "results"]);
-    } catch {
-      return [];
+    } catch (error) {
+      console.warn(`[DATTO] Software audit failed for device ${deviceId}:`, error instanceof Error ? error.message : error);
+      return null;
     }
   }
 }

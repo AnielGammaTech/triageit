@@ -7,6 +7,10 @@ import type { TwilioConfig } from "@triageit/shared";
  * call quality, number configuration, and recent call/SMS activity.
  *
  * Auth: HTTP Basic with Account SID and Auth Token.
+ *
+ * Accuracy contract: list methods return [] only for a successful empty
+ * response, and null when the LOOKUP FAILED (auth/network/API error) —
+ * callers must treat null as "could not check", NEVER as "no issues".
  */
 export class TwilioClient {
   private readonly accountSid: string;
@@ -111,7 +115,7 @@ export class TwilioClient {
 
   // ── SIP Trunks ─────────────────────────────────────────────────────
 
-  async getSipTrunks(): Promise<ReadonlyArray<TwilioSipTrunk>> {
+  async getSipTrunks(): Promise<ReadonlyArray<TwilioSipTrunk> | null> {
     try {
       const url = `https://trunking.twilio.com/v1/Trunks`;
       const credentials = Buffer.from(
@@ -122,12 +126,12 @@ export class TwilioClient {
         headers: { Authorization: `Basic ${credentials}` },
       });
 
-      if (!response.ok) return [];
+      if (!response.ok) return null;
 
       const result = (await response.json()) as { trunks: TwilioSipTrunk[] };
       return result.trunks ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 
@@ -154,7 +158,7 @@ export class TwilioClient {
 
   async getAlerts(params?: {
     readonly pageSize?: number;
-  }): Promise<ReadonlyArray<TwilioAlert>> {
+  }): Promise<ReadonlyArray<TwilioAlert> | null> {
     try {
       const url = new URL(
         `https://monitor.twilio.com/v1/Alerts`,
@@ -170,12 +174,12 @@ export class TwilioClient {
         headers: { Authorization: `Basic ${credentials}` },
       });
 
-      if (!response.ok) return [];
+      if (!response.ok) return null;
 
       const result = (await response.json()) as { alerts: TwilioAlert[] };
       return result.alerts ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 }

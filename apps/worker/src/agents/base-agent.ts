@@ -102,11 +102,13 @@ export abstract class BaseAgent {
         this.definition.name,
       );
 
-      // 2. Recall agent-specific + shared memories in parallel
+      // 2. Recall agent-specific + shared memories in parallel — client-aware:
+      //    another customer's memories are rank-penalized and labeled so their
+      //    environment facts are never mistaken for this client's
       const queryText = `${context.summary} ${context.details ?? ""}`;
       const [agentMemories, sharedMemories] = await Promise.all([
-        this.memoryManager.recall(this.definition.name, queryText),
-        this.memoryManager.recallShared(queryText),
+        this.memoryManager.recall(this.definition.name, queryText, context.clientName),
+        this.memoryManager.recallShared(queryText, context.clientName),
       ]);
 
       // Merge and deduplicate by id, agent-specific first
@@ -114,7 +116,7 @@ export abstract class BaseAgent {
 
       // 3. Validate recalled memories (check URLs, staleness)
       const validatedMemories = await validateMemories(allMemories);
-      const memoriesPrompt = formatValidatedMemories(validatedMemories);
+      const memoriesPrompt = formatValidatedMemories(validatedMemories, context.clientName);
 
       // 4. Build the system prompt as blocks: stable prefix (cached) +
       //    per-ticket skills/memories (uncached, after the breakpoint)
@@ -266,12 +268,15 @@ export abstract class BaseAgent {
 
     for (const mem of extracted) {
       try {
-        // Determine if this is agent-specific or shared company context
+        // Determine if this is agent-specific or shared company context.
+        // NOTE: memory_type === "pattern" is deliberately NOT a promotion
+        // trigger — pattern memories are usually taught from ONE client's
+        // ticket, and blanket-promoting them pushed client-specific facts
+        // into the company-wide namespace every agent recalls from.
         const isCompanyWide =
           mem.content.toLowerCase().includes("always") ||
           mem.content.toLowerCase().includes("company") ||
-          mem.content.toLowerCase().includes("all clients") ||
-          mem.memory_type === "pattern";
+          mem.content.toLowerCase().includes("all clients");
 
         if (isCompanyWide) {
           await this.memoryManager.createSharedMemory({

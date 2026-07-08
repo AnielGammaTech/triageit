@@ -412,6 +412,12 @@ Respond with ONLY valid JSON:
       );
       sections.push(`**Last Run:** ${data.backupSummary.lastRunTime ?? "Unknown"}`);
       sections.push(`**Next Run:** ${data.backupSummary.nextRunTime ?? "Unknown"}`);
+      const domainsFailed = data.backupSummary.domainsFailed ?? [];
+      if (domainsFailed.length > 0) {
+        sections.push(
+          `**⚠ Spanning user lookup FAILED for domain(s): ${domainsFailed.join(", ")}** — per-user backup status for these domains is unavailable and EXCLUDED from the failure counts above. State this in your findings; do NOT report these domains as healthy or fully protected.`,
+        );
+      }
     }
 
     // Matched errors

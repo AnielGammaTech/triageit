@@ -7,6 +7,10 @@ import type { ThreeCxConfig } from "@triageit/shared";
  * trunk configurations, active calls, and SIP logs.
  *
  * 3CX V18/V20 uses a REST API with token-based auth.
+ *
+ * Accuracy contract: list methods return [] only for a successful empty
+ * response, and null when the LOOKUP FAILED (auth/network/API error) —
+ * callers must treat null as "could not check", NEVER as "no issues".
  */
 export class ThreeCxClient {
   private readonly baseUrl: string;
@@ -67,14 +71,14 @@ export class ThreeCxClient {
     return result.list ?? result.value ?? [];
   }
 
-  async getTrunkStatus(): Promise<ReadonlyArray<ThreeCxTrunkStatus>> {
+  async getTrunkStatus(): Promise<ReadonlyArray<ThreeCxTrunkStatus> | null> {
     try {
       const result = await this.request<{ list?: ThreeCxTrunkStatus[]; value?: ThreeCxTrunkStatus[] }>(
         "/api/TrunkRegistrarStatus",
       );
       return result.list ?? result.value ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 
@@ -103,14 +107,14 @@ export class ThreeCxClient {
 
   // ── Active Calls ───────────────────────────────────────────────────
 
-  async getActiveCalls(): Promise<ReadonlyArray<ThreeCxActiveCall>> {
+  async getActiveCalls(): Promise<ReadonlyArray<ThreeCxActiveCall> | null> {
     try {
       const result = await this.request<{ list?: ThreeCxActiveCall[]; value?: ThreeCxActiveCall[] }>(
         "/api/activeCalls",
       );
       return result.list ?? result.value ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 
@@ -119,7 +123,7 @@ export class ThreeCxClient {
   async getCallLogs(params?: {
     readonly count?: number;
     readonly filter?: string;
-  }): Promise<ReadonlyArray<ThreeCxCallLog>> {
+  }): Promise<ReadonlyArray<ThreeCxCallLog> | null> {
     const queryParams: Record<string, string> = {};
     if (params?.count) queryParams.count = String(params.count);
     if (params?.filter) queryParams.$filter = params.filter;
@@ -131,20 +135,20 @@ export class ThreeCxClient {
       );
       return result.list ?? result.value ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 
   // ── DIDs / Inbound Rules ───────────────────────────────────────────
 
-  async getInboundRules(): Promise<ReadonlyArray<ThreeCxInboundRule>> {
+  async getInboundRules(): Promise<ReadonlyArray<ThreeCxInboundRule> | null> {
     try {
       const result = await this.request<{ list?: ThreeCxInboundRule[]; value?: ThreeCxInboundRule[] }>(
         "/api/InboundRulesList",
       );
       return result.list ?? result.value ?? [];
     } catch {
-      return [];
+      return null;
     }
   }
 
@@ -164,6 +168,8 @@ export class ThreeCxClient {
 
   async findDid(did: string): Promise<ThreeCxInboundRule | null> {
     const rules = await this.getInboundRules();
+    // null = rule lookup failed — can't say the DID isn't configured
+    if (rules === null) return null;
     const normalized = did.replace(/\D/g, "");
     return (
       rules.find(

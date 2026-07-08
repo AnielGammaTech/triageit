@@ -37,6 +37,9 @@ export interface SpanningBackupSummary {
   readonly statusLastSevenDays?: unknown;
   readonly lastBackup?: string;
   readonly failedUsers?: number;
+  // Domains whose per-user fetch FAILED — their users are missing from the
+  // counts above, so callers must not report those domains as healthy
+  readonly domainsFailed?: ReadonlyArray<string>;
   readonly [key: string]: unknown;
 }
 
@@ -85,6 +88,7 @@ export class SpanningClient {
   private token: { value: string; expiresAt: number } | null = null;
   private scopedDomains: SpanningDomain[] = [];
   private scopedUsers: SpanningUser[] | null = null;
+  private failedDomains: string[] = [];
 
   constructor(config: UnitrendsSpanningConfig) {
     this.clientId = config.client_id;
@@ -174,6 +178,7 @@ export class SpanningClient {
   private async getScopedUsers(): Promise<SpanningUser[]> {
     if (this.scopedUsers) return this.scopedUsers;
     const users: SpanningUser[] = [];
+    this.failedDomains = [];
     for (const domain of this.scopedDomains.slice(0, 3)) {
       try {
         const data = await this.request<unknown>(`/v2/spanning/domains/${domain.id}/users?page_size=1000`);
@@ -183,6 +188,9 @@ export class SpanningClient {
           users.push({ ...user, domainName: domain.name } as SpanningUser);
         }
       } catch (error) {
+        // A failed domain must be surfaced — its users are absent from the
+        // counts, which would otherwise read as "0 failed users" (healthy)
+        this.failedDomains.push(domain.name ?? domain.id);
         console.warn(`[SPANNING] users fetch failed for ${domain.name}:`, error);
       }
     }
@@ -228,6 +236,7 @@ export class SpanningClient {
       lastBackup: this.scopedDomains[0]?.lastBackup as string | undefined,
       failedUsers: failed.length,
       totalUsers: users.length,
+      domainsFailed: [...this.failedDomains],
     };
   }
 

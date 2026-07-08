@@ -142,10 +142,14 @@ export class UnitrendsClient {
     }));
   }
 
-  /** List recent backup jobs for a specific customer. */
+  /**
+   * List recent backup jobs for a specific customer.
+   * Returns null when the LOOKUP FAILED — callers must treat null as
+   * "could not check", never as "no failed jobs".
+   */
   async getBackupJobs(
     customerId: number,
-  ): Promise<ReadonlyArray<UnitrendsBackupJob>> {
+  ): Promise<ReadonlyArray<UnitrendsBackupJob> | null> {
     try {
       const raw = await this.request<unknown>(
         `/customers/${customerId}/jobs`,
@@ -162,8 +166,9 @@ export class UnitrendsClient {
         dataType: (o.dataType ?? o.type ?? null) as string | null,
         sizeBytes: (o.sizeBytes ?? o.size ?? 0) as number,
       }));
-    } catch {
-      return [];
+    } catch (error) {
+      console.warn("[UNITRENDS] Backup jobs fetch failed:", error instanceof Error ? error.message : error);
+      return null;
     }
   }
 
