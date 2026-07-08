@@ -175,6 +175,28 @@ export class HaloClient {
     ]);
   }
 
+  /**
+   * Create a new ticket (voice line "create a ticket for me" path).
+   * Halo's ticket POST takes an array and returns the created ticket.
+   */
+  async createTicket(params: {
+    summary: string;
+    details: string;
+    userId?: number;
+    ticketTypeId?: number;
+  }): Promise<number> {
+    const result = await this.request<{ id?: number }>("POST", "/tickets", [
+      {
+        summary: params.summary,
+        details: params.details,
+        tickettype_id: params.ticketTypeId ?? 31, // Gamma Default
+        ...(params.userId ? { user_id: params.userId } : {}),
+      },
+    ]);
+    if (!result.id) throw new Error("Halo ticket create returned no id");
+    return result.id;
+  }
+
   async addInternalNote(ticketId: number, note: string): Promise<number> {
     const result = await this.request<{ id?: number }>("POST", "/actions", [
       {
