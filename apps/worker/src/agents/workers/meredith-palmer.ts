@@ -34,7 +34,10 @@ interface SpanningData {
 
 export class MeredithPalmerAgent extends BaseAgent {
   protected getAgentInstructions(): string {
-    return `## Your Mission
+    return `## EMAIL TICKETS — REPORTER'S MAILBOX FIRST
+When the ticket is an email issue or email question, your FIRST output line must state whether the REPORTER'S OWN mailbox is protected by Spanning and its latest backup result — e.g. "Spanning is running for lauren@allenconcrete.com — last mail backup succeeded." If their address is not in the protected-user list, say that explicitly. Only then cover anything else.
+
+## Your Mission
 You are the backup & recovery specialist. You have REAL data from Spanning Backup for Office 365.
 Analyze the backup data to assess the reported issue, identify affected users/sites, and provide recovery guidance.
 Your audience is IT technicians — be specific, technical, and actionable.
