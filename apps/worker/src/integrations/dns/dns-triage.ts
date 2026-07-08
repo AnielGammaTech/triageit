@@ -53,18 +53,38 @@ export interface DnsTriageReport {
   };
 }
 
-async function dnsLookup(name: string, type: string): Promise<ReadonlyArray<DnsAnswer>> {
+/**
+ * Returns the answer records, [] when the domain/record genuinely does not
+ * exist (NOERROR empty / NXDOMAIN), or null when the LOOKUP ITSELF failed
+ * (HTTP error, timeout, SERVFAIL). Callers must distinguish the two — a
+ * resolver hiccup must never be reported as "domain is broken".
+ */
+async function dnsLookup(name: string, type: string): Promise<ReadonlyArray<DnsAnswer> | null> {
   try {
     const res = await fetch(
       `${DNS_API}?name=${encodeURIComponent(name)}&type=${type}`,
       { signal: AbortSignal.timeout(5000) },
     );
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const data = (await res.json()) as DnsResponse;
-    return data.Answer ?? [];
+    // Status 0 = NOERROR, 3 = NXDOMAIN (a truthful "no records"). Anything
+    // else (2 = SERVFAIL, etc.) is a resolver-side failure, not an answer.
+    if (data.Status === 0) return data.Answer ?? [];
+    if (data.Status === 3) return [];
+    return null;
   } catch {
-    return [];
+    return null;
   }
+}
+
+/** A check that could not be performed — distinct from a failing record. */
+function lookupFailedCheck(label: string): DnsCheck {
+  return {
+    label,
+    status: "WARN",
+    records: [],
+    note: `${label} lookup FAILED (resolver error or timeout) — could NOT be verified. This is NOT evidence the record is missing; retry or check manually.`,
+  };
 }
 
 /**
@@ -86,18 +106,20 @@ export async function runDnsTriage(domain: string): Promise<DnsTriageReport> {
     ]);
 
   // ── MX Records ──────────────────────────────────────────────────────
-  const mx: DnsCheck = {
-    label: "MX Records",
-    status: mxRecords.length > 0 ? "PASS" : "FAIL",
-    records: mxRecords.map((r) => r.data),
-    note:
-      mxRecords.length === 0
-        ? "No MX records found — domain cannot receive email."
-        : null,
-  };
+  const mx: DnsCheck = mxRecords === null
+    ? lookupFailedCheck("MX Records")
+    : {
+        label: "MX Records",
+        status: mxRecords.length > 0 ? "PASS" : "FAIL",
+        records: mxRecords.map((r) => r.data),
+        note:
+          mxRecords.length === 0
+            ? "No MX records found — domain cannot receive email."
+            : null,
+      };
 
   // ── SPF ─────────────────────────────────────────────────────────────
-  const spfRecord = txtRecords.find((r) =>
+  const spfRecord = (txtRecords ?? []).find((r) =>
     r.data.replace(/"/g, "").startsWith("v=spf1"),
   );
   const spfData = spfRecord?.data.replace(/"/g, "") ?? null;
@@ -118,39 +140,44 @@ export async function runDnsTriage(domain: string): Promise<DnsTriageReport> {
     }
   }
 
-  const spf: DnsCheck = {
-    label: "SPF",
-    status: spfRecord
-      ? spfLookupCount > 10
-        ? "WARN"
-        : "PASS"
-      : "FAIL",
-    record: spfData,
-    note: spfRecord
-      ? spfNote
-      : "⚠️ No SPF record found — senders are not authenticated.",
-    lookupCount: spfLookupCount,
-  };
+  const spf: DnsCheck = txtRecords === null
+    ? lookupFailedCheck("SPF")
+    : {
+        label: "SPF",
+        status: spfRecord
+          ? spfLookupCount > 10
+            ? "WARN"
+            : "PASS"
+          : "FAIL",
+        record: spfData,
+        note: spfRecord
+          ? spfNote
+          : "⚠️ No SPF record found — senders are not authenticated.",
+        lookupCount: spfLookupCount,
+      };
 
   // ── DMARC ───────────────────────────────────────────────────────────
-  const dmarcRecord = dmarcRecords.find((r) =>
+  const dmarcRecord = (dmarcRecords ?? []).find((r) =>
     r.data.replace(/"/g, "").includes("v=DMARC1"),
   );
   const dmarcData = dmarcRecord?.data.replace(/"/g, "") ?? null;
   const dmarcPolicy = dmarcData?.match(/p=(\w+)/)?.[1] ?? null;
 
-  const dmarc: DnsCheck & { enabled: boolean; policy: string | null } = {
-    label: "DMARC",
-    status: dmarcRecord ? (dmarcPolicy === "none" ? "WARN" : "PASS") : "FAIL",
-    enabled: !!dmarcRecord,
-    policy: dmarcPolicy,
-    record: dmarcData,
-    note: !dmarcRecord
-      ? "⚠️ DMARC not configured — domain is vulnerable to spoofing."
-      : dmarcPolicy === "none"
-        ? "⚠️ DMARC is set to p=none — monitoring only, not enforced."
-        : `✅ DMARC enforced (p=${dmarcPolicy})`,
-  };
+  const dmarc: DnsCheck & { enabled: boolean; policy: string | null } =
+    dmarcRecords === null
+      ? { ...lookupFailedCheck("DMARC"), enabled: false, policy: null }
+      : {
+          label: "DMARC",
+          status: dmarcRecord ? (dmarcPolicy === "none" ? "WARN" : "PASS") : "FAIL",
+          enabled: !!dmarcRecord,
+          policy: dmarcPolicy,
+          record: dmarcData,
+          note: !dmarcRecord
+            ? "⚠️ DMARC not configured — domain is vulnerable to spoofing."
+            : dmarcPolicy === "none"
+              ? "⚠️ DMARC is set to p=none — monitoring only, not enforced."
+              : `✅ DMARC enforced (p=${dmarcPolicy})`,
+        };
 
   // ── DKIM ────────────────────────────────────────────────────────────
   const dkim: DnsCheck = {
@@ -163,20 +190,24 @@ export async function runDnsTriage(domain: string): Promise<DnsTriageReport> {
   };
 
   // ── A Record ────────────────────────────────────────────────────────
-  const aRecord: DnsCheck = {
-    label: "A Record (IPv4)",
-    status: aRecords.length > 0 ? "PASS" : "FAIL",
-    records: aRecords.map((r) => r.data),
-    note: aRecords.length === 0 ? "No A record — domain does not resolve." : null,
-  };
+  const aRecord: DnsCheck = aRecords === null
+    ? lookupFailedCheck("A Record (IPv4)")
+    : {
+        label: "A Record (IPv4)",
+        status: aRecords.length > 0 ? "PASS" : "FAIL",
+        records: aRecords.map((r) => r.data),
+        note: aRecords.length === 0 ? "No A record — domain does not resolve." : null,
+      };
 
   // ── NS Records ─────────────────────────────────────────────────────
-  const ns: DnsCheck = {
-    label: "Nameservers",
-    status: nsRecords.length > 0 ? "PASS" : "FAIL",
-    records: nsRecords.map((r) => r.data),
-    note: null,
-  };
+  const ns: DnsCheck = nsRecords === null
+    ? lookupFailedCheck("Nameservers")
+    : {
+        label: "Nameservers",
+        status: nsRecords.length > 0 ? "PASS" : "FAIL",
+        records: nsRecords.map((r) => r.data),
+        note: null,
+      };
 
   // ── Summary ─────────────────────────────────────────────────────────
   const allChecks = [mx, spf, dmarc, dkim, aRecord, ns];
@@ -239,7 +270,9 @@ async function checkDkim(
           dnsLookup(`${selector}._domainkey.${domain}`, "CNAME"),
           dnsLookup(`${selector}._domainkey.${domain}`, "TXT"),
         ]);
-        const hasRecord = cnameResult.length > 0 || txtResult.length > 0;
+        // null = lookup failed; DKIM is already lenient (WARN, "could not
+        // verify"), so treat a failed lookup the same as not-found
+        const hasRecord = (cnameResult?.length ?? 0) > 0 || (txtResult?.length ?? 0) > 0;
         return { selector, found: hasRecord };
       }),
     );

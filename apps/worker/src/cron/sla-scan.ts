@@ -3,6 +3,7 @@ import { HaloClient } from "../integrations/halo/client.js";
 import {
   deriveWorkflowOwnerRole,
   isHelpdeskTechnicianName,
+  isSlaTargetBreached,
   type HaloConfig,
 } from "@triageit/shared";
 import { enqueueTriageJob } from "../queue/producer.js";
@@ -87,12 +88,19 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     }));
   }
 
-  // Filter to only SLA-breaching tickets
-  // Check both top-level and nested SLA data
+  // Filter to only SLA-breaching tickets — target not met AND the by-date is
+  // actually in the past. targetmet=false alone can mean "not reached yet"
+  // on a healthy open ticket. Check both top-level and nested SLA data.
   const breachers = allOpenTickets.filter((t) => {
     const slaSource = t.sla ?? t.sladetails ?? t;
-    const fixBreached = slaSource.fixtargetmet === false || t.fixtargetmet === false;
-    const responseBreached = slaSource.responsetargetmet === false || t.responsetargetmet === false;
+    const fixByDate = slaSource.fixbydate ?? t.fixbydate ?? null;
+    const respondByDate = slaSource.respondbydate ?? t.respondbydate ?? null;
+    const fixBreached =
+      isSlaTargetBreached(slaSource.fixtargetmet, fixByDate) ||
+      isSlaTargetBreached(t.fixtargetmet, fixByDate);
+    const responseBreached =
+      isSlaTargetBreached(slaSource.responsetargetmet, respondByDate) ||
+      isSlaTargetBreached(t.responsetargetmet, respondByDate);
     return fixBreached || responseBreached;
   });
 
@@ -161,6 +169,11 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             halo_id: haloId,
             summary: breacher.summary as string,
             status: "pending" as const,
+            // Without tickettype_id, reconcileClosedTickets (filters type 31)
+            // never closes these rows — they became permanent zombies feeding
+            // closed-ticket alerts forever
+            tickettype_id: (breacher.tickettype_id as number | undefined) ?? 31,
+            halo_is_open: true,
             halo_status: ((breacher.statusname as string | undefined) ?? (breacher.status_name as string | undefined) ?? (breacher.status as string | undefined) ?? null),
             halo_status_id: typeof breacher.status_id === "number" ? breacher.status_id : null,
             halo_agent: haloAgent,

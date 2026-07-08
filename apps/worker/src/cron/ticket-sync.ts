@@ -58,7 +58,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const haloIds = openTickets.map((t) => t.id);
   const { data: existingTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, status")
+    .select("id, halo_id, status, workflow_past_due, resolution_time_at")
     .in("halo_id", haloIds);
 
   const existingMap = new Map(
@@ -172,6 +172,20 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
 
   for (const ticket of existingToUpdate) {
     const workflowFields = getWorkflowFields(ticket);
+    const existing = existingMap.get(ticket.id);
+
+    // Preserve the workflow scan's past-due flag. getWorkflowFields derives
+    // it from the Halo STATUS NAME only, so a deadline-based flag set by the
+    // workflow scan was reset within a minute — repeating first-miss alerts
+    // and firing the second-miss ownership transfer after hours instead of an
+    // actual second miss. Clear it only when Halo shows a FRESH (future)
+    // deadline — per the workflow doc, a new resolution_time resumes the flow.
+    const freshDeadline = ticket.deadlinedate
+      ? new Date(ticket.deadlinedate).getTime() > Date.now()
+      : false;
+    const workflowPastDue =
+      workflowFields.workflow_past_due || (freshDeadline ? false : existing?.workflow_past_due === true);
+
     const { error: updateError } = await supabase
       .from("tickets")
       .update({
@@ -184,8 +198,13 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         halo_is_open: true,
         last_tech_action_at: ticket.lastactiondate ?? null,
         last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
-        updated_at: now,
+        // updated_at deliberately NOT set here. This sync touches every open
+        // ticket every minute — stamping updated_at made the triage in-flight
+        // guard (updated_at < 10 min → "still running"), the stuck-triage
+        // sweep (> 30 min), and the errored-ticket scan (> 1h) all see every
+        // open ticket as perpetually fresh, so nothing was ever recovered.
         ...workflowFields,
+        workflow_past_due: workflowPastDue,
       })
       .eq("halo_id", ticket.id);
 

@@ -98,7 +98,7 @@ Respond with ONLY valid JSON, no markdown:
     "subtype": "<more specific category>",
     "confidence": <0.0-1.0>
   },
-  "urgency_score": <1-4 where 1=low urgency and 4=critical urgency>,
+  "urgency_score": <1-5 per the Urgency Scoring rubric above, where 1=minimal and 5=critical>,
   "urgency_reasoning": "<brief explanation of why this urgency level>",
   "recommended_priority": <1-4 where 1=High/Severe and 4=Low/Minor>,
   "entities": ["<extracted entities: usernames, device names, error codes, IPs, domains>"],
@@ -170,7 +170,13 @@ export async function classifyTicket(
   // 3 = Affects Single User
   // 4 = Low – Minor Issue or Request
   const priority = Math.max(1, Math.min(4, parsed.recommended_priority ?? 3));
-  const urgency = Math.max(1, Math.min(4, parsed.urgency_score ?? 2));
+  // Urgency is 1-5 (the rubric, every "X/5" display, and the urgency-5
+  // hourly retriage tier all assume it). The old Math.min(4, ...) clamp made
+  // urgency 5 unreachable, so no ticket could ever hit the critical tier.
+  if (parsed.urgency_score == null) {
+    console.warn(`[RYAN] No urgency_score in classification for #${context.haloId} — defaulting to 2 (parse repair may have dropped fields)`);
+  }
+  const urgency = Math.max(1, Math.min(5, parsed.urgency_score ?? 2));
 
   return {
     classification: parsed.classification,

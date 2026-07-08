@@ -4,6 +4,7 @@ import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
+  isSlaTargetBreached,
   type HaloTicket,
   type HaloAction,
 } from "@triageit/shared";
@@ -40,7 +41,9 @@ interface DailyScanResult {
   readonly tokensUsed: number;
 }
 
-const RETRIAGE_PROMPT = `You are Michael Scott, Regional Manager at Gamma Tech Services. You're reviewing an open support ticket to determine if the assigned technician is handling it properly.
+// Built per-call (not a module const) so "Today's date" is the scan date,
+// not the date the worker process booted
+const buildRetriagePrompt = () => `You are Michael Scott, Regional Manager at Gamma Tech Services. You're reviewing an open support ticket to determine if the assigned technician is handling it properly.
 
 Today's date: ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" })}
 
@@ -266,10 +269,18 @@ function quickRuleCheck(
     severity = "critical";
   }
 
-  // SLA breach — response or fix target not met
-  const responseBreached = (ticket as unknown as { responsetargetmet?: boolean }).responsetargetmet === false;
-  const fixBreached = (ticket as unknown as { fixtargetmet?: boolean }).fixtargetmet === false;
-  if (responseBreached || fixBreached) {
+  // SLA breach — target not met AND the by-date is actually in the past.
+  // targetmet=false alone can mean "not reached yet" on a healthy ticket.
+  const slaRaw = ticket as unknown as {
+    responsetargetmet?: boolean;
+    fixtargetmet?: boolean;
+    respondbydate?: string;
+    fixbydate?: string;
+  };
+  if (
+    isSlaTargetBreached(slaRaw.responsetargetmet, slaRaw.respondbydate) ||
+    isSlaTargetBreached(slaRaw.fixtargetmet, slaRaw.fixbydate)
+  ) {
     flags.push("sla_breached");
     severity = "critical";
   }
@@ -580,17 +591,33 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   if (allLocalIds.length > 0) {
     const { data: triageResults } = await supabase
       .from("triage_results")
-      .select("ticket_id, internal_notes, urgency_score, created_at")
+      .select("ticket_id, internal_notes, urgency_score, created_at, triage_type")
       .in("ticket_id", allLocalIds)
       .order("created_at", { ascending: false });
 
-    // Keep only the latest per ticket_id
+    // Timer (created_at): latest row of ANY type — scan evaluations must
+    // reset the cooldown or every pass would re-fire.
+    // Urgency + notes: latest REAL triage only. The scan's own
+    // triage_type='retriage' flag rows encode SEVERITY as urgency_score
+    // (critical→5, info→1) — using them as "the ticket's urgency" let one
+    // critical flag drop a low ticket to hourly retriage and an info row
+    // demote a real urgency-4 ticket to the 3-hour tier.
     for (const tr of triageResults ?? []) {
-      if (!triageMap.has(tr.ticket_id)) {
+      const existing = triageMap.get(tr.ticket_id);
+      if (!existing) {
         triageMap.set(tr.ticket_id, {
-          internal_notes: tr.internal_notes,
-          urgency_score: tr.urgency_score,
+          internal_notes: tr.triage_type === "retriage" ? null : tr.internal_notes,
+          urgency_score: tr.triage_type === "retriage" ? null : tr.urgency_score,
           created_at: tr.created_at,
+        });
+      } else if (
+        (existing.urgency_score === null || existing.internal_notes === null) &&
+        tr.triage_type !== "retriage"
+      ) {
+        triageMap.set(tr.ticket_id, {
+          internal_notes: existing.internal_notes ?? tr.internal_notes,
+          urgency_score: existing.urgency_score ?? tr.urgency_score,
+          created_at: existing.created_at,
         });
       }
     }
@@ -614,11 +641,29 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         .sort((a, b) => new Date(actionDate(b)).getTime() - new Date(actionDate(a)).getTime())[0];
 
       if (latestCustomerAction?.note && isUpdateRequest(latestCustomerAction.note)) {
-        try {
-          await handleUpdateRequest(ticket.id, latestCustomerAction.note, supabase);
-          console.log(`[RETRIAGE] Detected update request in ticket #${ticket.id}`);
-        } catch (err) {
-          console.error(`[RETRIAGE] Failed to handle update request for #${ticket.id}:`, err);
+        // Guard against perpetual re-alerting: the scan sees the same latest
+        // customer message every pass. Only alert when the request is FRESH
+        // (last 24h) and no customer-visible staff reply has landed since —
+        // an answered or ancient "any update?" is not a live escalation.
+        const requestTime = new Date(actionDate(latestCustomerAction) || 0).getTime();
+        const isFresh = requestTime > Date.now() - 24 * 60 * 60 * 1000;
+        const staffRepliedAfter = actions.some((a) => {
+          if (a.hiddenfromuser || !a.who) return false;
+          const whoLower = a.who.toLowerCase();
+          const isStaff =
+            staffNames.some((n) => whoLower.includes(n)) ||
+            whoLower.includes("gamma.tech") ||
+            whoLower.includes("gtmail");
+          return isStaff && new Date(actionDate(a) || 0).getTime() > requestTime;
+        });
+
+        if (isFresh && !staffRepliedAfter) {
+          try {
+            await handleUpdateRequest(ticket.id, latestCustomerAction.note, supabase);
+            console.log(`[RETRIAGE] Detected update request in ticket #${ticket.id}`);
+          } catch (err) {
+            console.error(`[RETRIAGE] Failed to handle update request for #${ticket.id}:`, err);
+          }
         }
       }
 
@@ -783,7 +828,7 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
       const response = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 256,
-        system: [{ type: "text" as const, text: RETRIAGE_PROMPT, cache_control: { type: "ephemeral" as const } }],
+        system: [{ type: "text" as const, text: buildRetriagePrompt(), cache_control: { type: "ephemeral" as const } }],
         messages: [{ role: "user", content: contextMessage }],
       });
 

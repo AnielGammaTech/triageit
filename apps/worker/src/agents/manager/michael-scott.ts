@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HELPDESK_TECHNICIANS, type Ticket, type AgentFinding } from "@triageit/shared";
+import { HELPDESK_TECHNICIANS, isInternalStaffName, isSlaTargetBreached, type Ticket, type AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -219,7 +219,11 @@ export async function runTriage(
         slaFixByDate = slaSource.fixbydate ?? raw.fixbydate ?? null;
         slaRespondByDate = slaSource.respondbydate ?? raw.respondbydate ?? null;
         slaTimerText = slaSource.sla_timer_text ?? raw.sla_timer_text ?? null;
-        slaBreached = slaFixTargetMet === false || slaResponseTargetMet === false;
+        // targetmet=false alone can mean "not reached yet" on a healthy open
+        // ticket — only a by-date in the past makes it a real breach
+        slaBreached =
+          isSlaTargetBreached(slaFixTargetMet, slaFixByDate) ||
+          isSlaTargetBreached(slaResponseTargetMet, slaRespondByDate);
       } catch (err) {
         console.warn(`[MICHAEL] Could not fetch SLA info for #${ticket.halo_id}:`, err);
       }
@@ -538,11 +542,21 @@ export async function runTriage(
       ? new Date(priorResult.created_at as string).getTime()
       : 0;
     const actions = context.actions ?? [];
-    // Check if any tech/internal action happened after the last triage
+    // Check if any tech action happened after the last triage. Counting ONLY
+    // internal actions (a.isInternal) accused techs who replied PUBLICLY to
+    // the customer — the best possible behavior — of "no activity". A public
+    // reply by staff counts as activity too.
     const techActionsSinceLast = actions.filter((a) => {
       if (!a.date) return false;
       const actionTime = new Date(a.date).getTime();
-      return actionTime > lastTriageTime && a.isInternal;
+      if (actionTime <= lastTriageTime) return false;
+      if (a.isInternal) return true;
+      const whoLower = (a.who ?? "").toLowerCase();
+      return (
+        isInternalStaffName(whoLower) ||
+        whoLower.includes("gamma.tech") ||
+        whoLower.includes("gtmail")
+      );
     });
     techInactive = techActionsSinceLast.length === 0;
 
