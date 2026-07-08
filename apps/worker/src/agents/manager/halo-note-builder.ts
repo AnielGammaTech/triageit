@@ -80,7 +80,7 @@ export function formatTechNotes(notes: unknown): string {
     const steps = notes
       .map((n) => (typeof n === "string" ? n.trim() : JSON.stringify(n)))
       .filter(Boolean)
-      .slice(0, 5);
+      .slice(0, 8);
     if (steps.length > 0) {
       const items = steps.map((s) => `<li style="margin-bottom:6px;">${linkifyUrls(s)}</li>`).join("");
       return `<ol style="margin:4px 0;padding-left:20px;list-style:decimal;">${items}</ol>`;
@@ -434,6 +434,33 @@ export function buildHaloNote(
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⬆ Escalation</td><td style="padding:8px 12px;${border}font-size:14px;color:#fcd34d;line-height:1.5;word-break:break-word;">${linkifyUrls(michaelResult.escalation_reason ?? "")}</td></tr>`);
   }
 
+  // Licensing — rendered straight from Holly's structured Pax8 output so a
+  // license gap can never be buried by the synthesis. Only appears when
+  // there is something actionable (mismatch, subscription problem, or a
+  // concrete Pax8 action); "licensing is fine" stays in the expander.
+  {
+    const holly = findings.holly_flax?.data;
+    if (holly) {
+      const mismatch = holly.license_mismatch as
+        | { detected?: boolean; current_plan?: string; needed_for?: string; recommended_plan?: string; explanation?: string }
+        | undefined;
+      const issues = toStringArray(holly.licensing_issues);
+      const actions = toStringArray(holly.recommended_actions);
+      const lines: string[] = [];
+      if (mismatch?.detected) {
+        const path = [mismatch.current_plan, mismatch.recommended_plan].filter(Boolean).join(" → ");
+        lines.push(`<strong style="color:#fbcfe8;">${path || "License upgrade needed"}</strong>${mismatch.explanation ? ` — ${mismatch.explanation}` : mismatch.needed_for ? ` — needed for ${mismatch.needed_for}` : ""}`);
+      }
+      lines.push(...issues.slice(0, 2));
+      if (actions.length > 0) {
+        lines.push(`<span style="color:#f9a8d4;">Pax8 action: ${actions.slice(0, 2).join(" · ")}</span>`);
+      }
+      if (mismatch?.detected || issues.length > 0) {
+        rows.push(`<tr style="background:#331a2b;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#f472b6;">🪪 Licensing</td><td style="padding:8px 12px;${border}font-size:13px;color:#fbcfe8;line-height:1.5;word-break:break-word;">${lines.filter(Boolean).join("<br/>")}</td></tr>`);
+      }
+    }
+  }
+
   // Root Cause — amber tinted dark background (workflow reminder lives in
   // the Dispatch row); device/asset names hyperlinked in place
   rows.push(`<tr style="background:#332b1a;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">🔍 Root Cause</td><td style="padding:8px 12px;${border}font-size:14px;color:#fde68a;line-height:1.5;word-break:break-word;">${linkifyKnownEntities(linkifyUrls(michaelResult.root_cause_hypothesis), allLinks)}</td></tr>`);
@@ -443,7 +470,7 @@ export function buildHaloNote(
   const appContext = uniqueNonEmpty([
     ...toStringArray(michaelResult.connected_app_context),
     ...collectConnectedAppContext(findings),
-  ]).slice(0, 3);
+  ]).slice(0, 5);
   if (appContext.length > 0) {
     rows.push(`<tr style="background:#162216;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#4ade80;">App Context</td><td style="padding:8px 12px;${border}font-size:13px;color:#bbf7d0;line-height:1.5;word-break:break-word;">${linkifyKnownEntities(formatBulletList(appContext), allLinks)}</td></tr>`);
   }
@@ -504,7 +531,7 @@ export function buildHaloNote(
       allLinks,
       relevantPasswords,
       urgencyReasoning: classification.urgency_reasoning,
-      shownAppContextCount: 3,
+      shownAppContextCount: 5,
       border,
     });
     if (detailRow) rows.push(detailRow);
