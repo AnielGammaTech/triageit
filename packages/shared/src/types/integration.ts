@@ -70,6 +70,9 @@ export interface SpanningConfig {
 export interface ThreeCxConfig {
   readonly api_url: string;
   readonly api_key: string;
+  /** 3CX V20 XAPI service principal (Admin Console -> Integrations -> API) */
+  readonly client_id?: string;
+  readonly client_secret?: string;
 }
 
 export interface TwilioConfig {
