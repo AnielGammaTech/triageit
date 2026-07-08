@@ -12,6 +12,8 @@ import {
   type EdrAlert,
 } from "../../integrations/datto-edr/client.js";
 import { ApiNinjasClient, extractPublicIps, extractForeignDomains, extractEmails, extractUrls } from "../../integrations/apininjas/client.js";
+import { VirusTotalClient, extractFileHashes } from "../../integrations/virustotal/client.js";
+import { AbuseIpdbClient } from "../../integrations/abuseipdb/client.js";
 
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
@@ -256,16 +258,44 @@ Respond with ONLY valid JSON:
 
   private async fetchIpIntel(context: TriageContext): Promise<string[]> {
     const client = ApiNinjasClient.fromEnv();
-    if (!client) return [];
+    const abuseIpdb = AbuseIpdbClient.fromEnv();
     const text = `${context.summary} ${context.details ?? ""}`;
     const lines: string[] = [];
 
     for (const ip of extractPublicIps(text)) {
-      const info = await client.ipLookup(ip);
-      if (!info) continue;
-      const parts = [info.city, info.region, info.country, info.isp].filter(Boolean);
-      if (parts.length > 0) lines.push(`IP ${ip}: ${parts.join(", ")}`);
+      const geoParts: string[] = [];
+      if (client) {
+        const info = await client.ipLookup(ip);
+        if (info) geoParts.push(...[info.city, info.region, info.country, info.isp].filter((p): p is string => Boolean(p)));
+      }
+
+      // Abuse reputation — turns "unknown IP" into "400 abuse reports, 98%
+      // confidence, Tor exit". A failed lookup adds nothing (never "clean").
+      let abusePart = "";
+      if (abuseIpdb) {
+        const rep = await abuseIpdb.checkIp(ip);
+        if (rep) {
+          if (rep.abuseConfidenceScore > 0 || rep.totalReports > 0) {
+            abusePart = ` — ⚠ AbuseIPDB: ${rep.abuseConfidenceScore}% abuse confidence, ${rep.totalReports} reports (90d)${rep.isTor ? ", TOR EXIT NODE" : ""}${rep.usageType ? `, ${rep.usageType}` : ""}`;
+          } else {
+            abusePart = ` — AbuseIPDB: no abuse reports${rep.isTor ? " but TOR EXIT NODE" : ""}`;
+          }
+        }
+      }
+
+      if (geoParts.length > 0 || abusePart) {
+        lines.push(`IP ${ip}: ${geoParts.join(", ") || "geo lookup unavailable"}${abusePart}`);
+      }
     }
+
+    // VirusTotal verdicts — multi-engine reputation for links, sender
+    // domains, and file hashes in the ticket. Free tier is 4 req/min, so
+    // lookups are capped; a failed/missing lookup is reported as nothing,
+    // never as "clean".
+    lines.push(...(await this.fetchVirusTotalIntel(context, text)));
+
+    // Remaining lookups are API Ninjas-backed
+    if (!client) return lines;
 
     // Domain age on foreign domains (sender domains, links) — a domain
     // registered days/weeks ago is a top phishing signal
@@ -319,6 +349,72 @@ Respond with ONLY valid JSON:
     return lines;
   }
 
+  /**
+   * VirusTotal multi-engine verdicts for URLs, sender domains, and file
+   * hashes found in the ticket. Capped at 4 lookups per ticket (free tier
+   * is 4 requests/minute). Failed lookups produce NO line — a missing
+   * verdict must never read as "clean".
+   */
+  private async fetchVirusTotalIntel(context: TriageContext, text: string): Promise<string[]> {
+    const vt = VirusTotalClient.fromEnv();
+    if (!vt) return [];
+
+    const lines: string[] = [];
+    const ownDomain = context.userEmail?.split("@")[1]?.toLowerCase() ?? "";
+    let budget = 4;
+
+    const describe = (label: string, v: { found: boolean; malicious: number; suspicious: number; totalEngines: number; categories: ReadonlyArray<string> }): string | null => {
+      if (!v.found) return null; // unknown artifact — silence beats false comfort
+      if (v.malicious > 0 || v.suspicious > 0) {
+        const cats = v.categories.length > 0 ? ` [${v.categories.join(", ")}]` : "";
+        return `${label}: 🚨 VirusTotal ${v.malicious} malicious / ${v.suspicious} suspicious of ${v.totalEngines} engines${cats}`;
+      }
+      return `${label}: VirusTotal 0/${v.totalEngines} engines flag it (not flagged ≠ guaranteed safe)`;
+    };
+
+    // File hashes are the highest-signal artifact — check them first
+    for (const hash of extractFileHashes(text, 2)) {
+      if (budget <= 0) break;
+      budget--;
+      const v = await vt.checkFileHash(hash);
+      if (!v) continue;
+      if (!v.found) {
+        lines.push(`File hash ${hash.slice(0, 16)}…: unknown to VirusTotal (never submitted — no verdict either way)`);
+        continue;
+      }
+      const line = describe(`File hash ${hash.slice(0, 16)}…`, v);
+      if (line) lines.push(line);
+    }
+
+    for (const url of extractUrls(text)) {
+      if (budget <= 0) break;
+      let host: string;
+      try {
+        host = new URL(url).hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      if (ownDomain && host.endsWith(ownDomain)) continue;
+      if (/(?:^|\.)(microsoft|office|outlook|google|sharepoint|gamma)\.(com|net|tech)$/.test(host)) continue;
+      budget--;
+      const v = await vt.checkUrl(url);
+      if (!v) continue;
+      const line = describe(`URL ${host}`, v);
+      if (line) lines.push(line);
+    }
+
+    for (const domain of extractForeignDomains(text, [ownDomain])) {
+      if (budget <= 0) break;
+      budget--;
+      const v = await vt.checkDomain(domain);
+      if (!v) continue;
+      const line = describe(`Domain ${domain}`, v);
+      if (line) lines.push(line);
+    }
+
+    return lines;
+  }
+
   // ── Message Builder ─────────────────────────────────────────────────
 
   private buildUserMessage(context: TriageContext, edrData: EdrData | null, ipIntel: ReadonlyArray<string> = []): string {
@@ -352,11 +448,11 @@ Respond with ONLY valid JSON:
     // "sign-in from 203.0.113.7" becomes "sign-in from Lagos, Nigeria (ISP X)"
     if (ipIntel.length > 0) {
       sections.push("");
-      sections.push("## IP Intelligence (API Ninjas — REAL lookups)");
+      sections.push("## IP & Threat Intelligence (API Ninjas / AbuseIPDB / VirusTotal — REAL lookups)");
       for (const entry of ipIntel) {
         sections.push(`- ${entry}`);
       }
-      sections.push("Compare these locations/ISPs against where this customer's users actually are — an unexpected country or hosting-provider ISP on a sign-in is a strong compromise indicator.");
+      sections.push("Compare these locations/ISPs against where this customer's users actually are — an unexpected country or hosting-provider ISP on a sign-in is a strong compromise indicator. A VirusTotal malicious verdict or high AbuseIPDB confidence is hard evidence — cite it in your indicators and raise severity. Absence of a line means the artifact could NOT be checked, not that it's safe.");
     }
 
     if (edrData) {

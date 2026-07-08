@@ -13,6 +13,7 @@ import {
   type CippDevice,
   type CippConditionalAccessPolicy,
   type CippSignInLog,
+  type CippServiceHealthIssue,
 } from "../../integrations/cipp/client.js";
 
 /**
@@ -32,6 +33,8 @@ interface CippData {
   readonly conditionalAccess: ReadonlyArray<CippConditionalAccessPolicy>;
   readonly signInLogs: ReadonlyArray<CippSignInLog>;
   readonly tenantDomain: string | null;
+  // null = lookup failed (say "could not check"), [] = no active incidents
+  readonly serviceHealth: ReadonlyArray<CippServiceHealthIssue> | null;
 }
 
 export class DarrylPhilbinAgent extends BaseAgent {
@@ -147,6 +150,20 @@ Respond with ONLY valid JSON:
       lines.push("", "## CIPP Data (Real M365 Tenant Data)");
       if (cippData.tenantDomain) lines.push(`**Tenant:** ${cippData.tenantDomain}`);
 
+      // Microsoft-side incidents FIRST — if the platform is degraded, that
+      // reframes the entire ticket before any user-level diagnosis
+      if (cippData.serviceHealth === null) {
+        lines.push("", "### Microsoft 365 Service Health", "Lookup failed — could NOT check for active Microsoft incidents. Do not assume the platform is healthy.");
+      } else if (cippData.serviceHealth.length > 0) {
+        lines.push("", "### ⚠ ACTIVE Microsoft 365 Service Issues for this tenant (REAL — from Microsoft)");
+        for (const issue of cippData.serviceHealth.slice(0, 8)) {
+          lines.push(`- [${issue.issueId ?? "?"}] **${issue.service ?? "Unknown service"}**${issue.type ? ` (${issue.type})` : ""}: ${issue.desc ?? "no description"}`);
+        }
+        lines.push("If the reported problem matches one of these services, say so explicitly in m365_findings — the tech should reference the Microsoft incident instead of debugging the user's setup.");
+      } else {
+        lines.push("", "### Microsoft 365 Service Health", "No active Microsoft incidents for this tenant (verified via CIPP).");
+      }
+
       if (cippData.user) {
         const u = cippData.user;
         lines.push(
@@ -257,7 +274,12 @@ Respond with ONLY valid JSON:
       let user: CippUser | null = null;
       let mfaStatus: CippMfaStatus | null = null;
 
-      const conditionalAccess = await client.getConditionalAccess(tenantDomain).catch(() => [] as CippConditionalAccessPolicy[]);
+      const [conditionalAccess, serviceHealth] = await Promise.all([
+        client.getConditionalAccess(tenantDomain).catch(() => [] as CippConditionalAccessPolicy[]),
+        // Active Microsoft incidents for THIS tenant — "is it Microsoft or is
+        // it the user?" is the #1 misdiagnosis risk on M365 tickets
+        client.getServiceHealth(tenantDomain),
+      ]);
 
       if (userEmail) {
         [user, mfaStatus] = await Promise.all([
@@ -322,7 +344,7 @@ Respond with ONLY valid JSON:
         signInLogs = logs;
       }
 
-      return { user, mailbox, mfaStatus, devices, conditionalAccess, signInLogs, tenantDomain };
+      return { user, mailbox, mfaStatus, devices, conditionalAccess, signInLogs, tenantDomain, serviceHealth };
     } catch (error) {
       console.error("[DARRYL] Failed to fetch CIPP data:", error);
       return null;
