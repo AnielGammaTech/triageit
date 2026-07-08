@@ -63,8 +63,8 @@ function Spinner({ color }: { readonly color: string }) {
 }
 
 // ── Copy Button ─────────────────────────────────────────────────────────
-
-function CopyButton({
+// Kept for easy re-add; removed from the deck 2026-07-08 per user selection.
+export function CopyButton({
   text,
   label,
 }: {
@@ -578,8 +578,8 @@ function AskAgentButton({
 }
 
 // ── Close Review Button ──────────────────────────────────────────────────
-
-function CloseReviewButton({
+// Kept for easy re-add; removed from the deck 2026-07-08 per user selection.
+export function CloseReviewButton({
   haloId,
   token,
 }: {
@@ -658,6 +658,10 @@ export function QuickActions({
   readonly token: string;
 }) {
   void ticketId;
+  void internalNotes;
+  void suggestedResponse;
+  // Deck trimmed to the actions actually used (user-selected 2026-07-08):
+  // Close Review and the Copy buttons are gone from the deck
   return (
     <div style={{
       display: "flex",
@@ -668,14 +672,11 @@ export function QuickActions({
       {/* Primary actions */}
       <ReTriageButton haloId={haloId} token={token} />
       <SummarizeITButton haloId={haloId} token={token} />
-      <CloseReviewButton haloId={haloId} token={token} />
 
       {/* Separator */}
       <div style={{ width: "1px", height: "26px", backgroundColor: T.line, alignSelf: "center" }} />
 
       {/* Secondary actions */}
-      {suggestedResponse && <CopyButton text={suggestedResponse} label="Copy Resp" />}
-      {internalNotes && <CopyButton text={internalNotes} label="Copy Notes" />}
       <SuggestReplyButton haloId={haloId} token={token} />
       <KBBuilder haloId={haloId} token={token} />
       <AskAgentButton haloId={haloId} token={token} />
