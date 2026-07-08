@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { AGENTS } from "@triageit/shared";
 import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh, TriageFeedback } from "./actions";
+import { ToggleableSection, SectionSettings } from "./sections";
 import {
   T,
   PRIORITY_THEME,
@@ -345,10 +346,12 @@ export default async function EmbedTriagePage({
             <IconClock size={10} color={T.textFaint} />
             {formatTimestamp(latest.created_at)}
           </span>
+          <SectionSettings />
         </div>
       </header>
 
       {/* ── Severity Band ──────────────────────────────────── */}
+      <ToggleableSection sectionKey="stats">
       <div
         style={{
           ...css.severityBand,
@@ -421,6 +424,7 @@ export default async function EmbedTriagePage({
           </>
         )}
       </div>
+      </ToggleableSection>
 
       {/* ── Security Alert ─────────────────────────────────── */}
       {latest.security_flag && latest.security_notes && (
@@ -437,15 +441,17 @@ export default async function EmbedTriagePage({
 
       {/* ── Duplicate suggestion ───────────────────────────── */}
       {latest.duplicates && latest.duplicates.length > 0 && (
-        <div style={css.dupeBar} className="tg-reveal tg-d2">
-          <span style={css.dupeLabel}>POSSIBLE DUPLICATE</span>
-          {latest.duplicates.slice(0, 3).map((d) => (
-            <span key={d.halo_id} style={css.dupeChip}>
-              #{d.halo_id} <span style={css.dupePct}>{Math.round(d.similarity * 100)}%</span>
-              <span style={css.dupeSummary}> — {d.summary.slice(0, 60)}</span>
-            </span>
-          ))}
-        </div>
+        <ToggleableSection sectionKey="duplicates">
+          <div style={css.dupeBar} className="tg-reveal tg-d2">
+            <span style={css.dupeLabel}>POSSIBLE DUPLICATE</span>
+            {latest.duplicates.slice(0, 3).map((d) => (
+              <span key={d.halo_id} style={css.dupeChip}>
+                #{d.halo_id} <span style={css.dupePct}>{Math.round(d.similarity * 100)}%</span>
+                <span style={css.dupeSummary}> — {d.summary.slice(0, 60)}</span>
+              </span>
+            ))}
+          </div>
+        </ToggleableSection>
       )}
 
       {/* ── Evidence: attachments the AI read ──────────────── */}
@@ -471,30 +477,33 @@ export default async function EmbedTriagePage({
 
       {/* ── Agent Findings ─────────────────────────────────── */}
       {findingsEntries.length > 0 && (
-        <div className="tg-reveal tg-d3">
-          <CollapsibleSection
-            title="Agent Findings"
-            badge={`${findingsEntries.length} agents`}
-            accent={T.brand}
-            icon="radar"
-            defaultOpen={findingsEntries.length <= 3}
-          >
-            <div style={css.findingsGrid}>
-              {findingsEntries.map(([name, finding]) => (
-                <FindingCard
-                  key={name}
-                  agentName={name}
-                  summary={finding.summary}
-                  confidence={finding.confidence}
-                />
-              ))}
-            </div>
-          </CollapsibleSection>
-        </div>
+        <ToggleableSection sectionKey="findings">
+          <div className="tg-reveal tg-d3">
+            <CollapsibleSection
+              title="Agent Findings"
+              badge={`${findingsEntries.length} agents`}
+              accent={T.brand}
+              icon="radar"
+              defaultOpen={findingsEntries.length <= 3}
+            >
+              <div style={css.findingsGrid}>
+                {findingsEntries.map(([name, finding]) => (
+                  <FindingCard
+                    key={name}
+                    agentName={name}
+                    summary={finding.summary}
+                    confidence={finding.confidence}
+                  />
+                ))}
+              </div>
+            </CollapsibleSection>
+          </div>
+        </ToggleableSection>
       )}
 
       {/* ── TriageIT Notes Timeline ────────────────────────── */}
       {triageItNotes.length > 0 && (
+        <ToggleableSection sectionKey="timeline">
         <div style={css.notesSection} className="tg-reveal tg-d3">
           <div style={css.sectionHeader}>
             <IconNote size={11} color={T.textMute} />
@@ -541,40 +550,47 @@ export default async function EmbedTriagePage({
             })}
           </div>
         </div>
+        </ToggleableSection>
       )}
 
       {/* ── Urgency Reasoning ──────────────────────────────── */}
-      <div className="tg-reveal tg-d4">
-        <CollapsibleSection title="Urgency Reasoning" accent={T.brand} icon="brain">
-          <p style={css.bodyText}>{latest.urgency_reasoning}</p>
-        </CollapsibleSection>
-      </div>
+      <ToggleableSection sectionKey="reasoning">
+        <div className="tg-reveal tg-d4">
+          <CollapsibleSection title="Urgency Reasoning" accent={T.brand} icon="brain">
+            <p style={css.bodyText}>{latest.urgency_reasoning}</p>
+          </CollapsibleSection>
+        </div>
+      </ToggleableSection>
 
       {/* ── Internal Notes ─────────────────────────────────── */}
       {latest.internal_notes && (
-        <div className="tg-reveal tg-d4">
-          <CollapsibleSection title="Internal Notes" accent={T.blue} icon="note">
-            <p style={css.bodyText}>{latest.internal_notes}</p>
-          </CollapsibleSection>
-        </div>
+        <ToggleableSection sectionKey="notes">
+          <div className="tg-reveal tg-d4">
+            <CollapsibleSection title="Internal Notes" accent={T.blue} icon="note">
+              <p style={css.bodyText}>{latest.internal_notes}</p>
+            </CollapsibleSection>
+          </div>
+        </ToggleableSection>
       )}
 
       {/* ── Agent Pipeline ─────────────────────────────────── */}
       {logs.length > 0 && (
-        <div className="tg-reveal tg-d4">
-          <CollapsibleSection
-            title="Agent Pipeline"
-            badge={`${completedAgents}/${logs.length}`}
-            accent={T.textMute}
-            icon="activity"
-          >
-            <div style={css.logGrid}>
-              {logs.map((log, i) => (
-                <AgentLogRow key={i} log={log} maxDuration={Math.max(...logs.map((l) => l.duration_ms ?? 0), 1)} />
-              ))}
-            </div>
-          </CollapsibleSection>
-        </div>
+        <ToggleableSection sectionKey="pipeline">
+          <div className="tg-reveal tg-d4">
+            <CollapsibleSection
+              title="Agent Pipeline"
+              badge={`${completedAgents}/${logs.length}`}
+              accent={T.textMute}
+              icon="activity"
+            >
+              <div style={css.logGrid}>
+                {logs.map((log, i) => (
+                  <AgentLogRow key={i} log={log} maxDuration={Math.max(...logs.map((l) => l.duration_ms ?? 0), 1)} />
+                ))}
+              </div>
+            </CollapsibleSection>
+          </div>
+        </ToggleableSection>
       )}
 
       {/* ── Footer ─────────────────────────────────────────── */}
