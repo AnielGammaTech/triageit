@@ -54,6 +54,20 @@ export interface TriageContext {
   readonly slaFixByDate?: string | null;
   readonly slaRespondByDate?: string | null;
   readonly slaTimerText?: string | null;
+  /** SLA plan + priority tier, e.g. "Gamma Tech SLA — Affects Single User" */
+  readonly slaName?: string | null;
+  /** Halo onhold flag — the SLA timer is PAUSED; targets are not burning */
+  readonly slaOnHold?: boolean;
+  /** Hours the SLA has spent on hold (Halo slaholdtime) */
+  readonly slaHoldHours?: number | null;
+  /** Hours left on the resolution timer (Halo fixtimeleft/slatimeleft) */
+  readonly slaTimeLeftHours?: number | null;
+  /** Percent of the SLA window consumed (Halo slapercused) */
+  readonly slaPercentUsed?: number | null;
+  /** When the first response actually happened (Halo responsedate) */
+  readonly slaResponseDate?: string | null;
+  /** Ticket follow-up date (Halo followupdate) */
+  readonly followUpDate?: string | null;
 }
 
 export interface TriageOutput {

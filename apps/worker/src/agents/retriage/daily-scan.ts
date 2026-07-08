@@ -270,16 +270,19 @@ function quickRuleCheck(
   }
 
   // SLA breach — target not met AND the by-date is actually in the past.
-  // targetmet=false alone can mean "not reached yet" on a healthy ticket.
+  // targetmet=false alone can mean "not reached yet" on a healthy ticket,
+  // and an ON-HOLD timer isn't burning (targets shift when it resumes).
   const slaRaw = ticket as unknown as {
     responsetargetmet?: boolean;
     fixtargetmet?: boolean;
     respondbydate?: string;
     fixbydate?: string;
+    onhold?: boolean;
   };
   if (
-    isSlaTargetBreached(slaRaw.responsetargetmet, slaRaw.respondbydate) ||
-    isSlaTargetBreached(slaRaw.fixtargetmet, slaRaw.fixbydate)
+    slaRaw.onhold !== true &&
+    (isSlaTargetBreached(slaRaw.responsetargetmet, slaRaw.respondbydate) ||
+      isSlaTargetBreached(slaRaw.fixtargetmet, slaRaw.fixbydate))
   ) {
     flags.push("sla_breached");
     severity = "critical";
