@@ -73,6 +73,15 @@ export interface CippAlert {
   readonly tenantId: string;
 }
 
+export interface CippServiceHealthIssue {
+  readonly TenantName?: string;
+  readonly DefaultDomainName?: string;
+  readonly issueId?: string;
+  readonly service?: string;
+  readonly type?: string;
+  readonly desc?: string;
+}
+
 export interface CippSignInLog {
   readonly createdDateTime?: string;
   readonly userPrincipalName?: string;
@@ -199,6 +208,27 @@ export class CippClient {
   /** Get recent alerts for a tenant */
   async getAlerts(tenantFilter: string): Promise<ReadonlyArray<CippAlert>> {
     return this.request("/ListAlertsQueue", { TenantFilter: tenantFilter });
+  }
+
+  /**
+   * Active Microsoft 365 service-health issues for a tenant (or AllTenants).
+   * Returns null when the LOOKUP FAILED — callers must treat null as
+   * "could not check", never as "no Microsoft incidents".
+   * Verified live 2026-07-08: returns [{TenantName, service, type, desc, issueId}].
+   */
+  async getServiceHealth(
+    tenantFilter: string,
+  ): Promise<ReadonlyArray<CippServiceHealthIssue> | null> {
+    try {
+      const data = await this.request<ReadonlyArray<CippServiceHealthIssue>>(
+        "/ListServiceHealth",
+        { tenantFilter },
+      );
+      return data ?? [];
+    } catch (error) {
+      console.warn("[CIPP] ListServiceHealth failed:", error instanceof Error ? error.message : error);
+      return null;
+    }
   }
 
   /**

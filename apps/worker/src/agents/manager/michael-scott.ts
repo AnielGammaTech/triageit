@@ -31,6 +31,7 @@ import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
 import { checkReviewEligibility, generateTechReview } from "./tech-reviewer.js";
 import { checkDispatcherReviewEligibility, generateDispatcherReview } from "./dispatcher-reviewer.js";
 import { MICHAEL_SYSTEM_PROMPT } from "./prompts.js";
+import { getVendorStatusForType, formatVendorStatus } from "../../integrations/vendor-status/client.js";
 import { tryNotificationFastPath, tryAlertFastPath } from "./fast-paths.js";
 import { MemoryManager } from "../../memory/memory-manager.js";
 import {
@@ -841,6 +842,15 @@ async function synthesizeFindings(
 ): Promise<MichaelSynthesis> {
   const client = new Anthropic();
 
+  // Live vendor status pages for this ticket type — a platform-side outage
+  // reframes the whole ticket. Only vendors whose status page ANSWERED are
+  // included; fetch failures never render as "operational".
+  const vendorStatusSection = await getVendorStatusForType(
+    classification.classification.type,
+  )
+    .then(formatVendorStatus)
+    .catch(() => "");
+
   const specialistSections = Object.entries(findings)
     .map(([name, finding]) => {
       const label = AGENT_LABELS[name] ?? name;
@@ -909,6 +919,7 @@ async function synthesizeFindings(
           "",
         ]
       : []),
+    vendorStatusSection,
     specialistSections,
     techWorkload,
   ]
