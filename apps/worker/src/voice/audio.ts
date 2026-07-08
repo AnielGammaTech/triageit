@@ -121,6 +121,10 @@ export class AudioPump {
     if (this.closed || pcm.length === 0) return;
     this.queue = Buffer.concat([this.queue, pcm]);
     if (!this.timer) {
+      // Prebuffer: push ~600ms ahead immediately so network jitter on the
+      // chunked POST can't starve 3CX's jitter buffer (audible as audio
+      // cutting in and out), then hold the steady 100ms cadence.
+      for (let i = 0; i < 6 && this.queue.length > 0; i++) this.tick();
       this.timer = setInterval(() => this.tick(), PUMP_TICK_MS);
       this.timer.unref?.();
     }
