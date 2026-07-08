@@ -466,6 +466,13 @@ export async function startCronScheduler(): Promise<void> {
     // Cron handlers are I/O-bound (Halo/Datto/AI API calls) and some run for
     // minutes — 3 slots let two slow jobs starve the every-minute ticket sync
     concurrency: 8,
+    // Handlers legitimately run for minutes (daily scan ~100s+). The default
+    // 30s lock meant any Redis hiccup or event-loop stall marked running jobs
+    // stalled — they were killed mid-run ("could not renew lock" /
+    // "failed: terminated") and re-fired. One worker process owns this queue,
+    // so a long lock costs nothing.
+    lockDuration: 300_000,
+    maxStalledCount: 2,
   });
 
   cronWorker.on("ready", () => {
