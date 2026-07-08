@@ -93,9 +93,11 @@ export function composeStatusScript(ctx: CallerContext): string {
   const parts: string[] = [];
 
   if (!ctx.knownCaller) {
-    parts.push("Hello, you've reached the Gamma Tech automated ticket line.");
-    parts.push("I couldn't find your number in our system.");
-    parts.push("Press 1 to leave a message and our team will follow up, or hang up when done.");
+    // Unknown number ≠ unwelcome caller — greet like a receptionist, never
+    // "we couldn't find you" (user request 2026-07-08)
+    parts.push("Hello, and thank you for calling Gamma Tech. This is the automated assistant.");
+    parts.push("How can we help you today?");
+    parts.push("Press 1 to leave a message for our team, and we'll get right back to you.");
     return parts.join(" ");
   }
 
