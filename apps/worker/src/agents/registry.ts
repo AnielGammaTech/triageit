@@ -177,7 +177,10 @@ export async function getAgentsForClassification(
     telephony: ["kelly_kapoor", "dwight_schrute"],
     phone: ["kelly_kapoor", "dwight_schrute"],
     network: ["andy_bernard", "stanley_hudson", "creed_bratton", "dwight_schrute"],
-    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin"],
+    // Meredith on every email ticket (user request 2026-07-08): any email
+    // issue/question should confirm the reporter's mailbox backup state —
+    // "Spanning is running for this mailbox" — not just DNS/M365 checks
+    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin", "meredith_palmer"],
     endpoint: ["andy_bernard", "dwight_schrute"],
     cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute"],
     backup: ["meredith_palmer", "oscar_martinez", "dwight_schrute"],
