@@ -40,24 +40,26 @@ interface VoipData {
   readonly twilio: TwilioData | null;
 }
 
+// For every list below: null = lookup FAILED (render as "could not check"),
+// [] = successful lookup that genuinely returned nothing
 interface ThreeCxData {
   readonly systemStatus: ThreeCxSystemStatus | null;
-  readonly trunks: ReadonlyArray<ThreeCxTrunk>;
-  readonly trunkStatuses: ReadonlyArray<ThreeCxTrunkStatus>;
+  readonly trunks: ReadonlyArray<ThreeCxTrunk> | null;
+  readonly trunkStatuses: ReadonlyArray<ThreeCxTrunkStatus> | null;
   readonly matchedTrunk: ThreeCxTrunk | null;
   readonly matchedDid: ThreeCxInboundRule | null;
-  readonly extensions: ReadonlyArray<ThreeCxExtension>;
-  readonly registeredExtensions: number;
-  readonly totalExtensions: number;
+  readonly extensions: ReadonlyArray<ThreeCxExtension> | null;
+  readonly registeredExtensions: number | null;
+  readonly totalExtensions: number | null;
 }
 
 interface TwilioData {
   readonly account: TwilioAccount | null;
-  readonly recentFailedCalls: ReadonlyArray<TwilioCall>;
-  readonly phoneNumbers: ReadonlyArray<TwilioPhoneNumber>;
+  readonly recentFailedCalls: ReadonlyArray<TwilioCall> | null;
+  readonly phoneNumbers: ReadonlyArray<TwilioPhoneNumber> | null;
   readonly matchedNumber: TwilioPhoneNumber | null;
-  readonly sipTrunks: ReadonlyArray<TwilioSipTrunk>;
-  readonly recentAlerts: ReadonlyArray<TwilioAlert>;
+  readonly sipTrunks: ReadonlyArray<TwilioSipTrunk> | null;
+  readonly recentAlerts: ReadonlyArray<TwilioAlert> | null;
 }
 
 export class KellyKapoorAgent extends BaseAgent {
@@ -276,12 +278,13 @@ Respond with ONLY valid JSON:
     const client = new ThreeCxClient(config);
 
     try {
+      // null = that lookup failed — must NOT be presented as "all clear"
       const [systemStatus, trunks, trunkStatuses, extensions] =
         await Promise.all([
           client.getSystemStatus().catch(() => null),
-          client.getTrunks().catch(() => []),
-          client.getTrunkStatus().catch(() => []),
-          client.getExtensions().catch(() => []),
+          client.getTrunks().catch(() => null),
+          client.getTrunkStatus(),
+          client.getExtensions().catch(() => null),
         ]);
 
       // Find the specific trunk mentioned in the ticket
@@ -296,13 +299,13 @@ Respond with ONLY valid JSON:
         matchedDid = await client.findDid(phoneNumber).catch(() => null);
       }
 
-      const registeredExtensions = extensions.filter(
-        (e) => e.IsRegistered,
-      ).length;
+      const registeredExtensions = extensions === null
+        ? null
+        : extensions.filter((e) => e.IsRegistered).length;
 
       await this.logThinking(
         context.ticketId,
-        `3CX data: ${trunks.length} trunks, ${registeredExtensions}/${extensions.length} extensions registered. ${matchedTrunk ? `Found trunk: ${matchedTrunk.Name}.` : ""}`,
+        `3CX data: ${trunks === null ? "trunk lookup FAILED" : `${trunks.length} trunks`}, ${extensions === null ? "extension lookup FAILED" : `${registeredExtensions}/${extensions.length} extensions registered`}. ${matchedTrunk ? `Found trunk: ${matchedTrunk.Name}.` : ""}`,
       );
 
       return {
@@ -313,7 +316,7 @@ Respond with ONLY valid JSON:
         matchedDid,
         extensions,
         registeredExtensions,
-        totalExtensions: extensions.length,
+        totalExtensions: extensions === null ? null : extensions.length,
       };
     } catch (error) {
       const message =
@@ -342,13 +345,14 @@ Respond with ONLY valid JSON:
     const client = new TwilioClient(config);
 
     try {
+      // null = that lookup failed — must NOT be presented as "all clear"
       const [account, recentFailedCalls, phoneNumbers, sipTrunks, recentAlerts] =
         await Promise.all([
           client.getAccount().catch(() => null),
-          client.getFailedCalls(10).catch(() => []),
-          client.getPhoneNumbers().catch(() => []),
-          client.getSipTrunks().catch(() => []),
-          client.getAlerts({ pageSize: 10 }).catch(() => []),
+          client.getFailedCalls(10).catch(() => null),
+          client.getPhoneNumbers().catch(() => null),
+          client.getSipTrunks(),
+          client.getAlerts({ pageSize: 10 }),
         ]);
 
       let matchedNumber: TwilioPhoneNumber | null = null;
@@ -358,7 +362,7 @@ Respond with ONLY valid JSON:
 
       await this.logThinking(
         context.ticketId,
-        `Twilio data: Account ${account?.status ?? "unknown"}, ${phoneNumbers.length} numbers, ${sipTrunks.length} SIP trunks, ${recentFailedCalls.length} recent failed calls, ${recentAlerts.length} alerts.`,
+        `Twilio data: Account ${account?.status ?? "unknown"}, ${phoneNumbers?.length ?? "lookup-failed"} numbers, ${sipTrunks?.length ?? "lookup-failed"} SIP trunks, ${recentFailedCalls?.length ?? "lookup-failed"} recent failed calls, ${recentAlerts?.length ?? "lookup-failed"} alerts.`,
       );
 
       return {
@@ -470,15 +474,31 @@ Respond with ONLY valid JSON:
         sections.push(
           `**Trunks Registered:** ${tcx.systemStatus.TrunksRegistered ?? "?"}/${tcx.systemStatus.TrunksTotal ?? "?"}`,
         );
-        sections.push(
-          `**Extensions Registered:** ${tcx.registeredExtensions}/${tcx.totalExtensions}`,
-        );
+        if (tcx.registeredExtensions !== null) {
+          sections.push(
+            `**Extensions Registered:** ${tcx.registeredExtensions}/${tcx.totalExtensions}`,
+          );
+        }
         if (tcx.systemStatus.HasNotRunningServices) {
           sections.push("**⚠ Has Not-Running Services: YES**");
         }
+      } else {
+        sections.push(
+          "⚠ 3CX system status lookup FAILED — live data unavailable. State this in your findings; do NOT claim the system is healthy.",
+        );
       }
 
-      if (tcx.trunks.length > 0) {
+      if (tcx.extensions === null) {
+        sections.push(
+          "⚠ 3CX extension lookup FAILED — live data unavailable. State this in your findings; do NOT conclude extensions are registered or healthy.",
+        );
+      }
+
+      if (tcx.trunks === null) {
+        sections.push(
+          "⚠ 3CX trunk lookup FAILED — live data unavailable. State this in your findings; do NOT conclude there are no trunk issues.",
+        );
+      } else if (tcx.trunks.length > 0) {
         sections.push("");
         sections.push("### All Trunks");
         for (const trunk of tcx.trunks) {
@@ -489,7 +509,11 @@ Respond with ONLY valid JSON:
         }
       }
 
-      if (tcx.trunkStatuses.length > 0) {
+      if (tcx.trunkStatuses === null) {
+        sections.push(
+          "⚠ 3CX trunk registration status lookup FAILED — live data unavailable. State this in your findings; do NOT conclude all trunks are registered.",
+        );
+      } else if (tcx.trunkStatuses.length > 0) {
         sections.push("");
         sections.push("### Trunk Registration Status");
         for (const ts of tcx.trunkStatuses) {
@@ -528,7 +552,11 @@ Respond with ONLY valid JSON:
         );
       }
 
-      if (tw.sipTrunks.length > 0) {
+      if (tw.sipTrunks === null) {
+        sections.push(
+          "⚠ Twilio SIP trunk lookup FAILED — live data unavailable. State this in your findings; do NOT conclude there are no trunk issues.",
+        );
+      } else if (tw.sipTrunks.length > 0) {
         sections.push("");
         sections.push("### SIP Trunks");
         for (const trunk of tw.sipTrunks) {
@@ -546,7 +574,11 @@ Respond with ONLY valid JSON:
         );
       }
 
-      if (tw.recentFailedCalls.length > 0) {
+      if (tw.recentFailedCalls === null) {
+        sections.push(
+          "⚠ Twilio call log lookup FAILED — live data unavailable. State this in your findings; do NOT conclude there are no failed calls.",
+        );
+      } else if (tw.recentFailedCalls.length > 0) {
         sections.push("");
         sections.push(
           `### Recent Failed Calls (${tw.recentFailedCalls.length})`,
@@ -558,7 +590,11 @@ Respond with ONLY valid JSON:
         }
       }
 
-      if (tw.recentAlerts.length > 0) {
+      if (tw.recentAlerts === null) {
+        sections.push(
+          "⚠ Twilio alert lookup FAILED — live data unavailable. State this in your findings; do NOT conclude there are no alerts.",
+        );
+      } else if (tw.recentAlerts.length > 0) {
         sections.push("");
         sections.push(`### Recent Alerts (${tw.recentAlerts.length})`);
         for (const alert of tw.recentAlerts.slice(0, 5)) {

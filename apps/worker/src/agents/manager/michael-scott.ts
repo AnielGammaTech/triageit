@@ -454,8 +454,8 @@ export async function runTriage(
   let managerMemories: ReadonlyArray<MemoryMatch> = [];
   try {
     const [agentMem, sharedMem] = await Promise.all([
-      memoryManager.recall("michael_scott", queryText),
-      memoryManager.recallShared(queryText),
+      memoryManager.recall("michael_scott", queryText, context.clientName),
+      memoryManager.recallShared(queryText, context.clientName),
     ]);
 
     // Deduplicate by id
@@ -973,15 +973,22 @@ async function synthesizeFindings(
 
   // Inject recalled memories into the synthesis prompt
   if (memories.length > 0) {
+    const currentClient = context.clientName?.trim().toLowerCase() ?? null;
     const memorySection = [
       "",
       "## Relevant Past Experiences",
-      "You've handled similar tickets before. Use these memories to inform your analysis:",
+      "You've handled similar tickets before. Use these memories to inform your analysis.",
+      "Memories marked DIFFERENT CLIENT were learned at another customer — their environment facts (hostnames, DNS, credentials, config) do NOT apply to this ticket; only the general approach might.",
       "",
-      ...memories.map(
-        (m, i) =>
-          `${i + 1}. [${m.memory_type}] ${m.summary} (relevance: ${(m.similarity * 100).toFixed(0)}%)`,
-      ),
+      ...memories.map((m, i) => {
+        const memClient = (m.client_name ?? (m.metadata?.client_name as string | undefined))?.trim() ?? null;
+        const clientTag = memClient && currentClient
+          ? memClient.toLowerCase() === currentClient
+            ? " [this client]"
+            : ` [⚠ DIFFERENT CLIENT: ${memClient}]`
+          : "";
+        return `${i + 1}. [${m.memory_type}]${clientTag} ${m.summary} (relevance: ${(m.similarity * 100).toFixed(0)}%)`;
+      }),
       "",
     ].join("\n");
 

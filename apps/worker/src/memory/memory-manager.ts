@@ -78,16 +78,17 @@ export class MemoryManager {
   async recall(
     agentName: string,
     queryText: string,
+    clientName?: string | null,
   ): Promise<ReadonlyArray<MemoryMatch>> {
     const embedding = await generateEmbedding(queryText);
 
     if (embedding) {
       // Vector similarity search via pgvector
-      return this.recallByEmbedding(agentName, embedding);
+      return this.recallByEmbedding(agentName, embedding, clientName);
     }
 
     // Fallback: concept-based recall (when embeddings unavailable)
-    return this.recallByConcepts(agentName, queryText);
+    return this.recallByConcepts(agentName, queryText, clientName);
   }
 
   /**
@@ -97,6 +98,7 @@ export class MemoryManager {
   private async recallByEmbedding(
     agentName: string,
     embedding: ReadonlyArray<number>,
+    clientName?: string | null,
   ): Promise<ReadonlyArray<MemoryMatch>> {
     const { data, error } = await this.supabase.rpc("match_agent_memories", {
       query_embedding: JSON.stringify(embedding),
@@ -110,15 +112,25 @@ export class MemoryManager {
       return [];
     }
 
+    // Surface which client each memory was learned from — recall is
+    // cross-client, and the consumer must be able to tell a same-client
+    // environment fact from another customer's
+    const withClient = (data as ReadonlyArray<MemoryMatch>).map((m) => ({
+      ...m,
+      client_name: (m.metadata?.client_name as string | undefined) ?? null,
+    }));
+
     // Re-rank with composite scoring
-    const ranked = this.applyCompositeScoring(
-      data as ReadonlyArray<MemoryMatch & { readonly created_at?: string }>,
-    );
+    const ranked = this.applyCompositeScoring(withClient, clientName);
 
-    // Reinforce recalled memories
-    await this.reinforceMemories(ranked.map((m) => m.id));
+    const top = ranked.slice(0, this.config.max_recall);
 
-    return ranked.slice(0, this.config.max_recall);
+    // Reinforce only the memories that are actually injected into the
+    // prompt — reinforcing the whole candidate pool gave never-shown
+    // memories eviction immunity
+    await this.reinforceMemories(top.map((m) => m.id));
+
+    return top;
   }
 
   /**
@@ -128,6 +140,7 @@ export class MemoryManager {
   private async recallByConcepts(
     agentName: string,
     queryText: string,
+    clientName?: string | null,
   ): Promise<ReadonlyArray<MemoryMatch>> {
     const concepts = await extractConcepts(queryText);
 
@@ -137,7 +150,7 @@ export class MemoryManager {
     const { data, error } = await this.supabase
       .from("agent_memories")
       .select(
-        "id, agent_name, content, summary, memory_type, tags, confidence",
+        "id, agent_name, content, summary, memory_type, tags, confidence, metadata, created_at, times_recalled",
       )
       .eq("agent_name", agentName)
       .overlaps("tags", concepts as string[])
@@ -157,6 +170,7 @@ export class MemoryManager {
       ).length;
       const similarity = overlap / Math.max(concepts.length, 1);
 
+      const metadata = (row.metadata ?? {}) as Record<string, unknown>;
       return {
         id: row.id as string,
         agent_name: row.agent_name as string,
@@ -165,7 +179,14 @@ export class MemoryManager {
         memory_type: row.memory_type as MemoryType,
         tags: row.tags as ReadonlyArray<string>,
         confidence: row.confidence as number,
-        similarity,
+        similarity: this.clientAffinity(
+          (metadata.client_name as string | undefined) ?? null,
+          clientName,
+        ) * similarity,
+        metadata,
+        created_at: row.created_at as string,
+        times_recalled: row.times_recalled as number,
+        client_name: (metadata.client_name as string | undefined) ?? null,
       };
     });
 
@@ -184,9 +205,8 @@ export class MemoryManager {
    * Recency uses exponential decay: e^(-decay_rate × hours_ago)
    */
   private applyCompositeScoring(
-    memories: ReadonlyArray<
-      MemoryMatch & { readonly created_at?: string }
-    >,
+    memories: ReadonlyArray<MemoryMatch>,
+    clientName?: string | null,
   ): ReadonlyArray<MemoryMatch> {
     const now = Date.now();
 
@@ -199,22 +219,35 @@ export class MemoryManager {
       const recencyScore = Math.exp(-this.config.decay_rate * ageHours);
 
       // Frequency score (normalized, capped at 20 recalls)
-      const freqScore = Math.min(
-        ((m as unknown as { times_recalled?: number }).times_recalled ?? 0) /
-          20,
-        1,
-      );
+      const freqScore = Math.min((m.times_recalled ?? 0) / 20, 1);
 
       const finalScore =
-        m.similarity * this.config.similarity_weight +
-        recencyScore * this.config.recency_weight +
-        freqScore * this.config.frequency_weight;
+        (m.similarity * this.config.similarity_weight +
+          recencyScore * this.config.recency_weight +
+          freqScore * this.config.frequency_weight) *
+        this.clientAffinity(m.client_name ?? null, clientName);
 
       return { ...m, similarity: finalScore };
     });
 
     // Sort by composite score descending
     return [...scored].sort((a, b) => b.similarity - a.similarity);
+  }
+
+  /**
+   * Client-affinity factor for recall ranking. A memory learned from a
+   * DIFFERENT customer is rank-penalized (its environment facts don't
+   * transfer), but not excluded — generic techniques still help. Memories
+   * with no client tag are treated as client-agnostic knowledge.
+   */
+  private clientAffinity(
+    memoryClient: string | null,
+    currentClient: string | null | undefined,
+  ): number {
+    if (!memoryClient || !currentClient) return 1;
+    return memoryClient.trim().toLowerCase() === currentClient.trim().toLowerCase()
+      ? 1.1 // same client — its environment facts are directly relevant
+      : 0.6; // different client — technique may transfer, facts do not
   }
 
   /**
@@ -254,8 +287,9 @@ export class MemoryManager {
    */
   async recallShared(
     queryText: string,
+    clientName?: string | null,
   ): Promise<ReadonlyArray<MemoryMatch>> {
-    return this.recall("company_context", queryText);
+    return this.recall("company_context", queryText, clientName);
   }
 
   /**

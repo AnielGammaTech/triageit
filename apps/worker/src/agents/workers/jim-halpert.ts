@@ -183,9 +183,17 @@ Respond with ONLY valid JSON:
       );
     }
 
-    // Search for the user
+    // Search for the user. Only treat the result as THE user when it's
+    // unambiguous — blindly taking [0] let "Dan" resolve to "Jordan" and
+    // presented a stranger's MFA/groups as the reporter's (the Partial
+    // Matches branch was unreachable).
     const matchingUsers = await this.findUsers(jc, context.userName);
-    const user = matchingUsers.length > 0 ? matchingUsers[0] : null;
+    const emailLower = context.userEmail?.toLowerCase() ?? null;
+    const exactByEmail = emailLower
+      ? matchingUsers.find((u) => (u.email ?? "").toLowerCase() === emailLower)
+      : undefined;
+    const user =
+      exactByEmail ?? (matchingUsers.length === 1 ? matchingUsers[0] : null);
 
     if (!user) {
       return { ...emptyResult, matchingUsers };

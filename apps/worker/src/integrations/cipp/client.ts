@@ -233,19 +233,22 @@ export class CippClient {
 
   /**
    * Get recent sign-in logs for a specific user.
+   * Returns null when the LOOKUP FAILED — callers must treat null as
+   * "could not check", never as "no sign-in activity".
    */
   async getSignInLogs(
     tenantFilter: string,
     userId: string,
-  ): Promise<ReadonlyArray<CippSignInLog>> {
+  ): Promise<ReadonlyArray<CippSignInLog> | null> {
     try {
       const data = await this.request<ReadonlyArray<CippSignInLog>>(
         "/ListSignIns",
         { tenantFilter, userId },
       );
       return data ?? [];
-    } catch {
-      return [];
+    } catch (error) {
+      console.warn("[CIPP] ListSignIns failed:", error instanceof Error ? error.message : error);
+      return null;
     }
   }
 
@@ -259,30 +262,31 @@ export class CippClient {
     }
   }
 
-  /** Find a user by email or UPN within a tenant */
+  /**
+   * Find a user by email or UPN within a tenant.
+   * Returns null ONLY when the user genuinely is not in the tenant; a
+   * failed lookup THROWS — callers must not report a thrown lookup as
+   * "user not found".
+   */
   async findUser(tenantFilter: string, email: string): Promise<CippUser | null> {
-    try {
-      const users = await this.getUsers(tenantFilter);
-      const emailLower = email.toLowerCase();
-      return users.find((u) =>
-        u.userPrincipalName.toLowerCase() === emailLower ||
-        u.mail?.toLowerCase() === emailLower,
-      ) ?? null;
-    } catch {
-      return null;
-    }
+    const users = await this.getUsers(tenantFilter);
+    const emailLower = email.toLowerCase();
+    return users.find((u) =>
+      u.userPrincipalName.toLowerCase() === emailLower ||
+      u.mail?.toLowerCase() === emailLower,
+    ) ?? null;
   }
 
-  /** Find MFA status for a specific user */
+  /**
+   * Find MFA status for a specific user.
+   * Returns null ONLY when the user has no MFA record; a failed lookup
+   * THROWS — callers must not report a thrown lookup as "no MFA".
+   */
   async findUserMfa(tenantFilter: string, email: string): Promise<CippMfaStatus | null> {
-    try {
-      const mfaList = await this.getMfaStatus(tenantFilter);
-      const emailLower = email.toLowerCase();
-      return mfaList.find((m) =>
-        m.userPrincipalName.toLowerCase() === emailLower,
-      ) ?? null;
-    } catch {
-      return null;
-    }
+    const mfaList = await this.getMfaStatus(tenantFilter);
+    const emailLower = email.toLowerCase();
+    return mfaList.find((m) =>
+      m.userPrincipalName.toLowerCase() === emailLower,
+    ) ?? null;
   }
 }

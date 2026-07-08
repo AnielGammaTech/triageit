@@ -197,7 +197,48 @@ async function investigateJim(
   const config = await getConfig<JumpCloudConfig>(supabase, "jumpcloud");
   if (!config) return "JumpCloud integration is not configured.";
 
-  const jc = new JumpCloudClient(config);
+  // Provider (MTP) keys are org-scoped — querying without x-org-id either
+  // fails or returns ANOTHER org's users. Resolve the org exactly like
+  // Jim's specialist does: saved mapping first, then name-match.
+  let orgId: string | null = null;
+  try {
+    const { data: mapping } = await supabase
+      .from("integration_mappings")
+      .select("external_id")
+      .eq("service", "jumpcloud")
+      .ilike("customer_name", clientName)
+      .limit(1)
+      .maybeSingle();
+    orgId = mapping?.external_id ?? null;
+  } catch {
+    orgId = null;
+  }
+
+  if (!orgId) {
+    try {
+      const probe = new JumpCloudClient(config);
+      const orgs = await probe.getOrganizations();
+      const normalize = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const target = normalize(clientName);
+      const match = orgs.find((o) => {
+        const orgName =
+          o.displayName ??
+          ((o.settings as { name?: string } | undefined)?.name) ??
+          (typeof o.name === "string" ? o.name : "");
+        const name = normalize(orgName ?? "");
+        return name.length >= 4 && target.length >= 4 && (name.includes(target) || target.includes(name));
+      });
+      orgId = match?._id ?? match?.id ?? null;
+    } catch {
+      orgId = null;
+    }
+  }
+
+  if (!orgId) {
+    return `Could not resolve a JumpCloud organization for "${clientName}" — no saved mapping and no name match. User/device data is UNAVAILABLE (do not conclude the client has no JumpCloud presence). Map this client in Adminland → Integrations.`;
+  }
+
+  const jc = new JumpCloudClient(config, orgId);
 
   let result = `**JumpCloud Investigation for "${clientName}":**\n\n`;
 

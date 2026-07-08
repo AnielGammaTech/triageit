@@ -27,11 +27,15 @@ import {
 
 interface CippData {
   readonly user: CippUser | null;
+  // true = the user lookup THREW (say "lookup failed"), so user: null does
+  // NOT mean the user is missing from the tenant
+  readonly userLookupFailed: boolean;
   readonly mailbox: CippMailbox | null;
   readonly mfaStatus: CippMfaStatus | null;
   readonly devices: ReadonlyArray<CippDevice>;
   readonly conditionalAccess: ReadonlyArray<CippConditionalAccessPolicy>;
-  readonly signInLogs: ReadonlyArray<CippSignInLog>;
+  // null = lookup failed (say "could not check"), [] = no recent sign-ins
+  readonly signInLogs: ReadonlyArray<CippSignInLog> | null;
   readonly tenantDomain: string | null;
   // null = lookup failed (say "could not check"), [] = no active incidents
   readonly serviceHealth: ReadonlyArray<CippServiceHealthIssue> | null;
@@ -104,7 +108,7 @@ Respond with ONLY valid JSON:
     if (cippData) {
       await this.logThinking(
         context.ticketId,
-        `Pulled CIPP data for tenant ${cippData.tenantDomain}: user=${cippData.user?.displayName ?? "not found"}, mfa=${cippData.mfaStatus?.perUser ?? "unknown"}, devices=${cippData.devices.length}, signInLogs=${cippData.signInLogs.length}`,
+        `Pulled CIPP data for tenant ${cippData.tenantDomain}: user=${cippData.user?.displayName ?? (cippData.userLookupFailed ? "lookup FAILED" : "not found")}, mfa=${cippData.mfaStatus?.perUser ?? "unknown"}, devices=${cippData.devices.length}, signInLogs=${cippData.signInLogs?.length ?? "lookup FAILED"}`,
       );
     } else {
       await this.logThinking(
@@ -176,6 +180,12 @@ Respond with ONLY valid JSON:
           `- **Licenses:** ${u.assignedLicenses.length > 0 ? u.assignedLicenses.map((l) => l.skuId).join(", ") : "None"}`,
           u.lastSignInDateTime ? `- **Last Sign-in:** ${u.lastSignInDateTime}` : "",
         );
+      } else if (cippData.userLookupFailed) {
+        lines.push(
+          "",
+          "### User Account",
+          "⚠ CIPP user lookup FAILED — live data unavailable. State this in your findings; do NOT report the user as missing or disabled.",
+        );
       } else {
         lines.push("", "### User Account", "User not found in tenant.");
       }
@@ -211,7 +221,13 @@ Respond with ONLY valid JSON:
         }
       }
 
-      if (cippData.signInLogs.length > 0) {
+      if (cippData.signInLogs === null) {
+        lines.push(
+          "",
+          "### Recent Sign-in Activity",
+          "⚠ CIPP sign-in log lookup FAILED — live data unavailable. State this in your findings; do NOT conclude there are no failed or risky sign-ins.",
+        );
+      } else if (cippData.signInLogs.length > 0) {
         const recentLogs = cippData.signInLogs.slice(0, 5);
         const failedLogs = cippData.signInLogs.filter((l) => l.status?.errorCode !== 0);
 
@@ -273,6 +289,7 @@ Respond with ONLY valid JSON:
       // Try to find user by email first, then by name if no email
       let user: CippUser | null = null;
       let mfaStatus: CippMfaStatus | null = null;
+      let userLookupFailed = false;
 
       const [conditionalAccess, serviceHealth] = await Promise.all([
         client.getConditionalAccess(tenantDomain).catch(() => [] as CippConditionalAccessPolicy[]),
@@ -282,10 +299,16 @@ Respond with ONLY valid JSON:
       ]);
 
       if (userEmail) {
-        [user, mfaStatus] = await Promise.all([
-          client.findUser(tenantDomain, userEmail),
-          client.findUserMfa(tenantDomain, userEmail),
-        ]);
+        try {
+          [user, mfaStatus] = await Promise.all([
+            client.findUser(tenantDomain, userEmail),
+            client.findUserMfa(tenantDomain, userEmail),
+          ]);
+        } catch (error) {
+          // Lookup failed ≠ user missing — Darryl must say "lookup FAILED"
+          userLookupFailed = true;
+          console.warn("[DARRYL] CIPP user lookup failed:", error instanceof Error ? error.message : error);
+        }
       }
 
       // If no user found by email, try searching all users by name
@@ -304,11 +327,12 @@ Respond with ONLY valid JSON:
           });
           if (matched) {
             user = matched;
-            mfaStatus = await client.findUserMfa(tenantDomain, matched.userPrincipalName ?? "");
+            mfaStatus = await client.findUserMfa(tenantDomain, matched.userPrincipalName ?? "").catch(() => null);
             console.log(`[DARRYL] Found user by name match: "${userName}" → ${matched.userPrincipalName}`);
           }
         } catch {
-          // Non-critical — proceed without user
+          // Lookup failed ≠ user missing — proceed, but flag it
+          userLookupFailed = true;
         }
       }
 
@@ -318,10 +342,14 @@ Respond with ONLY valid JSON:
         const textToSearch = `${context.summary} ${context.details ?? ""}`;
         const emailMatch = textToSearch.match(emailRegex);
         if (emailMatch) {
-          user = await client.findUser(tenantDomain, emailMatch[0]);
-          if (user) {
-            mfaStatus = await client.findUserMfa(tenantDomain, emailMatch[0]);
-            console.log(`[DARRYL] Found user by email in ticket text: ${emailMatch[0]}`);
+          try {
+            user = await client.findUser(tenantDomain, emailMatch[0]);
+            if (user) {
+              mfaStatus = await client.findUserMfa(tenantDomain, emailMatch[0]).catch(() => null);
+              console.log(`[DARRYL] Found user by email in ticket text: ${emailMatch[0]}`);
+            }
+          } catch {
+            userLookupFailed = true;
           }
         }
       }
@@ -329,7 +357,7 @@ Respond with ONLY valid JSON:
       // Fetch user-specific data if we found the user
       let mailbox: CippMailbox | null = null;
       let devices: ReadonlyArray<CippDevice> = [];
-      let signInLogs: ReadonlyArray<CippSignInLog> = [];
+      let signInLogs: ReadonlyArray<CippSignInLog> | null = [];
 
       if (user) {
         const [mailboxes, allDevices, logs] = await Promise.all([
@@ -344,7 +372,7 @@ Respond with ONLY valid JSON:
         signInLogs = logs;
       }
 
-      return { user, mailbox, mfaStatus, devices, conditionalAccess, signInLogs, tenantDomain, serviceHealth };
+      return { user, userLookupFailed, mailbox, mfaStatus, devices, conditionalAccess, signInLogs, tenantDomain, serviceHealth };
     } catch (error) {
       console.error("[DARRYL] Failed to fetch CIPP data:", error);
       return null;

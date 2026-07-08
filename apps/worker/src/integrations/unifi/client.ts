@@ -132,6 +132,8 @@ export class UnifiClient {
   /**
    * Fetch a list endpoint across ALL configured accounts and merge.
    * A failing key logs and is skipped — the other accounts still return.
+   * When EVERY key fails the lookup itself failed, so this THROWS —
+   * returning [] would read as "customer has no UniFi equipment".
    */
   private async requestAllPages<T>(path: string): Promise<T[]> {
     const results = await Promise.all(
@@ -140,11 +142,14 @@ export class UnifiClient {
           return await this.requestAllPagesForKey<T>(path, key);
         } catch (error) {
           console.warn(`[UNIFI] Account ${index + 1}/${this.apiKeys.length} failed for ${path}:`, error);
-          return [] as T[];
+          return null;
         }
       }),
     );
-    return results.flat();
+    if (results.every((r) => r === null)) {
+      throw new Error(`UniFi API ${path} failed for all ${this.apiKeys.length} account(s) — check API key(s)`);
+    }
+    return results.flatMap((r) => r ?? []);
   }
 
   /**

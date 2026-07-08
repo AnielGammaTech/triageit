@@ -112,12 +112,24 @@ async function checkUrls(
  */
 export function formatValidatedMemories(
   validated: ReadonlyArray<ValidatedMemory>,
+  currentClientName?: string | null,
 ): string {
   if (validated.length === 0) return "";
 
+  const current = currentClientName?.trim().toLowerCase() ?? null;
+
   const items = validated
     .map((v, i) => {
-      const base = `${i + 1}. [${v.memory.memory_type}] ${v.memory.summary} (confidence: ${(v.memory.confidence * 100).toFixed(0)}%, relevance: ${(v.memory.similarity * 100).toFixed(0)}%)`;
+      // Client provenance — a memory learned from ANOTHER customer must
+      // never be read as this customer's environment
+      const memClient = (v.memory.client_name ?? (v.memory.metadata?.client_name as string | undefined))?.trim() ?? null;
+      let clientTag = "";
+      if (memClient && current) {
+        clientTag = memClient.toLowerCase() === current
+          ? " [this client]"
+          : ` [⚠ DIFFERENT CLIENT: ${memClient} — their servers/DNS/credentials/config do NOT apply here; reuse only the general technique]`;
+      }
+      const base = `${i + 1}. [${v.memory.memory_type}]${clientTag} ${v.memory.summary} (confidence: ${(v.memory.confidence * 100).toFixed(0)}%, relevance: ${(v.memory.similarity * 100).toFixed(0)}%)`;
       if (v.warnings.length > 0) {
         return `${base}\n   ⚠ UNVERIFIED: ${v.warnings.join("; ")}`;
       }
@@ -125,5 +137,5 @@ export function formatValidatedMemories(
     })
     .join("\n");
 
-  return `\n---\n# Relevant Past Experiences\nYou've handled similar tickets before. Use these memories to inform your analysis.\nMemories marked UNVERIFIED may contain outdated information — verify before relying on them.\n\n${items}\n---\n`;
+  return `\n---\n# Relevant Past Experiences\nYou've handled similar tickets before. Use these memories to inform your analysis.\nMemories marked UNVERIFIED may contain outdated information — verify before relying on them.\nMemories marked DIFFERENT CLIENT were learned at another customer: environment-specific facts (hostnames, IPs, DNS, credentials, mappings) do NOT transfer — only the general approach might.\n\n${items}\n---\n`;
 }

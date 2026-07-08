@@ -57,8 +57,12 @@ interface CoveData {
 
 interface UnitrendsData {
   readonly devices: ReadonlyArray<UnitrendsDevice>;
-  readonly recentJobs: ReadonlyArray<UnitrendsBackupJob>;
+  // null = job lookup failed (say "could not check"), [] = no recent jobs
+  readonly recentJobs: ReadonlyArray<UnitrendsBackupJob> | null;
   readonly customerName: string | null;
+  // true = the Unitrends API call failed — device/health data is unknown,
+  // NOT healthy and NOT empty
+  readonly lookupFailed: boolean;
   readonly healthySummary: {
     readonly totalDevices: number;
     readonly healthyDevices: number;
@@ -77,6 +81,7 @@ const EMPTY_UNITRENDS_DATA: UnitrendsData = {
   devices: [],
   recentJobs: [],
   customerName: null,
+  lookupFailed: false,
   healthySummary: { totalDevices: 0, healthyDevices: 0, failingDevices: 0, alertDevices: 0 },
 };
 
@@ -390,11 +395,23 @@ Respond with ONLY valid JSON:
         return EMPTY_UNITRENDS_DATA;
       }
 
-      // Fetch devices and recent jobs in parallel
+      // Fetch devices and recent jobs in parallel — a failed lookup is
+      // surfaced as failed, never flattened to "0 devices / no jobs"
       const [devices, recentJobs] = await Promise.all([
-        client.getDevices(customerId).catch(() => [] as UnitrendsDevice[]),
-        client.getBackupJobs(customerId).catch(() => [] as UnitrendsBackupJob[]),
+        client.getDevices(customerId).catch((error): null => {
+          console.warn("[OSCAR] Unitrends device fetch failed:", error);
+          return null;
+        }),
+        client.getBackupJobs(customerId),
       ]);
+
+      if (devices === null) {
+        await this.logThinking(
+          context.ticketId,
+          "⚠ Unitrends device lookup FAILED — backup health unknown for this client.",
+        );
+        return { ...EMPTY_UNITRENDS_DATA, customerName, lookupFailed: true };
+      }
 
       const healthySummary = computeUnitrendsHealth(devices);
 
@@ -403,10 +420,11 @@ Respond with ONLY valid JSON:
         `Unitrends: ${devices.length} devices for ${customerName ?? `customer #${customerId}`}. ${healthySummary.healthyDevices} healthy, ${healthySummary.failingDevices} failing, ${healthySummary.alertDevices} with alerts.`,
       );
 
-      return { devices, recentJobs, customerName, healthySummary };
+      return { devices, recentJobs, customerName, lookupFailed: false, healthySummary };
     } catch (error) {
+      // Lookup failed ≠ no backup data — Oscar must say the lookup FAILED
       console.error("[OSCAR] Unitrends fetch failed:", error);
-      return EMPTY_UNITRENDS_DATA;
+      return { ...EMPTY_UNITRENDS_DATA, lookupFailed: true };
     }
   }
 
@@ -616,6 +634,13 @@ Respond with ONLY valid JSON:
     }
 
     // ── Unitrends section ─────────────────────────────────────────────
+    if (unitrendsData.lookupFailed) {
+      sections.push("", "## ⚠ Unitrends Backup Data Lookup FAILED");
+      sections.push(
+        "The Unitrends API lookup failed — live backup data is unavailable. " +
+        "State this in your findings; do NOT report backup health or claim devices are protected, unprotected, or missing.",
+      );
+    }
     if (unitrendsData.healthySummary.totalDevices > 0) {
       sections.push("", "## Unitrends (Kaseya Unified Backup)");
       if (unitrendsData.customerName) sections.push(`**Customer:** ${unitrendsData.customerName}`);
@@ -629,7 +654,12 @@ Respond with ONLY valid JSON:
         }
       }
 
-      if (unitrendsData.recentJobs.length > 0) {
+      if (unitrendsData.recentJobs === null) {
+        sections.push(
+          "",
+          "⚠ Unitrends job history lookup FAILED — recent job status unavailable. Do NOT conclude there are no failed backup jobs.",
+        );
+      } else if (unitrendsData.recentJobs.length > 0) {
         const failedJobs = unitrendsData.recentJobs.filter((j) =>
           j.status.toLowerCase().includes("fail") || j.status.toLowerCase().includes("error"),
         );
@@ -654,8 +684,8 @@ Respond with ONLY valid JSON:
       for (const ref of UNITRENDS_KB_REFERENCES) sections.push(`- [${ref.topic}](${ref.url})`);
     }
 
-    // No data fallback
-    if (!hasCove && !hasUnitrends) {
+    // No data fallback — not when the lookup FAILED (that is not "no data")
+    if (!hasCove && !hasUnitrends && !unitrendsData.lookupFailed) {
       sections.push("", "## No Backup Integration Data Available");
       sections.push(
         "Neither Cove nor Unitrends returned data for this client. " +
