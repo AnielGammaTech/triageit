@@ -1,5 +1,7 @@
 import type { createSupabaseClient } from "../db/supabase.js";
 import type { HaloClient } from "../integrations/halo/client.js";
+import { TeamsClient } from "../integrations/teams/client.js";
+import type { TeamsConfig } from "@triageit/shared";
 import { buildWav, BYTES_PER_SECOND } from "./audio.js";
 import type { CallerTicket } from "./status-script.js";
 
@@ -116,6 +118,27 @@ export async function processVoicemail(deps: VoicemailDeps, message: RecordedMes
 
   if (!message.ticket) {
     console.log(`[VOICE] Message from UNMATCHED caller ${message.callerNumber} (${durationSeconds}s): "${transcript}"`);
+    // No ticket to note — alert the team on Teams instead so the message
+    // is actually seen (call_messages alone is invisible to the techs)
+    try {
+      const { data: teamsIntegration } = await deps.supabase
+        .from("integrations")
+        .select("config")
+        .eq("service", "teams")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (teamsIntegration?.config) {
+        const teams = new TeamsClient(teamsIntegration.config as TeamsConfig);
+        await teams.sendUnknownVoicemailAlert({
+          callerNumber: message.callerNumber,
+          transcript,
+          durationSeconds,
+        });
+        console.log(`[VOICE] Teams alert sent for unmatched voicemail from ${message.callerNumber}`);
+      }
+    } catch (error) {
+      console.error("[VOICE] Teams alert for unmatched voicemail failed:", error instanceof Error ? error.message : error);
+    }
     return;
   }
 

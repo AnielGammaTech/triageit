@@ -455,6 +455,62 @@ export class TeamsClient {
     await this.sendCard(card);
   }
 
+  /**
+   * Voicemail from a number we couldn't match to any ticket — without this
+   * alert the message only lands in call_messages, which nobody watches.
+   */
+  async sendUnknownVoicemailAlert(msg: {
+    readonly callerNumber: string;
+    readonly transcript: string;
+    readonly durationSeconds: number;
+  }): Promise<void> {
+    const prettyNumber = msg.callerNumber.replace(/^\+?1(?=\d{10}$)/, "");
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                text: "New phone message — caller not matched to a ticket",
+                weight: "Bolder",
+                size: "Large",
+                color: "Warning",
+              },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Caller", value: prettyNumber },
+                  { title: "Length", value: `${msg.durationSeconds}s` },
+                ],
+              },
+              {
+                type: "TextBlock",
+                text: msg.transcript,
+                wrap: true,
+              },
+              {
+                type: "TextBlock",
+                text: "Call the number back or create a ticket if this needs follow-up. Recorded on the TriageIt phone line.",
+                wrap: true,
+                size: "Small",
+                color: "Accent",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    await this.sendCard(card);
+  }
+
   async sendResponseAlert(alert: {
     readonly haloId: number;
     readonly summary: string;

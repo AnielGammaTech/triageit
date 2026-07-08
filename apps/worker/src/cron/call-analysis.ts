@@ -16,9 +16,11 @@ import type { ThreeCxConfig } from "@triageit/shared";
  * this is a pure text pipeline: new recording → external number → Halo user
  * lookup → open ticket for that user/client → LLM analysis → private note.
  *
- * Matching is conservative: a note is only posted when the call maps to a
- * specific user with an open ticket, or to a client with exactly ONE open
- * ticket. Ambiguous calls are recorded (for dedupe) but not posted.
+ * Matching order: exact user phone → single-open-ticket client →
+ * transcript disambiguation (the LLM picks which candidate ticket the
+ * call is about, declining when unsure). Numbers Halo doesn't know get a
+ * strict transcript-only pass over the whole open board. Every path still
+ * requires the tech ON the call to be the tech ON the ticket.
  */
 
 interface CallAnalysisResult {
@@ -40,6 +42,10 @@ interface CallInsights {
 const MIN_TRANSCRIPT_CHARS = 150;
 const MAX_RECORDINGS_PER_RUN = 40;
 const MAX_TRANSCRIPT_FOR_LLM = 24_000;
+/** Global (no-Halo-user) matching needs enough conversation to be trustworthy. */
+const GLOBAL_MATCH_MIN_CHARS = 400;
+const MAX_GLOBAL_CANDIDATES = 120;
+const LLM_MATCH_MIN_CONFIDENCE = 0.75;
 
 export async function runCallAnalysis(): Promise<CallAnalysisResult> {
   const supabase = createSupabaseClient();
@@ -166,11 +172,30 @@ async function processRecording(
 
   // Who is this number in Halo?
   const users = await halo.searchUsersByPhone(external.number);
+
+  // Number not in Halo (main lines, cell phones Halo doesn't know) — the
+  // transcript itself often names the caller and the issue, so let the LLM
+  // try the whole open board. The assigned-tech guard below still applies,
+  // which kills vendor calls and wrong-ticket picks.
   if (users.length === 0) {
-    await supabase
-      .from("call_analyses")
-      .upsert({ ...base, external_number: external.number, direction, tech_name: techName, matched_by: "no_halo_user", note_posted: false }, { onConflict: "recording_id" });
-    return { matched: false, posted: false };
+    let globalPick: CandidateTicket | null = null;
+    if (transcript.length >= GLOBAL_MATCH_MIN_CHARS) {
+      const { data: allOpen } = await supabase
+        .from("tickets")
+        .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
+        .eq("tickettype_id", 31)
+        .eq("halo_is_open", true)
+        .order("created_at", { ascending: false })
+        .limit(MAX_GLOBAL_CANDIDATES);
+      globalPick = await selectTicketByTranscript(transcript, allOpen ?? [], techName, "global");
+    }
+    if (!globalPick) {
+      await supabase
+        .from("call_analyses")
+        .upsert({ ...base, external_number: external.number, direction, tech_name: techName, matched_by: "no_halo_user", note_posted: false }, { onConflict: "recording_id" });
+      return { matched: false, posted: false };
+    }
+    return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, globalPick, "llm_transcript_global", transcript);
   }
 
   // Find an open ticket: exact user first, then single-open-ticket client
@@ -188,10 +213,31 @@ async function processRecording(
 
   const candidates = openTickets ?? [];
   const byUser = candidates.filter((t) => t.user_name && userNames.includes(t.user_name.toLowerCase()));
-  const ticket =
-    byUser[0] ??
-    (candidates.length === 1 ? candidates[0] : null);
-  const matchedBy = byUser[0] ? "user_phone" : candidates.length === 1 ? "client_single_open" : null;
+
+  let ticket: CandidateTicket | null = byUser[0] ?? (candidates.length === 1 ? candidates[0] : null);
+  let matchedBy = byUser[0] ? "user_phone" : ticket ? "client_single_open" : null;
+
+  // Several tickets for this caller/user — let the transcript decide which
+  // one the call was actually about instead of blindly taking the newest.
+  if (byUser.length > 1) {
+    const pick = await selectTicketByTranscript(transcript, byUser, techName, "user");
+    if (pick) {
+      ticket = pick;
+      matchedBy = "llm_transcript_user";
+    }
+  }
+
+  // Client matched but multiple open tickets (the old blanket
+  // "ambiguous_multiple_open" skip): the transcript usually names the
+  // issue — e.g. a "litigation hold" call maps to the Litigation Hold
+  // ticket even when the office main line matches five open tickets.
+  if (!ticket && candidates.length > 1) {
+    const pick = await selectTicketByTranscript(transcript, candidates, techName, "client");
+    if (pick) {
+      ticket = pick;
+      matchedBy = "llm_transcript";
+    }
+  }
 
   if (!ticket || !matchedBy) {
     await supabase
@@ -203,6 +249,39 @@ async function processRecording(
     return { matched: false, posted: false };
   }
 
+  return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, ticket, matchedBy, transcript);
+}
+
+interface CandidateTicket {
+  readonly id: string;
+  readonly halo_id: number;
+  readonly summary: string;
+  readonly user_name: string | null;
+  readonly client_name: string | null;
+  readonly halo_status: string | null;
+  readonly halo_agent: string | null;
+}
+
+interface RecordingBase {
+  readonly recording_id: number;
+  readonly started_at: string | null;
+  readonly ended_at: string | null;
+  readonly transcript_chars: number;
+}
+
+/** Tech guard → transcript analysis → Call Summary note. Shared tail for every match path. */
+async function finishMatchedRecording(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  halo: HaloClient,
+  rec: ThreeCxRecording,
+  base: RecordingBase,
+  externalNumber: string,
+  direction: "inbound" | "outbound",
+  techName: string,
+  ticket: CandidateTicket,
+  matchedBy: string,
+  transcript: string,
+): Promise<{ matched: boolean; posted: boolean }> {
   // The tech ON THE CALL must be the tech ON THE TICKET. A different tech's
   // (or the dispatcher's) call with this customer may be about anything —
   // it must never land as documentation on someone else's ticket.
@@ -212,7 +291,7 @@ async function processRecording(
     await supabase
       .from("call_analyses")
       .upsert(
-        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: external.number, direction, tech_name: techName, matched_by: `${matchedBy}_tech_mismatch`, note_posted: false },
+        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: externalNumber, direction, tech_name: techName, matched_by: `${matchedBy}_tech_mismatch`, note_posted: false },
         { onConflict: "recording_id" },
       );
     console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: number matches #${ticket.halo_id} but caller "${techName}" is not the assigned tech "${ticket.halo_agent ?? "unassigned"}" — skipping`);
@@ -226,13 +305,13 @@ async function processRecording(
     await supabase
       .from("call_analyses")
       .upsert(
-        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: external.number, direction, tech_name: techName, matched_by: insights ? `${matchedBy}_irrelevant` : `${matchedBy}_analysis_failed`, note_posted: false },
+        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: externalNumber, direction, tech_name: techName, matched_by: insights ? `${matchedBy}_irrelevant` : `${matchedBy}_analysis_failed`, note_posted: false },
         { onConflict: "recording_id" },
       );
     return { matched: true, posted: false };
   }
 
-  const note = buildCallSummaryNote(rec, insights, techName, direction, external.number);
+  const note = buildCallSummaryNote(rec, insights, techName, direction, externalNumber);
   await halo.addInternalNote(ticket.halo_id, note);
 
   await supabase.from("call_analyses").upsert(
@@ -240,7 +319,7 @@ async function processRecording(
       ...base,
       ticket_id: ticket.id,
       halo_id: ticket.halo_id,
-      external_number: external.number,
+      external_number: externalNumber,
       direction,
       tech_name: techName,
       matched_by: matchedBy,
@@ -250,8 +329,72 @@ async function processRecording(
     { onConflict: "recording_id" },
   );
 
-  console.log(`[CALL-ANALYSIS] Posted call summary on #${ticket.halo_id} (${techName}, ${direction}, recording ${rec.Id})`);
+  console.log(`[CALL-ANALYSIS] Posted call summary on #${ticket.halo_id} (${techName}, ${direction}, ${matchedBy}, recording ${rec.Id})`);
   return { matched: true, posted: true };
+}
+
+/**
+ * Which of these tickets is this call about? The transcript carries the
+ * issue ("looking into litigation holds…") even when the phone number
+ * alone is ambiguous. Declining is always allowed — a null return falls
+ * back to the conservative skip paths.
+ */
+async function selectTicketByTranscript(
+  transcript: string,
+  candidates: ReadonlyArray<CandidateTicket>,
+  techName: string,
+  scope: "user" | "client" | "global",
+): Promise<CandidateTicket | null> {
+  if (candidates.length === 0) return null;
+  try {
+    const anthropic = new Anthropic();
+    const lines = candidates.map(
+      (t) =>
+        `#${t.halo_id} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${String(t.summary ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 120)}`,
+    );
+
+    const prompt = [
+      `A support call at an MSP was recorded and transcribed. Decide which open ticket (if any) the call is about, so the call summary lands on the right ticket.`,
+      ``,
+      `Tech on the call: ${techName}`,
+      scope === "global"
+        ? `The caller's number is not in the PSA, so be STRICT: only match when the transcript clearly names the company, person, or the exact issue of a listed ticket.`
+        : `The caller's phone number maps to the client(s) below but matches more than one open ticket.`,
+      ``,
+      `OPEN TICKETS:`,
+      ...lines,
+      ``,
+      `TRANSCRIPT (3CX auto-transcription, may include IVR audio and errors):`,
+      transcript.slice(0, MAX_TRANSCRIPT_FOR_LLM),
+      ``,
+      `Respond with ONLY valid JSON:`,
+      `{`,
+      `  "halo_id": <ticket number the call is clearly about, or null if none/unsure>,`,
+      `  "confidence": <0.0-1.0 — how certain the transcript identifies THAT ticket>,`,
+      `  "evidence": "<the transcript phrase(s) that identify the ticket>"`,
+      `}`,
+      `When the call is small talk, a wrong number, a vendor, or could fit several tickets equally, return null. Never guess.`,
+    ].join("\n");
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 300,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = extractResponseText(response);
+    if (!text) return null;
+    const pick = parseLlmJson<{ halo_id?: number | null; confidence?: number; evidence?: string }>(text);
+    if (!pick.halo_id || (pick.confidence ?? 0) < LLM_MATCH_MIN_CONFIDENCE) return null;
+
+    const ticket = candidates.find((t) => t.halo_id === pick.halo_id) ?? null;
+    if (ticket) {
+      console.log(`[CALL-ANALYSIS] Transcript match (${scope}): #${ticket.halo_id} at ${pick.confidence} — "${(pick.evidence ?? "").slice(0, 120)}"`);
+    }
+    return ticket;
+  } catch (error) {
+    console.error("[CALL-ANALYSIS] Ticket selection failed:", error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 async function analyzeCall(

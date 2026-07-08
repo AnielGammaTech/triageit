@@ -180,15 +180,21 @@ export async function getAgentsForClassification(
     // Meredith on every email ticket (user request 2026-07-08): any email
     // issue/question should confirm the reporter's mailbox backup state —
     // "Spanning is running for this mailbox" — not just DNS/M365 checks
-    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin", "meredith_palmer"],
+    // Holly (Pax8 licensing) rides along wherever a license gap is a
+    // plausible root cause (user request 2026-07-08: "whenever there is
+    // licensing needed or a suggestion for Pax8, be on top of it"):
+    // email/cloud/identity features are license-tiered, application
+    // tickets are often "wrong plan for this app", and every onboarding
+    // needs seats checked BEFORE the tech hits "no licenses available".
+    email: ["phyllis_vance", "dwight_schrute", "darryl_philbin", "meredith_palmer", "holly_flax"],
     endpoint: ["andy_bernard", "dwight_schrute"],
-    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute"],
+    cloud: ["stanley_hudson", "meredith_palmer", "oscar_martinez", "dwight_schrute", "holly_flax"],
     backup: ["meredith_palmer", "oscar_martinez", "dwight_schrute"],
     security: ["angela_martin", "jim_halpert", "phyllis_vance", "darryl_philbin", "dwight_schrute"],
-    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute"],
-    application: ["dwight_schrute", "andy_bernard"],
+    identity: ["jim_halpert", "darryl_philbin", "dwight_schrute", "holly_flax"],
+    application: ["dwight_schrute", "andy_bernard", "holly_flax"],
     infrastructure: ["andy_bernard", "stanley_hudson", "dwight_schrute"],
-    onboarding: ["jim_halpert", "dwight_schrute"],
+    onboarding: ["jim_halpert", "dwight_schrute", "holly_flax"],
     billing: ["dwight_schrute", "holly_flax"],
     other: ["dwight_schrute"],
   };
@@ -238,5 +244,11 @@ function shouldUseLicensingWorker(classificationType: string, ticketText: string
   if (classificationType === "billing") return true;
 
   const text = ticketText.toLowerCase();
-  return /\b(license|licence|licensing|subscription|pax8|seat|seats|bill(?:ing)?|invoice|renewal|renew|m365 business|business standard|business premium|exchange online|defender for business|azure subscription|marketplace|add user license|remove license)\b/.test(text);
+  return (
+    /\b(license|licence|licensing|subscription|pax8|seat|seats|bill(?:ing)?|invoice|renewal|renew|m365 business|business standard|business premium|exchange online|defender for business|azure subscription|marketplace|add user license|remove license)\b/.test(text) ||
+    // User lifecycle — every hire/departure has a licensing consequence
+    /\b(new hire|new employee|new user|onboard(?:ing)?|offboard(?:ing)?|terminat(?:e|ed|ion)|separat(?:ed|ion)|last day|departing|departed|no longer with|new team member|add (?:a )?user|remove (?:a )?user|disable (?:the )?account)\b/.test(text) ||
+    // License-tier symptoms — "can't do X" that a plan upgrade fixes
+    /\b(mailbox (?:is )?full|storage full|out of storage|can'?t install office|office apps?|desktop apps?|teams phone|conditional access|intune|upgrade (?:their |the )?plan|e[35] license|copilot)\b/.test(text)
+  );
 }
