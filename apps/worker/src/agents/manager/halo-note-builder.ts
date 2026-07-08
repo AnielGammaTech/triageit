@@ -124,6 +124,13 @@ function toStringArray(value: unknown): string[] {
   return [String(value).trim()].filter(Boolean);
 }
 
+/** Cap long specialist summaries inside the collapsed detail section. */
+function truncateForDetail(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).replace(/\s+\S*$/, "")}…`;
+}
+
 function uniqueNonEmpty(items: ReadonlyArray<string>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -394,6 +401,85 @@ export function buildHaloNote(
   // Doc Gaps removed from initial triage — they belong in the close review only
 
   // Priority recommendation lives in the header chip — no bottom row
+
+  // Collapsed deep-dive — full specialist findings and extended context the
+  // slim note deliberately omits. <details>/<summary> render collapsed in
+  // Halo's agent UI (verified: tags survive Halo storage untouched) and
+  // degrade to always-visible content if a renderer ever strips them.
+  {
+    const detailBlocks: string[] = [];
+
+    if (classification.urgency_reasoning) {
+      detailBlocks.push(
+        `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">URGENCY REASONING</span><br/><span style="color:#cbd5e1;">${linkifyUrls(classification.urgency_reasoning)}</span></div>`,
+      );
+    }
+
+    // Every specialist's own summary — Michael distills these into the rows
+    // above, but the raw findings carry detail techs sometimes need
+    const specialistBlocks = Object.entries(findings)
+      .filter(([, f]) => (f.summary ?? "").trim().length > 0)
+      .map(([name, f]) => {
+        const label = AGENT_LABELS[name] ?? name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const conf = typeof f.confidence === "number" ? ` <span style="color:#64748b;font-size:10.5px;">${(f.confidence * 100).toFixed(0)}%</span>` : "";
+        const summary = truncateForDetail(f.summary, 500);
+        return `<div style="margin-bottom:7px;"><span style="color:#93c5fd;font-weight:600;">${label}</span>${conf}<br/><span style="color:#cbd5e1;">${linkifyKnownEntities(linkifyUrls(summary), allLinks)}</span></div>`;
+      });
+    if (specialistBlocks.length > 0) {
+      detailBlocks.push(
+        `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">SPECIALIST FINDINGS (${specialistBlocks.length})</span></div>${specialistBlocks.join("")}`,
+      );
+    }
+
+    // Angela's concrete action lists — trimmed from the slim note but
+    // exactly what a tech wants when the ticket IS a security issue
+    const angelaData = findings.angela_martin?.data;
+    const immediateActions = toStringArray(angelaData?.immediate_actions).slice(0, 6);
+    const investigationSteps = toStringArray(angelaData?.investigation_steps).slice(0, 6);
+    if (immediateActions.length > 0 || investigationSteps.length > 0) {
+      const items = [
+        ...immediateActions.map((a) => `<li style="margin-bottom:3px;">${linkifyUrls(a)}</li>`),
+        ...investigationSteps.map((s) => `<li style="margin-bottom:3px;color:#94a3b8;">${linkifyUrls(s)}</li>`),
+      ].join("");
+      detailBlocks.push(
+        `<div style="margin-bottom:8px;"><span style="color:#f87171;font-weight:600;font-size:11px;">SECURITY ACTIONS &amp; INVESTIGATION</span><ol style="margin:4px 0 0 18px;padding:0;color:#fca5a5;">${items}</ol></div>`,
+      );
+    }
+
+    // App context past the 3-item cap shown above
+    const fullAppContext = uniqueNonEmpty([
+      ...toStringArray(michaelResult.connected_app_context),
+      ...collectConnectedAppContext(findings),
+    ]);
+    const overflowContext = fullAppContext.slice(3, 12);
+    if (overflowContext.length > 0) {
+      detailBlocks.push(
+        `<div style="margin-bottom:8px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">MORE APP CONTEXT</span><br/><span style="color:#bbf7d0;">${linkifyKnownEntities(formatBulletList(overflowContext), allLinks)}</span></div>`,
+      );
+    }
+
+    // Credential pointers with their notes (slim note shows names only)
+    if (relevantPasswords.length > 0) {
+      const pwLines = relevantPasswords
+        .slice(0, 6)
+        .map((p) => `<li style="margin-bottom:2px;"><strong>${p.name}</strong>${p.type ? ` <span style="color:#64748b;">(${p.type})</span>` : ""}${p.note ? ` — ${p.note}` : ""}</li>`)
+        .join("");
+      detailBlocks.push(
+        `<div style="margin-bottom:4px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">CREDENTIALS IN HUDU</span><ul style="margin:4px 0 0 18px;padding:0;color:#bbf7d0;">${pwLines}</ul></div>`,
+      );
+    }
+
+    if (detailBlocks.length > 0) {
+      rows.push(
+        `<tr style="background:#1E2028;"><td colspan="2" style="padding:0;${border}">` +
+          `<details style="margin:0;">` +
+          `<summary style="cursor:pointer;padding:8px 12px;font-size:12px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ More detail — full specialist findings &amp; extended context <span style="font-weight:400;color:#64748b;">(click to expand)</span></summary>` +
+          `<div style="padding:10px 14px;font-size:12px;line-height:1.55;border-top:1px solid #3a3f4b;">${detailBlocks.join("")}</div>` +
+          `</details>` +
+          `</td></tr>`,
+      );
+    }
+  }
 
   // Evidence trail — which attachments the AI actually read for this triage
   if (analyzedFiles && analyzedFiles.length > 0) {
