@@ -131,6 +131,99 @@ function truncateForDetail(text: string, maxChars: number): string {
   return `${trimmed.slice(0, maxChars).replace(/\s+\S*$/, "")}…`;
 }
 
+/**
+ * Collapsed "More detail" expander shared by the main triage note and the
+ * compact retriage note. <details>/<summary> render collapsed in Halo's
+ * agent UI (verified: tags survive Halo storage untouched) and degrade to
+ * always-visible content if a renderer ever strips them.
+ * Returns null when there is nothing worth expanding.
+ */
+function buildMoreDetailRow(params: {
+  readonly findings: Record<string, AgentFinding>;
+  readonly michaelResult: {
+    readonly connected_app_context?: ReadonlyArray<string>;
+  };
+  readonly allLinks: ReadonlyArray<{ label: string; url: string }>;
+  readonly relevantPasswords: ReadonlyArray<{ name: string; type: string; note: string }>;
+  readonly urgencyReasoning?: string | null;
+  readonly shownAppContextCount: number;
+  readonly border: string;
+}): string | null {
+  const { findings, michaelResult, allLinks, relevantPasswords, urgencyReasoning, shownAppContextCount, border } = params;
+  const detailBlocks: string[] = [];
+
+  if (urgencyReasoning) {
+    detailBlocks.push(
+      `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">URGENCY REASONING</span><br/><span style="color:#cbd5e1;">${linkifyUrls(urgencyReasoning)}</span></div>`,
+    );
+  }
+
+  // Every specialist's own summary — Michael distills these into the rows
+  // above, but the raw findings carry detail techs sometimes need
+  const specialistBlocks = Object.entries(findings)
+    .filter(([, f]) => (f.summary ?? "").trim().length > 0)
+    .map(([name, f]) => {
+      const label = AGENT_LABELS[name] ?? name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      const conf = typeof f.confidence === "number" ? ` <span style="color:#64748b;font-size:10.5px;">${(f.confidence * 100).toFixed(0)}%</span>` : "";
+      const summary = truncateForDetail(f.summary, 500);
+      return `<div style="margin-bottom:7px;"><span style="color:#93c5fd;font-weight:600;">${label}</span>${conf}<br/><span style="color:#cbd5e1;">${linkifyKnownEntities(linkifyUrls(summary), allLinks)}</span></div>`;
+    });
+  if (specialistBlocks.length > 0) {
+    detailBlocks.push(
+      `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">SPECIALIST FINDINGS (${specialistBlocks.length})</span></div>${specialistBlocks.join("")}`,
+    );
+  }
+
+  // Angela's concrete action lists — trimmed from the slim note but
+  // exactly what a tech wants when the ticket IS a security issue
+  const angelaData = findings.angela_martin?.data;
+  const immediateActions = toStringArray(angelaData?.immediate_actions).slice(0, 6);
+  const investigationSteps = toStringArray(angelaData?.investigation_steps).slice(0, 6);
+  if (immediateActions.length > 0 || investigationSteps.length > 0) {
+    const items = [
+      ...immediateActions.map((a) => `<li style="margin-bottom:3px;">${linkifyUrls(a)}</li>`),
+      ...investigationSteps.map((s) => `<li style="margin-bottom:3px;color:#94a3b8;">${linkifyUrls(s)}</li>`),
+    ].join("");
+    detailBlocks.push(
+      `<div style="margin-bottom:8px;"><span style="color:#f87171;font-weight:600;font-size:11px;">SECURITY ACTIONS &amp; INVESTIGATION</span><ol style="margin:4px 0 0 18px;padding:0;color:#fca5a5;">${items}</ol></div>`,
+    );
+  }
+
+  // App context past the cap shown in the visible note
+  const fullAppContext = uniqueNonEmpty([
+    ...toStringArray(michaelResult.connected_app_context),
+    ...collectConnectedAppContext(findings),
+  ]);
+  const overflowContext = fullAppContext.slice(shownAppContextCount, shownAppContextCount + 9);
+  if (overflowContext.length > 0) {
+    detailBlocks.push(
+      `<div style="margin-bottom:8px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">MORE APP CONTEXT</span><br/><span style="color:#bbf7d0;">${linkifyKnownEntities(formatBulletList(overflowContext), allLinks)}</span></div>`,
+    );
+  }
+
+  // Credential pointers with their notes (slim note shows names only)
+  if (relevantPasswords.length > 0) {
+    const pwLines = relevantPasswords
+      .slice(0, 6)
+      .map((p) => `<li style="margin-bottom:2px;"><strong>${p.name}</strong>${p.type ? ` <span style="color:#64748b;">(${p.type})</span>` : ""}${p.note ? ` — ${p.note}` : ""}</li>`)
+      .join("");
+    detailBlocks.push(
+      `<div style="margin-bottom:4px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">CREDENTIALS IN HUDU</span><ul style="margin:4px 0 0 18px;padding:0;color:#bbf7d0;">${pwLines}</ul></div>`,
+    );
+  }
+
+  if (detailBlocks.length === 0) return null;
+
+  return (
+    `<tr style="background:#1E2028;"><td colspan="2" style="padding:0;${border}">` +
+    `<details style="margin:0;">` +
+    `<summary style="cursor:pointer;padding:8px 12px;font-size:12px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ More detail — full specialist findings &amp; extended context <span style="font-weight:400;color:#64748b;">(click to expand)</span></summary>` +
+    `<div style="padding:10px 14px;font-size:12px;line-height:1.55;border-top:1px solid #3a3f4b;">${detailBlocks.join("")}</div>` +
+    `</details>` +
+    `</td></tr>`
+  );
+}
+
 function uniqueNonEmpty(items: ReadonlyArray<string>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -403,82 +496,18 @@ export function buildHaloNote(
   // Priority recommendation lives in the header chip — no bottom row
 
   // Collapsed deep-dive — full specialist findings and extended context the
-  // slim note deliberately omits. <details>/<summary> render collapsed in
-  // Halo's agent UI (verified: tags survive Halo storage untouched) and
-  // degrade to always-visible content if a renderer ever strips them.
+  // slim note deliberately omits (shared with the retriage note)
   {
-    const detailBlocks: string[] = [];
-
-    if (classification.urgency_reasoning) {
-      detailBlocks.push(
-        `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">URGENCY REASONING</span><br/><span style="color:#cbd5e1;">${linkifyUrls(classification.urgency_reasoning)}</span></div>`,
-      );
-    }
-
-    // Every specialist's own summary — Michael distills these into the rows
-    // above, but the raw findings carry detail techs sometimes need
-    const specialistBlocks = Object.entries(findings)
-      .filter(([, f]) => (f.summary ?? "").trim().length > 0)
-      .map(([name, f]) => {
-        const label = AGENT_LABELS[name] ?? name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-        const conf = typeof f.confidence === "number" ? ` <span style="color:#64748b;font-size:10.5px;">${(f.confidence * 100).toFixed(0)}%</span>` : "";
-        const summary = truncateForDetail(f.summary, 500);
-        return `<div style="margin-bottom:7px;"><span style="color:#93c5fd;font-weight:600;">${label}</span>${conf}<br/><span style="color:#cbd5e1;">${linkifyKnownEntities(linkifyUrls(summary), allLinks)}</span></div>`;
-      });
-    if (specialistBlocks.length > 0) {
-      detailBlocks.push(
-        `<div style="margin-bottom:8px;"><span style="color:#94a3b8;font-weight:600;font-size:11px;">SPECIALIST FINDINGS (${specialistBlocks.length})</span></div>${specialistBlocks.join("")}`,
-      );
-    }
-
-    // Angela's concrete action lists — trimmed from the slim note but
-    // exactly what a tech wants when the ticket IS a security issue
-    const angelaData = findings.angela_martin?.data;
-    const immediateActions = toStringArray(angelaData?.immediate_actions).slice(0, 6);
-    const investigationSteps = toStringArray(angelaData?.investigation_steps).slice(0, 6);
-    if (immediateActions.length > 0 || investigationSteps.length > 0) {
-      const items = [
-        ...immediateActions.map((a) => `<li style="margin-bottom:3px;">${linkifyUrls(a)}</li>`),
-        ...investigationSteps.map((s) => `<li style="margin-bottom:3px;color:#94a3b8;">${linkifyUrls(s)}</li>`),
-      ].join("");
-      detailBlocks.push(
-        `<div style="margin-bottom:8px;"><span style="color:#f87171;font-weight:600;font-size:11px;">SECURITY ACTIONS &amp; INVESTIGATION</span><ol style="margin:4px 0 0 18px;padding:0;color:#fca5a5;">${items}</ol></div>`,
-      );
-    }
-
-    // App context past the 3-item cap shown above
-    const fullAppContext = uniqueNonEmpty([
-      ...toStringArray(michaelResult.connected_app_context),
-      ...collectConnectedAppContext(findings),
-    ]);
-    const overflowContext = fullAppContext.slice(3, 12);
-    if (overflowContext.length > 0) {
-      detailBlocks.push(
-        `<div style="margin-bottom:8px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">MORE APP CONTEXT</span><br/><span style="color:#bbf7d0;">${linkifyKnownEntities(formatBulletList(overflowContext), allLinks)}</span></div>`,
-      );
-    }
-
-    // Credential pointers with their notes (slim note shows names only)
-    if (relevantPasswords.length > 0) {
-      const pwLines = relevantPasswords
-        .slice(0, 6)
-        .map((p) => `<li style="margin-bottom:2px;"><strong>${p.name}</strong>${p.type ? ` <span style="color:#64748b;">(${p.type})</span>` : ""}${p.note ? ` — ${p.note}` : ""}</li>`)
-        .join("");
-      detailBlocks.push(
-        `<div style="margin-bottom:4px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">CREDENTIALS IN HUDU</span><ul style="margin:4px 0 0 18px;padding:0;color:#bbf7d0;">${pwLines}</ul></div>`,
-      );
-    }
-
-    if (detailBlocks.length > 0) {
-      rows.push(
-        `<tr style="background:#1E2028;"><td colspan="2" style="padding:0;${border}">` +
-          `<details style="margin:0;">` +
-          `<summary style="cursor:pointer;padding:8px 12px;font-size:12px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ More detail — full specialist findings &amp; extended context <span style="font-weight:400;color:#64748b;">(click to expand)</span></summary>` +
-          `<div style="padding:10px 14px;font-size:12px;line-height:1.55;border-top:1px solid #3a3f4b;">${detailBlocks.join("")}</div>` +
-          `</details>` +
-          `</td></tr>`,
-      );
-    }
+    const detailRow = buildMoreDetailRow({
+      findings,
+      michaelResult,
+      allLinks,
+      relevantPasswords,
+      urgencyReasoning: classification.urgency_reasoning,
+      shownAppContextCount: 3,
+      border,
+    });
+    if (detailRow) rows.push(detailRow);
   }
 
   // Evidence trail — which attachments the AI actually read for this triage
@@ -589,6 +618,28 @@ export function buildCompactRetriageNote(
   // KB Ideas and Doc Gaps removed from retriage — they belong in the close review only
 
   // Priority recommendation lives in the header chip — no bottom row
+
+  // Collapsed deep-dive — same expander as the main note; retriage is when
+  // techs most often want the full specialist detail behind the summary
+  {
+    const dwightData = findings.dwight_schrute?.data;
+    const retriageLinks = [
+      ...((findings.andy_bernard?.data?.device_links as Array<{ label: string; url: string }>) ?? []),
+      ...((dwightData?.hudu_links as Array<{ label: string; url: string }>) ?? []),
+      ...((findings.oscar_martinez?.data?.quicklinks as Array<{ label: string; url: string }>) ?? []),
+      ...((findings.meredith_palmer?.data?.quicklinks as Array<{ label: string; url: string }>) ?? []),
+    ];
+    const retriagePasswords = (dwightData?.relevant_passwords as Array<{ name: string; type: string; note: string }>) ?? [];
+    const detailRow = buildMoreDetailRow({
+      findings,
+      michaelResult,
+      allLinks: retriageLinks,
+      relevantPasswords: retriagePasswords,
+      shownAppContextCount: 4,
+      border,
+    });
+    if (detailRow) rows.push(detailRow);
+  }
 
   // Footer
   rows.push(`<tr style="background:#1E2028;"><td colspan="2" style="padding:3px 12px;color:#64748b;font-size:9px;text-align:right;">TriageIt AI · retriage · ${Object.keys(findings).length} agents</td></tr>`);
