@@ -23,6 +23,8 @@ export interface CallerTicket {
 export interface CallerContext {
   readonly knownCaller: boolean;
   readonly clientName: string | null;
+  /** Halo users this number maps to — first is used for ticket creation. */
+  readonly users: ReadonlyArray<{ readonly id: number; readonly name: string }>;
   /** Tickets to read aloud (max 3). */
   readonly spokenTickets: ReadonlyArray<CallerTicket>;
   /** Where a voicemail note should land, or null (unknown/ambiguous). */
@@ -32,6 +34,7 @@ export interface CallerContext {
 const UNKNOWN_CALLER_CONTEXT: CallerContext = {
   knownCaller: false,
   clientName: null,
+  users: [],
   spokenTickets: [],
   voicemailTicket: null,
 };
@@ -63,7 +66,7 @@ export async function buildCallerContext(
     if (error) {
       console.error("[VOICE] Open-ticket lookup failed:", error.message);
       // Known caller, but ticket state unknown — don't claim "no tickets"
-      return { knownCaller: true, clientName: clientNames[0] ?? null, spokenTickets: [], voicemailTicket: null };
+      return { knownCaller: true, clientName: clientNames[0] ?? null, users: users.map((u) => ({ id: u.id, name: u.name })), spokenTickets: [], voicemailTicket: null };
     }
 
     const candidates = (openTickets ?? []) as CallerTicket[];
@@ -74,6 +77,7 @@ export async function buildCallerContext(
     return {
       knownCaller: true,
       clientName: clientNames[0] ?? null,
+      users: users.map((u) => ({ id: u.id, name: u.name })),
       spokenTickets,
       voicemailTicket,
     };

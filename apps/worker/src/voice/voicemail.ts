@@ -70,12 +70,24 @@ function buildPhoneMessageNote(callerNumber: string, transcript: string, duratio
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
     `<tr><td style="padding:8px 12px;background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:white;font-size:13px;font-weight:700;">🎙 Phone Message` +
-    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${when} · ${durationSeconds}s · ${prettyNumber}</span>` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${when}${durationSeconds > 0 ? ` · ${durationSeconds}s` : ""} · ${prettyNumber}</span>` +
     `</td></tr>` +
     `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${transcript}</td></tr>` +
     `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">TriageIt AI · recorded on the automated phone line</td></tr>` +
     `</table>`
   );
+}
+
+/**
+ * Text message captured by the conversational assistant (the caller
+ * dictated it and the model relayed the text — no separate whisper pass).
+ * Same storage + note + Teams-alert path as a recorded voicemail.
+ */
+export async function processTextMessage(
+  deps: VoicemailDeps,
+  message: { readonly callerNumber: string; readonly text: string; readonly ticket: Pick<CallerTicket, "id" | "halo_id"> | null },
+): Promise<void> {
+  await storeAndDeliverMessage(deps, message.callerNumber, message.text, 0, message.ticket);
 }
 
 /**
@@ -90,7 +102,17 @@ export async function processVoicemail(deps: VoicemailDeps, message: RecordedMes
   }
 
   const transcript = await transcribeRecording(message.pcm);
+  await storeAndDeliverMessage(deps, message.callerNumber, transcript, durationSeconds, message.ticket);
+}
 
+async function storeAndDeliverMessage(
+  deps: VoicemailDeps,
+  callerNumber: string,
+  transcript: string | null,
+  durationSeconds: number,
+  ticket: Pick<CallerTicket, "id" | "halo_id"> | null,
+): Promise<void> {
+  const message = { callerNumber, ticket };
   let messageId: string | null = null;
   try {
     const { data, error } = await deps.supabase

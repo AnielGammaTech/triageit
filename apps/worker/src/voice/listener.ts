@@ -11,6 +11,7 @@ import {
 } from "./call-control.js";
 import { AudioPump } from "./audio.js";
 import { DtmfMenuHandler, type VoiceCallHandler } from "./session.js";
+import { RealtimeVoiceHandler } from "./realtime-handler.js";
 import type { ThreeCxConfig } from "@triageit/shared";
 
 /**
@@ -167,7 +168,12 @@ async function startSession(state: ListenerState, participantId: number, callerN
   }
 
   const pump = new AudioPump((chunk) => playback.write(chunk));
-  const handler: VoiceCallHandler = new DtmfMenuHandler({ supabase: state.supabase, halo: state.halo });
+  // Conversational assistant by default (falls back to the keypad menu
+  // internally if the Realtime socket won't open). VOICE_HANDLER=dtmf
+  // forces the Stage-1 menu.
+  const deps = { supabase: state.supabase, halo: state.halo };
+  const useRealtime = process.env.VOICE_HANDLER !== "dtmf" && Boolean(process.env.OPENAI_API_KEY);
+  const handler: VoiceCallHandler = useRealtime ? new RealtimeVoiceHandler(deps) : new DtmfMenuHandler(deps);
   const session: ActiveSession = {
     handler,
     pump,
