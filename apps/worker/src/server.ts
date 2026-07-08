@@ -233,6 +233,12 @@ server.post("/weekly-report", async (_request, reply) => {
 });
 
 // Error retry — manual trigger
+server.post("/call-analysis", async (_request, reply) => {
+  const { runCallAnalysis } = await import("./cron/call-analysis.js");
+  const result = await runCallAnalysis();
+  return reply.send(result);
+});
+
 server.post("/error-retry", async (_request, reply) => {
   try {
     const { retryErroredTickets } = await import("./cron/error-retry.js");

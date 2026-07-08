@@ -102,6 +102,44 @@ export class HaloClient {
     return this.request<HaloTicket>("GET", `/tickets/${ticketId}`);
   }
 
+  /**
+   * Find users by phone number. Halo's search only matches the EXACT stored
+   * formatting (verified live: "239-566-1661" hits, "2395661661" doesn't),
+   * so the common US formats are tried until one returns rows.
+   */
+  async searchUsersByPhone(
+    rawNumber: string,
+  ): Promise<ReadonlyArray<{ id: number; name: string; client_name: string | null; phonenumber: string | null }>> {
+    const digits = rawNumber.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+    if (digits.length < 7) return [];
+
+    const formats =
+      digits.length === 10
+        ? [
+            `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`,
+            `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`,
+            digits,
+            `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`,
+          ]
+        : [digits];
+
+    for (const format of formats) {
+      const result = await this.request<{
+        users?: Array<{ id: number; name: string; client_name?: string; phonenumber?: string; mobilenumber?: string }>;
+      }>("GET", `/users?search=${encodeURIComponent(format)}&count=10`);
+      const users = result.users ?? [];
+      if (users.length > 0) {
+        return users.map((u) => ({
+          id: u.id,
+          name: u.name,
+          client_name: u.client_name ?? null,
+          phonenumber: u.phonenumber ?? u.mobilenumber ?? null,
+        }));
+      }
+    }
+    return [];
+  }
+
   async getTicketActions(ticketId: number): Promise<ReadonlyArray<HaloAction>> {
     const result = await this.request<{ actions: HaloAction[] }>(
       "GET",

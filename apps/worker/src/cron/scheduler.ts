@@ -9,6 +9,7 @@ import { scanForErrorTickets } from "./error-ticket-scan.js";
 import { scanForResponseAlerts } from "./response-alerts.js";
 import { generateWeeklyReport } from "./weekly-report.js";
 import { retryErroredTickets } from "./error-retry.js";
+import { runCallAnalysis } from "./call-analysis.js";
 import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
@@ -68,6 +69,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     description: "Re-enqueues open tickets stuck in error status (3 attempts, then permanent-failure escalation).",
     schedule: "*/30 * * * *",
     endpoint: "/error-retry",
+  },
+  {
+    name: "Call Analysis",
+    description: "Matches new 3CX call recordings to open tickets and posts a private Call Summary note from the transcript.",
+    schedule: "*/10 * * * *",
+    endpoint: "/call-analysis",
   },
   {
     name: "Response Time Alerts",
@@ -135,6 +142,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/response-alerts": runResponseAlerts,
   "/weekly-report": runWeeklyReport,
   "/error-retry": runErrorRetry,
+  "/call-analysis": runCallAnalysisCron,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -240,6 +248,11 @@ async function runWeeklyReport(): Promise<void> {
 async function runErrorRetry(): Promise<void> {
   const result = await retryErroredTickets();
   console.log(`[CRON] Error retry: ${result.retried} retried, ${result.escalated} escalated`);
+}
+
+async function runCallAnalysisCron(): Promise<void> {
+  const result = await runCallAnalysis();
+  console.log(`[CRON] Call analysis: ${result.checked} recordings, ${result.matched} matched, ${result.notesPosted} notes posted`);
 }
 
 async function runSlaScan(): Promise<void> {
