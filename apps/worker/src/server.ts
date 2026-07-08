@@ -18,6 +18,7 @@ import {
 } from "./agents/retriage/update-request.js";
 import { scanForSlaBreaches } from "./cron/sla-scan.js";
 import { syncTicketsFromHalo } from "./cron/ticket-sync.js";
+import { startVoiceListener } from "./voice/listener.js";
 import { scanWorkflowState } from "./cron/workflow-scan.js";
 import { runIntegrationHeartbeat } from "./cron/integration-heartbeat.js";
 import {
@@ -949,6 +950,11 @@ async function start() {
   // ── Step 5: Background tasks — don't block server ──
   processPendingTickets(redisAvailable).catch((err) => {
     console.error("[WORKER] Pending ticket processing failed:", err);
+  });
+
+  // AI phone line (3CX route point) — fire-and-forget, never blocks startup
+  startVoiceListener().catch((err) => {
+    console.error("[VOICE] Voice listener failed to start:", err instanceof Error ? err.message : err);
   });
 
   if (!redisAvailable) {
