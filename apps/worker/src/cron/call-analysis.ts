@@ -284,24 +284,19 @@ async function finishMatchedRecording(
   matchedBy: string,
   transcript: string,
 ): Promise<{ matched: boolean; posted: boolean }> {
-  // The tech ON THE CALL must be the tech ON THE TICKET. A different tech's
-  // (or the dispatcher's) call with this customer may be about anything —
-  // it must never land as documentation on someone else's ticket.
+  // The internal side of the call is always Gamma staff (their 3CX
+  // extension). When the staffer on the call is NOT the assigned tech
+  // (dispatcher taking a call, another tech covering), the note still
+  // posts — with attribution — but only under a STRICTER relevance bar,
+  // because "plausibly related" isn't enough to document someone else's
+  // ticket. (Observed 2026-07-09: Darren granted Outlook access on a call
+  // clearly about #40912, skipped because Ryan owned the ticket.)
   // 3CX display names come as "Carlson, Jarid" or "Matthew Lawyer"; Halo has
   // "Jarid Carlson" — compare name tokens instead of exact strings.
-  if (!namesOverlap(techName, ticket.halo_agent)) {
-    await supabase
-      .from("call_analyses")
-      .upsert(
-        { ...base, ticket_id: ticket.id, halo_id: ticket.halo_id, external_number: externalNumber, direction, tech_name: techName, matched_by: `${matchedBy}_tech_mismatch`, note_posted: false },
-        { onConflict: "recording_id" },
-      );
-    console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: number matches #${ticket.halo_id} but caller "${techName}" is not the assigned tech "${ticket.halo_agent ?? "unassigned"}" — skipping`);
-    return { matched: true, posted: false };
-  }
+  const otherStaff = !namesOverlap(techName, ticket.halo_agent);
 
   // Analyze the transcript against the ticket
-  const insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
+  const insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary, otherStaff);
 
   if (!insights || !insights.relevant_to_ticket) {
     await supabase
@@ -313,7 +308,7 @@ async function finishMatchedRecording(
     return { matched: true, posted: false };
   }
 
-  const note = buildCallSummaryNote(rec, insights, techName, direction, externalNumber);
+  const note = buildCallSummaryNote(rec, insights, techName, direction, externalNumber, otherStaff ? (ticket.halo_agent ?? "no one yet") : null);
   await halo.addInternalNote(ticket.halo_id, note);
 
   await supabase.from("call_analyses").upsert(
@@ -324,14 +319,14 @@ async function finishMatchedRecording(
       external_number: externalNumber,
       direction,
       tech_name: techName,
-      matched_by: matchedBy,
+      matched_by: otherStaff ? `${matchedBy}_other_staff` : matchedBy,
       summary: insights.summary,
       note_posted: true,
     },
     { onConflict: "recording_id" },
   );
 
-  console.log(`[CALL-ANALYSIS] Posted call summary on #${ticket.halo_id} (${techName}, ${direction}, ${matchedBy}, recording ${rec.Id})`);
+  console.log(`[CALL-ANALYSIS] Posted call summary on #${ticket.halo_id} (${techName}${otherStaff ? ` — other staff, assigned tech ${ticket.halo_agent ?? "unassigned"}` : ""}, ${direction}, ${matchedBy}, recording ${rec.Id})`);
   return { matched: true, posted: true };
 }
 
@@ -405,6 +400,7 @@ async function analyzeCall(
   techName: string,
   direction: string,
   ticketSummary: string,
+  strictRelevance = false,
 ): Promise<CallInsights | null> {
   try {
     const anthropic = new Anthropic();
@@ -424,7 +420,9 @@ async function analyzeCall(
       ``,
       `Respond with ONLY valid JSON:`,
       `{`,
-      `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely>,`,
+      strictRelevance
+        ? `  "relevant_to_ticket": <STRICT: the staff member on this call is NOT the ticket's assigned tech, so true ONLY if the call content clearly concerns this specific ticket's subject — same issue, same request. When in doubt, false>,`
+        : `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely>,`,
       `  "summary": "<2-3 sentences: what the call was about and how it ended>",`,
       `  "actions_taken": ["<things actually DONE on the call — e.g. rebooted server, reset password>"],`,
       `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
@@ -456,6 +454,8 @@ function buildCallSummaryNote(
   techName: string,
   direction: string,
   externalNumber: string,
+  /** Set when the staffer on the call is not the ticket's assigned tech. */
+  assignedTech: string | null = null,
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const when = rec.StartTime
@@ -508,6 +508,9 @@ function buildCallSummaryNote(
     `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">📞 Call Summary — ${techName}` +
     `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${directionLabel} · ${when} · ${durationMin} min · <span style="color:${sentimentColor};">${insights.customer_sentiment}</span></span>` +
     `</td></tr>` +
+    (assignedTech
+      ? `<tr style="background:#2b2410;"><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;">Call handled by ${techName} — ticket is assigned to ${assignedTech}</td></tr>`
+      : "") +
     `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${insights.summary}</td></tr>` +
     suggestionsRow +
     emailRow +
