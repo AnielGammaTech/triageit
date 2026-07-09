@@ -1,5 +1,5 @@
 import type { HaloClient } from "../integrations/halo/client.js";
-import type { CallerContext, CallerTicket } from "./status-script.js";
+import { lastActivityMs, type CallerContext, type CallerTicket } from "./status-script.js";
 
 /**
  * Conversation briefing for the realtime voice assistant: everything the
@@ -83,23 +83,43 @@ export async function buildTicketBriefings(
 }
 
 /** Render the briefing block that goes into the realtime session instructions. */
+function ageInDays(ms: number): number {
+  return ms > 0 ? Math.floor((Date.now() - ms) / 86_400_000) : -1;
+}
+
+function agePhrase(days: number): string {
+  if (days < 0) return "unknown age";
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  return `about ${Math.round(days / 30)} month(s) ago`;
+}
+
 export function formatBriefing(ctx: CallerContext, briefings: ReadonlyArray<TicketBriefing>): string {
   if (!ctx.knownCaller) {
     return "CALLER: unknown number — not in our system. Do not share any ticket details unless they provide a specific ticket number that checks out via the lookup_ticket tool.";
   }
+  const callerName = ctx.users[0]?.name ?? null;
   const lines: string[] = [
-    `CALLER: known — ${ctx.clientName ?? "client unknown"}.`,
-    briefings.length === 0 ? "No open tickets for this caller right now." : `OPEN TICKETS (${briefings.length}):`,
+    `CALLER: recognized by their phone number — it matches ${callerName ?? "a contact"} at ${ctx.clientName ?? "an unknown company"} in our records. If they ask how you know who they are, say their number is on file with their company's account.`,
+    briefings.length === 0 ? "No open tickets for this caller right now." : `OPEN TICKETS, freshest activity first (${briefings.length}):`,
   ];
   for (const b of briefings) {
     const t = b.ticket;
+    const created = ageInDays(t.created_at ? new Date(t.created_at).getTime() : 0);
+    const active = ageInDays(lastActivityMs(t));
     lines.push(
-      `- Ticket ${t.halo_id}: "${toSpeakableText(t.summary, 120)}" — status: ${t.halo_status ?? "open"}${t.halo_agent ? `, assigned to ${t.halo_agent}` : ", not yet assigned"}${t.user_name ? `, reported by ${t.user_name}` : ""}.`,
+      `- Ticket ${t.halo_id}: "${toSpeakableText(t.summary, 120)}" — status: ${t.halo_status ?? "open"}${t.halo_agent ? `, assigned to ${t.halo_agent}` : ", not yet assigned"}${t.user_name ? `, reported by ${t.user_name}` : ""}. Opened ${agePhrase(created)}, last activity ${agePhrase(active)}.`,
     );
     lines.push(
       b.lastCustomerUpdate
         ? `  Latest update we sent (${b.lastCustomerUpdate.who}, ${b.lastCustomerUpdate.when}): "${b.lastCustomerUpdate.text}"`
         : `  No customer-facing update has been posted yet.`,
+    );
+  }
+  if (briefings.length > 1) {
+    lines.push(
+      `Lead with the MOST RECENTLY ACTIVE ticket — that is almost always what they're calling about. Mention older open tickets only briefly ("you also have an older ticket about X") or when the caller brings them up.`,
     );
   }
   return lines.join("\n");
