@@ -540,7 +540,7 @@ export class TeamsClient {
         },
       ],
     };
-    await this.sendCard(card);
+    await this.sendCard(card, "tech");
   }
 
   /**
