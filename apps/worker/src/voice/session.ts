@@ -227,6 +227,7 @@ export class DtmfMenuHandler implements VoiceCallHandler {
       // THIS call — "check ticket 40867, then leave a message about it" must
       // land on 40867 even from an unrecognized number
       ticket: this.callerContext?.voicemailTicket ?? this.lastLookedUpTicket ?? null,
+      callerName: this.callerContext?.users[0]?.name ?? null,
     });
   }
 }
