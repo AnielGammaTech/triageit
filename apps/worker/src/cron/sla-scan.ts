@@ -185,7 +185,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     // "UNASSIGNED/Unknown" because they trusted the Halo fields
     const { data: alertState } = await supabase
       .from("tickets")
-      .select("halo_id, sla_breach_alerted_at, sla_breach_alert_count, halo_agent, halo_status, client_name, summary")
+      .select("halo_id, sla_breach_alerted_at, sla_breach_alert_count, halo_agent, halo_status, client_name, summary, last_tech_action_at")
       .in("halo_id", breachers.map((t) => t.id as number));
     const localByHaloId = new Map((alertState ?? []).map((t) => [t.halo_id as number, t]));
     // Grace period: only alert once the breach is >10 minutes old — a timer
@@ -229,7 +229,31 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
             : null;
           const attempt = ((local?.sla_breach_alert_count as number) ?? 0) + 1;
+          const prevAlertedAt = local?.sla_breach_alerted_at ? new Date(local.sla_breach_alerted_at as string).getTime() : null;
+          const lastTechAction = local?.last_tech_action_at ? new Date(local.last_tech_action_at as string).getTime() : null;
+          // Serious tone when the tech hasn't touched the ticket since the
+          // previous alert
+          const noUpdateSinceLastAlert =
+            attempt >= 2 && prevAlertedAt != null && (lastTechAction == null || lastTechAction <= prevAlertedAt);
           try {
+            // ATOMIC CLAIM before sending — the boot catch-up scan and the
+            // 15-min tick can run within the same second, and both reading
+            // stale state double-sent every alert (observed live 15:00
+            // 2026-07-09: 4 duplicate cards). Only the scan that wins this
+            // conditional update may send.
+            const claimQuery = supabase
+              .from("tickets")
+              .update({ sla_breach_alerted_at: new Date().toISOString(), sla_breach_alert_count: attempt })
+              .eq("halo_id", haloId);
+            const { data: claimed } = await (prevAlertedAt == null
+              ? claimQuery.is("sla_breach_alerted_at", null)
+              : claimQuery.lt("sla_breach_alerted_at", new Date(Date.now() - REALERT_MS).toISOString())
+            ).select("halo_id");
+            if (!claimed || claimed.length === 0) {
+              console.log(`[SLA SCAN] #${haloId} alert already claimed by a concurrent scan — skipping send`);
+              continue;
+            }
+
             await teams.sendSlaBreachAlert({
               haloId,
               summary: String(local?.summary ?? breacher.summary ?? "").slice(0, 120),
@@ -239,12 +263,9 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               hoursOver: timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null,
               ticketUrl: haloWebBase ? `${haloWebBase}/tickets?id=${haloId}` : null,
               attempt,
+              noUpdateSinceLastAlert,
             });
-            await supabase
-              .from("tickets")
-              .update({ sla_breach_alerted_at: new Date().toISOString(), sla_breach_alert_count: attempt })
-              .eq("halo_id", haloId);
-            console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt})`);
+            console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt}${noUpdateSinceLastAlert ? ", no tech update since last alert" : ""})`);
           } catch (error) {
             console.error(`[SLA SCAN] Teams alert for #${haloId} failed:`, error instanceof Error ? error.message : error);
           }

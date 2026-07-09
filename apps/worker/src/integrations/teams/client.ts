@@ -24,6 +24,31 @@ interface DailySummary {
   readonly processingTimeMs: number;
 }
 
+/**
+ * Escalating tone. 1st notice = directive. Repeat alerts get serious, and
+ * NO tech activity since the previous alert gets the hardest version
+ * (user: "if it's a second alert since the last update, get more serious").
+ */
+function buildBreachHeadline(breach: {
+  readonly haloId: number;
+  readonly techName: string | null;
+  readonly attempt?: number;
+  readonly noUpdateSinceLastAlert?: boolean;
+}): string {
+  const attempt = breach.attempt ?? 1;
+  const tech = breach.techName ?? "Unassigned";
+  if (attempt <= 1) {
+    return `🚨 ${tech} — ticket #${breach.haloId} is SLA BREACHED. Fix as soon as possible to prevent any negative feedback.`;
+  }
+  if (breach.noUpdateSinceLastAlert) {
+    if (attempt === 2) {
+      return `🔴 2nd ALERT — ${tech} has posted NO update on ticket #${breach.haloId} since the last alert. Still SLA breached. Drop what you're doing and handle this ticket or escalate it to management NOW.`;
+    }
+    return `🔴🔴 ${ordinal(attempt)} ALERT — ticket #${breach.haloId} STILL breached with ZERO movement from ${tech} after ${attempt - 1} alerts. This is now a management problem — Aniel/David, direct intervention needed.`;
+  }
+  return `🚨🚨 ${ordinal(attempt)} ALERT — ${tech}, ticket #${breach.haloId} has activity but is STILL SLA breached. Get it resolved or properly on hold NOW.`;
+}
+
 function ordinal(n: number): string {
   const rem10 = n % 10;
   const rem100 = n % 100;
@@ -484,6 +509,8 @@ export class TeamsClient {
     readonly ticketUrl: string | null;
     /** 1 = first notice; 2+ = still breached an hour later, escalate the wording. */
     readonly attempt?: number;
+    /** True when the ticket shows NO tech activity since the previous alert — hardest tone. */
+    readonly noUpdateSinceLastAlert?: boolean;
   }): Promise<void> {
     const overText =
       breach.hoursOver != null
@@ -508,14 +535,13 @@ export class TeamsClient {
           content: {
             $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
             type: "AdaptiveCard",
-            version: "1.4",
+            // 1.2 = maximum client compatibility — 1.4 rendered as
+            // "cards.unsupported" in some Teams surfaces
+            version: "1.2",
             body: [
               {
                 type: "TextBlock",
-                text:
-                  (breach.attempt ?? 1) <= 1
-                    ? `🚨 ${breach.techName ?? "Unassigned"} — ticket #${breach.haloId} is SLA BREACHED. Fix as soon as possible to prevent any negative feedback.`
-                    : `🚨🚨 ${ordinal(breach.attempt ?? 2)} ALERT — ${breach.techName ?? "Unassigned"}, ticket #${breach.haloId} is STILL SLA breached an hour later. This needs to move NOW.`,
+                text: buildBreachHeadline(breach),
                 weight: "Bolder",
                 color: "Attention",
                 wrap: true,
