@@ -24,6 +24,15 @@ interface DailySummary {
   readonly processingTimeMs: number;
 }
 
+function ordinal(n: number): string {
+  const rem10 = n % 10;
+  const rem100 = n % 100;
+  if (rem10 === 1 && rem100 !== 11) return `${n}st`;
+  if (rem10 === 2 && rem100 !== 12) return `${n}nd`;
+  if (rem10 === 3 && rem100 !== 13) return `${n}rd`;
+  return `${n}th`;
+}
+
 const FLAG_LABELS: Record<string, string> = {
   wot_overdue: "WOT > 24hrs",
   customer_waiting: "Customer waiting 24hrs+",
@@ -473,6 +482,8 @@ export class TeamsClient {
     readonly status: string | null;
     readonly hoursOver: number | null;
     readonly ticketUrl: string | null;
+    /** 1 = first notice; 2+ = still breached an hour later, escalate the wording. */
+    readonly attempt?: number;
   }): Promise<void> {
     const overText =
       breach.hoursOver != null
@@ -501,7 +512,10 @@ export class TeamsClient {
             body: [
               {
                 type: "TextBlock",
-                text: `🚨 ${breach.techName ?? "Unassigned"} — ticket #${breach.haloId} is SLA BREACHED. Fix as soon as possible to prevent any negative feedback.`,
+                text:
+                  (breach.attempt ?? 1) <= 1
+                    ? `🚨 ${breach.techName ?? "Unassigned"} — ticket #${breach.haloId} is SLA BREACHED. Fix as soon as possible to prevent any negative feedback.`
+                    : `🚨🚨 ${ordinal(breach.attempt ?? 2)} ALERT — ${breach.techName ?? "Unassigned"}, ticket #${breach.haloId} is STILL SLA breached an hour later. This needs to move NOW.`,
                 weight: "Bolder",
                 color: "Attention",
                 wrap: true,
