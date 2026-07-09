@@ -147,7 +147,7 @@ function externalNumberOf(rec: ThreeCxRecording): { number: string; direction: "
   return null;
 }
 
-async function processRecording(
+export async function processRecording(
   supabase: ReturnType<typeof createSupabaseClient>,
   halo: HaloClient,
   rec: ThreeCxRecording,
@@ -377,6 +377,7 @@ async function selectTicketByTranscript(
       `  "confidence": <0.0-1.0 — how certain the transcript identifies THAT ticket>,`,
       `  "evidence": "<the transcript phrase(s) that identify the ticket>"`,
       `}`,
+      `An outbound call where the tech only reached an IVR menu or voicemail STILL matches when the transcript shows who they were trying to reach (a name, an extension, the company greeting) and that person/company fits a ticket — attempted contact is ticket activity worth documenting.`,
       `When the call is small talk, a wrong number, a vendor, or could fit several tickets equally, return null. Never guess.`,
     ].join("\n");
 
@@ -426,8 +427,8 @@ async function analyzeCall(
       ``,
       `Respond with ONLY valid JSON:`,
       `{`,
-      `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely>,`,
-      `  "summary": "<2-3 sentences: what the call was about and how it ended>",`,
+      `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely. A tech attempting contact but only reaching an IVR/voicemail IS relevant — that attempt should be documented>,`,
+      `  "summary": "<2-3 sentences: what the call was about and how it ended. If the tech never reached a person, say so plainly: who they tried to reach and what stopped them>",`,
       `  "actions_taken": ["<things actually DONE on the call — e.g. rebooted server, reset password>"],`,
       `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
       `  "next_steps": ["<what should happen next based on the call>"],`,
