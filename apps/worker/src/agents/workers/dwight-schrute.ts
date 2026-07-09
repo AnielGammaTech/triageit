@@ -49,22 +49,27 @@ interface CategorizedAsset extends HuduAsset {
  * Layout names are matched case-insensitively and with partial matching,
  * so "Internet/WAN" matches a layout called "Internet/WAN" or "internet wan".
  */
+// Verified against the live Hudu sidebar 2026-07-09: Email | Applications,
+// Computer Assets, Documents, File Sharing, Locations, People, Person of
+// Interest, Vendors | VOIP | Config Files, Internet/WAN, Network Devices,
+// Printing, Site to Site VPN, Wireless. ("Network Overview" kept for any
+// client using that older layout name.)
 const CLASSIFICATION_LAYOUT_MAP: Record<string, ReadonlyArray<string>> = {
-  network: ["Internet/WAN", "Site to Site VPN", "Wireless", "Config Files", "Network Overview"],
-  voip: ["VOIP", "Config Files"],
-  telephony: ["VOIP", "Config Files"],
-  phone: ["VOIP", "Config Files"],
-  email: ["Email", "Computer Assets"],
-  endpoint: ["Computer Assets", "Applications", "Printing"],
-  security: ["Computer Assets", "People", "Internet/WAN", "Email"],
-  identity: ["People", "Applications", "Email"],
-  backup: ["Computer Assets"],
-  cloud: ["Computer Assets", "Applications"],
-  infrastructure: ["Network Overview", "Internet/WAN", "Site to Site VPN", "Locations", "Computer Assets"],
-  application: ["Applications", "Computer Assets"],
-  onboarding: ["People", "Applications", "Email", "Computer Assets"],
+  network: ["Network Devices", "Internet/WAN", "Site to Site VPN", "Wireless", "Config Files", "Network Overview"],
+  voip: ["VOIP", "Config Files", "Network Devices"],
+  telephony: ["VOIP", "Config Files", "Network Devices"],
+  phone: ["VOIP", "Config Files", "Network Devices"],
+  email: ["Email", "Computer Assets", "File Sharing"],
+  endpoint: ["Computer Assets", "Applications", "Printing", "File Sharing"],
+  security: ["Computer Assets", "People", "Person of Interest", "Internet/WAN", "Email", "Network Devices"],
+  identity: ["People", "Applications", "Email", "File Sharing"],
+  backup: ["Computer Assets", "File Sharing"],
+  cloud: ["Computer Assets", "Applications", "File Sharing"],
+  infrastructure: ["Network Devices", "Network Overview", "Internet/WAN", "Site to Site VPN", "Locations", "Computer Assets", "Config Files"],
+  application: ["Applications", "Computer Assets", "File Sharing"],
+  onboarding: ["People", "Applications", "Email", "Computer Assets", "File Sharing", "Printing"],
   billing: ["Vendors"],
-  other: ["Computer Assets", "Locations"],
+  other: ["Computer Assets", "Locations", "Documents"],
 };
 
 /** Layouts that should ALWAYS be fetched regardless of classification. */
