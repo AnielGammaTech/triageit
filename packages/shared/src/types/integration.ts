@@ -98,6 +98,9 @@ export interface GenericApiUrlKeyConfig {
 export interface TeamsConfig {
   readonly webhook_url: string;
   readonly channel_name?: string;
+  /** Separate channel for tech-performance alerts (reviews, response-time,
+   *  weekly report card). Falls back to webhook_url when unset. */
+  readonly tech_webhook_url?: string;
 }
 
 export interface CoveConfig {
