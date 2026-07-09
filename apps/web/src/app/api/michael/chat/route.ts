@@ -486,7 +486,7 @@ export async function POST(request: NextRequest) {
     },
     {
       name: "site_visits_report",
-      description: "Report of scheduled site visits: every ticket that entered Scheduled status (tracked automatically since 2026-07-09). Use when the admin asks about site visits, onsite visits, field visits, or scheduled appointments — this is the authoritative ledger, do NOT text-search tickets for 'site visit'.",
+      description: "Report of scheduled site visits: every ticket that entered Scheduled status (backfilled from Halo status history — coverage from 2026-06-01 onward). Use when the admin asks about site visits, onsite visits, field visits, or scheduled appointments — this is the authoritative ledger, do NOT text-search tickets for 'site visit'.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -791,7 +791,7 @@ export async function POST(request: NextRequest) {
         if (input.open_only === true) q = q.eq("halo_is_open", true);
         const { data, error } = await q;
         if (error) return `Query failed: ${error.message}`;
-        if (!data || data.length === 0) return `No scheduled site visits recorded in the last ${days} days. NOTE: tracking started 2026-07-09 — visits before that are not in the ledger.`;
+        if (!data || data.length === 0) return `No scheduled site visits recorded in the last ${days} days. NOTE: the ledger covers 2026-06-01 onward — older visits are not recorded.`;
         const lines = data.map((t) => `#${t.halo_id} | ${String(t.summary ?? "").slice(0, 60)} | ${t.client_name ?? "?"} | tech: ${t.halo_agent ?? "unassigned"} | status: ${t.halo_status ?? "?"}${t.halo_is_open ? "" : " (closed)"} | scheduled: ${String(t.onsite_visit_alerted_at).slice(0, 10)}`);
         return `${data.length} scheduled site visit(s) in the last ${days} days (EXACT count from the ledger):\n${lines.join("\n")}\nBilling: closed tickets with onsite evidence and 0 charged hours are flagged automatically as UNBILLED ONSITE (red note + Teams alert).`;
       }
