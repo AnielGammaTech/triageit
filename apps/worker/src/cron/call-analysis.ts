@@ -105,6 +105,30 @@ export async function runCallAnalysis(): Promise<CallAnalysisResult> {
   let matched = 0;
   let notesPosted = 0;
 
+  // Sweep recent analysis failures: the ticket MATCHED but the summary LLM
+  // call failed, so the note never posted (e.g. Ryan's #40862 Potter Homes
+  // call, 2026-07-09) — without this they were dropped forever.
+  const { data: failedRows } = await supabase
+    .from("call_analyses")
+    .select("recording_id")
+    .like("matched_by", "%analysis_failed%")
+    .eq("note_posted", false)
+    .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
+    .order("recording_id", { ascending: true })
+    .limit(5);
+  for (const row of failedRows ?? []) {
+    const recId = Number(row.recording_id);
+    const [rec] = (await tcx.getRecordingsSince(recId - 1, 1)) ?? [];
+    if (!rec || rec.Id !== recId) continue;
+    try {
+      const outcome = await processRecording(supabase, halo, rec);
+      console.log(`[CALL-ANALYSIS] Retried analysis-failed recording ${recId}: posted=${outcome.posted}`);
+      if (outcome.posted) notesPosted++;
+    } catch (error) {
+      console.error(`[CALL-ANALYSIS] Retry of recording ${recId} failed:`, error instanceof Error ? error.message : error);
+    }
+  }
+
   for (const rec of recordings) {
     try {
       const outcome = await processRecording(supabase, halo, rec);
@@ -330,8 +354,13 @@ async function finishMatchedRecording(
   // "Jarid Carlson" — compare name tokens instead of exact strings.
   const otherStaff = !namesOverlap(techName, ticket.halo_agent);
 
-  // Analyze the transcript against the ticket
-  const insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
+  // Analyze the transcript against the ticket (one retry — a matched call
+  // must not lose its note to a single transient LLM failure)
+  let insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
+  if (!insights) {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
+  }
 
   // "If it's part of the ticket, it doesn't matter who works on it — post
   // the note" (user, 2026-07-09). llm_transcript matches were already
