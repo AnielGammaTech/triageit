@@ -36,8 +36,14 @@ const FLAG_LABELS: Record<string, string> = {
 export class TeamsClient {
   constructor(private readonly config: TeamsConfig) {}
 
-  private async sendCard(card: Record<string, unknown>): Promise<void> {
-    const response = await fetch(this.config.webhook_url, {
+  /**
+   * channel "ops" = triage/SLA/customer alerts (webhook_url).
+   * channel "tech" = tech-performance alerts (tech_webhook_url when
+   * configured, else falls back to the ops webhook so nothing is lost).
+   */
+  private async sendCard(card: Record<string, unknown>, channel: "ops" | "tech" = "ops"): Promise<void> {
+    const url = channel === "tech" && this.config.tech_webhook_url ? this.config.tech_webhook_url : this.config.webhook_url;
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(card),
@@ -45,7 +51,7 @@ export class TeamsClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Teams webhook failed (${response.status}): ${text}`);
+      throw new Error(`Teams webhook (${channel}) failed (${response.status}): ${text}`);
     }
   }
 
@@ -396,7 +402,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "tech");
   }
 
   async sendImmediateAlert(ticket: ReTriageTicket, reason: string): Promise<void> {
@@ -623,7 +629,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "tech");
   }
 
   async sendWeeklyReport(report: {
@@ -703,7 +709,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "tech");
   }
 
   async sendPermanentFailureAlert(tickets: ReadonlyArray<{
