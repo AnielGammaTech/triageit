@@ -31,8 +31,8 @@ const CONNECT_TIMEOUT_MS = 7_000;
  * and a slightly longer silence window so natural pauses don't cut people
  * off. Env-tunable without a code change.
  */
-const VAD_THRESHOLD = Number(process.env.VOICE_VAD_THRESHOLD ?? "0.8");
-const VAD_SILENCE_MS = Number(process.env.VOICE_VAD_SILENCE_MS ?? "700");
+const VAD_THRESHOLD = Number(process.env.VOICE_VAD_THRESHOLD ?? "0.85");
+const VAD_SILENCE_MS = Number(process.env.VOICE_VAD_SILENCE_MS ?? "800");
 const VAD_PREFIX_MS = Number(process.env.VOICE_VAD_PREFIX_MS ?? "300");
 /** Hard cost/runaway cap — nobody needs a 15-minute robot call. */
 const MAX_CALL_MS = 10 * 60_000;
@@ -66,6 +66,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private inputBuffer: Buffer = Buffer.alloc(0);
   private maxCallTimer: ReturnType<typeof setTimeout> | null = null;
   private ended = false;
+  /** Verbatim exchange, in order — posted to the ticket on escalation calls. */
+  private transcript: Array<{ who: string; text: string }> = [];
 
   constructor(
     private readonly deps: VoicemailDeps,
@@ -151,6 +153,24 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     }
     this.ws?.close();
     this.ws = null;
+
+    // Escalation calls leave a VERBATIM record on the ticket — what was
+    // asked and exactly what the tech said (user requirement)
+    if (this.escalation && this.transcript.length > 0) {
+      const esc = (t: string) => t.replace(/</g, "&lt;");
+      const lines = this.transcript
+        .map((l) => `<b style="color:${l.who === "TriageIt" ? "#94a3b8" : "#fbbf24"};">${esc(l.who)}:</b> ${esc(l.text)}`)
+        .join("<br/>");
+      try {
+        await this.deps.halo.addInternalNote(
+          this.escalation.haloId,
+          `<b>📞 Escalation call transcript — ${this.escalation.techName ?? "tech"}</b><br/><details><summary style="cursor:pointer;">▸ Full verbatim transcript (${this.transcript.length} exchanges)</summary><div style="padding:6px 0;line-height:1.6;">${lines}</div></details>`,
+        );
+        console.log(`[VOICE] Escalation transcript posted on #${this.escalation.haloId} (${this.transcript.length} lines)`);
+      } catch (error) {
+        console.error(`[VOICE] Failed to post transcript on #${this.escalation.haloId}:`, error instanceof Error ? error.message : error);
+      }
+    }
   }
 
   // ── Realtime plumbing ───────────────────────────────────────────────
@@ -203,6 +223,9 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           input: {
             format: { type: "audio/pcmu" },
             noise_reduction: { type: "far_field" },
+            // Verbatim transcript of what the caller/tech says — escalation
+            // calls post it to the ticket
+            transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
               threshold: VAD_THRESHOLD,
@@ -240,6 +263,17 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         if (delta && this.ctx) {
           this.ctx.sendAudio(ulawToPcm16(Buffer.from(delta, "base64")));
         }
+        break;
+      }
+      case "conversation.item.input_audio_transcription.completed": {
+        const text = typeof event.transcript === "string" ? event.transcript.trim() : "";
+        if (text) this.transcript.push({ who: this.escalation?.techName ?? "Caller", text });
+        break;
+      }
+      case "response.output_audio_transcript.done":
+      case "response.audio_transcript.done": {
+        const text = typeof event.transcript === "string" ? event.transcript.trim() : "";
+        if (text) this.transcript.push({ who: "TriageIt", text });
         break;
       }
       case "input_audio_buffer.speech_started":
@@ -520,7 +554,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             ]
           : [
         `YOUR GOALS, IN ORDER`,
-        `1. Tell them the ticket is breached and ask what's going on with it.`,
+        `1. Tell them the ticket is breached and ask directly: why wasn't this completed in time? Get their reason on record — listen, don't argue.`,
         `2. Ask when they can realistically resolve it. When they give a time, CONFIRM the exact date and time back to them ("so tomorrow, July tenth at two PM — correct?"), and after a clear yes use set_resolution_target. Then tell them it's updated.`,
         `3. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
         `4. If a VOICEMAIL answers: leave one brief message ("this is the Gamma Tech assistant — ticket ${e.haloId} has breached its SLA, please update it or call the office"), use post_note saying you reached voicemail, then end_call.`,
