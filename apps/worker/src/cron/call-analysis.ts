@@ -135,6 +135,21 @@ function namesOverlap(a: string | null | undefined, b: string | null | undefined
   return tokens(b).some((t) => setA.has(t));
 }
 
+/**
+ * Ticket numbers spoken on the call ("I'm calling about ticket 40912").
+ * 3CX transcribes digits as "40912" or spaced "4 0 9 1 2" — collapse digit
+ * runs and keep 5-digit values (current Halo id range). Only runs that
+ * correspond to a real OPEN ticket ever match, so zips/prices are inert.
+ */
+function extractSpokenTicketNumbers(transcript: string): number[] {
+  const runs = transcript.match(/\d(?:[\s.,-]?\d)+/g) ?? [];
+  const ids = runs
+    .map((run) => run.replace(/\D/g, ""))
+    .filter((digits) => digits.length === 5)
+    .map(Number);
+  return [...new Set(ids)];
+}
+
 /** Pick the external (non-extension) side of the call. */
 function externalNumberOf(rec: ThreeCxRecording): { number: string; direction: "inbound" | "outbound" } | null {
   const from = (rec.FromCallerNumber ?? "").replace(/\D/g, "");
@@ -171,6 +186,26 @@ export async function processRecording(
 
   const direction = external.direction;
   const techName = (direction === "inbound" ? rec.ToDisplayName : rec.FromDisplayName) ?? "Unknown tech";
+
+  // A ticket number SPOKEN on the call is the strongest cue there is —
+  // it beats every phone-number heuristic and works even when the caller's
+  // number isn't in Halo at all.
+  const spokenIds = extractSpokenTicketNumbers(transcript);
+  if (spokenIds.length > 0) {
+    const { data: spokenMatches } = await supabase
+      .from("tickets")
+      .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
+      .in("halo_id", spokenIds)
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", true);
+    const byFirstMention = ((spokenMatches ?? []) as CandidateTicket[])
+      .slice()
+      .sort((a, b) => transcript.replace(/\D/g, "").indexOf(String(a.halo_id)) - transcript.replace(/\D/g, "").indexOf(String(b.halo_id)));
+    if (byFirstMention[0]) {
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: ticket #${byFirstMention[0].halo_id} spoken on the call — direct match`);
+      return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, byFirstMention[0], "spoken_ticket_number", transcript);
+    }
+  }
 
   // Who is this number in Halo?
   const users = await halo.searchUsersByPhone(external.number);
@@ -304,7 +339,7 @@ async function finishMatchedRecording(
   // (Jarid's #40811 call died that way). The veto only remains for pure
   // number-based matches, where the call may genuinely be about something
   // else entirely.
-  const contentMatched = matchedBy.startsWith("llm_transcript");
+  const contentMatched = matchedBy.startsWith("llm_transcript") || matchedBy === "spoken_ticket_number";
   if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
     await supabase
       .from("call_analyses")
