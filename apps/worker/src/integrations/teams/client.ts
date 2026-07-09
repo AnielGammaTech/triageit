@@ -471,9 +471,17 @@ export class TeamsClient {
     const overText =
       breach.hoursOver != null
         ? breach.hoursOver >= 1
-          ? `${breach.hoursOver.toFixed(1)} hours over`
-          : `${Math.round(breach.hoursOver * 60)} minutes over`
+          ? `${breach.hoursOver.toFixed(1)}h over`
+          : `${Math.round(breach.hoursOver * 60)}m over`
         : "just breached";
+    const col = (label: string, value: string, valueColor?: string) => ({
+      type: "Column",
+      width: "stretch",
+      items: [
+        { type: "TextBlock", text: label.toUpperCase(), size: "Small", isSubtle: true, weight: "Bolder", spacing: "None" },
+        { type: "TextBlock", text: value, weight: "Bolder", wrap: true, spacing: "None", ...(valueColor ? { color: valueColor } : {}) },
+      ],
+    });
     const card = {
       type: "message",
       attachments: [
@@ -486,34 +494,54 @@ export class TeamsClient {
             version: "1.4",
             body: [
               {
-                type: "TextBlock",
-                text: `SLA BREACH — Ticket #${breach.haloId}`,
-                weight: "Bolder",
-                size: "Large",
-                color: "Attention",
-              },
-              {
-                type: "TextBlock",
-                text: "Aniel & David — this ticket has blown its SLA.",
-                wrap: true,
-                weight: "Bolder",
-              },
-              {
-                type: "FactSet",
-                facts: [
-                  { title: "Ticket", value: `#${breach.haloId}` },
-                  { title: "Summary", value: breach.summary },
-                  { title: "Client", value: breach.clientName ?? "Unknown" },
-                  { title: "Assigned to", value: breach.techName ?? "UNASSIGNED" },
-                  { title: "Status", value: breach.status ?? "Unknown" },
-                  { title: "SLA", value: overText },
+                type: "Container",
+                style: "attention",
+                bleed: true,
+                items: [
+                  {
+                    type: "ColumnSet",
+                    columns: [
+                      {
+                        type: "Column",
+                        width: "stretch",
+                        items: [
+                          { type: "TextBlock", text: "🚨 SLA BREACH", weight: "Bolder", size: "Small", color: "Attention", spacing: "None" },
+                          { type: "TextBlock", text: `#${breach.haloId} · ${breach.summary}`, size: "Large", weight: "Bolder", wrap: true, spacing: "Small" },
+                        ],
+                      },
+                      {
+                        type: "Column",
+                        width: "auto",
+                        verticalContentAlignment: "Center",
+                        items: [
+                          { type: "TextBlock", text: overText, weight: "Bolder", size: "Medium", color: "Attention", spacing: "None" },
+                        ],
+                      },
+                    ],
+                  },
                 ],
+              },
+              {
+                type: "ColumnSet",
+                spacing: "Medium",
+                columns: [
+                  col("Client", breach.clientName ?? "Unknown"),
+                  col("Assigned to", breach.techName ?? "Unassigned", breach.techName ? undefined : "Attention"),
+                  col("Status", breach.status ?? "—"),
+                ],
+              },
+              {
+                type: "TextBlock",
+                text: "Aniel & David — needs eyes.",
+                size: "Small",
+                isSubtle: true,
+                spacing: "Medium",
               },
             ],
             ...(breach.ticketUrl
               ? {
                   actions: [
-                    { type: "Action.OpenUrl", title: "Open in Halo", url: breach.ticketUrl },
+                    { type: "Action.OpenUrl", title: "Open in Halo →", url: breach.ticketUrl },
                   ],
                 }
               : {}),
