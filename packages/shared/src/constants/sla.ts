@@ -20,3 +20,20 @@ export function isSlaTargetBreached(
   if (Number.isNaN(due)) return false;
   return due < nowMs;
 }
+
+/**
+ * Timer-based breach test — the one that actually works on this Halo
+ * instance. fixtargetmet/responsetargetmet are ALWAYS null here (verified
+ * live 2026-07-09 across breached and healthy tickets), so the target
+ * check above never fires. Halo's own "Breached SLA" view keys off the
+ * SLA timer: fixtimeleft/slatimeleft go NEGATIVE (hours) on breach. The
+ * timers are hold-adjusted, but never trust a frozen negative value
+ * while a ticket is on hold.
+ */
+export function isSlaTimerBreached(
+  timeLeftHours: number | null | undefined,
+  onHold: boolean | null | undefined = false,
+): boolean {
+  if (onHold === true) return false;
+  return typeof timeLeftHours === "number" && Number.isFinite(timeLeftHours) && timeLeftHours < 0;
+}

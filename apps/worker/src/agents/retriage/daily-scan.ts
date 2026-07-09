@@ -5,6 +5,7 @@ import {
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
   isSlaTargetBreached,
+  isSlaTimerBreached,
   type HaloTicket,
   type HaloAction,
 } from "@triageit/shared";
@@ -269,19 +270,29 @@ function quickRuleCheck(
     severity = "critical";
   }
 
-  // SLA breach — target not met AND the by-date is actually in the past.
-  // targetmet=false alone can mean "not reached yet" on a healthy ticket,
-  // and an ON-HOLD timer isn't burning (targets shift when it resumes).
+  // SLA breach. This ticket comes from Halo's LIST endpoint, which carries
+  // NO target/timer fields on this instance (verified live 2026-07-09) —
+  // only fixbydate/respondbydate. A past FIX-by date on an open ticket is
+  // the breach signal here (past respond-by is normal once the tech has
+  // replied, so it alone never flags). Timer fields used when present.
   const slaRaw = ticket as unknown as {
     responsetargetmet?: boolean;
     fixtargetmet?: boolean;
     respondbydate?: string;
     fixbydate?: string;
     onhold?: boolean;
+    fixtimeleft?: number;
+    slatimeleft?: number;
   };
+  const fixByPast =
+    typeof slaRaw.fixbydate === "string" &&
+    Number.isFinite(new Date(slaRaw.fixbydate).getTime()) &&
+    new Date(slaRaw.fixbydate).getTime() < Date.now();
   if (
     slaRaw.onhold !== true &&
-    (isSlaTargetBreached(slaRaw.responsetargetmet, slaRaw.respondbydate) ||
+    (isSlaTimerBreached(slaRaw.fixtimeleft ?? slaRaw.slatimeleft, slaRaw.onhold) ||
+      fixByPast ||
+      isSlaTargetBreached(slaRaw.responsetargetmet, slaRaw.respondbydate) ||
       isSlaTargetBreached(slaRaw.fixtargetmet, slaRaw.fixbydate))
   ) {
     flags.push("sla_breached");

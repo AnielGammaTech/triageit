@@ -70,7 +70,7 @@ export {
 
 export { INTEGRATION_DEFINITIONS } from "./constants/integrations.js";
 
-export { isSlaTargetBreached } from "./constants/sla.js";
+export { isSlaTargetBreached, isSlaTimerBreached } from "./constants/sla.js";
 
 export {
   WORKFLOW_STATUSES,
