@@ -18,6 +18,17 @@ export interface CallerTicket {
   readonly client_name: string | null;
   readonly halo_status: string | null;
   readonly halo_agent: string | null;
+  readonly created_at?: string | null;
+  readonly last_customer_reply_at?: string | null;
+  readonly last_tech_action_at?: string | null;
+}
+
+/** Most recent activity of any kind on the ticket (for freshness ordering). */
+export function lastActivityMs(t: CallerTicket): number {
+  const times = [t.last_customer_reply_at, t.last_tech_action_at, t.created_at]
+    .map((v) => (v ? new Date(v).getTime() : NaN))
+    .filter((n) => Number.isFinite(n));
+  return times.length > 0 ? Math.max(...times) : 0;
 }
 
 export interface CallerContext {
@@ -57,7 +68,7 @@ export async function buildCallerContext(
 
     const { data: openTickets, error } = await supabase
       .from("tickets")
-      .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
+      .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent, created_at, last_customer_reply_at, last_tech_action_at")
       .eq("tickettype_id", GAMMA_DEFAULT_TICKETTYPE_ID)
       .eq("halo_is_open", true)
       .in("client_name", clientNames.length > 0 ? clientNames : ["__none__"])
@@ -69,7 +80,12 @@ export async function buildCallerContext(
       return { knownCaller: true, clientName: clientNames[0] ?? null, users: users.map((u) => ({ id: u.id, name: u.name })), spokenTickets: [], voicemailTicket: null };
     }
 
-    const candidates = (openTickets ?? []) as CallerTicket[];
+    // The caller's own tickets first, freshest ACTIVITY first — a caller
+    // asking "any update?" means the ticket that moved last week, not the
+    // long-lived project ticket that happened to be created most recently.
+    const candidates = ((openTickets ?? []) as CallerTicket[])
+      .slice()
+      .sort((a, b) => lastActivityMs(b) - lastActivityMs(a));
     const byUser = candidates.filter((t) => t.user_name && userNames.includes(t.user_name.toLowerCase()));
     const voicemailTicket = byUser[0] ?? (candidates.length === 1 ? candidates[0] : null);
     const spokenTickets = (byUser.length > 0 ? byUser : candidates).slice(0, MAX_SPOKEN_TICKETS);
