@@ -69,6 +69,7 @@ export default function TicketsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [haloBaseUrl, setHaloBaseUrl] = useState<string | null>(null);
+  const [callHaloIds, setCallHaloIds] = useState<ReadonlySet<number>>(new Set());
   const [haloIdInput, setHaloIdInput] = useState("");
   const [triagingHaloId, setTriagingHaloId] = useState(false);
   const [triagingAll, setTriagingAll] = useState(false);
@@ -133,6 +134,22 @@ export default function TicketsPage() {
     } else {
       setTickets((data ?? []) as TicketRow[]);
       setError(null);
+    }
+
+    // Tickets with phone activity (posted call summaries or voicemail
+    // messages) get a phone marker in the list. Failures just hide the
+    // markers — never block the ticket list itself.
+    try {
+      const [analyses, messages] = await Promise.all([
+        supabase.from("call_analyses").select("halo_id").eq("note_posted", true).not("halo_id", "is", null).limit(2000),
+        supabase.from("call_messages").select("halo_id").not("halo_id", "is", null).limit(2000),
+      ]);
+      const ids = [...(analyses.data ?? []), ...(messages.data ?? [])]
+        .map((r) => Number((r as { halo_id: number | null }).halo_id))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      setCallHaloIds(new Set(ids));
+    } catch {
+      setCallHaloIds(new Set());
     }
     setLoading(false);
   }, []);
@@ -708,7 +725,7 @@ export default function TicketsPage() {
               )}
             </div>
           )}
-          <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} />
+          <OpenTicketList tickets={openTickets} onSelectTicket={handleSelectTicket} haloBaseUrl={haloBaseUrl} callHaloIds={callHaloIds} />
         </div>
       )}
     </div>
