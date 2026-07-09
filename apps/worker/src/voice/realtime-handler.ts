@@ -24,6 +24,16 @@ const REALTIME_URL = "wss://api.openai.com/v1/realtime";
 const DEFAULT_MODEL = process.env.VOICE_REALTIME_MODEL ?? "gpt-realtime";
 const VOICE = process.env.VOICE_REALTIME_VOICE ?? "marin";
 const CONNECT_TIMEOUT_MS = 7_000;
+/**
+ * Server-VAD tuning for a PHONE line: the default threshold (0.5) fires on
+ * breathing and line noise — the assistant kept "hearing" callers who
+ * hadn't spoken (user report 2026-07-09). Louder-than-breath speech only,
+ * and a slightly longer silence window so natural pauses don't cut people
+ * off. Env-tunable without a code change.
+ */
+const VAD_THRESHOLD = Number(process.env.VOICE_VAD_THRESHOLD ?? "0.8");
+const VAD_SILENCE_MS = Number(process.env.VOICE_VAD_SILENCE_MS ?? "700");
+const VAD_PREFIX_MS = Number(process.env.VOICE_VAD_PREFIX_MS ?? "300");
 /** Hard cost/runaway cap — nobody needs a 15-minute robot call. */
 const MAX_CALL_MS = 10 * 60_000;
 /** Buffer caller audio into ~100ms chunks before appending upstream. */
@@ -167,7 +177,15 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         audio: {
           input: {
             format: { type: "audio/pcmu" },
-            turn_detection: { type: "server_vad", silence_duration_ms: 600, interrupt_response: true, create_response: true },
+            noise_reduction: { type: "far_field" },
+            turn_detection: {
+              type: "server_vad",
+              threshold: VAD_THRESHOLD,
+              prefix_padding_ms: VAD_PREFIX_MS,
+              silence_duration_ms: VAD_SILENCE_MS,
+              interrupt_response: true,
+              create_response: true,
+            },
           },
           output: {
             format: { type: "audio/pcmu" },
