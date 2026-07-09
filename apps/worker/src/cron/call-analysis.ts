@@ -265,14 +265,19 @@ export async function processRecording(
   if (users.length === 0) {
     // Name-directed: spoken name → Halo user → their client's open tickets
     const spokenNames = extractSpokenNames(transcript);
+    if (spokenNames.length > 0) {
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken names ${spokenNames.join(", ")} — trying name-directed match`);
+    }
     for (const name of spokenNames) {
       let namedUsers: Awaited<ReturnType<typeof halo.searchUsersByName>> = [];
       try {
         namedUsers = await halo.searchUsersByName(name);
-      } catch {
+      } catch (error) {
+        console.warn(`[CALL-ANALYSIS] Name lookup "${name}" failed:`, error instanceof Error ? error.message : error);
         continue;
       }
       const namedClients = [...new Set(namedUsers.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
+      console.log(`[CALL-ANALYSIS] Name "${name}" → ${namedUsers.length} Halo user(s), clients: ${namedClients.join(", ") || "none"}`);
       if (namedClients.length === 0 || namedClients.length > 3) continue;
       const { data: clientTickets } = await supabase
         .from("tickets")
@@ -282,7 +287,20 @@ export async function processRecording(
         .in("client_name", namedClients)
         .order("created_at", { ascending: false })
         .limit(25);
-      const pick = await selectTicketByTranscript(transcript, (clientTickets ?? []) as CandidateTicket[], techName, "client");
+      const candidates = (clientTickets ?? []) as CandidateTicket[];
+
+      // The calling tech being the ASSIGNED tech of exactly one open ticket
+      // at the named person's company is decisive on its own — Jarid
+      // calling Nicole at the Dunes IS his Dunes ticket, even when the
+      // voicemail wording ("your email… calendar issue") doesn't echo the
+      // ticket title. Vague voicemails killed the topical LLM match here.
+      const assignedToCaller = candidates.filter((t) => namesOverlap(techName, t.halo_agent));
+      if (assignedToCaller.length === 1) {
+        console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken name "${name}" → ${namedClients.join("/")} + caller is assigned tech of #${assignedToCaller[0].halo_id} — direct match`);
+        return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, assignedToCaller[0], "spoken_name_assigned_tech", transcript);
+      }
+
+      const pick = await selectTicketByTranscript(transcript, candidates, techName, "client");
       if (pick) {
         console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: matched via spoken name "${name}" → ${namedClients.join("/")} → #${pick.halo_id}`);
         return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, pick, "llm_transcript_named", transcript);
@@ -419,7 +437,10 @@ async function finishMatchedRecording(
   // (Jarid's #40811 call died that way). The veto only remains for pure
   // number-based matches, where the call may genuinely be about something
   // else entirely.
-  const contentMatched = matchedBy.startsWith("llm_transcript") || matchedBy === "spoken_ticket_number";
+  const contentMatched =
+    matchedBy.startsWith("llm_transcript") ||
+    matchedBy === "spoken_ticket_number" ||
+    matchedBy === "spoken_name_assigned_tech";
   if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
     await supabase
       .from("call_analyses")
@@ -507,7 +528,14 @@ async function selectTicketByTranscript(
     const text = extractResponseText(response);
     if (!text) return null;
     const pick = parseLlmJson<{ halo_id?: number | null; confidence?: number; evidence?: string }>(text);
-    if (!pick.halo_id || (pick.confidence ?? 0) < LLM_MATCH_MIN_CONFIDENCE) return null;
+    // Client-scoped picks (caller's company already established via number
+    // or spoken name) risk at most the wrong ticket at the RIGHT client —
+    // global picks can land on a stranger's ticket, so they stay strict.
+    const minConfidence = scope === "global" ? LLM_MATCH_MIN_CONFIDENCE : 0.6;
+    if (!pick.halo_id || (pick.confidence ?? 0) < minConfidence) {
+      console.log(`[CALL-ANALYSIS] Ticket selection (${scope}) declined: halo_id=${pick.halo_id ?? "null"} confidence=${pick.confidence ?? 0} — "${(pick.evidence ?? "").slice(0, 100)}"`);
+      return null;
+    }
 
     const ticket = candidates.find((t) => t.halo_id === pick.halo_id) ?? null;
     if (ticket) {
