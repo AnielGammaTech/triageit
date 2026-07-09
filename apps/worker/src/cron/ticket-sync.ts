@@ -58,7 +58,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const haloIds = openTickets.map((t) => t.id);
   const { data: existingTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, status, workflow_past_due, resolution_time_at")
+    .select("id, halo_id, status, workflow_past_due, resolution_time_at, onsite_visit_alerted_at")
     .in("halo_id", haloIds);
 
   const existingMap = new Map(
@@ -170,6 +170,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   // Update existing tickets with fresh Halo data (status, agent, etc.)
   const existingToUpdate = openTickets.filter((t) => existingMap.has(t.id));
 
+  let visitsRecorded = 0;
   for (const ticket of existingToUpdate) {
     const workflowFields = getWorkflowFields(ticket);
     const existing = existingMap.get(ticket.id);
@@ -186,12 +187,22 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     const workflowPastDue =
       workflowFields.workflow_past_due || (freshDeadline ? false : existing?.workflow_past_due === true);
 
+    const statusNameNow = resolveStatusName(ticket, statusMap);
+    // Site-visit ledger (user 2026-07-09: backend-only — no alerts, but
+    // "when I ask it's there"): first time a ticket enters Scheduled
+    // status, stamp it. Prison Mike and the unbilled-onsite check read it.
+    const scheduledNow =
+      /sched/i.test(statusNameNow ?? "") &&
+      !(existing as { onsite_visit_alerted_at?: string | null })?.onsite_visit_alerted_at;
+    if (scheduledNow) visitsRecorded++;
+
     const { error: updateError } = await supabase
       .from("tickets")
       .update({
+        ...(scheduledNow ? { onsite_visit_alerted_at: new Date().toISOString() } : {}),
         summary: ticket.summary,
         client_name: ticket.client_name ?? null,
-        halo_status: resolveStatusName(ticket, statusMap),
+        halo_status: statusNameNow,
         halo_status_id: ticket.status_id,
         halo_team: ticket.team_name ?? ticket.team ?? null,
         halo_agent: getResolvedAgentName(ticket),
@@ -217,23 +228,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     `[TICKET-SYNC] Complete: ${openTickets.length} pulled, ${created} created, ${updated} updated, ${closed} closed, ${triageEnqueued} enqueued for triage`,
   );
 
-  // Announce newly scheduled site visits (one card per ticket, ever)
-  if (scheduledVisits.length > 0) {
-    try {
-      const { data: teamsIntegration } = await supabase
-        .from("integrations").select("config").eq("service", "teams").eq("is_active", true).maybeSingle();
-      for (const v of scheduledVisits) {
-        if (teamsIntegration?.config) {
-          const teams = new TeamsClient(teamsIntegration.config as TeamsConfig);
-          await teams.sendScheduledVisitAlert(v).catch((e) => console.error("[SYNC] Visit alert failed:", e instanceof Error ? e.message : e));
-        }
-        await supabase.from("tickets").update({ onsite_visit_alerted_at: new Date().toISOString() }).eq("halo_id", v.haloId);
-        console.log(`[SYNC] Site visit scheduled alert: #${v.haloId} (${v.techName ?? "unassigned"})`);
-      }
-    } catch (error) {
-      console.error("[SYNC] Scheduled-visit alerting failed:", error instanceof Error ? error.message : error);
-    }
-  }
+  if (visitsRecorded > 0) console.log(`[SYNC] Recorded ${visitsRecorded} newly scheduled site visit(s)`);
 
   return { pulled: openTickets.length, created, updated, triageEnqueued, closed };
 }
