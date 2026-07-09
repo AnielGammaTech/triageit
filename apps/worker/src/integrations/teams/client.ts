@@ -456,6 +456,75 @@ export class TeamsClient {
   }
 
   /**
+   * A ticket just crossed into SLA breach — one alert per breach, addressed
+   * to management (Aniel & David) with the details they act on.
+   */
+  async sendSlaBreachAlert(breach: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly techName: string | null;
+    readonly status: string | null;
+    readonly hoursOver: number | null;
+    readonly ticketUrl: string | null;
+  }): Promise<void> {
+    const overText =
+      breach.hoursOver != null
+        ? breach.hoursOver >= 1
+          ? `${breach.hoursOver.toFixed(1)} hours over`
+          : `${Math.round(breach.hoursOver * 60)} minutes over`
+        : "just breached";
+    const card = {
+      type: "message",
+      attachments: [
+        {
+          contentType: "application/vnd.microsoft.card.adaptive",
+          contentUrl: null,
+          content: {
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            type: "AdaptiveCard",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                text: `SLA BREACH — Ticket #${breach.haloId}`,
+                weight: "Bolder",
+                size: "Large",
+                color: "Attention",
+              },
+              {
+                type: "TextBlock",
+                text: "Aniel & David — this ticket has blown its SLA.",
+                wrap: true,
+                weight: "Bolder",
+              },
+              {
+                type: "FactSet",
+                facts: [
+                  { title: "Ticket", value: `#${breach.haloId}` },
+                  { title: "Summary", value: breach.summary },
+                  { title: "Client", value: breach.clientName ?? "Unknown" },
+                  { title: "Assigned to", value: breach.techName ?? "UNASSIGNED" },
+                  { title: "Status", value: breach.status ?? "Unknown" },
+                  { title: "SLA", value: overText },
+                ],
+              },
+            ],
+            ...(breach.ticketUrl
+              ? {
+                  actions: [
+                    { type: "Action.OpenUrl", title: "Open in Halo", url: breach.ticketUrl },
+                  ],
+                }
+              : {}),
+          },
+        },
+      ],
+    };
+    await this.sendCard(card);
+  }
+
+  /**
    * Voicemail from a number we couldn't match to any ticket — without this
    * alert the message only lands in call_messages, which nobody watches.
    */

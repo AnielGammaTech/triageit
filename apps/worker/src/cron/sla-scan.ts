@@ -6,7 +6,9 @@ import {
   isSlaTargetBreached,
   isSlaTimerBreached,
   type HaloConfig,
+  type TeamsConfig,
 } from "@triageit/shared";
+import { TeamsClient } from "../integrations/teams/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
 
 interface SlaScanResult {
@@ -144,6 +146,20 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     console.log(`[SLA SCAN] ${candidates.length} past-due-date candidates → ${breachers.length} confirmed breaches after detail check`);
   }
 
+  // A ticket that recovered (SLA extended / resolved-reopened) gets its
+  // alert flag cleared so a FUTURE breach alerts again
+  const breachedIdSet = new Set(breachers.map((t) => t.id as number));
+  const recoveredIds = allOpenTickets
+    .map((t) => t.id as number)
+    .filter((id) => !breachedIdSet.has(id));
+  if (recoveredIds.length > 0) {
+    await supabase
+      .from("tickets")
+      .update({ sla_breach_alerted_at: null })
+      .in("halo_id", recoveredIds)
+      .not("sla_breach_alerted_at", "is", null);
+  }
+
   if (breachers.length === 0) {
     console.log(
       `[SLA SCAN] Checked ${allOpenTickets.length} open tickets — no SLA breaches found`,
@@ -160,6 +176,61 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   console.log(
     `[SLA SCAN] Found ${breachers.length} SLA-breaching tickets out of ${allOpenTickets.length} open`,
   );
+
+  // Teams alert to management (Aniel & David) — ONCE per breach, tracked in
+  // tickets.sla_breach_alerted_at so the 3-hourly scan never re-pings
+  try {
+    const { data: alertState } = await supabase
+      .from("tickets")
+      .select("halo_id, sla_breach_alerted_at")
+      .in("halo_id", breachers.map((t) => t.id as number));
+    const alreadyAlerted = new Set(
+      (alertState ?? []).filter((t) => t.sla_breach_alerted_at).map((t) => t.halo_id as number),
+    );
+    const toAlert = breachers.filter((t) => !alreadyAlerted.has(t.id as number));
+
+    if (toAlert.length > 0) {
+      const { data: teamsIntegration } = await supabase
+        .from("integrations")
+        .select("config")
+        .eq("service", "teams")
+        .eq("is_active", true)
+        .maybeSingle();
+      if (teamsIntegration?.config) {
+        const teams = new TeamsClient(teamsIntegration.config as TeamsConfig);
+        const haloWebBase = haloConfig.base_url?.replace(/\/api\/?$/, "") ?? null;
+        for (const breacher of toAlert) {
+          const haloId = breacher.id as number;
+          const timeLeft =
+            typeof breacher.fixtimeleft === "number" ? breacher.fixtimeleft
+            : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
+            : null;
+          try {
+            await teams.sendSlaBreachAlert({
+              haloId,
+              summary: String(breacher.summary ?? "").slice(0, 120),
+              clientName: (breacher.client_name as string) ?? null,
+              techName: (breacher.agent_name as string) ?? (breacher.agent?.name as string) ?? null,
+              status: (breacher.status_name as string) ?? (breacher.halo_status as string) ?? null,
+              hoursOver: timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null,
+              ticketUrl: haloWebBase ? `${haloWebBase}/tickets?id=${haloId}` : null,
+            });
+            await supabase
+              .from("tickets")
+              .update({ sla_breach_alerted_at: new Date().toISOString() })
+              .eq("halo_id", haloId);
+            console.log(`[SLA SCAN] Teams breach alert sent for #${haloId}`);
+          } catch (error) {
+            console.error(`[SLA SCAN] Teams alert for #${haloId} failed:`, error instanceof Error ? error.message : error);
+          }
+        }
+      } else {
+        console.warn("[SLA SCAN] Teams not configured — breach alerts skipped");
+      }
+    }
+  } catch (error) {
+    console.error("[SLA SCAN] Breach alerting failed:", error instanceof Error ? error.message : error);
+  }
 
   // Look up which breaching tickets exist locally
   const breacherHaloIds = breachers.map((t) => t.id as number);
