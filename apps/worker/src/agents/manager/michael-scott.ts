@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HELPDESK_TECHNICIANS, isInternalStaffName, isSlaTargetBreached, type Ticket, type AgentFinding } from "@triageit/shared";
+import { HELPDESK_TECHNICIANS, isInternalStaffName, isSlaTargetBreached, isSlaTimerBreached, type Ticket, type AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
 import { parseLlmJson } from "../parse-json.js";
@@ -234,12 +234,14 @@ export async function runTriage(
             ? raw.followupdate
             : null;
 
-        // targetmet=false alone can mean "not reached yet" on a healthy open
-        // ticket — only a by-date in the past makes it a real breach, and an
-        // ON-HOLD timer isn't burning at all (targets shift when it resumes)
+        // Breach = negative SLA timer (matches Halo's own Breached SLA view;
+        // fixtargetmet is ALWAYS null on this instance so the target test
+        // never fires — kept as fallback for instances that populate it).
+        // An ON-HOLD timer isn't burning (targets shift when it resumes).
         slaBreached =
           !slaOnHold &&
-          (isSlaTargetBreached(slaFixTargetMet, slaFixByDate) ||
+          (isSlaTimerBreached(slaTimeLeftHours, slaOnHold) ||
+            isSlaTargetBreached(slaFixTargetMet, slaFixByDate) ||
             isSlaTargetBreached(slaResponseTargetMet, slaRespondByDate));
       } catch (err) {
         console.warn(`[MICHAEL] Could not fetch SLA info for #${ticket.halo_id}:`, err);

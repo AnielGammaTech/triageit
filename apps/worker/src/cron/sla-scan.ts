@@ -4,6 +4,7 @@ import {
   deriveWorkflowOwnerRole,
   isHelpdeskTechnicianName,
   isSlaTargetBreached,
+  isSlaTimerBreached,
   type HaloConfig,
 } from "@triageit/shared";
 import { enqueueTriageJob } from "../queue/producer.js";
@@ -120,13 +121,21 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       const slaSource = full.sla ?? full.sladetails ?? full;
       const fixByDate = slaSource.fixbydate ?? full.fixbydate ?? candidate.fixbydate ?? null;
       const respondByDate = slaSource.respondbydate ?? full.respondbydate ?? candidate.respondbydate ?? null;
+      // Negative SLA timer = breached, exactly what Halo's own Breached SLA
+      // view shows. Target-based test kept as fallback (fixtargetmet is
+      // always null on this instance — verified live 2026-07-09).
+      const timeLeft =
+        typeof full.fixtimeleft === "number" ? full.fixtimeleft
+        : typeof full.slatimeleft === "number" ? full.slatimeleft
+        : null;
+      const timerBreached = isSlaTimerBreached(timeLeft, full.onhold === true);
       const fixBreached =
         isSlaTargetBreached(slaSource.fixtargetmet, fixByDate) ||
         isSlaTargetBreached(full.fixtargetmet, fixByDate);
       const responseBreached =
         isSlaTargetBreached(slaSource.responsetargetmet, respondByDate) ||
         isSlaTargetBreached(full.responsetargetmet, respondByDate);
-      if (fixBreached || responseBreached) breachers.push({ ...candidate, ...full });
+      if (timerBreached || fixBreached || responseBreached) breachers.push({ ...candidate, ...full });
     } catch (error) {
       console.warn(`[SLA SCAN] Detail fetch for #${candidate.id} failed:`, error instanceof Error ? error.message : error);
     }
