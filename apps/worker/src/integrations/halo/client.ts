@@ -223,6 +223,26 @@ export class HaloClient {
     ]);
   }
 
+  /**
+   * Billing evidence on the ticket's actions (unbilled-onsite tripwire).
+   * Correct onsite billing at Gamma = "Onsite Support" charge type; the
+   * hard signal available on actions is charged hours + a charge rate id.
+   */
+  async getBillingState(ticketId: number): Promise<{ chargedHours: number; hasChargeRate: boolean }> {
+    const result = await this.request<{ actions?: Array<Record<string, unknown>> }>(
+      "GET",
+      `/actions?ticket_id=${ticketId}&count=100`,
+    );
+    let chargedHours = 0;
+    let hasChargeRate = false;
+    for (const a of result.actions ?? []) {
+      const hours = typeof a.actionchargehours === "number" ? a.actionchargehours : 0;
+      chargedHours += hours;
+      if (typeof a.chargerate === "number" && a.chargerate > 0) hasChargeRate = true;
+    }
+    return { chargedHours, hasChargeRate };
+  }
+
   async addInternalNote(ticketId: number, note: string): Promise<number> {
     const result = await this.request<{ id?: number }>("POST", "/actions", [
       {
