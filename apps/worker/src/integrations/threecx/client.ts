@@ -79,6 +79,17 @@ export class ThreeCxClient {
     return (await response.json()) as T;
   }
 
+  /** All extension users (Number + name) — used to ring a tech by name. */
+  async listExtensions(): Promise<ReadonlyArray<{ number: string; name: string }>> {
+    const result = await this.request<{ value?: Array<{ Number?: string; FirstName?: string; LastName?: string }> }>(
+      "/xapi/v1/Users",
+      { "$select": "Number,FirstName,LastName", "$top": "200" },
+    );
+    return (result.value ?? [])
+      .filter((u) => u.Number && /^\d{2,5}$/.test(u.Number))
+      .map((u) => ({ number: String(u.Number), name: [u.FirstName, u.LastName].filter(Boolean).join(" ").trim() }));
+  }
+
   // ── System Status ──────────────────────────────────────────────────
 
   async getSystemStatus(): Promise<ThreeCxSystemStatus> {

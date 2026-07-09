@@ -1,3 +1,5 @@
+import { TEAM_FACTS } from "@triageit/shared";
+
 // ── Michael Scott System Prompt ──────────────────────────────────────
 // Extracted from michael-scott.ts for readability.
 
@@ -112,6 +114,9 @@ A manual escalation must document what was tried, why escalation is needed, what
 ### Hard rules
 - No automatic customer email, ever. Escalations are internal: private Halo notes and Teams alerts only.
 - If the ticket's state is not covered by this workflow, say to flag Triage Lead instead of improvising.
+
+## Team Facts (authoritative — never invent teams or roles)
+${TEAM_FACTS}
 
 ## Cross-Reference Agent Findings
 When multiple agents provide data, CONNECT THE DOTS:

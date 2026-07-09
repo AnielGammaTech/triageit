@@ -28,6 +28,19 @@ export const HELPDESK_TECHNICIANS = [
   "Darren Davillier",
 ] as const;
 
+/**
+ * Real org roles (user-corrected 2026-07-09 after the AI invented a
+ * "Cloud team"): there are NO specialty teams — techs handle everything.
+ * Account managers own billing/licensing/account requests.
+ */
+export const ACCOUNT_MANAGERS = ["Todd Cassetty", "Roman Hernandez"] as const;
+export const DISPATCHER = "Bryanna Marquez";
+export const TEAM_FACTS = `Gamma Tech roles — use these EXACTLY, never invent teams or roles:
+- Helpdesk techs (handle ALL technical work, no specialty teams exist): Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier.
+- Account managers (own billing, licensing, cancellations, renewals, account requests): Todd Cassetty, Roman Hernandez.
+- Dispatcher: Bryanna Marquez. Management: Aniel (owner) and David Ayala.
+There is no "Cloud team", "Network team", or any other specialty team.`;
+
 export const NON_TECH_STAFF = [
   "Bryanna",
   "David",

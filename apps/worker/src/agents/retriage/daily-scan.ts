@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  TEAM_FACTS,
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
@@ -45,6 +46,9 @@ interface DailyScanResult {
 // Built per-call (not a module const) so "Today's date" is the scan date,
 // not the date the worker process booted
 const buildRetriagePrompt = () => `You are Michael Scott, Regional Manager at Gamma Tech Services. You're reviewing an open support ticket to determine if the assigned technician is handling it properly.
+
+${TEAM_FACTS}
+
 
 Today's date: ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", month: "numeric", day: "numeric", year: "numeric" })}
 
