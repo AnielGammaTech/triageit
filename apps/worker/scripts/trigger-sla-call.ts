@@ -9,14 +9,21 @@ import { createSupabaseClient } from "../src/db/supabase.js";
 import { getRedisConnectionOptions } from "../src/queue/connection.js";
 
 const haloId = Number(process.argv[2]);
-const phone = String(process.argv[3] ?? "");
-if (!Number.isFinite(haloId) || !phone) {
-  console.error("Usage: trigger-sla-call.ts <haloId> <phone>");
+const target = String(process.argv[3] ?? "");
+const objective = process.argv[4] ? String(process.argv[4]) : null;
+if (!Number.isFinite(haloId) || !target) {
+  console.error("Usage: trigger-sla-call.ts <haloId> <phone-or-tech-name> [objective]");
   process.exit(1);
 }
+const isPhone = /^\+?[\d\s()-]+$/.test(target);
 
 const supabase = createSupabaseClient();
-const { error } = await supabase.from("sla_call_requests").insert({ halo_id: haloId, phone });
+const { error } = await supabase.from("sla_call_requests").insert({
+  halo_id: haloId,
+  phone: isPhone ? target : null,
+  tech_name: isPhone ? null : target,
+  objective,
+});
 if (error) throw new Error(error.message);
 
 const queue = new Queue("cron-jobs", { connection: getRedisConnectionOptions() });
