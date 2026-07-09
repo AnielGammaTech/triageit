@@ -22,7 +22,7 @@ import type { TeamsConfig } from "@triageit/shared";
 //
 // Default schedules (configured in cron_jobs DB table):
 // - /retriage: */30 * * * * (every 30 min — urgency-based timer decides which tickets to process)
-// - /sla-scan: 0 * * * * (hourly — breach re-alerts escalate every hour)
+// - /sla-scan: */15 * * * * (re-alerts escalate ~hourly; 15-min ticks keep that promise tight)
 // - /toby/analyze: 0 2 * * * (daily at 2 AM ET — worker runs with TZ=America/New_York, so patterns are ET-local)
 // - /ticket-sync: * * * * * (every minute)
 // - /workflow-scan: */15 * * * * (every 15 minutes)
@@ -625,7 +625,7 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)
-    { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "0 * * * *" },
+    { endpoint: "/sla-scan", name: "SLA Breach Scan", schedule: "*/15 * * * *" },
     { endpoint: "/toby/analyze", name: "Toby Learning Analysis", schedule: "0 2 * * *" }, // 2 AM ET (worker TZ is America/New_York)
     { endpoint: "/memory/evict", name: "Memory Eviction", schedule: "0 3 * * *" }, // 3 AM ET
     { endpoint: "/error-scan", name: "Error Ticket Scan", schedule: "0 */1 * * *" }, // Every hour
