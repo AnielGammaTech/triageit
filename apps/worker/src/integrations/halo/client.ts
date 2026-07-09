@@ -152,10 +152,10 @@ export class HaloClient {
     return (result.users ?? []).map((u) => ({ id: u.id, name: u.name, client_name: u.client_name ?? null }));
   }
 
-  async getTicketActions(ticketId: number): Promise<ReadonlyArray<HaloAction>> {
+  async getTicketActions(ticketId: number, includeSystem = false): Promise<ReadonlyArray<HaloAction>> {
     const result = await this.request<{ actions: HaloAction[] }>(
       "GET",
-      `/actions?ticket_id=${ticketId}&excludesys=true`,
+      `/actions?ticket_id=${ticketId}&excludesys=${includeSystem ? "false" : "true"}&count=200`,
     );
     return result.actions ?? [];
   }
