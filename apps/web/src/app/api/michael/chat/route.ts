@@ -483,6 +483,18 @@ export async function POST(request: NextRequest) {
       },
     },
     {
+      name: "site_visits_report",
+      description: "Report of scheduled site visits: every ticket that entered Scheduled status (tracked automatically since 2026-07-09). Use when the admin asks about site visits, onsite visits, field visits, or scheduled appointments — this is the authoritative ledger, do NOT text-search tickets for 'site visit'.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          days: { type: "number", description: "Look-back window in days (default 30)" },
+          open_only: { type: "boolean", description: "Only tickets still open (default false)" },
+        },
+        required: [],
+      },
+    },
+    {
       name: "get_dashboard",
       description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
       input_schema: {
@@ -762,6 +774,24 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           return `Update failed: ${err instanceof Error ? err.message : String(err)}`;
         }
+      }
+
+      case "site_visits_report": {
+        const days = typeof input.days === "number" ? input.days : 30;
+        const since = new Date(Date.now() - days * 86_400_000).toISOString();
+        let q = serviceClient
+          .from("tickets")
+          .select("halo_id, summary, client_name, halo_agent, halo_status, halo_is_open, onsite_visit_alerted_at")
+          .not("onsite_visit_alerted_at", "is", null)
+          .gte("onsite_visit_alerted_at", since)
+          .order("onsite_visit_alerted_at", { ascending: false })
+          .limit(50);
+        if (input.open_only === true) q = q.eq("halo_is_open", true);
+        const { data, error } = await q;
+        if (error) return `Query failed: ${error.message}`;
+        if (!data || data.length === 0) return `No scheduled site visits recorded in the last ${days} days. NOTE: tracking started 2026-07-09 — visits before that are not in the ledger.`;
+        const lines = data.map((t) => `#${t.halo_id} | ${String(t.summary ?? "").slice(0, 60)} | ${t.client_name ?? "?"} | tech: ${t.halo_agent ?? "unassigned"} | status: ${t.halo_status ?? "?"}${t.halo_is_open ? "" : " (closed)"} | scheduled: ${String(t.onsite_visit_alerted_at).slice(0, 10)}`);
+        return `${data.length} scheduled site visit(s) in the last ${days} days (EXACT count from the ledger):\n${lines.join("\n")}\nBilling: closed tickets with onsite evidence and 0 charged hours are flagged automatically as UNBILLED ONSITE (red note + Teams alert).`;
       }
 
       case "call_tech": {
