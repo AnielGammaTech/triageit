@@ -98,9 +98,9 @@ export interface GenericApiUrlKeyConfig {
 export interface TeamsConfig {
   readonly webhook_url: string;
   readonly channel_name?: string;
-  /** Separate channel for tech-performance alerts (reviews, response-time,
-   *  weekly report card). Falls back to webhook_url when unset. */
-  readonly tech_webhook_url?: string;
+  /** Dedicated channel for SLA breach alerts ONLY (user decision
+   *  2026-07-09). Falls back to webhook_url when unset. */
+  readonly sla_webhook_url?: string;
 }
 
 export interface CoveConfig {
