@@ -456,7 +456,19 @@ export function buildHaloNote(
         lines.push(`<span style="color:#f9a8d4;">Pax8 action: ${actions.slice(0, 2).join(" · ")}</span>`);
       }
       if (mismatch?.detected || issues.length > 0) {
-        rows.push(`<tr style="background:#331a2b;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#f472b6;">🪪 Licensing</td><td style="padding:8px 12px;${border}font-size:13px;color:#fbcfe8;line-height:1.5;word-break:break-word;">${lines.filter(Boolean).join("<br/>")}</td></tr>`);
+        // Headline visible, essay collapsed — Holly's full reasoning ran
+        // half a screen (user, 2026-07-09)
+        const headlinePlain = (mismatch?.detected
+          ? [mismatch.current_plan, mismatch.recommended_plan].filter(Boolean).join(" → ") || "license upgrade needed"
+          : issues[0] ?? "subscription issue"
+        ).replace(/<[^>]+>/g, "");
+        const headline = headlinePlain.length > 90 ? `${headlinePlain.slice(0, 90).replace(/\s+\S*$/, "")}…` : headlinePlain;
+        rows.push(
+          `<tr style="background:#331a2b;"><td colspan="2" style="padding:0;${border}"><details style="margin:0;">` +
+          `<summary style="cursor:pointer;padding:7px 12px;font-size:12.5px;font-weight:700;color:#f472b6;list-style-position:inside;">🪪 Licensing — <span style="color:#fbcfe8;font-weight:600;">${headline}</span> <span style="font-weight:400;color:#64748b;font-size:11px;">(click for detail &amp; Pax8 action)</span></summary>` +
+          `<div style="padding:8px 12px;border-top:1px solid #3a3f4b;font-size:12.5px;color:#fbcfe8;line-height:1.55;word-break:break-word;">${lines.filter(Boolean).join("<br/>")}</div>` +
+          `</details></td></tr>`,
+        );
       }
     }
   }
