@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS sla_call_requests (
 -- extension by name at call time.
 ALTER TABLE sla_call_requests ADD COLUMN IF NOT EXISTS tech_name text;
 ALTER TABLE sla_call_requests ALTER COLUMN phone DROP NOT NULL;
+
+ALTER TABLE sla_call_requests ADD COLUMN IF NOT EXISTS objective text;

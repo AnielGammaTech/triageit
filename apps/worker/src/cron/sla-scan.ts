@@ -10,6 +10,7 @@ import {
 } from "@triageit/shared";
 import { TeamsClient } from "../integrations/teams/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
+import { runSlaCallRequests } from "./sla-call.js";
 
 interface SlaScanResult {
   readonly totalChecked: number;
@@ -179,6 +180,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
 
   // Teams alert to management (Aniel & David) — ONCE per breach, tracked in
   // tickets.sla_breach_alerted_at so the 3-hourly scan never re-pings
+  let callRequestsQueued = 0;
   try {
     // Local rows carry the fields Halo's raw ticket object doesn't reliably
     // expose (agent name, readable status) — the first cards went out with
@@ -266,6 +268,27 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               noUpdateSinceLastAlert,
             });
             console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt}${noUpdateSinceLastAlert ? ", no tech update since last alert" : ""})`);
+
+            // Auto call-out (user decision): 2nd alert and every one after,
+            // while the tech hasn't touched the ticket — ring their 3CX
+            // extension during business hours only
+            const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+            const etDay = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+            const businessHours = etHour >= 7 && etHour < 18 && !["Sat", "Sun"].includes(etDay);
+            const techForCall = (local?.halo_agent as string) ?? null;
+            if (attempt >= 2 && noUpdateSinceLastAlert && businessHours && techForCall) {
+              const { data: recentCall } = await supabase
+                .from("sla_call_requests")
+                .select("id")
+                .eq("halo_id", haloId)
+                .gte("created_at", new Date(Date.now() - 55 * 60_000).toISOString())
+                .limit(1);
+              if (!recentCall || recentCall.length === 0) {
+                await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
+                callRequestsQueued++;
+                console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (alert #${attempt})`);
+              }
+            }
           } catch (error) {
             console.error(`[SLA SCAN] Teams alert for #${haloId} failed:`, error instanceof Error ? error.message : error);
           }
@@ -276,6 +299,14 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     }
   } catch (error) {
     console.error("[SLA SCAN] Breach alerting failed:", error instanceof Error ? error.message : error);
+  }
+
+  if (callRequestsQueued > 0) {
+    try {
+      await runSlaCallRequests();
+    } catch (error) {
+      console.error("[SLA SCAN] Escalation calls failed:", error instanceof Error ? error.message : error);
+    }
   }
 
   // Look up which breaching tickets exist locally

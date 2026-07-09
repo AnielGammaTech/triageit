@@ -30,6 +30,7 @@ import { MemoryManager } from "./memory/memory-manager.js";
 import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
+import { runSlaCallRequests } from "./cron/sla-call.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
@@ -474,6 +475,25 @@ server.post<{
       console.error(`[INVESTIGATE] ${worker} failed for "${client_name}":`, message);
       return reply.status(500).send({ error: message });
     }
+  },
+);
+
+// ── Outbound tech call (SLA escalation / info request) ───────────────
+server.post<{ Body: { halo_id: number; tech_name?: string; phone?: string; objective?: string } }>(
+  "/call-tech",
+  async (request, reply) => {
+    const { halo_id, tech_name, phone, objective } = request.body;
+    if (!halo_id) return reply.status(400).send({ error: "halo_id is required" });
+    const supabase = createSupabaseClient();
+    const { error } = await supabase.from("sla_call_requests").insert({
+      halo_id,
+      phone: phone ?? null,
+      tech_name: tech_name ?? null,
+      objective: objective ?? null,
+    });
+    if (error) return reply.status(500).send({ error: error.message });
+    const result = await runSlaCallRequests();
+    return { status: "ok", ...result };
   },
 );
 

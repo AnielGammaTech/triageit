@@ -53,6 +53,8 @@ export interface EscalationContext {
   readonly techName: string | null;
   readonly hoursOver: number | null;
   readonly lastTechUpdate: string | null;
+  /** Custom mission (e.g. from Prison Mike: "ask the tech for a status update on X"). Null = standard SLA breach script. */
+  readonly objective?: string | null;
 }
 
 export class RealtimeVoiceHandler implements VoiceCallHandler {
@@ -89,7 +91,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         type: "response.create",
         response: {
           instructions: this.escalation
-            ? `The tech just answered. Greet them by first name, identify yourself as the TriageIt assistant from Gamma Tech, and get straight to why you're calling: ticket ${this.escalation.haloId} has breached its SLA. Two short sentences, then stop and listen.`
+            ? (this.escalation.objective ? `The tech just answered. Greet them by first name, identify yourself as the TriageIt assistant from Gamma Tech calling on behalf of management, and say you have a quick question about ticket ${this.escalation.haloId}. Two short sentences, then stop and listen.` : `The tech just answered. Greet them by first name, identify yourself as the TriageIt assistant from Gamma Tech, and get straight to why you're calling: ticket ${this.escalation.haloId} has breached its SLA. Two short sentences, then stop and listen.`)
             : "Greet the caller now. Thank them for calling Gamma Tech, and if they are a known caller with open tickets, briefly mention you can give updates on their ticket(s), take a message, or help with something new. One or two short sentences, then stop and listen.",
         },
       });
@@ -507,14 +509,22 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         ``,
         `THE SITUATION`,
         `- Ticket ${e.haloId}: "${e.summary}" for ${e.clientName ?? "a client"}.`,
-        `- It is ${over} past its SLA.`,
+        e.objective ? `- You are calling for information, not about a breach.` : `- It is ${over} past its SLA.`,
         `- Last tech update on the ticket: ${e.lastTechUpdate ?? "none on record"}.`,
         ``,
+        ...(e.objective
+          ? [
+              `YOUR MISSION (requested by Gamma Tech management via the TriageIt console)`,
+              `${e.objective}`,
+              `Ask about it conversationally, capture what the tech says, then use post_note to document their answer on the ticket. If they commit to a resolution time, confirm it back and use set_resolution_target.`,
+            ]
+          : [
         `YOUR GOALS, IN ORDER`,
         `1. Tell them the ticket is breached and ask what's going on with it.`,
         `2. Ask when they can realistically resolve it. When they give a time, CONFIRM the exact date and time back to them ("so tomorrow, July tenth at two PM — correct?"), and after a clear yes use set_resolution_target. Then tell them it's updated.`,
         `3. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
         `4. If a VOICEMAIL answers: leave one brief message ("this is the Gamma Tech assistant — ticket ${e.haloId} has breached its SLA, please update it or call the office"), use post_note saying you reached voicemail, then end_call.`,
+            ]),
         ``,
         `PHONE RULES`,
         `- Short turns, one to two sentences, then listen. Read numbers digit by digit.`,

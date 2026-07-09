@@ -457,6 +457,19 @@ export async function POST(request: NextRequest) {
       },
     },
     {
+      name: "call_tech",
+      description: "Place a REAL phone call to a Gamma Tech technician's 3CX extension. The AI voice assistant calls them, asks about the ticket (your objective), documents their answer as a note on the ticket, and can update the resolution target if they commit to a time. Use ONLY when the admin explicitly asks to call a tech. Confirm the objective is clear before calling.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number the call is about" },
+          tech_name: { type: "string", description: "The tech's full name (their 3CX extension is matched by name). Defaults to the ticket's assigned tech if omitted." },
+          objective: { type: "string", description: "What to ask/tell the tech, e.g. 'Ask for a status update on this ticket and when they expect to resolve it'" },
+        },
+        required: ["halo_id", "objective"],
+      },
+    },
+    {
       name: "get_dashboard",
       description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
       input_schema: {
@@ -724,6 +737,26 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case "call_tech": {
+        try {
+          const res = await workerFetch(`${workerUrl}/call-tech`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              halo_id: input.halo_id,
+              tech_name: (input.tech_name as string) ?? undefined,
+              objective: input.objective,
+            }),
+          });
+          if (!res.ok) return `Call request failed (${res.status})`;
+          const data = (await res.json()) as { called?: number };
+          return data.called && data.called > 0
+            ? "Call placed — the assistant is dialing the tech's extension now and will post their answer as a note on the ticket."
+            : "Call was queued but could not be placed (no extension matched the tech's name, or 3CX rejected the call).";
+        } catch (err) {
+          return `Call failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       case "post_halo_note": {
         return postInternalHaloNote(serviceClient, input.halo_id as number, input.note as string);
       }
