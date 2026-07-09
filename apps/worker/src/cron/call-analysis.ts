@@ -496,10 +496,14 @@ function buildCallSummaryNote(
     : "";
 
   // Outbound follow-up draft — "per our call" customer update the tech can
-  // copy into an email. Suggestion only, nothing is ever sent automatically.
+  // copy into an email. Collapsed by default (it dwarfed the note when
+  // expanded); suggestion only, nothing is ever sent automatically.
   const emailDraft = (insights.suggested_customer_email ?? "").trim();
   const emailRow = direction === "outbound" && emailDraft
-    ? `<tr style="background:#122117;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#bbf7d0;line-height:1.5;"><span style="color:#4ade80;font-weight:700;font-size:11px;">✉ SUGGESTED CUSTOMER UPDATE</span><br/><em style="color:#a7f3d0;">"${emailDraft.replace(/\n/g, "<br/>")}"</em><br/><span style="font-size:10px;color:#64748b;">Draft only — edit before sending</span></td></tr>`
+    ? `<tr style="background:#122117;"><td style="padding:0;${border}"><details style="margin:0;">` +
+      `<summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:700;color:#4ade80;list-style-position:inside;">✉ Suggested customer update <span style="font-weight:400;color:#64748b;">(click to expand — draft only, edit before sending)</span></summary>` +
+      `<div style="padding:8px 12px;border-top:1px solid #3a3f4b;font-size:12.5px;color:#a7f3d0;line-height:1.55;"><em>"${emailDraft.replace(/\n/g, "<br/>")}"</em></div>` +
+      `</details></td></tr>`
     : "";
 
   // Direction at a glance: inbound = blue band, outbound = green band
