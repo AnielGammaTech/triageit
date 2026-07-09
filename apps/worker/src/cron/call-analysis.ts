@@ -492,7 +492,10 @@ function buildCallSummaryNote(
   ].filter(Boolean).join("");
 
   const suggestionsRow = insights.suggestions.length > 0
-    ? `<tr style="background:#1a2332;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#bfdbfe;line-height:1.5;"><span style="color:#60a5fa;font-weight:700;font-size:11px;">SUGGESTED — </span><ul style="margin:4px 0 0 18px;padding:0;">${list(insights.suggestions)}</ul></td></tr>`
+    ? `<tr style="background:#1a2332;"><td style="padding:0;${border}"><details style="margin:0;">` +
+      `<summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:700;color:#60a5fa;list-style-position:inside;">Suggested follow-ups <span style="font-weight:400;color:#64748b;">(${insights.suggestions.length})</span></summary>` +
+      `<div style="padding:6px 12px 8px;border-top:1px solid #3a3f4b;font-size:12.5px;color:#bfdbfe;line-height:1.5;"><ul style="margin:0 0 0 18px;padding:0;">${list(insights.suggestions)}</ul></div>` +
+      `</details></td></tr>`
     : "";
 
   // Outbound follow-up draft — "per our call" customer update the tech can
