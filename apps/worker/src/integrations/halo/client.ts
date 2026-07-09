@@ -210,14 +210,16 @@ export class HaloClient {
   }
 
   /**
-   * Update the ticket's resolution target (deadlinedate — the field the
-   * team's "resolution time" workflow uses; verified writable live on
-   * test ticket #40945 2026-07-09). Halo's SLA-engine fixbydate is NOT
-   * settable — callers must handle alert suppression separately.
+   * Update the ticket's resolution target. TWO fields, both verified
+   * writable live (2026-07-09): `fixbydate` is the SLA engine's
+   * Resolution Target — the one the Halo sidebar shows and the one our
+   * breach detection (fixtimeleft) follows — and `deadlinedate` is the
+   * workflow resolution time. Setting fixbydate forward also makes the
+   * SLA timer positive again, so breach alerts stop on their own.
    */
   async updateResolutionTarget(ticketId: number, isoDate: string): Promise<void> {
     await this.request("POST", "/tickets", [
-      { id: ticketId, deadlinedate: isoDate },
+      { id: ticketId, fixbydate: isoDate, deadlinedate: isoDate },
     ]);
   }
 
