@@ -29,5 +29,5 @@ if (error) throw new Error(error.message);
 const queue = new Queue("cron-jobs", { connection: getRedisConnectionOptions() });
 await queue.add("manual-sla-call", { endpoint: "/sla-call-requests", name: "SLA Escalation Call" });
 await queue.close();
-console.log(`Queued escalation call: #${haloId} -> ${phone}`);
+console.log(`Queued escalation call: #${haloId} -> ${target}`);
 process.exit(0);
