@@ -11,7 +11,31 @@ import {
 } from "./call-control.js";
 import { AudioPump } from "./audio.js";
 import { DtmfMenuHandler, type VoiceCallHandler } from "./session.js";
-import { RealtimeVoiceHandler } from "./realtime-handler.js";
+import { RealtimeVoiceHandler, type EscalationContext } from "./realtime-handler.js";
+
+// ── Outbound SLA escalation calls ─────────────────────────────────────
+// makecall() places the call; when the far end connects, the participant
+// shows up here like any other call. This registry (same process) tells
+// startSession that a given number is an escalation call and carries the
+// ticket context for it. Entries expire after 3 minutes (unanswered).
+const pendingEscalations = new Map<string, { ctx: EscalationContext; expiresAt: number }>();
+
+function last10(num: string): string {
+  return num.replace(/\D/g, "").slice(-10);
+}
+
+export function registerEscalationCall(phone: string, ctx: EscalationContext): void {
+  pendingEscalations.set(last10(phone), { ctx, expiresAt: Date.now() + 3 * 60_000 });
+  console.log(`[VOICE] Escalation call registered for ${phone} (ticket #${ctx.haloId})`);
+}
+
+function takeEscalation(callerNumber: string): EscalationContext | null {
+  const key = last10(callerNumber);
+  const entry = pendingEscalations.get(key);
+  if (!entry) return null;
+  pendingEscalations.delete(key);
+  return entry.expiresAt > Date.now() ? entry.ctx : null;
+}
 import type { ThreeCxConfig } from "@triageit/shared";
 
 /**
@@ -172,8 +196,9 @@ async function startSession(state: ListenerState, participantId: number, callerN
   // internally if the Realtime socket won't open). VOICE_HANDLER=dtmf
   // forces the Stage-1 menu.
   const deps = { supabase: state.supabase, halo: state.halo };
-  const useRealtime = process.env.VOICE_HANDLER !== "dtmf" && Boolean(process.env.OPENAI_API_KEY);
-  const handler: VoiceCallHandler = useRealtime ? new RealtimeVoiceHandler(deps) : new DtmfMenuHandler(deps);
+  const escalation = takeEscalation(callerNumber);
+  const useRealtime = escalation !== null || (process.env.VOICE_HANDLER !== "dtmf" && Boolean(process.env.OPENAI_API_KEY));
+  const handler: VoiceCallHandler = useRealtime ? new RealtimeVoiceHandler(deps, escalation) : new DtmfMenuHandler(deps);
   const session: ActiveSession = {
     handler,
     pump,

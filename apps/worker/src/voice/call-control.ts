@@ -139,6 +139,26 @@ export class CallControlClient {
     return this.participantAction(dn, id, "answer");
   }
 
+  /** Originate an outbound call from the route point (SLA escalation calls). */
+  async makecall(dn: string, destination: string): Promise<boolean> {
+    try {
+      const res = await this.authedFetch(`${this.baseUrl}/callcontrol/${dn}/makecall`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destination }),
+      });
+      if (!res.ok) {
+        console.warn(`[VOICE] makecall ${dn} -> ${destination} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+        return false;
+      }
+      console.log(`[VOICE] makecall ${dn} -> ${destination} accepted`);
+      return true;
+    } catch (error) {
+      console.warn(`[VOICE] makecall failed:`, error instanceof Error ? error.message : error);
+      return false;
+    }
+  }
+
   drop(dn: string, id: number): Promise<boolean> {
     return this.participantAction(dn, id, "drop");
   }

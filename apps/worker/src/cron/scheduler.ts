@@ -3,6 +3,7 @@ import { getRedisConnectionOptions } from "../queue/connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
 import { scanForSlaBreaches } from "./sla-scan.js";
+import { runSlaCallRequests } from "./sla-call.js";
 import { syncTicketsFromHalo } from "./ticket-sync.js";
 import { scanWorkflowState } from "./workflow-scan.js";
 import { scanForErrorTickets } from "./error-ticket-scan.js";
@@ -133,6 +134,9 @@ let cronWorker: Worker<CronJobData> | null = null;
 const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/retriage": runDailyRetriage,
   "/sla-scan": runSlaScan,
+  "/sla-call-requests": async () => {
+    await runSlaCallRequests();
+  },
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
   "/integration-heartbeat": runIntegrationHeartbeatCron,
