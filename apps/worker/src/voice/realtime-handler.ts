@@ -45,6 +45,16 @@ interface FunctionCall {
   readonly args: Record<string, unknown>;
 }
 
+/** Outbound SLA-escalation call: the assistant calls the TECH about a breached ticket. */
+export interface EscalationContext {
+  readonly haloId: number;
+  readonly summary: string;
+  readonly clientName: string | null;
+  readonly techName: string | null;
+  readonly hoursOver: number | null;
+  readonly lastTechUpdate: string | null;
+}
+
 export class RealtimeVoiceHandler implements VoiceCallHandler {
   private ctx: VoiceCallContext | null = null;
   private ws: WebSocket | null = null;
@@ -55,14 +65,22 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private maxCallTimer: ReturnType<typeof setTimeout> | null = null;
   private ended = false;
 
-  constructor(private readonly deps: VoicemailDeps) {}
+  constructor(
+    private readonly deps: VoicemailDeps,
+    private readonly escalation: EscalationContext | null = null,
+  ) {}
 
   async onCallStart(ctx: VoiceCallContext): Promise<void> {
     this.ctx = ctx;
     try {
-      this.callerContext = await buildCallerContext(this.deps.supabase, this.deps.halo, ctx.callerNumber);
-      const briefings = await buildTicketBriefings(this.deps.halo, this.callerContext);
-      const briefing = formatBriefing(this.callerContext, briefings);
+      let briefing: string;
+      if (this.escalation) {
+        briefing = ""; // escalation instructions carry everything
+      } else {
+        this.callerContext = await buildCallerContext(this.deps.supabase, this.deps.halo, ctx.callerNumber);
+        const briefings = await buildTicketBriefings(this.deps.halo, this.callerContext);
+        briefing = formatBriefing(this.callerContext, briefings);
+      }
 
       this.ws = await this.connect();
       this.sendSessionUpdate(briefing);
@@ -70,8 +88,9 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
       this.send({
         type: "response.create",
         response: {
-          instructions:
-            "Greet the caller now. Thank them for calling Gamma Tech, and if they are a known caller with open tickets, briefly mention you can give updates on their ticket(s), take a message, or help with something new. One or two short sentences, then stop and listen.",
+          instructions: this.escalation
+            ? `The tech just answered. Greet them by first name, identify yourself as the TriageIt assistant from Gamma Tech, and get straight to why you're calling: ticket ${this.escalation.haloId} has breached its SLA. Two short sentences, then stop and listen.`
+            : "Greet the caller now. Thank them for calling Gamma Tech, and if they are a known caller with open tickets, briefly mention you can give updates on their ticket(s), take a message, or help with something new. One or two short sentences, then stop and listen.",
         },
       });
 
@@ -80,7 +99,11 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         void this.hangup();
       }, MAX_CALL_MS);
       this.maxCallTimer.unref?.();
-      console.log(`[VOICE] Realtime session live for ${ctx.callerNumber} (${this.callerContext.knownCaller ? "known" : "unknown"} caller, ${this.callerContext.spokenTickets.length} open tickets)`);
+      console.log(
+        this.escalation
+          ? `[VOICE] SLA escalation call live to ${ctx.callerNumber} (ticket #${this.escalation.haloId})`
+          : `[VOICE] Realtime session live for ${ctx.callerNumber} (${this.callerContext?.knownCaller ? "known" : "unknown"} caller, ${this.callerContext?.spokenTickets.length ?? 0} open tickets)`,
+      );
     } catch (error) {
       console.error("[VOICE] Realtime connect failed — falling back to keypad menu:", error instanceof Error ? error.message : error);
       this.ws?.terminate();
@@ -250,6 +273,40 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   // ── Tools ───────────────────────────────────────────────────────────
 
   private toolDefinitions(): ReadonlyArray<Record<string, unknown>> {
+    if (this.escalation) {
+      return [
+        {
+          type: "function",
+          name: "set_resolution_target",
+          description:
+            "Update the ticket's resolution target to the new date/time the tech committed to. Only after the tech clearly agreed and you confirmed the exact date and time back to them.",
+          parameters: {
+            type: "object",
+            properties: {
+              new_target: { type: "string", description: "The agreed date/time in ISO 8601 with Eastern offset, e.g. 2026-07-10T14:00:00-04:00" },
+              reason: { type: "string", description: "Why the SLA breached and why this new time is realistic, in the tech's words" },
+            },
+            required: ["new_target", "reason"],
+          },
+        },
+        {
+          type: "function",
+          name: "post_note",
+          description: "Post an internal note on the ticket documenting this call (use when the tech declines a new target, gives context, or you reached voicemail).",
+          parameters: {
+            type: "object",
+            properties: { note: { type: "string", description: "What was said / the outcome of this call" } },
+            required: ["note"],
+          },
+        },
+        {
+          type: "function",
+          name: "end_call",
+          description: "Hang up. Use after wrapping up, or after leaving a brief voicemail if a machine answered.",
+          parameters: { type: "object", properties: {} },
+        },
+      ];
+    }
     const tools: Record<string, unknown>[] = [
       {
         type: "function",
@@ -307,6 +364,38 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     let output: Record<string, unknown>;
     try {
       switch (call.name) {
+        case "set_resolution_target": {
+          if (!this.escalation) {
+            output = { error: "Not available on this call" };
+            break;
+          }
+          const target = new Date(String(call.args.new_target ?? ""));
+          if (!Number.isFinite(target.getTime()) || target.getTime() < Date.now()) {
+            output = { error: "Invalid or past date — confirm the date and time with the tech again" };
+            break;
+          }
+          await this.deps.halo.updateResolutionTarget(this.escalation.haloId, target.toISOString());
+          const when = target.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          await this.deps.halo.addInternalNote(
+            this.escalation.haloId,
+            `<b>⏱ SLA breach call — new resolution target agreed</b><br/>TriageIt called ${this.escalation.techName ?? "the assigned tech"} about the SLA breach on this ticket.<br/>Reason given: ${String(call.args.reason ?? "").slice(0, 500)}<br/>New resolution target: <b>${when} ET</b> (set by TriageIt with the tech's agreement on the call).`,
+          );
+          console.log(`[VOICE] SLA escalation: #${this.escalation.haloId} resolution target -> ${target.toISOString()}`);
+          output = { ok: true, new_target_confirmed: when + " Eastern" };
+          break;
+        }
+        case "post_note": {
+          if (!this.escalation) {
+            output = { error: "Not available on this call" };
+            break;
+          }
+          await this.deps.halo.addInternalNote(
+            this.escalation.haloId,
+            `<b>⏱ SLA breach call</b><br/>${String(call.args.note ?? "").slice(0, 800)}<br/><i>— TriageIt automated escalation call to ${this.escalation.techName ?? "the assigned tech"}</i>`,
+          );
+          output = { ok: true };
+          break;
+        }
         case "lookup_ticket":
           output = await this.toolLookupTicket(Number(call.args.ticket_number));
           break;
@@ -410,6 +499,29 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   // ── Helpers ─────────────────────────────────────────────────────────
 
   private buildInstructions(briefing: string): string {
+    if (this.escalation) {
+      const e = this.escalation;
+      const over = e.hoursOver != null ? (e.hoursOver >= 1 ? `${e.hoursOver.toFixed(1)} hours` : `${Math.round(e.hoursOver * 60)} minutes`) : "recently";
+      return [
+        `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND call to ${e.techName ?? "the assigned technician"} — a Gamma Tech technician — about a ticket that has breached its SLA. You are professional, direct, and respectful: a firm colleague, not a scold.`,
+        ``,
+        `THE SITUATION`,
+        `- Ticket ${e.haloId}: "${e.summary}" for ${e.clientName ?? "a client"}.`,
+        `- It is ${over} past its SLA.`,
+        `- Last tech update on the ticket: ${e.lastTechUpdate ?? "none on record"}.`,
+        ``,
+        `YOUR GOALS, IN ORDER`,
+        `1. Tell them the ticket is breached and ask what's going on with it.`,
+        `2. Ask when they can realistically resolve it. When they give a time, CONFIRM the exact date and time back to them ("so tomorrow, July tenth at two PM — correct?"), and after a clear yes use set_resolution_target. Then tell them it's updated.`,
+        `3. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
+        `4. If a VOICEMAIL answers: leave one brief message ("this is the Gamma Tech assistant — ticket ${e.haloId} has breached its SLA, please update it or call the office"), use post_note saying you reached voicemail, then end_call.`,
+        ``,
+        `PHONE RULES`,
+        `- Short turns, one to two sentences, then listen. Read numbers digit by digit.`,
+        `- Today is ${new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" })} — resolve relative dates ("tomorrow at 2") against this.`,
+        `- Never invent ticket facts beyond what's above. When done, say goodbye and use end_call.`,
+      ].join("\n");
+    }
     return [
       `You are the Gamma Tech phone assistant, live on a phone call with a customer of Gamma Tech Services, an IT support company in Naples, Florida. You sound like a warm, capable front-desk person — natural, unhurried, plain English, no jargon, no corporate filler.`,
       ``,

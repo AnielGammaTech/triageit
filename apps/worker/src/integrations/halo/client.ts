@@ -209,6 +209,18 @@ export class HaloClient {
     return result.id;
   }
 
+  /**
+   * Update the ticket's resolution target (deadlinedate — the field the
+   * team's "resolution time" workflow uses; verified writable live on
+   * test ticket #40945 2026-07-09). Halo's SLA-engine fixbydate is NOT
+   * settable — callers must handle alert suppression separately.
+   */
+  async updateResolutionTarget(ticketId: number, isoDate: string): Promise<void> {
+    await this.request("POST", "/tickets", [
+      { id: ticketId, deadlinedate: isoDate },
+    ]);
+  }
+
   async addInternalNote(ticketId: number, note: string): Promise<number> {
     const result = await this.request<{ id?: number }>("POST", "/actions", [
       {
