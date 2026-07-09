@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { extractResponseText } from "../agents/llm-text.js";
 import WebSocket from "ws";
 import { buildCallerContext, type CallerContext, type CallerTicket } from "./status-script.js";
 import { buildTicketBriefings, fetchLastCustomerUpdate, formatBriefing, toSpeakableText } from "./ticket-briefing.js";
@@ -161,10 +163,23 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
       const lines = this.transcript
         .map((l) => `<b style="color:${l.who === "TriageIt" ? "#94a3b8" : "#fbbf24"};">${esc(l.who)}:</b> ${esc(l.text)}`)
         .join("<br/>");
+      // Short human summary on top, verbatim transcript collapsed below
+      let summary = "";
+      try {
+        const anthropic = new Anthropic();
+        const res = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 200,
+          messages: [{ role: "user", content: `Summarize this phone call between the TriageIt assistant and a technician in 2-3 plain sentences — what was discussed, what the tech said, and any commitment made. No preamble.\n\n${this.transcript.map((l) => `${l.who}: ${l.text}`).join("\n")}` }],
+        });
+        summary = extractResponseText(res).trim();
+      } catch {
+        // transcript still posts without a summary
+      }
       try {
         await this.deps.halo.addInternalNote(
           this.escalation.haloId,
-          `<b>📞 Escalation call transcript — ${this.escalation.techName ?? "tech"}</b><br/><details><summary style="cursor:pointer;">▸ Full verbatim transcript (${this.transcript.length} exchanges)</summary><div style="padding:6px 0;line-height:1.6;">${lines}</div></details>`,
+          `<b>📞 Escalation call — ${this.escalation.techName ?? "tech"}</b><br/>${summary ? `${esc(summary)}<br/>` : ""}<details><summary style="cursor:pointer;">▸ Full verbatim transcript (${this.transcript.length} exchanges)</summary><div style="padding:6px 0;line-height:1.6;">${lines}</div></details>`,
         );
         console.log(`[VOICE] Escalation transcript posted on #${this.escalation.haloId} (${this.transcript.length} lines)`);
       } catch (error) {
@@ -550,7 +565,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           ? [
               `YOUR MISSION (requested by Gamma Tech management via the TriageIt console)`,
               `${e.objective}`,
-              `Ask about it conversationally, capture what the tech says, then use post_note to document their answer on the ticket. If they commit to a resolution time, confirm it back and use set_resolution_target.`,
+              `Ask about it conversationally, capture what the tech says, then use post_note to document their answer on the ticket. Do NOT change the resolution target on this call unless your mission explicitly asks you to negotiate or change the SLA/resolution date.`,
             ]
           : [
         `YOUR GOALS, IN ORDER`,

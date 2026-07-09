@@ -31,6 +31,8 @@ import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
 import { runSlaCallRequests } from "./cron/sla-call.js";
+import { getCachedHaloConfig } from "./integrations/get-config.js";
+import { HaloClient } from "./integrations/halo/client.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
@@ -475,6 +477,26 @@ server.post<{
       console.error(`[INVESTIGATE] ${worker} failed for "${client_name}":`, message);
       return reply.status(500).send({ error: message });
     }
+  },
+);
+
+// ── Direct resolution-target update (Prison Mike manual SLA change) ──
+server.post<{ Body: { halo_id: number; new_target: string; reason?: string } }>(
+  "/update-resolution",
+  async (request, reply) => {
+    const { halo_id, new_target, reason } = request.body;
+    const when = new Date(new_target ?? "");
+    if (!halo_id || !Number.isFinite(when.getTime())) {
+      return reply.status(400).send({ error: "halo_id and a valid new_target are required" });
+    }
+    const supabase = createSupabaseClient();
+    const haloConfig = await getCachedHaloConfig(supabase);
+    if (!haloConfig) return reply.status(500).send({ error: "Halo not configured" });
+    const halo = new HaloClient(haloConfig);
+    await halo.updateResolutionTarget(halo_id, when.toISOString());
+    const pretty = when.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    await halo.addInternalNote(halo_id, `<b>⏱ Resolution target updated</b><br/>Set to <b>${pretty} ET</b> by admin via TriageIt.${reason ? `<br/>Reason: ${String(reason).slice(0, 400)}` : ""}`);
+    return { status: "ok", new_target: when.toISOString() };
   },
 );
 

@@ -18,14 +18,25 @@ import { RealtimeVoiceHandler, type EscalationContext } from "./realtime-handler
 // shows up here like any other call. This registry (same process) tells
 // startSession that a given number is an escalation call and carries the
 // ticket context for it. Entries expire after 3 minutes (unanswered).
-const pendingEscalations = new Map<string, { ctx: EscalationContext; expiresAt: number }>();
+const pendingEscalations = new Map<string, { ctx: EscalationContext; expiresAt: number; timer?: ReturnType<typeof setTimeout> }>();
 
 function last10(num: string): string {
   return num.replace(/\D/g, "").slice(-10);
 }
 
-export function registerEscalationCall(phone: string, ctx: EscalationContext): void {
-  pendingEscalations.set(last10(phone), { ctx, expiresAt: Date.now() + 3 * 60_000 });
+export function registerEscalationCall(phone: string, ctx: EscalationContext, onNoAnswer?: () => void): void {
+  const key = last10(phone);
+  // If nobody answers within 60s the call is dead — document it
+  const timer = onNoAnswer
+    ? setTimeout(() => {
+        if (pendingEscalations.delete(key)) {
+          console.log(`[VOICE] Escalation call to ${phone} for #${ctx.haloId} NOT answered`);
+          onNoAnswer();
+        }
+      }, 60_000)
+    : undefined;
+  timer?.unref?.();
+  pendingEscalations.set(key, { ctx, expiresAt: Date.now() + 3 * 60_000, timer });
   console.log(`[VOICE] Escalation call registered for ${phone} (ticket #${ctx.haloId})`);
 }
 
@@ -34,6 +45,7 @@ function takeEscalation(callerNumber: string): EscalationContext | null {
   const entry = pendingEscalations.get(key);
   if (!entry) return null;
   pendingEscalations.delete(key);
+  if (entry.timer) clearTimeout(entry.timer);
   return entry.expiresAt > Date.now() ? entry.ctx : null;
 }
 import type { ThreeCxConfig } from "@triageit/shared";
