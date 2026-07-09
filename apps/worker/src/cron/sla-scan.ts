@@ -88,23 +88,46 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     }));
   }
 
-  // Filter to only SLA-breaching tickets — target not met AND the by-date is
-  // actually in the past. targetmet=false alone can mean "not reached yet"
-  // on a healthy open ticket. Check both top-level and nested SLA data.
-  const breachers = allOpenTickets.filter((t) => {
-    // An on-hold SLA timer isn't burning — targets shift when it resumes
-    if ((t as { onhold?: boolean }).onhold === true) return false;
-    const slaSource = t.sla ?? t.sladetails ?? t;
-    const fixByDate = slaSource.fixbydate ?? t.fixbydate ?? null;
-    const respondByDate = slaSource.respondbydate ?? t.respondbydate ?? null;
-    const fixBreached =
-      isSlaTargetBreached(slaSource.fixtargetmet, fixByDate) ||
-      isSlaTargetBreached(t.fixtargetmet, fixByDate);
-    const responseBreached =
-      isSlaTargetBreached(slaSource.responsetargetmet, respondByDate) ||
-      isSlaTargetBreached(t.responsetargetmet, respondByDate);
-    return fixBreached || responseBreached;
-  });
+  // TWO-STAGE SCAN. Halo's LIST endpoint returns NO SLA target fields even
+  // with includeslainfo=true (verified live 2026-07-09: no fixtargetmet /
+  // responsetargetmet / sla / sladetails on list rows) — so the old
+  // list-only filter could NEVER flag a breach (isSlaTargetBreached needs
+  // targetMet === false, list rows gave undefined). Stage 1: cheap date
+  // screen on the list's fixbydate/respondbydate. Stage 2: fetch each
+  // candidate's full ticket (which DOES carry targets + onhold) and apply
+  // the real breach test.
+  const datePast = (v: unknown): boolean => {
+    if (typeof v !== "string" || !v) return false;
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) && t < Date.now();
+  };
+  const candidates = allOpenTickets
+    .filter((t) => datePast(t.fixbydate) || datePast(t.respondbydate))
+    .slice(0, 40);
+
+  const breachers: Record<string, any>[] = [];
+  for (const candidate of candidates) {
+    try {
+      const full = (await halo.getTicketWithSLA(candidate.id as number)) as unknown as Record<string, any>;
+      // An on-hold SLA timer isn't burning — targets shift when it resumes
+      if (full.onhold === true) continue;
+      const slaSource = full.sla ?? full.sladetails ?? full;
+      const fixByDate = slaSource.fixbydate ?? full.fixbydate ?? candidate.fixbydate ?? null;
+      const respondByDate = slaSource.respondbydate ?? full.respondbydate ?? candidate.respondbydate ?? null;
+      const fixBreached =
+        isSlaTargetBreached(slaSource.fixtargetmet, fixByDate) ||
+        isSlaTargetBreached(full.fixtargetmet, fixByDate);
+      const responseBreached =
+        isSlaTargetBreached(slaSource.responsetargetmet, respondByDate) ||
+        isSlaTargetBreached(full.responsetargetmet, respondByDate);
+      if (fixBreached || responseBreached) breachers.push({ ...candidate, ...full });
+    } catch (error) {
+      console.warn(`[SLA SCAN] Detail fetch for #${candidate.id} failed:`, error instanceof Error ? error.message : error);
+    }
+  }
+  if (candidates.length > 0) {
+    console.log(`[SLA SCAN] ${candidates.length} past-due-date candidates → ${breachers.length} confirmed breaches after detail check`);
+  }
 
   if (breachers.length === 0) {
     console.log(
