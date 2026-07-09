@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient, type TicketImage } from "../../integrations/halo/client.js";
+import { MemoryManager } from "../../memory/memory-manager.js";
 import type { HaloConfig } from "@triageit/shared";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -265,6 +266,40 @@ async function _generateCloseReview(
   // Close review posted as internal note. No status changes, no reassignment.
   // The ticket stays resolved, the tech stays assigned, the customer doesn't see anything.
   console.log(`[CLOSE-REVIEW] #${haloId} reviewed — rating: ${review.tech_performance.rating}, doc quality: ${review.documentation_action.quality_score}/5`);
+
+  // LEARN from the closing (user request 2026-07-09): every resolved ticket
+  // becomes a resolution memory for Michael, embedded for similarity recall —
+  // the next similar ticket's triage surfaces "we solved this before by X".
+  // Failures never block the review itself.
+  try {
+    const classification = latestTriage?.classification as Record<string, string> | undefined;
+    const memoryManager = new MemoryManager(supabase);
+    const contentLines = [
+      `RESOLVED ticket #${haloId} — "${String(ticket.summary ?? "").slice(0, 150)}" (${ticket.client_name ?? "unknown client"}${classification ? `, ${classification.type ?? ""}/${classification.subtype ?? ""}` : ""}).`,
+      `Issue & fix: ${review.resolution_summary}`,
+      `Resolution method: ${review.ticket_lifecycle.resolution_method} | total time: ${review.ticket_lifecycle.total_time} | tech: ${ticket.halo_agent ?? "unassigned"}.`,
+      review.onsite_visits.length > 0 ? `Required onsite: ${review.onsite_visits.join("; ")}` : "",
+    ].filter(Boolean);
+    await memoryManager.createMemory({
+      agent_name: "michael_scott",
+      ticket_id: ticket.id as string,
+      content: contentLines.join("\n"),
+      summary: `How #${haloId} (${String(ticket.summary ?? "").slice(0, 60)}) was resolved`,
+      memory_type: "resolution",
+      confidence: 0.9,
+      metadata: {
+        client_name: ticket.client_name ?? null,
+        halo_id: haloId,
+        classification_type: classification?.type ?? null,
+        resolution_method: review.ticket_lifecycle.resolution_method,
+        tech: ticket.halo_agent ?? null,
+        source: "close_review",
+      },
+    });
+    console.log(`[CLOSE-REVIEW] #${haloId} resolution memory stored for Michael`);
+  } catch (error) {
+    console.error(`[CLOSE-REVIEW] Failed to store resolution memory for #${haloId}:`, error instanceof Error ? error.message : error);
+  }
 
   return { review, noteHtml };
 }
