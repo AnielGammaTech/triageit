@@ -470,6 +470,19 @@ export async function POST(request: NextRequest) {
       },
     },
     {
+      name: "update_resolution_target",
+      description: "Directly update a ticket's SLA resolution target (fix-by date) in Halo — NO phone call involved. Use ONLY when the admin explicitly asks to change/extend a ticket's SLA or resolution date. Confirm the exact date/time with the admin if ambiguous. Posts a note documenting the change.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          halo_id: { type: "number", description: "The Halo ticket number" },
+          new_target: { type: "string", description: "New resolution date/time, ISO 8601 with Eastern offset, e.g. 2026-07-11T14:00:00-04:00" },
+          reason: { type: "string", description: "Why the target is being changed" },
+        },
+        required: ["halo_id", "new_target"],
+      },
+    },
+    {
       name: "get_dashboard",
       description: "Get detailed dashboard data: tech workload, customer breakdown, recent trends, tech reviews, and performance profiles. Use when the conversation needs specifics about team performance, client patterns, or operational metrics. Do NOT call this for simple ticket lookups.",
       input_schema: {
@@ -734,6 +747,20 @@ export async function POST(request: NextRequest) {
           return `Found and imported ticket #${haloId} from Halo: "${ticket.summary}" (client: ${ticket.client_name ?? "unknown"}, status: ${ticket.statusname ?? "unknown"}). Triage has been queued.`;
         } catch (err) {
           return `Error fetching from Halo: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+
+      case "update_resolution_target": {
+        try {
+          const res = await workerFetch(`${workerUrl}/update-resolution`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ halo_id: input.halo_id, new_target: input.new_target, reason: (input.reason as string) ?? undefined }),
+          });
+          if (!res.ok) return `Update failed (${res.status})`;
+          return `Resolution target updated and documented on ticket #${input.halo_id}.`;
+        } catch (err) {
+          return `Update failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 

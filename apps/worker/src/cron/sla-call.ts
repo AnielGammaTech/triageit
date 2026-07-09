@@ -92,6 +92,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         await supabase.from("sla_call_requests").update({ status: "failed" }).eq("id", req.id);
         continue;
       }
+      const techLabel = (req.tech_name as string) ?? (ticket?.halo_agent as string) ?? "the assigned tech";
       registerEscalationCall(destination, {
         haloId,
         summary: String(ticket?.summary ?? `ticket ${haloId}`).slice(0, 150),
@@ -102,6 +103,13 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         lastTechUpdate: ticket?.last_tech_action_at
           ? new Date(ticket.last_tech_action_at as string).toLocaleString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })
           : null,
+      }, () => {
+        void halo
+          .addInternalNote(
+            haloId,
+            `<b>📞 Escalation call — NO ANSWER</b><br/>TriageIt called ${techLabel} (${destination}) about this ticket${req.objective ? "" : "'s SLA breach"} and got no answer. ${req.objective ? "" : "Breach alerts continue."}`,
+          )
+          .catch((e) => console.error(`[SLA-CALL] No-answer note failed for #${haloId}:`, e instanceof Error ? e.message : e));
       });
 
       const ok = await cc.makecall(ROUTE_POINT_DN, destination);
