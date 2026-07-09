@@ -374,7 +374,9 @@ export async function POST(request: NextRequest) {
           tech_name: { type: "string", description: "Filter by assigned tech name (partial match)" },
           status: { type: "string", description: "Filter by halo_status (e.g. 'New', 'In Progress', 'Customer Reply', 'Waiting on Customer')" },
           keyword: { type: "string", description: "Search in ticket summary and details" },
-          days_back: { type: "number", description: "Only tickets created in the last N days (default: 30)" },
+          days_back: { type: "number", description: "Only tickets created in the last N days (default: 30). Ignored when date_from/date_to are given." },
+          date_from: { type: "string", description: "Start of an exact date range (inclusive), ISO date e.g. 2026-06-01 — use for calendar-month questions like 'in June'" },
+          date_to: { type: "string", description: "End of the range (exclusive), ISO date e.g. 2026-07-01" },
           limit: { type: "number", description: "Max results to return (default: 20, max: 50)" },
         },
         required: [],
@@ -840,22 +842,31 @@ export async function POST(request: NextRequest) {
           query = query.or(`summary.ilike.%${input.keyword}%,details.ilike.%${input.keyword}%`);
           filters.push(`keyword: ${input.keyword}`);
         }
+        if (typeof input.date_from === "string" && input.date_from) {
+          query = query.gte("created_at", input.date_from);
+          filters.push(`from: ${input.date_from}`);
+        }
+        if (typeof input.date_to === "string" && input.date_to) {
+          query = query.lt("created_at", input.date_to);
+          filters.push(`to: ${input.date_to}`);
+        }
 
+        const hasRange = Boolean(input.date_from || input.date_to);
         const daysBack = (input.days_back as number) ?? 30;
         const cutoff = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
-        query = query.gte("created_at", cutoff);
+        if (!hasRange) query = query.gte("created_at", cutoff);
 
         const maxResults = Math.min((input.limit as number) ?? 20, 50);
         query = query.order("created_at", { ascending: false }).limit(maxResults);
 
         const { data: tickets, error: searchErr, count: totalMatches } = await query;
         if (searchErr) return `Search failed: ${searchErr.message}`;
-        if (!tickets || tickets.length === 0) return `No tickets found matching: ${filters.join(", ")} (last ${daysBack} days)`;
+        if (!tickets || tickets.length === 0) return `No tickets found matching: ${filters.join(", ")}${hasRange ? "" : ` (last ${daysBack} days)`}`;
 
         // Always give the model the EXACT total — a capped list presented as
         // the full set is how wrong counts end up in answers
         const total = totalMatches ?? tickets.length;
-        let result = `${total} tickets match (${filters.join(", ")}, last ${daysBack} days). Showing the ${tickets.length} most recent${total > tickets.length ? ` — when quoting counts use ${total}, not ${tickets.length}` : ""}:\n\n`;
+        let result = `${total} tickets match (${filters.join(", ")}${hasRange ? "" : `, last ${daysBack} days`}). Showing the ${tickets.length} most recent${total > tickets.length ? ` — when quoting counts use ${total}, not ${tickets.length}` : ""}:\n\n`;
         for (const t of tickets) {
           result += `- **#${t.halo_id}** ${t.summary} | ${t.client_name ?? "?"} | ${t.halo_status ?? "?"} | Tech: ${t.halo_agent ?? "Unassigned"} | ${new Date(t.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York" })}\n`;
         }
