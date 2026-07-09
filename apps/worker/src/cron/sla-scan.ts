@@ -155,7 +155,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   if (recoveredIds.length > 0) {
     await supabase
       .from("tickets")
-      .update({ sla_breach_alerted_at: null })
+      .update({ sla_breach_alerted_at: null, sla_breach_alert_count: 0 })
       .in("halo_id", recoveredIds)
       .not("sla_breach_alerted_at", "is", null);
   }
@@ -185,16 +185,16 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     // "UNASSIGNED/Unknown" because they trusted the Halo fields
     const { data: alertState } = await supabase
       .from("tickets")
-      .select("halo_id, sla_breach_alerted_at, halo_agent, halo_status, client_name, summary")
+      .select("halo_id, sla_breach_alerted_at, sla_breach_alert_count, halo_agent, halo_status, client_name, summary")
       .in("halo_id", breachers.map((t) => t.id as number));
     const localByHaloId = new Map((alertState ?? []).map((t) => [t.halo_id as number, t]));
-    const alreadyAlerted = new Set(
-      (alertState ?? []).filter((t) => t.sla_breach_alerted_at).map((t) => t.halo_id as number),
-    );
     // Grace period: only alert once the breach is >10 minutes old — a timer
     // that JUST ticked negative may recover (status change, hold) before
     // anyone could act, and pinging management for that is noise
     const GRACE_HOURS = 10 / 60;
+    // Escalation: still breached an hour after the last alert → alert again,
+    // labeled "2nd alert", "3rd alert", … (scan runs hourly to keep cadence)
+    const REALERT_MS = 60 * 60 * 1000;
     const breachAge = (t: Record<string, any>): number | null => {
       const timeLeft =
         typeof t.fixtimeleft === "number" ? t.fixtimeleft
@@ -203,9 +203,12 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       return timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null;
     };
     const toAlert = breachers.filter((t) => {
-      if (alreadyAlerted.has(t.id as number)) return false;
       const age = breachAge(t);
-      return age != null && age >= GRACE_HOURS;
+      if (age == null || age < GRACE_HOURS) return false;
+      const local = localByHaloId.get(t.id as number);
+      const lastAlerted = local?.sla_breach_alerted_at ? new Date(local.sla_breach_alerted_at as string).getTime() : null;
+      if (lastAlerted == null) return true; // first notice
+      return Date.now() - lastAlerted >= REALERT_MS; // hourly escalation
     });
 
     if (toAlert.length > 0) {
@@ -225,6 +228,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             typeof breacher.fixtimeleft === "number" ? breacher.fixtimeleft
             : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
             : null;
+          const attempt = ((local?.sla_breach_alert_count as number) ?? 0) + 1;
           try {
             await teams.sendSlaBreachAlert({
               haloId,
@@ -234,12 +238,13 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               status: (local?.halo_status as string) ?? (breacher.status_name as string) ?? null,
               hoursOver: timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null,
               ticketUrl: haloWebBase ? `${haloWebBase}/tickets?id=${haloId}` : null,
+              attempt,
             });
             await supabase
               .from("tickets")
-              .update({ sla_breach_alerted_at: new Date().toISOString() })
+              .update({ sla_breach_alerted_at: new Date().toISOString(), sla_breach_alert_count: attempt })
               .eq("halo_id", haloId);
-            console.log(`[SLA SCAN] Teams breach alert sent for #${haloId}`);
+            console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt})`);
           } catch (error) {
             console.error(`[SLA SCAN] Teams alert for #${haloId} failed:`, error instanceof Error ? error.message : error);
           }
