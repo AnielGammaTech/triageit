@@ -174,6 +174,29 @@ function extractSpokenTicketNumbers(transcript: string): number[] {
   return [...new Set(ids)];
 }
 
+/**
+ * Names spoken on the call that identify who the tech was talking to —
+ * voicemail greetings ("You have reached Nicole Lynn"), self-introductions
+ * ("this is Melissa"). Used to find the person in Halo BY NAME when their
+ * direct-dial number isn't on their contact card.
+ */
+function extractSpokenNames(transcript: string): string[] {
+  const patterns = [
+    /you(?:'ve| have) reached ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
+    /(?:^|\.\s+|,\s+)this is ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
+    /(?:hello|hi|hey),?\s+(?:this is )?([A-Z][a-z]+(?: [A-Z][a-z]+)?) speaking/g,
+  ];
+  const names = new Set<string>();
+  for (const re of patterns) {
+    for (const m of transcript.matchAll(re)) {
+      const name = m[1].trim();
+      // Skip our own staff introducing themselves and obvious non-names
+      if (!/^(Gamma|Tech|Thank|Please|Monday|Tuesday|Wednesday|Thursday|Friday)/.test(name)) names.add(name);
+    }
+  }
+  return [...names].slice(0, 3);
+}
+
 /** Pick the external (non-extension) side of the call. */
 function externalNumberOf(rec: ThreeCxRecording): { number: string; direction: "inbound" | "outbound" } | null {
   const from = (rec.FromCallerNumber ?? "").replace(/\D/g, "");
@@ -234,16 +257,43 @@ export async function processRecording(
   // Who is this number in Halo?
   const users = await halo.searchUsersByPhone(external.number);
 
-  // Number not in Halo (main lines, cell phones Halo doesn't know) — the
-  // transcript itself often names the caller and the issue, so let the LLM
-  // try the whole open board. The assigned-tech guard below still applies,
-  // which kills vendor calls and wrong-ticket picks.
+  // Number not in Halo (main lines, cell phones Halo doesn't know).
+  // First: people NAME themselves on calls ("You have reached Nicole
+  // Lynn…") — find them in Halo by name, then match within their
+  // company's open tickets. Fallback: LLM over the whole open board.
+  // The assigned-tech guard below still applies on every path.
   if (users.length === 0) {
+    // Name-directed: spoken name → Halo user → their client's open tickets
+    const spokenNames = extractSpokenNames(transcript);
+    for (const name of spokenNames) {
+      let namedUsers: Awaited<ReturnType<typeof halo.searchUsersByName>> = [];
+      try {
+        namedUsers = await halo.searchUsersByName(name);
+      } catch {
+        continue;
+      }
+      const namedClients = [...new Set(namedUsers.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
+      if (namedClients.length === 0 || namedClients.length > 3) continue;
+      const { data: clientTickets } = await supabase
+        .from("tickets")
+        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent")
+        .eq("tickettype_id", 31)
+        .eq("halo_is_open", true)
+        .in("client_name", namedClients)
+        .order("created_at", { ascending: false })
+        .limit(25);
+      const pick = await selectTicketByTranscript(transcript, (clientTickets ?? []) as CandidateTicket[], techName, "client");
+      if (pick) {
+        console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: matched via spoken name "${name}" → ${namedClients.join("/")} → #${pick.halo_id}`);
+        return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, pick, "llm_transcript_named", transcript);
+      }
+    }
+
     let globalPick: CandidateTicket | null = null;
     if (transcript.length >= GLOBAL_MATCH_MIN_CHARS) {
       const { data: allOpen } = await supabase
         .from("tickets")
-        .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
+        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent")
         .eq("tickettype_id", 31)
         .eq("halo_is_open", true)
         .order("created_at", { ascending: false })
@@ -265,7 +315,7 @@ export async function processRecording(
 
   const { data: openTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
+    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent")
     .eq("tickettype_id", 31)
     .eq("halo_is_open", true)
     .in("client_name", clientNames.length > 0 ? clientNames : ["__none__"])
@@ -317,6 +367,7 @@ interface CandidateTicket {
   readonly id: string;
   readonly halo_id: number;
   readonly summary: string;
+  readonly details?: string | null;
   readonly user_name: string | null;
   readonly client_name: string | null;
   readonly halo_status: string | null;
@@ -416,10 +467,13 @@ async function selectTicketByTranscript(
   if (candidates.length === 0) return null;
   try {
     const anthropic = new Anthropic();
-    const lines = candidates.map(
-      (t) =>
-        `#${t.halo_id} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${String(t.summary ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 120)}`,
-    );
+    const clean = (s: unknown, max: number) => String(s ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+    const lines = candidates.map((t) => {
+      // Ticket bodies carry the names/mailboxes the summary omits — "Email
+      // Forward" says nothing, its details name the actual people involved
+      const details = clean(t.details, 160);
+      return `#${t.halo_id} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}`;
+    });
 
     const prompt = [
       `A support call at an MSP was recorded and transcribed. Decide which open ticket (if any) the call is about, so the call summary lands on the right ticket.`,
