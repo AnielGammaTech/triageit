@@ -1,4 +1,5 @@
 import type { ThreeCxConfig } from "@triageit/shared";
+import { getThreeCxToken, invalidateThreeCxToken } from "./token-manager.js";
 
 /**
  * ThreeCxClient — Queries 3CX phone system API.
@@ -17,8 +18,6 @@ export class ThreeCxClient {
   private readonly apiKey: string;
   private readonly clientId: string | null;
   private readonly clientSecret: string | null;
-  private token: string | null = null;
-  private tokenExpiresAt = 0;
 
   constructor(config: ThreeCxConfig) {
     this.baseUrl = config.api_url.replace(/\/$/, "");
@@ -28,35 +27,18 @@ export class ThreeCxClient {
   }
 
   /**
-   * V20 XAPI auth: exchange the service-principal client_id/client_secret
-   * for a bearer token at /connect/token (verified live on
-   * gammatech.fl.3cx.us 2026-07-08). Tokens last 3600s; refresh at 50 min.
+   * V20 XAPI auth via the PROCESS-WIDE token manager — 3CX keeps one live
+   * token per API client and a mint invalidates the previous token
+   * (verified live 2026-07-09), so private per-instance caches made every
+   * 3CX consumer in the worker fight the others (the voice websocket
+   * dropped whenever a cron minted, and vice versa).
    */
-  private async getAccessToken(): Promise<string> {
-    if (this.token && Date.now() < this.tokenExpiresAt) return this.token;
+  private async getAccessToken(forceRefresh = false): Promise<string> {
     if (!this.clientId || !this.clientSecret) {
       // Legacy mode — the raw api_key is used as the bearer directly
       return this.apiKey;
     }
-
-    const res = await fetch(`${this.baseUrl}/connect/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      throw new Error(`3CX token exchange failed (${res.status}): ${await res.text()}`);
-    }
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) throw new Error("3CX token exchange returned no access_token");
-    this.token = data.access_token;
-    this.tokenExpiresAt = Date.now() + Math.min((data.expires_in ?? 3600) - 600, 3000) * 1000;
-    return this.token;
+    return getThreeCxToken(this.baseUrl, this.clientId, this.clientSecret, { forceRefresh });
   }
 
   private async request<T>(
@@ -70,12 +52,22 @@ export class ThreeCxClient {
       }
     }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${await this.getAccessToken()}`,
-    };
+    const attempt = async (force: boolean) =>
+      fetch(url.toString(), {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await this.getAccessToken(force)}`,
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
 
-    const response = await fetch(url.toString(), { headers, signal: AbortSignal.timeout(30_000) });
+    let response = await attempt(false);
+    // 401 = our token was superseded by a mint outside this process —
+    // refresh once and retry
+    if (response.status === 401 && this.clientId) {
+      invalidateThreeCxToken(this.baseUrl, this.clientId);
+      response = await attempt(true);
+    }
 
     if (!response.ok) {
       const text = await response.text();
