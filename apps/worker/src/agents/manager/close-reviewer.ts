@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseLlmJson } from "../parse-json.js";
 import { HaloClient, type TicketImage } from "../../integrations/halo/client.js";
 import { MemoryManager } from "../../memory/memory-manager.js";
+import { TeamsClient } from "../../integrations/teams/client.js";
+import type { TeamsConfig } from "@triageit/shared";
 import type { HaloConfig } from "@triageit/shared";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - Be factual — only state what the ticket history shows
 - Hudu updates should ONLY be permanent environment documentation: network configs, device inventories, passwords, procedures, contact info, DNS records. NOT ticket-specific details.
 - Rate the tech honestly — great/good/needs_improvement/poor
-- If there were onsite visits, note them
+- ONSITE DETECTION IS CRITICAL (unbilled onsite = lost revenue): scan EVERY note including private/internal ones for ANY indication of an onsite visit — 'went onsite', 'swing by', 'stopped by', 'head over', 'at their office', 'on site', dispatch/appointment language, or the ticket having been in Scheduled status (Scheduled almost always means an onsite appointment). For each onsite indication, include the EVIDENCE QUOTE in onsite_visits.
 - Keep everything concise
 - For hudu_kb_drafts: Draft READY-TO-PASTE content for Hudu. Each draft should be a complete article/section the admin can copy directly into Hudu. ONLY draft if the ticket revealed MEANINGFUL permanent knowledge — specific configs, non-obvious procedures, vendor contacts, network details, workarounds for known bugs, etc. Do NOT draft articles for trivial/obvious things like "how to restart a computer", "how to reset a password in M365 admin", "how to check email on Outlook" — only document things a tech wouldn't already know. Return an EMPTY array if nothing is worth documenting. Categories: procedure (step-by-step fix), troubleshooting (diagnosis guide), environment (infra/config details), contact (vendor contacts discovered), network (network/DNS/firewall configs), password (credential notes — NO actual passwords, just what exists and where), general (other).
 
@@ -269,6 +271,38 @@ async function _generateCloseReview(
   // Close review posted as internal note. No status changes, no reassignment.
   // The ticket stays resolved, the tech stays assigned, the customer doesn't see anything.
   console.log(`[CLOSE-REVIEW] #${haloId} reviewed — rating: ${review.tech_performance.rating}, doc quality: ${review.documentation_action.quality_score}/5`);
+
+  // UNBILLED ONSITE TRIPWIRE (user request 2026-07-09): onsite evidence
+  // with zero charged hours = the visit never hit billing. Flag it loudly.
+  if (review.onsite_visits.length > 0) {
+    try {
+      const billing = await halo.getBillingState(haloId);
+      if (billing.chargedHours <= 0) {
+        await halo.addInternalNote(
+          haloId,
+          `<b style="color:#f87171;">🔴 ONSITE VISIT DETECTED — NO BILLABLE TIME CHARGED</b><br/>` +
+            `This ticket shows onsite work but has 0 charged hours (no Onsite Support charge type logged).<br/>` +
+            `Evidence: ${review.onsite_visits.map((v) => String(v).slice(0, 150)).join(" · ")}<br/>` +
+            `<b>Action needed:</b> add the Onsite Support time entry before this slips through billing.`,
+        );
+        const { data: teamsIntegration } = await supabase
+          .from("integrations").select("config").eq("service", "teams").eq("is_active", true).maybeSingle();
+        if (teamsIntegration?.config) {
+          const teams = new TeamsClient(teamsIntegration.config as TeamsConfig);
+          await teams.sendUnbilledOnsiteAlert({
+            haloId,
+            summary: String(ticket.summary ?? "").slice(0, 100),
+            clientName: ticket.client_name ?? null,
+            techName: ticket.halo_agent ?? null,
+            evidence: review.onsite_visits.map((v) => String(v)).join(" · ").slice(0, 300),
+          });
+        }
+        console.log(`[CLOSE-REVIEW] #${haloId} UNBILLED ONSITE flagged (${review.onsite_visits.length} indications, 0 charged hours)`);
+      }
+    } catch (error) {
+      console.error(`[CLOSE-REVIEW] Onsite billing check failed for #${haloId}:`, error instanceof Error ? error.message : error);
+    }
+  }
 
   // LEARN from the closing (user request 2026-07-09): every resolved ticket
   // becomes a resolution memory for Michael, embedded for similarity recall —

@@ -569,6 +569,33 @@ export class TeamsClient {
     await this.sendCard(card, "sla");
   }
 
+  /** Onsite visit evidence but zero charged hours — lost revenue tripwire. */
+  async sendUnbilledOnsiteAlert(a: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly techName: string | null;
+    readonly evidence: string;
+  }): Promise<void> {
+    await this.sendCard({
+      type: "message",
+      attachments: [{
+        contentType: "application/vnd.microsoft.card.adaptive",
+        contentUrl: null,
+        content: {
+          $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+          type: "AdaptiveCard",
+          version: "1.2",
+          body: [
+            { type: "TextBlock", text: `💸 UNBILLED ONSITE — ticket #${a.haloId} closed with onsite work but 0 charged hours.`, weight: "Bolder", color: "Attention", wrap: true },
+            { type: "TextBlock", text: `${a.summary} · ${a.clientName ?? "?"} · ${a.techName ?? "unassigned"}`, size: "Small", isSubtle: true, wrap: true },
+            { type: "TextBlock", text: `Evidence: ${a.evidence}`, size: "Small", wrap: true },
+          ],
+        },
+      }],
+    });
+  }
+
   /**
    * Voicemail from a number we couldn't match to any ticket — without this
    * alert the message only lands in call_messages, which nobody watches.
