@@ -101,9 +101,15 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     const t = new Date(v).getTime();
     return Number.isFinite(t) && t < Date.now();
   };
-  const candidates = allOpenTickets
+  // Fix-deadline misses first — a blown fix target outranks a blown
+  // first-response target. Log if the cap ever drops candidates.
+  const allCandidates = allOpenTickets
     .filter((t) => datePast(t.fixbydate) || datePast(t.respondbydate))
-    .slice(0, 40);
+    .sort((a, b) => Number(datePast(b.fixbydate)) - Number(datePast(a.fixbydate)));
+  const candidates = allCandidates.slice(0, 80);
+  if (allCandidates.length > candidates.length) {
+    console.warn(`[SLA SCAN] ${allCandidates.length - candidates.length} past-due candidates dropped by the 80 cap`);
+  }
 
   const breachers: Record<string, any>[] = [];
   for (const candidate of candidates) {
