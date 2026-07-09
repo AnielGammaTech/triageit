@@ -280,6 +280,13 @@ export class CallControlClient {
 
   private scheduleReconnect(onEvent: (event: CallControlEvent) => void, onConnected?: () => void): void {
     this.reconnectAttempts++;
+    // A token that authenticated the LAST websocket is routinely rejected on
+    // the next upgrade (observed live 2026-07-08: fresh connect OK, every
+    // reconnect with the cached token → HTTP 401, forever — the voice line
+    // answered calls with dead silence). Always mint a fresh token when
+    // reconnecting.
+    this.token = null;
+    this.tokenExpiresAt = 0;
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_DELAY_MS);
     console.warn(`[VOICE] Websocket disconnected — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})`);
     const timer = setTimeout(() => void this.connectLoop(onEvent, onConnected), delay);
