@@ -140,6 +140,18 @@ export class HaloClient {
     return [];
   }
 
+  /** Find users by name (voicemail greetings name people whose direct lines Halo doesn't know). */
+  async searchUsersByName(
+    name: string,
+  ): Promise<ReadonlyArray<{ id: number; name: string; client_name: string | null }>> {
+    const clean = name.trim();
+    if (clean.length < 3) return [];
+    const result = await this.request<{
+      users?: Array<{ id: number; name: string; client_name?: string }>;
+    }>("GET", `/users?search=${encodeURIComponent(clean)}&count=10`);
+    return (result.users ?? []).map((u) => ({ id: u.id, name: u.name, client_name: u.client_name ?? null }));
+  }
+
   async getTicketActions(ticketId: number): Promise<ReadonlyArray<HaloAction>> {
     const result = await this.request<{ actions: HaloAction[] }>(
       "GET",
