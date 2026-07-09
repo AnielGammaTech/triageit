@@ -191,7 +191,22 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     const alreadyAlerted = new Set(
       (alertState ?? []).filter((t) => t.sla_breach_alerted_at).map((t) => t.halo_id as number),
     );
-    const toAlert = breachers.filter((t) => !alreadyAlerted.has(t.id as number));
+    // Grace period: only alert once the breach is >10 minutes old — a timer
+    // that JUST ticked negative may recover (status change, hold) before
+    // anyone could act, and pinging management for that is noise
+    const GRACE_HOURS = 10 / 60;
+    const breachAge = (t: Record<string, any>): number | null => {
+      const timeLeft =
+        typeof t.fixtimeleft === "number" ? t.fixtimeleft
+        : typeof t.slatimeleft === "number" ? t.slatimeleft
+        : null;
+      return timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null;
+    };
+    const toAlert = breachers.filter((t) => {
+      if (alreadyAlerted.has(t.id as number)) return false;
+      const age = breachAge(t);
+      return age != null && age >= GRACE_HOURS;
+    });
 
     if (toAlert.length > 0) {
       const { data: teamsIntegration } = await supabase
