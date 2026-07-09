@@ -471,17 +471,17 @@ export class TeamsClient {
     const overText =
       breach.hoursOver != null
         ? breach.hoursOver >= 1
-          ? `${breach.hoursOver.toFixed(1)}h over`
-          : `${Math.round(breach.hoursOver * 60)}m over`
+          ? `${breach.hoursOver.toFixed(1)} hours over`
+          : `${Math.round(breach.hoursOver * 60)} minutes over`
         : "just breached";
-    const col = (label: string, value: string, valueColor?: string) => ({
-      type: "Column",
-      width: "stretch",
-      items: [
-        { type: "TextBlock", text: label.toUpperCase(), size: "Small", isSubtle: true, weight: "Bolder", spacing: "None" },
-        { type: "TextBlock", text: value, weight: "Bolder", wrap: true, spacing: "None", ...(valueColor ? { color: valueColor } : {}) },
-      ],
-    });
+    const info = [
+      breach.summary,
+      breach.clientName,
+      breach.status ? `Status: ${breach.status}` : null,
+      overText,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const card = {
       type: "message",
       attachments: [
@@ -494,54 +494,25 @@ export class TeamsClient {
             version: "1.4",
             body: [
               {
-                type: "Container",
-                style: "attention",
-                bleed: true,
-                items: [
-                  {
-                    type: "ColumnSet",
-                    columns: [
-                      {
-                        type: "Column",
-                        width: "stretch",
-                        items: [
-                          { type: "TextBlock", text: "🚨 SLA BREACH", weight: "Bolder", size: "Small", color: "Attention", spacing: "None" },
-                          { type: "TextBlock", text: `#${breach.haloId} · ${breach.summary}`, size: "Large", weight: "Bolder", wrap: true, spacing: "Small" },
-                        ],
-                      },
-                      {
-                        type: "Column",
-                        width: "auto",
-                        verticalContentAlignment: "Center",
-                        items: [
-                          { type: "TextBlock", text: overText, weight: "Bolder", size: "Medium", color: "Attention", spacing: "None" },
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-              {
-                type: "ColumnSet",
-                spacing: "Medium",
-                columns: [
-                  col("Client", breach.clientName ?? "Unknown"),
-                  col("Assigned to", breach.techName ?? "Unassigned", breach.techName ? undefined : "Attention"),
-                  col("Status", breach.status ?? "—"),
-                ],
+                type: "TextBlock",
+                text: `🚨 ${breach.techName ?? "Unassigned"} — ticket #${breach.haloId} is SLA BREACHED. Fix as soon as possible to prevent any negative feedback.`,
+                weight: "Bolder",
+                color: "Attention",
+                wrap: true,
               },
               {
                 type: "TextBlock",
-                text: "Aniel & David — needs eyes.",
+                text: info,
                 size: "Small",
                 isSubtle: true,
-                spacing: "Medium",
+                wrap: true,
+                spacing: "Small",
               },
             ],
             ...(breach.ticketUrl
               ? {
                   actions: [
-                    { type: "Action.OpenUrl", title: "Open in Halo →", url: breach.ticketUrl },
+                    { type: "Action.OpenUrl", title: "Open in Halo", url: breach.ticketUrl },
                   ],
                 }
               : {}),
