@@ -217,6 +217,24 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     `[TICKET-SYNC] Complete: ${openTickets.length} pulled, ${created} created, ${updated} updated, ${closed} closed, ${triageEnqueued} enqueued for triage`,
   );
 
+  // Announce newly scheduled site visits (one card per ticket, ever)
+  if (scheduledVisits.length > 0) {
+    try {
+      const { data: teamsIntegration } = await supabase
+        .from("integrations").select("config").eq("service", "teams").eq("is_active", true).maybeSingle();
+      for (const v of scheduledVisits) {
+        if (teamsIntegration?.config) {
+          const teams = new TeamsClient(teamsIntegration.config as TeamsConfig);
+          await teams.sendScheduledVisitAlert(v).catch((e) => console.error("[SYNC] Visit alert failed:", e instanceof Error ? e.message : e));
+        }
+        await supabase.from("tickets").update({ onsite_visit_alerted_at: new Date().toISOString() }).eq("halo_id", v.haloId);
+        console.log(`[SYNC] Site visit scheduled alert: #${v.haloId} (${v.techName ?? "unassigned"})`);
+      }
+    } catch (error) {
+      console.error("[SYNC] Scheduled-visit alerting failed:", error instanceof Error ? error.message : error);
+    }
+  }
+
   return { pulled: openTickets.length, created, updated, triageEnqueued, closed };
 }
 
