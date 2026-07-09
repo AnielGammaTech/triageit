@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { request as httpsRequest, Agent as HttpsAgent } from "node:https";
 import type { ClientRequest } from "node:http";
 import type { ThreeCxConfig } from "@triageit/shared";
+import { getThreeCxToken, invalidateThreeCxToken } from "../integrations/threecx/token-manager.js";
 
 /**
  * Thin 3CX Call Control API client (V20).
@@ -62,8 +63,6 @@ export class CallControlClient {
   private readonly baseUrl: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private token: string | null = null;
-  private tokenExpiresAt = 0;
   private ws: WebSocket | null = null;
   private closedByUser = false;
   private reconnectAttempts = 0;
@@ -74,37 +73,38 @@ export class CallControlClient {
     this.clientSecret = config.client_secret ?? "";
   }
 
-  /** Local copy of ThreeCxClient.getAccessToken (private there). */
-  private async getAccessToken(): Promise<string> {
-    if (this.token && Date.now() < this.tokenExpiresAt) return this.token;
-    const res = await fetch(`${this.baseUrl}/connect/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      throw new Error(`3CX token exchange failed (${res.status}): ${await res.text()}`);
+  /**
+   * 3CX allows ONE live token per API client (a mint invalidates the
+   * previous token), so every consumer shares the process-wide manager.
+   */
+  private getAccessToken(forceRefresh = false): Promise<string> {
+    return getThreeCxToken(this.baseUrl, this.clientId, this.clientSecret, { forceRefresh });
+  }
+
+  /**
+   * Fetch with one 401 retry: a 401 means someone outside this process
+   * minted a token and superseded ours — refresh and take it back.
+   */
+  private async authedFetch(url: string, init: { method?: string; body?: string; headers?: Record<string, string> }): Promise<Response> {
+    const attempt = async (force: boolean) =>
+      fetch(url, {
+        ...init,
+        headers: { ...init.headers, Authorization: `Bearer ${await this.getAccessToken(force)}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    let res = await attempt(false);
+    if (res.status === 401) {
+      invalidateThreeCxToken(this.baseUrl, this.clientId);
+      res = await attempt(true);
     }
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) throw new Error("3CX token exchange returned no access_token");
-    this.token = data.access_token;
-    this.tokenExpiresAt = Date.now() + Math.min((data.expires_in ?? 3600) - 600, 3000) * 1000;
-    return this.token;
+    return res;
   }
 
   // ── REST actions ─────────────────────────────────────────────────────
 
   async getParticipant(dn: string, id: number): Promise<CallControlParticipant | null> {
     try {
-      const res = await fetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}`, {
-        headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
-        signal: AbortSignal.timeout(15_000),
-      });
+      const res = await this.authedFetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}`, {});
       if (!res.ok) {
         console.warn(`[VOICE] getParticipant ${dn}/${id} failed (${res.status})`);
         return null;
@@ -119,14 +119,10 @@ export class CallControlClient {
   /** POST /callcontrol/{dn}/participants/{id}/{action}. Returns success. */
   private async participantAction(dn: string, id: number, action: string): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}/${action}`, {
+      const res = await this.authedFetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}/${action}`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${await this.getAccessToken()}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: "{}",
-        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) {
         console.warn(`[VOICE] ${action} on ${dn}/${id} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
@@ -152,11 +148,20 @@ export class CallControlClient {
   /** Caller → app audio: chunked GET of raw PCM 16-bit 8kHz mono. */
   async openCallerAudio(dn: string, id: number): Promise<CallerAudioStream | null> {
     try {
-      const controller = new AbortController();
-      const res = await fetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}/stream`, {
-        headers: { Authorization: `Bearer ${await this.getAccessToken()}` },
-        signal: controller.signal,
-      });
+      const open = async (force: boolean) => {
+        const controller = new AbortController();
+        const res = await fetch(`${this.baseUrl}/callcontrol/${dn}/participants/${id}/stream`, {
+          headers: { Authorization: `Bearer ${await this.getAccessToken(force)}` },
+          signal: controller.signal,
+        });
+        return { res, controller };
+      };
+      let { res, controller } = await open(false);
+      if (res.status === 401) {
+        controller.abort();
+        invalidateThreeCxToken(this.baseUrl, this.clientId);
+        ({ res, controller } = await open(true));
+      }
       if (!res.ok || !res.body) {
         console.warn(`[VOICE] openCallerAudio ${dn}/${id} failed (${res.status})`);
         controller.abort();
@@ -232,10 +237,15 @@ export class CallControlClient {
     };
   }
 
+  /** Set when the last websocket attempt was rejected 401 — forces a fresh mint. */
+  private wsAuthRejected = false;
+
   private async connectLoop(onEvent: (event: CallControlEvent) => void, onConnected?: () => void): Promise<void> {
     if (this.closedByUser) return;
     try {
-      const token = await this.getAccessToken();
+      if (this.wsAuthRejected) invalidateThreeCxToken(this.baseUrl, this.clientId);
+      const token = await this.getAccessToken(this.wsAuthRejected);
+      this.wsAuthRejected = false;
       const wsUrl = `${this.baseUrl.replace(/^http/, "ws")}/callcontrol/ws`;
       const ws = new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${token}` } });
       this.ws = ws;
@@ -265,6 +275,7 @@ export class CallControlClient {
       });
 
       ws.on("error", (error) => {
+        if (error.message.includes("401")) this.wsAuthRejected = true;
         console.warn("[VOICE] Websocket error:", error.message);
       });
 
@@ -280,13 +291,9 @@ export class CallControlClient {
 
   private scheduleReconnect(onEvent: (event: CallControlEvent) => void, onConnected?: () => void): void {
     this.reconnectAttempts++;
-    // A token that authenticated the LAST websocket is routinely rejected on
-    // the next upgrade (observed live 2026-07-08: fresh connect OK, every
-    // reconnect with the cached token → HTTP 401, forever — the voice line
-    // answered calls with dead silence). Always mint a fresh token when
-    // reconnecting.
-    this.token = null;
-    this.tokenExpiresAt = 0;
+    // Do NOT blanket-mint here: minting invalidates the token every REST
+    // consumer in the process is using (3CX = one live token per client).
+    // connectLoop force-refreshes only when the last upgrade was a 401.
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_DELAY_MS);
     console.warn(`[VOICE] Websocket disconnected — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})`);
     const timer = setTimeout(() => void this.connectLoop(onEvent, onConnected), delay);
