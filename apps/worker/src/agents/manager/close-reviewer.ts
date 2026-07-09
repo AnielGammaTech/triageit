@@ -35,6 +35,8 @@ interface CloseReviewResult {
     readonly first_response_time: string;
     readonly resolution_method: string;
   };
+  /** Standing client-specific handling rule this ticket established, or null. */
+  readonly client_policy?: string | null;
 }
 
 // ── Close Review Generator ───────────────────────────────────────────
@@ -85,7 +87,8 @@ Analyze the full ticket lifecycle and produce a close-out review.
     "total_time": "<time from open to close, e.g. '2 days 4 hours'>",
     "first_response_time": "<time to first tech response, e.g. '45 minutes'>",
     "resolution_method": "<remote|onsite|vendor|automated|escalated>"
-  }
+  },
+  "client_policy": "<STANDING client-specific handling rule this ticket ESTABLISHED — approval chains ('all work needs a PO from X first'), contact-first requirements, billing rules, scheduled-access windows. One clear sentence stating the rule and who it comes from. null unless the ticket explicitly sets a lasting rule for how this client must be handled — a one-off request is NOT a policy>"
 }`;
 
 // In-memory lock to prevent concurrent close reviews for the same ticket
@@ -297,6 +300,26 @@ async function _generateCloseReview(
       },
     });
     console.log(`[CLOSE-REVIEW] #${haloId} resolution memory stored for Michael`);
+
+    // Ticket established a standing client rule → policy memory, surfaced
+    // on EVERY future ticket for this client (⚠ Client Policy note row)
+    if (review.client_policy && ticket.client_name) {
+      await memoryManager.createMemory({
+        agent_name: "michael_scott",
+        ticket_id: ticket.id as string,
+        content: `${ticket.client_name} handling policy (from #${haloId}): ${review.client_policy}`,
+        summary: `Client policy — ${ticket.client_name}`,
+        memory_type: "insight",
+        confidence: 0.95,
+        metadata: {
+          policy: "true",
+          client_name: ticket.client_name,
+          halo_id: haloId,
+          source: "close_review",
+        },
+      });
+      console.log(`[CLOSE-REVIEW] #${haloId} CLIENT POLICY stored for ${ticket.client_name}: ${review.client_policy.slice(0, 100)}`);
+    }
   } catch (error) {
     console.error(`[CLOSE-REVIEW] Failed to store resolution memory for #${haloId}:`, error instanceof Error ? error.message : error);
   }
