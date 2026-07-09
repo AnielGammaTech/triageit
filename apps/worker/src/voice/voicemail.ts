@@ -25,6 +25,7 @@ export interface RecordedMessage {
   readonly callerNumber: string;
   readonly pcm: Buffer;
   readonly ticket: Pick<CallerTicket, "id" | "halo_id"> | null;
+  readonly callerName?: string | null;
 }
 
 async function transcribeRecording(pcm: Buffer): Promise<string | null> {
@@ -56,8 +57,21 @@ async function transcribeRecording(pcm: Buffer): Promise<string | null> {
   }
 }
 
+function prettyPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return digits.length === 10 ? `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}` : raw;
+}
+
+/** Phone numbers spoken in the message — surfaced as an explicit callback row. */
+function extractPhoneNumbers(text: string): string[] {
+  const matches = text.match(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) ?? [];
+  return [...new Set(matches.map(prettyPhone))];
+}
+
+const URGENT_WORDS = /\b(asap|urgent(?:ly)?|emergency|immediately|right away|as soon as possible|critical|can'?t work|down right now)\b/i;
+
 /** Same dark-table styling family as buildCallSummaryNote (call-analysis). */
-function buildPhoneMessageNote(callerNumber: string, transcript: string, durationSeconds: number): string {
+function buildPhoneMessageNote(callerNumber: string, transcript: string, durationSeconds: number, callerName?: string | null): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const when = new Date().toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -66,13 +80,35 @@ function buildPhoneMessageNote(callerNumber: string, transcript: string, duratio
     hour: "numeric",
     minute: "2-digit",
   });
-  const prettyNumber = callerNumber.replace(/^\+?1(?=\d{10}$)/, "");
+  const callerLabel = callerName ? ` — ${callerName}` : "";
+  const urgent = URGENT_WORDS.test(transcript);
+  const urgentChip = urgent
+    ? `<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:9999px;background:#fbbf24;color:#451a03;font-size:10px;font-weight:800;letter-spacing:0.5px;vertical-align:middle;">URGENT</span>`
+    : "";
+
+  // Bold any phone number inside the message so it can't be skimmed past
+  const highlighted = transcript.replace(
+    /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g,
+    (m) => `<strong style="color:#fca5a5;white-space:nowrap;">${prettyPhone(m)}</strong>`,
+  );
+
+  const callbackNumbers = extractPhoneNumbers(transcript);
+  const callbackRow = callbackNumbers.length > 0
+    ? `<tr style="background:#162216;"><td style="padding:7px 12px;${border}font-size:12px;color:#bbf7d0;">` +
+      `<span style="color:#4ade80;font-weight:700;font-size:10.5px;letter-spacing:0.5px;">CALL BACK</span>` +
+      `&nbsp;&nbsp;${callbackNumbers.map((n) => `<strong style="color:#86efac;font-size:13px;">${n}</strong>`).join(" · ")}` +
+      `</td></tr>`
+    : "";
+
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
-    `<tr><td style="padding:8px 12px;background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:white;font-size:13px;font-weight:700;">🎙 Phone Message` +
-    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${when}${durationSeconds > 0 ? ` · ${durationSeconds}s` : ""} · ${prettyNumber}</span>` +
+    `<tr><td style="padding:9px 12px;background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:white;font-size:13px;font-weight:700;">🎙 Phone Message${callerLabel}${urgentChip}` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;padding-top:1px;">${when}${durationSeconds > 0 ? ` · ${durationSeconds}s` : ""} · ${prettyPhone(callerNumber)}</span>` +
     `</td></tr>` +
-    `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${transcript}</td></tr>` +
+    `<tr style="background:#252830;"><td style="padding:12px 14px;${border}">` +
+    `<div style="border-left:3px solid #b91c1c;padding:2px 0 2px 12px;font-size:13.5px;color:#f1f5f9;line-height:1.65;font-style:italic;">&ldquo;${highlighted}&rdquo;</div>` +
+    `</td></tr>` +
+    callbackRow +
     `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">TriageIt AI · recorded on the automated phone line</td></tr>` +
     `</table>`
   );
@@ -85,9 +121,9 @@ function buildPhoneMessageNote(callerNumber: string, transcript: string, duratio
  */
 export async function processTextMessage(
   deps: VoicemailDeps,
-  message: { readonly callerNumber: string; readonly text: string; readonly ticket: Pick<CallerTicket, "id" | "halo_id"> | null },
+  message: { readonly callerNumber: string; readonly text: string; readonly ticket: Pick<CallerTicket, "id" | "halo_id"> | null; readonly callerName?: string | null },
 ): Promise<void> {
-  await storeAndDeliverMessage(deps, message.callerNumber, message.text, 0, message.ticket);
+  await storeAndDeliverMessage(deps, message.callerNumber, message.text, 0, message.ticket, message.callerName);
 }
 
 /**
@@ -102,7 +138,7 @@ export async function processVoicemail(deps: VoicemailDeps, message: RecordedMes
   }
 
   const transcript = await transcribeRecording(message.pcm);
-  await storeAndDeliverMessage(deps, message.callerNumber, transcript, durationSeconds, message.ticket);
+  await storeAndDeliverMessage(deps, message.callerNumber, transcript, durationSeconds, message.ticket, message.callerName);
 }
 
 async function storeAndDeliverMessage(
@@ -111,6 +147,7 @@ async function storeAndDeliverMessage(
   transcript: string | null,
   durationSeconds: number,
   ticket: Pick<CallerTicket, "id" | "halo_id"> | null,
+  callerName?: string | null,
 ): Promise<void> {
   const message = { callerNumber, ticket };
   let messageId: string | null = null;
@@ -165,7 +202,7 @@ async function storeAndDeliverMessage(
   }
 
   try {
-    const note = buildPhoneMessageNote(message.callerNumber, transcript, durationSeconds);
+    const note = buildPhoneMessageNote(message.callerNumber, transcript, durationSeconds, callerName);
     await deps.halo.addInternalNote(message.ticket.halo_id, note);
     if (messageId) {
       await deps.supabase.from("call_messages").update({ note_posted: true }).eq("id", messageId);

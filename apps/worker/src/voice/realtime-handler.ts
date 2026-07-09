@@ -381,7 +381,12 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     }
     ticket = ticket ?? this.callerContext?.voicemailTicket ?? this.lastLookedUpTicket ?? null;
 
-    await processTextMessage(this.deps, { callerNumber: this.ctx?.callerNumber ?? "unknown", text, ticket });
+    await processTextMessage(this.deps, {
+      callerNumber: this.ctx?.callerNumber ?? "unknown",
+      text,
+      ticket,
+      callerName: this.callerContext?.users[0]?.name ?? null,
+    });
     return {
       ok: true,
       delivered_to: ticket ? `ticket ${ticket.halo_id}` : "the team (no specific ticket — sent as a team alert)",
