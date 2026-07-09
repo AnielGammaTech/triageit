@@ -180,10 +180,14 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   // Teams alert to management (Aniel & David) — ONCE per breach, tracked in
   // tickets.sla_breach_alerted_at so the 3-hourly scan never re-pings
   try {
+    // Local rows carry the fields Halo's raw ticket object doesn't reliably
+    // expose (agent name, readable status) — the first cards went out with
+    // "UNASSIGNED/Unknown" because they trusted the Halo fields
     const { data: alertState } = await supabase
       .from("tickets")
-      .select("halo_id, sla_breach_alerted_at")
+      .select("halo_id, sla_breach_alerted_at, halo_agent, halo_status, client_name, summary")
       .in("halo_id", breachers.map((t) => t.id as number));
+    const localByHaloId = new Map((alertState ?? []).map((t) => [t.halo_id as number, t]));
     const alreadyAlerted = new Set(
       (alertState ?? []).filter((t) => t.sla_breach_alerted_at).map((t) => t.halo_id as number),
     );
@@ -201,6 +205,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
         const haloWebBase = haloConfig.base_url?.replace(/\/api\/?$/, "") ?? null;
         for (const breacher of toAlert) {
           const haloId = breacher.id as number;
+          const local = localByHaloId.get(haloId);
           const timeLeft =
             typeof breacher.fixtimeleft === "number" ? breacher.fixtimeleft
             : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
@@ -208,10 +213,10 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
           try {
             await teams.sendSlaBreachAlert({
               haloId,
-              summary: String(breacher.summary ?? "").slice(0, 120),
-              clientName: (breacher.client_name as string) ?? null,
-              techName: (breacher.agent_name as string) ?? (breacher.agent?.name as string) ?? null,
-              status: (breacher.status_name as string) ?? (breacher.halo_status as string) ?? null,
+              summary: String(local?.summary ?? breacher.summary ?? "").slice(0, 120),
+              clientName: (local?.client_name as string) ?? (breacher.client_name as string) ?? null,
+              techName: (local?.halo_agent as string) ?? (breacher.agent_name as string) ?? (breacher.agent?.name as string) ?? null,
+              status: (local?.halo_status as string) ?? (breacher.status_name as string) ?? null,
               hoursOver: timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null,
               ticketUrl: haloWebBase ? `${haloWebBase}/tickets?id=${haloId}` : null,
             });
