@@ -296,9 +296,16 @@ async function finishMatchedRecording(
   const otherStaff = !namesOverlap(techName, ticket.halo_agent);
 
   // Analyze the transcript against the ticket
-  const insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary, otherStaff);
+  const insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
 
-  if (!insights || !insights.relevant_to_ticket) {
+  // "If it's part of the ticket, it doesn't matter who works on it — post
+  // the note" (user, 2026-07-09). llm_transcript matches were already
+  // selected BY content, so a second relevance veto only loses notes
+  // (Jarid's #40811 call died that way). The veto only remains for pure
+  // number-based matches, where the call may genuinely be about something
+  // else entirely.
+  const contentMatched = matchedBy.startsWith("llm_transcript");
+  if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
     await supabase
       .from("call_analyses")
       .upsert(
@@ -400,7 +407,6 @@ async function analyzeCall(
   techName: string,
   direction: string,
   ticketSummary: string,
-  strictRelevance = false,
 ): Promise<CallInsights | null> {
   try {
     const anthropic = new Anthropic();
@@ -420,9 +426,7 @@ async function analyzeCall(
       ``,
       `Respond with ONLY valid JSON:`,
       `{`,
-      strictRelevance
-        ? `  "relevant_to_ticket": <STRICT: the staff member on this call is NOT the ticket's assigned tech, so true ONLY if the call content clearly concerns this specific ticket's subject — same issue, same request. When in doubt, false>,`
-        : `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely>,`,
+      `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely>,`,
       `  "summary": "<2-3 sentences: what the call was about and how it ended>",`,
       `  "actions_taken": ["<things actually DONE on the call — e.g. rebooted server, reset password>"],`,
       `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
