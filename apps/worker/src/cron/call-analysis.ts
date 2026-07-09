@@ -182,9 +182,9 @@ function extractSpokenTicketNumbers(transcript: string): number[] {
  */
 function extractSpokenNames(transcript: string): string[] {
   const patterns = [
-    /you(?:'ve| have) reached ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
-    /(?:^|\.\s+|,\s+)this is ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
-    /(?:hello|hi|hey),?\s+(?:this is )?([A-Z][a-z]+(?: [A-Z][a-z]+)?) speaking/g,
+    /[Yy]ou(?:'ve| have) reached ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
+    /(?:^|[.,!?]\s+)[Tt]his is ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
+    /(?:[Hh]ello|[Hh]i|[Hh]ey),?\s+(?:this is )?([A-Z][a-z]+(?: [A-Z][a-z]+)?) speaking/g,
   ];
   const names = new Set<string>();
   for (const re of patterns) {
