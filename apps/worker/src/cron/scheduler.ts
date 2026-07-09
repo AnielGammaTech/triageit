@@ -74,7 +74,7 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
   {
     name: "Call Analysis",
     description: "Matches new 3CX call recordings to open tickets and posts a private Call Summary note from the transcript.",
-    schedule: "*/5 * * * *",
+    schedule: "* * * * *",
     endpoint: "/call-analysis",
   },
   {
