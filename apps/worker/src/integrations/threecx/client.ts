@@ -83,7 +83,7 @@ export class ThreeCxClient {
   async listExtensions(): Promise<ReadonlyArray<{ number: string; name: string }>> {
     const result = await this.request<{ value?: Array<{ Number?: string; FirstName?: string; LastName?: string }> }>(
       "/xapi/v1/Users",
-      { "$select": "Number,FirstName,LastName", "$top": "200" },
+      { "$select": "Number,FirstName,LastName", "$top": "100" },
     );
     return (result.value ?? [])
       .filter((u) => u.Number && /^\d{2,5}$/.test(u.Number))
