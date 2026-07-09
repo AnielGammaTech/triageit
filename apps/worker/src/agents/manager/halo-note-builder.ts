@@ -346,6 +346,7 @@ export function buildHaloNote(
   branding?: BrandingConfig,
   originalPriority?: number | null,
   analyzedFiles?: ReadonlyArray<string>,
+  clientPolicies?: ReadonlyArray<{ readonly content: string; readonly summary: string }>,
 ): string {
   const agentCount = Object.keys(findings).length;
   // Dark theme base styles
@@ -422,6 +423,15 @@ export function buildHaloNote(
     if (dispatchLines.length > 0) {
       rows.push(`<tr style="background:#1a2332;"><td style="padding:6px 12px;font-weight:700;width:100px;${border}font-size:12px;vertical-align:top;color:#93c5fd;">Dispatch</td><td style="padding:6px 12px;${border}font-size:12px;color:#dbeafe;line-height:1.5;word-break:break-word;">${dispatchLines.join("<br/>")}<br/><span style="font-size:10px;color:#64748b;">Suggestions for Bryanna — nothing auto-applied</span></td></tr>`);
     }
+  }
+
+  // Standing client policy — always visible, never collapsed: skipping an
+  // approval-before-work rule is a billing/relationship incident
+  if (clientPolicies && clientPolicies.length > 0) {
+    const policyText = clientPolicies
+      .map((p) => p.content.replace(/</g, "&lt;").replace(/\n+/g, "<br/>"))
+      .join("<br/><br/>");
+    rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:700;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Client Policy</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.5;word-break:break-word;">${policyText}</td></tr>`);
   }
 
   // Security

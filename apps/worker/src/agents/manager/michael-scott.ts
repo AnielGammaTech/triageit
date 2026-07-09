@@ -499,6 +499,19 @@ export async function runTriage(
     console.warn("[MICHAEL] Memory recall failed (non-fatal):", error);
   }
 
+  // Standing client handling policies — fetched by client, not similarity,
+  // because they apply to EVERY ticket for that client (e.g. US Tax:
+  // prior approval + PO before any work)
+  let clientPolicies: ReadonlyArray<{ readonly content: string; readonly summary: string }> = [];
+  try {
+    clientPolicies = await memoryManager.getClientPolicies(context.clientName);
+    if (clientPolicies.length > 0) {
+      await logThinking(supabase, ticket.id, "michael_scott", "manager", `This client has ${clientPolicies.length} standing handling polic${clientPolicies.length === 1 ? "y" : "ies"} — applying.`);
+    }
+  } catch (error) {
+    console.warn("[MICHAEL] Client policy lookup failed (non-fatal):", error);
+  }
+
   // ── Step 4b: Pull tech workload for assignment recommendation ──────
   let techWorkload = "";
   try {
@@ -532,7 +545,7 @@ export async function runTriage(
   // ── Step 5: Michael synthesizes ALL findings ───────────────────────
 
   const michaelResult = await synthesizeFindings(
-    context, classification, findings, successfulSpecialists, managerMemories, techWorkload, supabase,
+    context, classification, findings, successfulSpecialists, managerMemories, techWorkload, supabase, clientPolicies,
   );
   const processingTime = Date.now() - startTime;
 
@@ -618,7 +631,7 @@ export async function runTriage(
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
       findings, processingTime, similarTickets, duplicates,
-      isRetriage, ticket, branding,
+      isRetriage, ticket, branding, clientPolicies,
     );
   }
 
@@ -862,6 +875,7 @@ async function synthesizeFindings(
   memories: ReadonlyArray<MemoryMatch> = [],
   techWorkload: string = "",
   supabase?: SupabaseClient,
+  clientPolicies: ReadonlyArray<{ readonly content: string; readonly summary: string }> = [],
 ): Promise<MichaelSynthesis> {
   const client = new Anthropic();
 
@@ -1027,6 +1041,21 @@ async function synthesizeFindings(
     messageContent.push({ type: "text", text: memorySection });
   }
 
+  // Standing client policies are NON-NEGOTIABLE context — they outrank
+  // everything except security. The workflow reminder must carry them.
+  if (clientPolicies.length > 0) {
+    messageContent.push({
+      type: "text",
+      text: [
+        "",
+        "## ⚠ CLIENT HANDLING POLICY — MANDATORY",
+        `This client has standing handling rules. Your workflow_reminder MUST restate the applicable rule, and your troubleshooting steps must comply with it (e.g. approval-before-work means step 1 is getting the approval).`,
+        ...clientPolicies.map((p, i) => `${i + 1}. ${p.content}`),
+        "",
+      ].join("\n"),
+    });
+  }
+
   // Inject triage accuracy feedback context (if enough data exists)
   if (supabase) {
     try {
@@ -1126,6 +1155,7 @@ async function postHaloNotes(
   isRetriage: boolean,
   ticket: Ticket,
   branding?: BrandingConfig,
+  clientPolicies: ReadonlyArray<{ readonly content: string; readonly summary: string }> = [],
 ): Promise<void> {
   const halo = new HaloClient(haloConfig);
 
@@ -1162,7 +1192,7 @@ async function postHaloNotes(
       const internalNote = buildHaloNote(
         classification, michaelResult, findings, processingTime,
         similarTickets, duplicates, slaInfo, branding,
-        ticket.original_priority, analyzedFiles,
+        ticket.original_priority, analyzedFiles, clientPolicies,
       );
       await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {

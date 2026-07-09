@@ -75,6 +75,30 @@ export class MemoryManager {
    *
    * Inspired by memoripy's spreading activation — concept overlap boosts results.
    */
+  /**
+   * Standing client handling policies ("all US Tax work needs prior
+   * approval from Lenice + a PO"). Fetched by CLIENT, not by similarity —
+   * a printer ticket's text never resembles an approval procedure, but the
+   * rule still applies to it.
+   */
+  async getClientPolicies(
+    clientName: string | null,
+  ): Promise<ReadonlyArray<{ readonly content: string; readonly summary: string }>> {
+    if (!clientName) return [];
+    const { data, error } = await this.supabase
+      .from("agent_memories")
+      .select("content, summary")
+      .filter("metadata->>policy", "eq", "true")
+      .ilike("metadata->>client_name", clientName)
+      .order("created_at", { ascending: false })
+      .limit(5);
+    if (error) {
+      console.warn("[MEMORY] Client policy lookup failed:", error.message);
+      return [];
+    }
+    return data ?? [];
+  }
+
   async recall(
     agentName: string,
     queryText: string,
