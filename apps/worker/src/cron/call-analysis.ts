@@ -500,6 +500,7 @@ async function selectTicketByTranscript(
       `A support call at an MSP was recorded and transcribed. Decide which open ticket (if any) the call is about, so the call summary lands on the right ticket.`,
       ``,
       `Tech on the call: ${techName}`,
+      `CRITICAL — OWNERSHIP BEATS TITLE WORDS: techs make calls about THEIR OWN tickets. When a candidate assigned to the tech on the call plausibly fits the conversation, pick it over another tech's ticket at the same client — even if the other ticket's TITLE matches the words more literally. (A tech calling a camera vendor about his own camera-related ticket must not land on a teammate's ticket just because that one is titled "Camera Issue".)`,
       scope === "global"
         ? `The caller's number is not in the PSA, so be STRICT: only match when the transcript clearly names the company, person, or the exact issue of a listed ticket.`
         : `The caller's phone number maps to the client(s) below but matches more than one open ticket.`,
