@@ -295,6 +295,28 @@ export default function TvPage() {
                 />
               )}
             </Panel>
+            <Panel
+              title="Unassigned — Needs an Owner"
+              icon={<UserX className="h-[1vw] w-[1vw]" style={{ color: RED }} />}
+              alarm={(data?.unassignedTickets.length ?? 0) > 0}
+            >
+              {!data ? (
+                <Loading />
+              ) : data.unassignedTickets.length === 0 ? (
+                <Empty text="None — every ticket has an owner." />
+              ) : (
+                <RowList
+                  items={data.unassignedTickets.slice(0, 4).map((t) => ({
+                    id: t.halo_id,
+                    left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
+                    who: t.halo_status ?? "",
+                    badge: `WAITING ${mins(t.ageMin)}`,
+                    badgeColor: RED,
+                  }))}
+                  more={data.unassignedTickets.length - 4}
+                />
+              )}
+            </Panel>
           </div>
 
           {/* Status + tech grid */}
