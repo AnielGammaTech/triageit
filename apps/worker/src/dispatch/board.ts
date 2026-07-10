@@ -2,7 +2,17 @@ import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { HaloClient } from "../integrations/halo/client.js";
-import { isWithinBusinessHours } from "../integrations/teams/client.js";
+/**
+ * Dispatch uses the FULL workday (7:00-18:00 ET Mon-Fri, per CLAUDE.md) —
+ * NOT the teams-alert window (8:00-17:15), which is deliberately narrow so
+ * alerts/calls don't fire at the edges of the day. A registered tech at
+ * 5:30 PM is still assignable.
+ */
+function isDispatchBusinessHours(now: Date): boolean {
+  const hour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const day = now.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+  return hour >= 7 && hour < 18 && !["Sat", "Sun"].includes(day);
+}
 import { resolveTechStatus, type TechSignals, type TechStatus } from "./presence.js";
 import { attachAiReads } from "./ai-read.js";
 import {
@@ -94,7 +104,7 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
       ? roster
       : HELPDESK_TECHNICIANS.map((name) => ({ id: -1, name }));
 
-  const withinHours = isWithinBusinessHours(now);
+  const withinHours = isDispatchBusinessHours(now);
   const techs = rosterAgents.map((agent) =>
     buildTechRow(agent, { loads, threecx, appointments, withinHours, nowMs: now.getTime() }),
   );
