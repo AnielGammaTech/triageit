@@ -403,13 +403,13 @@ export function buildHaloNote(
   const classificationChip = `<span style="display:inline-block;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.28);padding:3px 11px;border-radius:12px;font-size:11.5px;font-weight:700;color:#fff;text-transform:capitalize;">${classification.classification.type} / ${classification.classification.subtype}&nbsp;&nbsp;<span style="font-weight:600;opacity:0.75;">${confidencePct}%</span></span>`;
   rows.push(
     `<tr><td colspan="2" style="padding:0;">` +
-      `<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(120deg,#7f1d1d 0%,#991b1b 60%,#b91c1c 100%);">` +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;background:linear-gradient(120deg,#7f1d1d 0%,#991b1b 60%,#b91c1c 100%);">` +
       `<tr>` +
-      `<td style="padding:13px 14px 12px;vertical-align:middle;">` +
+      `<td style="width:130px;padding:13px 14px 12px;vertical-align:middle;white-space:nowrap;">` +
       `${logoHtml}<span style="font-size:16px;font-weight:800;color:#fff;letter-spacing:0.01em;vertical-align:middle;">AI Triage</span>` +
       `<span style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.6);margin-left:9px;vertical-align:middle;letter-spacing:0.14em;text-transform:uppercase;">${brandName}</span>` +
       `</td>` +
-      `<td style="padding:13px 14px 12px;text-align:right;vertical-align:middle;white-space:nowrap;">` +
+      `<td style="padding:13px 14px 12px;text-align:right;vertical-align:middle;word-break:break-word;overflow-wrap:anywhere;">` +
       `${prioritySuggestion}${classificationChip}` +
       `<div style="font-size:10px;color:rgba(255,255,255,0.65);margin-top:5px;letter-spacing:0.04em;">${agentCount} agents &middot; ${(processingTime / 1000).toFixed(1)}s</div>` +
       `</td>` +
