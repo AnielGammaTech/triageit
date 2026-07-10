@@ -226,6 +226,29 @@ server.get("/dispatch/suggest", async (_request, reply) => {
   }
 });
 
+// Dispatch week view — per tech per day: appointments (typed) + PTO days
+server.get<{ Querystring: { start?: string } }>("/dispatch/week", async (request, reply) => {
+  try {
+    const { buildWeekData } = await import("./dispatch/week.js");
+    return await buildWeekData(request.query.start ?? null);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+// Schedule sync — mirror Halo appointments onto tech Outlook calendars (manual trigger)
+server.post("/schedule-sync", async (_request, reply) => {
+  try {
+    const { runScheduleSync } = await import("./dispatch/schedule-sync.js");
+    const result = await runScheduleSync();
+    return { status: "completed", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 // Error ticket scan — find tickets stuck in error status
 server.post("/error-scan", async (_request, reply) => {
   try {

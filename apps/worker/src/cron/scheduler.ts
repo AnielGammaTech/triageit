@@ -12,6 +12,7 @@ import { generateWeeklyReport } from "./weekly-report.js";
 import { retryErroredTickets } from "./error-retry.js";
 import { runCallAnalysis } from "./call-analysis.js";
 import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
+import { runScheduleSync } from "../dispatch/schedule-sync.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -107,6 +108,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     schedule: "0 3 * * *",
     endpoint: "/memory/evict",
   },
+  {
+    name: "Schedule Sync (Halo -> Outlook)",
+    description: "Mirrors Halo scheduled appointments onto each tech's Outlook calendar (create-only, TriageIT-tagged) so techs always see their schedule in Outlook.",
+    schedule: "*/30 7-17 * * 1-5", // every 30 min, 7:00-17:30 ET weekdays (worker TZ is America/New_York)
+    endpoint: "/schedule-sync",
+  },
 ];
 
 /**
@@ -153,6 +160,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/weekly-report": runWeeklyReport,
   "/error-retry": runErrorRetry,
   "/call-analysis": runCallAnalysisCron,
+  "/schedule-sync": runScheduleSyncCron,
 };
 
 async function getTeamsConfig(): Promise<TeamsConfig | null> {
@@ -263,6 +271,14 @@ async function runErrorRetry(): Promise<void> {
 async function runCallAnalysisCron(): Promise<void> {
   const result = await runCallAnalysis();
   console.log(`[CRON] Call analysis: ${result.checked} recordings, ${result.matched} matched, ${result.notesPosted} notes posted`);
+}
+
+async function runScheduleSyncCron(): Promise<void> {
+  console.log("[CRON] Starting Halo -> Outlook schedule sync");
+  const result = await runScheduleSync();
+  console.log(
+    `[CRON] Schedule sync complete: ${result.checked} checked, ${result.created} created, ${result.failures} failures`,
+  );
 }
 
 async function runSlaScan(): Promise<void> {

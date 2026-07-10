@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isHelpdeskTechnicianName } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
 import { buildDispatchBoard } from "./board.js";
 import { namesMatch } from "./board-sources.js";
@@ -72,6 +73,10 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
   const clients = [...new Set(targets.map((t) => t.client_name).filter((c): c is string => !!c))];
   const recentSimilar = await fetchRecentSimilar(supabase, clients);
 
+  // The board now carries the WHOLE team (owner, sales, PM included) —
+  // assignment candidates stay techs-only.
+  const candidates = board.techs.filter((bt) => isHelpdeskTechnicianName(bt.tech));
+
   const tickets = targets.map((t) => {
     const ticket: TicketToAssign = {
       halo_id: t.halo_id,
@@ -79,7 +84,7 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       client_name: t.client_name,
       ticketType: typeByTicketId.get(t.id) ?? null,
     };
-    const suggestions = board.techs
+    const suggestions = candidates
       .map((bt) => {
         const profile = profiles.find((p) => namesMatch(bt.tech, p.tech_name)) ?? null;
         const candidate: TechCandidate = {
