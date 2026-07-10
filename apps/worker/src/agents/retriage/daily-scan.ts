@@ -535,13 +535,24 @@ async function postReTriageNote(
 
   const style = severityColors[result.severity] ?? severityColors.info;
 
-  // Clean, compact note — just the summary with severity header. No separate badge rows.
+  // Compact by default: severity chip + a one-line headline (first sentence),
+  // with the full recommendation tucked into a "▸ More detail" dropdown so the
+  // note doesn't make the ticket long. Neutral header (dropped the off-brand
+  // violet gradient).
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const rec = (result.recommendation ?? "").trim();
+  const sentenceMatch = rec.match(/^([\s\S]+?[.!?])\s+([\s\S]+)$/);
+  const headline = sentenceMatch ? sentenceMatch[1] : rec;
+  const rest = sentenceMatch ? sentenceMatch[2].trim() : "";
+
   const note = [
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">`,
-    `<tr><td style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;font-size:14px;font-weight:700;">AI Re-Triage Review<span style="float:right;font-weight:400;font-size:11px;opacity:0.8;">daily scan</span></td></tr>`,
-    `<tr style="background:${style.bg};"><td style="padding:12px 14px;font-size:14px;color:${style.text};line-height:1.6;"><strong>${style.label}</strong> — ${result.recommendation}</td></tr>`,
-    `<tr style="background:#252830;"><td style="padding:8px 14px;font-size:13px;color:#94a3b8;">Status: ${result.status} · Open ${result.daysOpen} day${result.daysOpen === 1 ? "" : "s"} · Assigned: <strong style="color:#e2e8f0;">${result.assignedTech ?? "UNASSIGNED"}</strong></td></tr>`,
-    `<tr><td style="padding:4px 12px;color:#64748b;font-size:10px;text-align:right;">TriageIt AI</td></tr>`,
+    `<tr><td style="padding:8px 12px;background:#252830;color:#e2e8f0;font-size:12.5px;font-weight:700;">AI Re-Triage Review<span style="float:right;font-weight:700;font-size:10px;background:${style.bg};color:${style.text};padding:2px 8px;border-radius:10px;letter-spacing:0.03em;">${style.label}</span></td></tr>`,
+    `<tr><td style="padding:9px 12px;font-size:12.5px;color:#e2e8f0;line-height:1.5;">${esc(headline)}</td></tr>`,
+    rest
+      ? `<tr><td style="padding:0 12px 8px;"><details><summary style="cursor:pointer;color:#94a3b8;font-size:11.5px;">▸ More detail</summary><div style="padding:6px 0;font-size:12.5px;color:#cbd5e1;line-height:1.6;">${esc(rest)}</div></details></td></tr>`
+      : "",
+    `<tr style="background:#252830;"><td style="padding:6px 12px;font-size:11px;color:#94a3b8;">Status: ${esc(result.status)} · Open ${result.daysOpen} day${result.daysOpen === 1 ? "" : "s"} · Assigned: <strong style="color:#e2e8f0;">${esc(result.assignedTech ?? "UNASSIGNED")}</strong></td></tr>`,
     `</table>`,
   ].join("");
 
