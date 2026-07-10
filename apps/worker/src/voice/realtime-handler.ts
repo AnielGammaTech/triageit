@@ -74,6 +74,11 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private ended = false;
   /** Verbatim exchange, in order — posted to the ticket on escalation calls. */
   private transcript: Array<{ who: string; text: string }> = [];
+  // Escalation-call notes are consolidated into ONE ticket note at call end
+  // (posting from post_note/set_resolution_target AND onCallEnd produced two
+  // near-duplicate notes per call). Tool handlers buffer here instead.
+  private agentCallNotes: string[] = [];
+  private agreedTarget: { reason: string; when: string } | null = null;
 
   constructor(
     private readonly deps: VoicemailDeps,
@@ -162,8 +167,26 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     this.ws?.close();
     this.ws = null;
 
-    // Escalation calls leave a VERBATIM record on the ticket — what was
-    // asked and exactly what the tech said (user requirement)
+    // Escalation calls leave ONE consolidated note on the ticket: what the
+    // assistant documented (post_note / agreed target) + the verbatim
+    // transcript (user requirement) — never two notes for the same call.
+    if (this.escalation && (this.agentCallNotes.length > 0 || this.agreedTarget) && this.transcript.length === 0) {
+      try {
+        await this.deps.halo.addInternalNote(
+          this.escalation.haloId,
+          buildEscalationCallNote({
+            title: `Escalation call — ${this.escalation.techName ?? "tech"}`,
+            tone: "breach",
+            meta: `Ticket #${this.escalation.haloId}`,
+            intro: this.agentCallNotes.join(" ") || undefined,
+            fields: this.agreedTarget ? [{ label: "Reason given", value: this.agreedTarget.reason }] : undefined,
+            highlight: this.agreedTarget ? { label: "Next action target (set on the call)", value: this.agreedTarget.when } : undefined,
+          }),
+        );
+      } catch (error) {
+        console.error(`[VOICE] Failed to post call note on #${this.escalation.haloId}:`, error instanceof Error ? error.message : error);
+      }
+    }
     if (this.escalation && this.transcript.length > 0) {
       const esc = (t: string) => t.replace(/</g, "&lt;");
       const rawTranscript = this.transcript.map((l) => `${l.who}: ${l.text}`).join("\n");
@@ -208,7 +231,11 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             title: `Escalation call — ${this.escalation.techName ?? "tech"}`,
             tone: "breach",
             meta: `Ticket #${this.escalation.haloId}`,
-            intro: summary || undefined,
+            // The assistant's own documentation is the most accurate record
+            // of what was agreed — AI summary only fills in when it's absent.
+            intro: this.agentCallNotes.join(" ") || summary || undefined,
+            fields: this.agreedTarget ? [{ label: "Reason given", value: this.agreedTarget.reason }] : undefined,
+            highlight: this.agreedTarget ? { label: "Next action target (set on the call)", value: this.agreedTarget.when } : undefined,
             collapsed: { summary: `Full verbatim transcript (${this.transcript.length} exchanges)`, html: lines },
           }),
         );
@@ -458,17 +485,9 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           }
           await this.deps.halo.updateResolutionTarget(this.escalation.haloId, target.toISOString());
           const when = target.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-          await this.deps.halo.addInternalNote(
-            this.escalation.haloId,
-            buildEscalationCallNote({
-              title: "SLA breach call — next action agreed",
-              tone: "breach",
-              meta: `${this.escalation.techName ?? "assigned tech"} · Ticket #${this.escalation.haloId}`,
-              intro: `TriageIt called ${this.escalation.techName ?? "the assigned tech"} about the SLA breach on this ticket.`,
-              fields: [{ label: "Reason given", value: String(call.args.reason ?? "").slice(0, 500) }],
-              highlight: { label: "Next action target (set on the call)", value: `${when} ET` },
-            }),
-          );
+          // Target updated in Halo immediately; the note documenting it is
+          // folded into the single end-of-call note (no duplicate notes).
+          this.agreedTarget = { reason: String(call.args.reason ?? "").slice(0, 500), when: `${when} ET` };
           console.log(`[VOICE] SLA escalation: #${this.escalation.haloId} resolution target -> ${target.toISOString()}`);
           output = { ok: true, new_target_confirmed: when + " Eastern" };
           break;
@@ -478,15 +497,10 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             output = { error: "Not available on this call" };
             break;
           }
-          await this.deps.halo.addInternalNote(
-            this.escalation.haloId,
-            buildEscalationCallNote({
-              title: "SLA breach call",
-              tone: "breach",
-              meta: `${this.escalation.techName ?? "assigned tech"} · Ticket #${this.escalation.haloId}`,
-              intro: String(call.args.note ?? "").slice(0, 800),
-            }),
-          );
+          // Buffered — lands in the single end-of-call note instead of
+          // posting a second near-duplicate note alongside the transcript.
+          const note = String(call.args.note ?? "").slice(0, 800).trim();
+          if (note) this.agentCallNotes.push(note);
           output = { ok: true };
           break;
         }
