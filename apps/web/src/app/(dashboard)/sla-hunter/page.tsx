@@ -46,7 +46,10 @@ interface AtRiskRow {
   readonly halo_status: string | null;
   readonly deadline: string;
   readonly afterHours: boolean;
+  readonly weekend: boolean;
 }
+
+type AtRiskFilter = "all" | "afterhours" | "weekend";
 
 interface Metrics {
   readonly currentlyBreaching: number;
@@ -111,6 +114,7 @@ export default function SlaHunterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [atRiskFilter, setAtRiskFilter] = useState<AtRiskFilter>("all");
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -135,6 +139,11 @@ export default function SlaHunterPage() {
   }, [load]);
 
   const m = data?.metrics;
+  const atRiskAll = data?.atRisk ?? [];
+  const atRiskAfterHours = atRiskAll.filter((t) => t.afterHours && !t.weekend);
+  const atRiskWeekend = atRiskAll.filter((t) => t.weekend);
+  const atRiskShown =
+    atRiskFilter === "afterhours" ? atRiskAfterHours : atRiskFilter === "weekend" ? atRiskWeekend : atRiskAll;
 
   return (
     <div className="space-y-6">
@@ -283,21 +292,30 @@ export default function SlaHunterPage() {
           <CalendarClock className="h-4 w-4" style={{ color: "#f59e0b" }} />
           <h2 className="text-sm font-semibold text-white">At Risk — Upcoming Breaches</h2>
           <span className="ml-1 rounded-full px-2 py-0.5 text-xs font-bold text-black" style={{ background: "#f59e0b" }}>
-            {data?.atRisk.length ?? 0}
+            {atRiskShown.length}
           </span>
-          <span className="text-xs text-zinc-500">next 96h — clear the after-hours ones before you leave</span>
+          <span className="hidden text-xs text-zinc-500 sm:inline">next 96h — clear the after-hours ones before you leave</span>
+          <div className="ml-auto flex items-center gap-1">
+            <FilterChip label="All" count={atRiskAll.length} active={atRiskFilter === "all"} onClick={() => setAtRiskFilter("all")} />
+            <FilterChip label="After Hours" count={atRiskAfterHours.length} active={atRiskFilter === "afterhours"} onClick={() => setAtRiskFilter("afterhours")} icon={<Moon className="h-3 w-3" />} />
+            <FilterChip label="Weekend" count={atRiskWeekend.length} active={atRiskFilter === "weekend"} onClick={() => setAtRiskFilter("weekend")} icon={<CalendarClock className="h-3 w-3" />} />
+          </div>
         </div>
 
         {loading ? (
           <div className="p-6 text-sm text-zinc-500">Loading…</div>
-        ) : (data?.atRisk.length ?? 0) === 0 ? (
+        ) : atRiskShown.length === 0 ? (
           <div className="flex items-center gap-2 p-6 text-sm text-zinc-400">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            Nothing due to breach in the next 96 hours.
+            {atRiskFilter === "all"
+              ? "Nothing due to breach in the next 96 hours."
+              : atRiskFilter === "afterhours"
+                ? "Nothing due to breach after hours."
+                : "Nothing due to breach over the weekend."}
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-            {data!.atRisk.map((t) => (
+            {atRiskShown.map((t) => (
               <div key={t.halo_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -310,12 +328,17 @@ export default function SlaHunterPage() {
                       #{t.halo_id}
                       <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
                     </a>
-                    {t.afterHours && (
+                    {t.weekend ? (
+                      <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: "#7c3aed" }}>
+                        <CalendarClock className="h-2.5 w-2.5" />
+                        breaches over weekend
+                      </span>
+                    ) : t.afterHours ? (
                       <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: "#7c3aed" }}>
                         <Moon className="h-2.5 w-2.5" />
                         breaches after hours
                       </span>
-                    )}
+                    ) : null}
                   </div>
                   <p className="truncate text-sm text-zinc-300">{t.summary ?? "—"}</p>
                   <p className="text-xs text-zinc-500">
@@ -406,7 +429,11 @@ export default function SlaHunterPage() {
                     <td className="whitespace-nowrap px-5 py-2.5">
                       <CallStatus status={c.status} />
                     </td>
-                    <td className="max-w-md px-5 py-2.5 text-xs text-zinc-400">{c.objective ?? "—"}</td>
+                    <td className="max-w-md px-5 py-2.5 text-xs text-zinc-400">
+                      {c.objective ?? (
+                        <span style={{ color: "#f87171" }}>SLA breached — called to ask why and confirm the next action</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -415,6 +442,41 @@ export default function SlaHunterPage() {
         )}
       </section>
     </div>
+  );
+}
+
+function FilterChip({
+  label,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  readonly label: string;
+  readonly count: number;
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition"
+      style={{
+        borderColor: active ? "#7c3aed" : HAIRLINE,
+        background: active ? "#7c3aed" : "#0f0a0c",
+        color: active ? "#fff" : "#a1a1aa",
+      }}
+    >
+      {icon}
+      {label}
+      <span
+        className="rounded-full px-1.5 text-[10px] font-bold"
+        style={{ background: active ? "rgba(255,255,255,0.25)" : HAIRLINE, color: active ? "#fff" : "#e4e4e7" }}
+      >
+        {count}
+      </span>
+    </button>
   );
 }
 

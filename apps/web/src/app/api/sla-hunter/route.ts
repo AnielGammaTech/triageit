@@ -53,12 +53,28 @@ const WEEK_MS = 7 * 24 * 3600_000;
 // due Monday morning surface before everyone leaves.
 const AT_RISK_HORIZON_MS = 96 * 3600_000;
 
-/** Would this instant fall outside working hours (8am–5pm ET, Mon–Fri)? */
-function isAfterHoursET(iso: string): boolean {
+// Working window: 8:00am–5:15pm ET (the 15-min grace covers normal
+// stay-a-bit-late — a 5:00pm deadline is NOT after hours). Mon–Fri.
+const BH_START_MIN = 8 * 60; // 8:00am
+const BH_END_MIN = 17 * 60 + 15; // 5:15pm
+
+function etParts(iso: string): { minsOfDay: number; day: string } {
   const d = new Date(iso);
   const hour = Number(d.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
-  const day = d.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
-  return !(hour >= 8 && hour < 17 && !["Sat", "Sun"].includes(day));
+  const minute = Number(d.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }));
+  return {
+    minsOfDay: (hour % 24) * 60 + minute,
+    day: d.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" }),
+  };
+}
+/** Would this instant fall outside working hours (8:00am–5:15pm ET, Mon–Fri)? */
+function isAfterHoursET(iso: string): boolean {
+  const { minsOfDay, day } = etParts(iso);
+  return !(minsOfDay >= BH_START_MIN && minsOfDay <= BH_END_MIN && !["Sat", "Sun"].includes(day));
+}
+/** Does this instant fall on a Saturday or Sunday (ET)? */
+function isWeekendET(iso: string): boolean {
+  return ["Sat", "Sun"].includes(etParts(iso).day);
 }
 
 export async function GET() {
@@ -140,6 +156,7 @@ export async function GET() {
         halo_status: t.halo_status,
         deadline: nearest.iso,
         afterHours: isAfterHoursET(nearest.iso),
+        weekend: isWeekendET(nearest.iso),
       };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null)
