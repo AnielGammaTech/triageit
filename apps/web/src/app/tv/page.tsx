@@ -36,18 +36,20 @@ const HAIRLINE = "#331318";
 const INK_DIM = "#8a8a93";
 const INK_FAINT = "#55555e";
 
+// Halo-ish status hues, brightened where the originals sank into the OLED
+// surface (validated: contrast ≥3:1 + CVD-separable on #0d0608)
 const STATUS_COLOR: Record<string, string> = {
-  "past-due": "#9f0500",
-  "customer reply": "#ab149e",
+  "past-due": "#e04b3a",
+  "customer reply": "#d33bc4",
   "waiting on tech": "#fe9200",
-  "waiting on customer": "#653294",
-  "in progress": "#0f75b1",
-  scheduled: "#194d33",
+  "waiting on customer": "#8b5cf6",
+  "in progress": "#38a3e8",
+  scheduled: "#34a066",
   new: "#a1c652",
   "waiting on parts": "#c026d3",
   "needs quote": "#d946ef",
 };
-const statusColor = (s: string): string => STATUS_COLOR[s.toLowerCase()] ?? "#64748b";
+const statusColor = (s: string): string => STATUS_COLOR[s.toLowerCase()] ?? "#8b98ad";
 
 const mins = (m: number): string => {
   if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
@@ -414,29 +416,7 @@ export default function TvPage() {
                     })}
                   </div>
                 )}
-                {slide === 2 && (
-                  <div className="grid h-full grid-cols-2 gap-[0.6vw] p-[0.8vw]">
-                    {data.statusCounts.slice(0, 10).map((s) => (
-                      <div
-                        key={s.status}
-                        className="flex items-center justify-between rounded-[0.6vw] px-[0.9vw]"
-                        style={{ background: PANEL_2, borderLeft: `0.3vw solid ${statusColor(s.status)}` }}
-                      >
-                        <span className="min-w-0 truncate text-[0.9vw] font-semibold text-zinc-300">{s.status}</span>
-                        <span className="flex shrink-0 items-center gap-[0.5vw]">
-                          {s.breaching > 0 && (
-                            <span className="rounded-full px-[0.5vw] py-[0.15vh] text-[0.7vw] font-bold text-white" style={{ background: RED }}>
-                              {s.breaching}
-                            </span>
-                          )}
-                          <span className="text-[1.5vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
-                            {s.count}
-                          </span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {slide === 2 && <StatusDonut statusCounts={data.statusCounts} total={data.metrics.open} />}
               </div>
             )}
           </Panel>
@@ -469,6 +449,79 @@ function Shell({ children }: { readonly children: React.ReactNode }) {
       <style>{`@keyframes tvFadeIn { from { opacity: 0; transform: translateY(0.8vh); } to { opacity: 1; transform: none; } }`}</style>
       {children}
     </main>
+  );
+}
+
+function StatusDonut({
+  statusCounts,
+  total,
+}: {
+  readonly statusCounts: ReadonlyArray<{ readonly status: string; readonly count: number; readonly breaching: number }>;
+  readonly total: number;
+}) {
+  // Top 6 statuses get a slice; the tail folds into a neutral "Other" —
+  // 9 slivers on a TV donut would be unreadable.
+  const top = statusCounts.slice(0, 6);
+  const restCount = statusCounts.slice(6).reduce((s, x) => s + x.count, 0);
+  const restBreaching = statusCounts.slice(6).reduce((s, x) => s + x.breaching, 0);
+  const segments = [
+    ...top.map((s) => ({ label: s.status, count: s.count, breaching: s.breaching, color: statusColor(s.status) })),
+    ...(restCount > 0 ? [{ label: "Other", count: restCount, breaching: restBreaching, color: "#8b98ad" }] : []),
+  ];
+  const sum = Math.max(1, segments.reduce((s, x) => s + x.count, 0));
+  const R = 70;
+  const C = 2 * Math.PI * R;
+  const GAP = 3; // surface gap between slices
+  let acc = 0;
+  return (
+    <div className="flex h-full items-center gap-[1.2vw] px-[1.2vw]">
+      <div className="relative h-full shrink-0 py-[1.5vh]" style={{ aspectRatio: "1" }}>
+        <svg viewBox="0 0 200 200" className="h-full w-full">
+          {segments.map((seg) => {
+            const len = (seg.count / sum) * C;
+            const dash = Math.max(0.5, len - GAP);
+            const offset = -acc;
+            acc += len;
+            return (
+              <circle
+                key={seg.label}
+                cx="100"
+                cy="100"
+                r={R}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth="30"
+                strokeDasharray={`${dash} ${C - dash}`}
+                strokeDashoffset={offset}
+                transform="rotate(-90 100 100)"
+              />
+            );
+          })}
+          <text x="100" y="94" textAnchor="middle" fill="#fff" style={{ fontSize: "34px", fontWeight: 900, fontFamily: "var(--font-mono-tv), monospace" }}>
+            {total}
+          </text>
+          <text x="100" y="116" textAnchor="middle" fill={INK_DIM} style={{ fontSize: "12px", fontWeight: 600, letterSpacing: "0.2em" }}>
+            OPEN
+          </text>
+        </svg>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-[1.1vh]">
+        {segments.map((seg) => (
+          <div key={seg.label} className="flex items-center gap-[0.6vw]">
+            <span className="h-[0.7vw] w-[0.7vw] shrink-0 rounded-full" style={{ background: seg.color }} />
+            <span className="min-w-0 flex-1 truncate text-[0.95vw] font-semibold text-zinc-300">{seg.label}</span>
+            {seg.breaching > 0 && (
+              <span className="rounded-full px-[0.45vw] py-[0.1vh] text-[0.7vw] font-bold text-white" style={{ background: RED }}>
+                {seg.breaching}
+              </span>
+            )}
+            <span className="w-[2.4vw] shrink-0 text-right text-[1.1vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
+              {seg.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
