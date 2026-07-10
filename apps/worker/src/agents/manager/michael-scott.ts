@@ -25,6 +25,7 @@ import {
   buildHaloNote,
   buildCompactRetriageNote,
   buildAccountabilityNote,
+  buildTobyDropdown,
   type BrandingConfig,
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
@@ -609,6 +610,30 @@ export async function runTriage(
   // ── Step 6: Write note to Halo ─────────────────────────────────────
 
   const haloConfig = await getHaloConfig(supabase);
+
+  // Toby's tech review is generated FIRST so it can be folded into the triage
+  // note as a collapsed "Toby's Analysis" dropdown instead of a separate note.
+  // It's still stored in tech_reviews for the dashboard Review tab.
+  let techReviewHtml: string | null = null;
+  if (haloConfig) {
+    const eligibility = checkReviewEligibility(context, classification, haloConfig, ticket.created_at);
+    if (eligibility.eligible) {
+      try {
+        techReviewHtml = await generateTechReview(context, classification, haloConfig, eligibility, supabase, false);
+      } catch (error) {
+        console.error(`[MICHAEL] Failed to generate employee feedback for ticket #${ticket.halo_id}:`, error);
+      }
+    } else {
+      const actions = context.actions ?? [];
+      const customerActions = actions.filter((a) => !a.isInternal);
+      console.log(
+        `[MICHAEL] Tech review skipped for #${ticket.halo_id}: ` +
+        `age=${eligibility.ticketAgeHours.toFixed(1)}h, actions=${actions.length}, ` +
+        `customerActions=${customerActions.length}, urgency=${classification.urgency_score}`,
+      );
+    }
+  }
+
   if (haloConfig && isIdenticalRetriage && techInactive) {
     // Post accountability note — red flag that nothing has changed AND no tech activity
     try {
@@ -621,7 +646,10 @@ export async function runTriage(
         classification.urgency_score,
         context.clientName,
       );
-      await halo.addInternalNote(ticket.halo_id, accountabilityNote);
+      await halo.addInternalNote(
+        ticket.halo_id,
+        accountabilityNote + (techReviewHtml ? buildTobyDropdown(techReviewHtml) : ""),
+      );
       console.log(`[MICHAEL] Accountability note posted for #${ticket.halo_id}`);
     } catch (error) {
       console.error(`[MICHAEL] Failed to post accountability note for #${ticket.halo_id}:`, error);
@@ -633,54 +661,21 @@ export async function runTriage(
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
       findings, processingTime, similarTickets, duplicates,
-      isRetriage, ticket, branding, clientPolicies,
+      isRetriage, ticket, branding, clientPolicies, techReviewHtml,
     );
   }
 
-  // ── Step 7: Employee feedback — private coaching note ──────────────
+  // ── Step 7: Dispatcher review — evaluate Bryanna's routing ─────────
+  // (Toby's tech review was generated in Step 6 and folded into the note.)
 
-  if (haloConfig) {
-    // Always run tech review on retriages — the tech's behavior since last triage matters
-    // regardless of whether findings changed
-    const eligibility = checkReviewEligibility(
-      context, classification, haloConfig, ticket.created_at,
-    );
-    if (eligibility.eligible) {
-      try {
-        await generateTechReview(
-          context, classification, haloConfig, eligibility, supabase,
-        );
-        console.log(
-          `[MICHAEL] Tech review generated for ticket #${ticket.halo_id} — rating pending`,
-        );
-      } catch (error) {
-        console.error(
-          `[MICHAEL] Failed to generate employee feedback for ticket #${ticket.halo_id}:`,
-          error,
-        );
-      }
-    } else {
-      const actions = context.actions ?? [];
-      const customerActions = actions.filter((a) => !a.isInternal);
-      console.log(
-        `[MICHAEL] Tech review skipped for #${ticket.halo_id}: ` +
-        `age=${eligibility.ticketAgeHours.toFixed(1)}h, ` +
-        `actions=${actions.length}, ` +
-        `customerActions=${customerActions.length}, ` +
-        `urgency=${classification.urgency_score}`,
+  if (haloConfig && checkDispatcherReviewEligibility(context, ticket.created_at)) {
+    try {
+      await generateDispatcherReview(context, ticket.created_at, haloConfig, supabase);
+    } catch (error) {
+      console.error(
+        `[MICHAEL] Failed to generate dispatcher review for #${ticket.halo_id}:`,
+        error,
       );
-    }
-
-    // ── Step 7b: Dispatcher review — evaluate Bryanna's routing ────
-    if (checkDispatcherReviewEligibility(context, ticket.created_at)) {
-      try {
-        await generateDispatcherReview(context, ticket.created_at, haloConfig, supabase);
-      } catch (error) {
-        console.error(
-          `[MICHAEL] Failed to generate dispatcher review for #${ticket.halo_id}:`,
-          error,
-        );
-      }
     }
   }
 
@@ -1158,8 +1153,10 @@ async function postHaloNotes(
   ticket: Ticket,
   branding?: BrandingConfig,
   clientPolicies: ReadonlyArray<{ readonly content: string; readonly summary: string }> = [],
+  techReviewHtml: string | null = null,
 ): Promise<void> {
   const halo = new HaloClient(haloConfig);
+  const tobyDropdown = techReviewHtml ? buildTobyDropdown(techReviewHtml) : "";
 
   // Build SLA info for note rendering
   const slaInfo = context.slaBreached
@@ -1181,7 +1178,7 @@ async function postHaloNotes(
         classification, michaelResult, findings, processingTime, slaInfo,
         ticket.original_priority,
       );
-      await halo.addInternalNote(ticket.halo_id, compactNote);
+      await halo.addInternalNote(ticket.halo_id, compactNote + tobyDropdown);
     } catch (error) {
       console.error(`[MICHAEL] Failed to write retriage note for #${ticket.halo_id}:`, error);
     }
@@ -1196,7 +1193,7 @@ async function postHaloNotes(
         similarTickets, duplicates, slaInfo, branding,
         ticket.original_priority, analyzedFiles, clientPolicies,
       );
-      await halo.addInternalNote(ticket.halo_id, internalNote);
+      await halo.addInternalNote(ticket.halo_id, internalNote + tobyDropdown);
     } catch (error) {
       console.error(`[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`, error);
     }

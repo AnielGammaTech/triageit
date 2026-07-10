@@ -264,7 +264,8 @@ export async function generateTechReview(
   haloConfig: HaloConfig,
   eligibility: ReviewEligibility,
   supabase: SupabaseClient,
-): Promise<void> {
+  postNote = true,
+): Promise<string | null> {
   const halo = new HaloClient(haloConfig);
   const feedbackClient = new Anthropic();
   const actions = context.actions ?? [];
@@ -467,7 +468,9 @@ export async function generateTechReview(
   const responseFactsLine = `${factsBits.join(" · ")} <span style="color:#64748b;font-size:10px;">(business hrs · standard ${RESPONSE_STANDARD_BH}h)</span>`;
 
   const coachingNote = buildCoachingNote(feedback, maxResponseGapHours, ticketAgeHours, responseFactsLine);
-  await halo.addInternalNote(context.haloId, coachingNote);
+  // postNote=false: the caller folds this HTML into the triage note as a
+  // collapsed "Toby's Analysis" dropdown instead of a separate Halo note.
+  if (postNote) await halo.addInternalNote(context.haloId, coachingNote);
 
   // Store in tech_reviews table for the Review tab
   await supabase.from("tech_reviews").insert({
@@ -491,6 +494,8 @@ export async function generateTechReview(
     status: "thinking",
     output_summary: `Tech review: ${feedback.rating} (${feedback.communication_score}/5 communication). ${feedback.summary}`,
   });
+
+  return coachingNote;
 }
 
 // ── Coaching Note HTML Builder ───────────────────────────────────────

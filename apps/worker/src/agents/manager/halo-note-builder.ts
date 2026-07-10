@@ -20,6 +20,19 @@ function escAttr(text: string | null | undefined): string {
   return escHtml(text).replace(/"/g, "&quot;");
 }
 
+/**
+ * Wrap Toby's tech-review HTML in a collapsed "Toby's Analysis" dropdown, so
+ * it rides inside the triage note instead of posting as a separate note. Also
+ * still stored in tech_reviews for the dashboard Review tab.
+ */
+export function buildTobyDropdown(reviewHtml: string): string {
+  return (
+    `<div style="margin-top:10px;">` +
+    `<details><summary style="cursor:pointer;color:#fbbf24;font-size:12px;font-weight:600;">▸ Toby's Analysis — tech review</summary>` +
+    `<div style="padding:8px 0;">${reviewHtml}</div></details></div>`
+  );
+}
+
 // ── URL to hyperlink converter ──────────────────────────────────────
 
 /**
