@@ -10,7 +10,7 @@ import {
   Wrench,
   ArrowDownUp,
   Skull,
-  Trophy,
+  BarChart3,
   ShieldCheck,
   WifiOff,
 } from "lucide-react";
@@ -53,8 +53,8 @@ const mins = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}
 
 const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
-  { title: "Wall of Shame", icon: <Skull className="h-[1vw] w-[1vw]" style={{ color: RED }} /> },
-  { title: "Wall of Fame", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
+  { title: "Wall of Shame & Fame", icon: <Skull className="h-[1vw] w-[1vw]" style={{ color: RED }} /> },
+  { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
 export default function TvPage() {
@@ -181,6 +181,10 @@ export default function TvPage() {
   const breachAlarm = (m?.breaching ?? 0) > 0;
   // Carousel advances every 10s, derived from the 1s clock tick — no extra timer
   const slide = Math.floor(nowTick / 10_000) % CAROUSEL_SLIDES.length;
+  // Queue row budget: at-risk fills whatever breaches/unassigned don't use
+  const breachCap = Math.min(data?.breaches.length ?? 0, 6);
+  const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 5);
+  const atRiskCap = Math.max(3, 12 - breachCap - unassignedCap);
 
   return (
     <Shell>
@@ -254,22 +258,6 @@ export default function TvPage() {
           </div>
         </div>
 
-        {/* ── Status strip — one-line board pulse ── */}
-        {data && data.statusCounts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-[1.2vw] gap-y-[0.6vh] rounded-[0.8vw] border px-[1vw] py-[0.8vh]" style={{ borderColor: HAIRLINE, background: PANEL }}>
-            {data.statusCounts.slice(0, 10).map((s) => (
-              <span key={s.status} className="flex items-center gap-[0.4vw] text-[0.8vw]">
-                <span className="h-[0.55vw] w-[0.55vw] rounded-full" style={{ background: statusColor(s.status) }} />
-                <span className="text-zinc-400">{s.status}</span>
-                <span className="font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>{s.count}</span>
-                {s.breaching > 0 && (
-                  <span className="rounded-full px-[0.4vw] text-[0.65vw] font-bold text-white" style={{ background: RED }}>{s.breaching}</span>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* ── Main grid: unified action queue + rotating carousel ── */}
         <div className="grid min-h-0 flex-1 grid-cols-12 gap-[0.8vw]">
           {/* Needs Action — everything demanding a human, priority order */}
@@ -293,14 +281,14 @@ export default function TvPage() {
                   <>
                     <QueueHeader label="SLA BREACHES" count={data.breaches.length} color={RED} />
                     <RowList
-                      items={data.breaches.slice(0, 6).map((b) => ({
+                      items={data.breaches.slice(0, breachCap).map((b) => ({
                         id: b.halo_id,
                         left: `${b.client_name ?? "Unknown"} — ${b.summary ?? ""}`,
                         who: b.halo_agent ?? "UNASSIGNED",
                         badge: b.breachingForMin !== null ? `BREACHED ${mins(b.breachingForMin)}` : `${b.alertCount}× ALERTED`,
                         badgeColor: RED,
                       }))}
-                      more={data.breaches.length - 6}
+                      more={data.breaches.length - breachCap}
                     />
                   </>
                 )}
@@ -308,14 +296,14 @@ export default function TvPage() {
                   <>
                     <QueueHeader label="UNASSIGNED" count={data.unassignedTickets.length} color={RED} />
                     <RowList
-                      items={data.unassignedTickets.slice(0, 5).map((t) => ({
+                      items={data.unassignedTickets.slice(0, unassignedCap).map((t) => ({
                         id: t.halo_id,
                         left: t.client_name ?? "Unknown",
                         who: "",
                         badge: `WAITING ${mins(t.ageMin)}`,
                         badgeColor: RED,
                       }))}
-                      more={data.unassignedTickets.length - 5}
+                      more={data.unassignedTickets.length - unassignedCap}
                     />
                   </>
                 )}
@@ -323,14 +311,14 @@ export default function TvPage() {
                   <>
                     <QueueHeader label="AT RISK — SLA DUE SOON" count={data.atRisk.length} color={AMBER} />
                     <RowList
-                      items={data.atRisk.slice(0, 6).map((t) => ({
+                      items={data.atRisk.slice(0, atRiskCap).map((t) => ({
                         id: t.halo_id,
                         left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
                         who: t.halo_agent ?? "UNASSIGNED",
                         badge: `DUE IN ${mins(t.dueInMin)}`,
                         badgeColor: AMBER,
                       }))}
-                      more={data.atRisk.length - 6}
+                      more={data.atRisk.length - atRiskCap}
                     />
                   </>
                 )}
@@ -381,14 +369,45 @@ export default function TvPage() {
                     </tbody>
                   </table>
                 )}
-                {slide === 1 &&
-                  (data.wallOfShame.length === 0 ? (
-                    <Empty text="Nobody on the wall. Clean board." />
-                  ) : (
-                    <Ranked items={data.wallOfShame.slice(0, 5)} color={RED} />
-                  ))}
-                {slide === 2 &&
-                  (data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 5)} color="#facc15" />)}
+                {slide === 1 && (
+                  <div className="grid h-full grid-cols-2 divide-x" style={{ borderColor: HAIRLINE }}>
+                    <div className="min-h-0">
+                      <QueueHeader label="SHAME" count={data.wallOfShame.length} color={RED} />
+                      {data.wallOfShame.length === 0 ? (
+                        <Empty text="Nobody. Clean board." />
+                      ) : (
+                        <Ranked items={data.wallOfShame.slice(0, 4)} color={RED} />
+                      )}
+                    </div>
+                    <div className="min-h-0" style={{ borderColor: HAIRLINE }}>
+                      <QueueHeader label="FAME" count={data.wallOfFame.length} color="#facc15" />
+                      {data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 4)} color="#facc15" />}
+                    </div>
+                  </div>
+                )}
+                {slide === 2 && (
+                  <div className="space-y-[1.1vh] px-[1vw] py-[1.2vh]">
+                    {data.statusCounts.slice(0, 10).map((s) => {
+                      const max = Math.max(1, ...data.statusCounts.map((x) => x.count));
+                      return (
+                        <div key={s.status} className="flex items-center gap-[0.7vw]">
+                          <div className="w-[9vw] shrink-0 truncate text-[0.85vw] font-semibold text-zinc-300">{s.status}</div>
+                          <div className="h-[1.6vh] flex-1 overflow-hidden rounded-full" style={{ background: "#1a0d10" }}>
+                            <div className="h-full rounded-full" style={{ width: `${Math.max(4, (s.count / max) * 100)}%`, background: statusColor(s.status) }} />
+                          </div>
+                          <span className="w-[2.2vw] text-right text-[1vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
+                            {s.count}
+                          </span>
+                          {s.breaching > 0 && (
+                            <span className="rounded-full px-[0.5vw] py-[0.2vh] text-[0.65vw] font-bold text-white" style={{ background: RED }}>
+                              {s.breaching}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </Panel>
