@@ -71,3 +71,9 @@ export function decodeJwtClaimArray(token: string, claim: string): ReadonlyArray
   const value = decodeJwtPayload(token)?.[claim];
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
+
+/** Numeric claim (e.g. `exp`, epoch seconds). Null when absent or non-numeric. */
+export function decodeJwtNumericClaim(token: string, claim: string): number | null {
+  const value = decodeJwtPayload(token)?.[claim];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}

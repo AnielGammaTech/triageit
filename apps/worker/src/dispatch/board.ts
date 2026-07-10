@@ -19,17 +19,19 @@ import {
   etTodayBounds,
   extensionForTech,
   fetchAppointments,
+  fetchCalendarSignals,
   fetchRoster,
   fetchThreeCxSnapshot,
   fetchTicketLoads,
-  fmtEt,
   isTechOnCall,
   loadForTech,
   namesMatch,
+  type CalendarSignals,
   type DispatchAppointment,
   type RosterAgent,
   type ThreeCxSnapshot,
 } from "./board-sources.js";
+import { fmtEtDayAware } from "./time-format.js";
 
 /**
  * Dispatch board assembler — live "Right Now" tech availability from
@@ -102,11 +104,14 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
   const rosterAgents: ReadonlyArray<RosterAgent> =
     roster !== null && roster.length > 0
       ? roster
-      : HELPDESK_TECHNICIANS.map((name) => ({ id: -1, name }));
+      : HELPDESK_TECHNICIANS.map((name) => ({ id: -1, name, email: null }));
+
+  // Needs the resolved roster (tech emails), so it runs after the first batch.
+  const calendar = await fetchCalendarSignals(supabase, rosterAgents, start, end);
 
   const withinHours = isDispatchBusinessHours(now);
   const techs = rosterAgents.map((agent) =>
-    buildTechRow(agent, { loads, threecx, appointments, withinHours, nowMs: now.getTime() }),
+    buildTechRow(agent, { loads, threecx, appointments, calendar, withinHours, nowMs: now.getTime() }),
   );
 
   const sorted = [...techs].sort(
@@ -118,13 +123,13 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
     sources: {
       halo: appointments !== null,
       threecx: threecx.activeCalls !== null,
-      calendar: false, // phase 2 (MS Graph)
+      calendar: calendar?.ok ?? false, // false = not connected or all reads failed
     },
     techs: attachAiReads(sorted),
   };
   cache = { at: Date.now(), board };
   console.log(
-    `[DISPATCH] Board built: ${board.techs.length} techs (halo=${board.sources.halo}, threecx=${board.sources.threecx})`,
+    `[DISPATCH] Board built: ${board.techs.length} techs (halo=${board.sources.halo}, threecx=${board.sources.threecx}, calendar=${board.sources.calendar})`,
   );
   return board;
 }
@@ -133,6 +138,7 @@ interface TechRowContext {
   readonly loads: ReadonlyMap<string, { readonly open: number; readonly wot: number; readonly breaching: number }> | null;
   readonly threecx: ThreeCxSnapshot;
   readonly appointments: ReadonlyArray<DispatchAppointment> | null;
+  readonly calendar: CalendarSignals | null;
   readonly withinHours: boolean;
   readonly nowMs: number;
 }
@@ -161,10 +167,14 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
       ? null
       : isTechOnCall(ctx.threecx.activeCalls, ext?.number ?? null, agent.name);
 
+  // Missing from the map = that tech's calendar read failed or they have no
+  // email — unknown (null), never "not on PTO / not in a meeting".
+  const cal = ctx.calendar?.byTech.get(agent.name) ?? null;
+
   const signals: TechSignals = {
-    onPtoToday: null, // phase 2 (calendar)
+    onPtoToday: cal ? cal.onPtoToday : null,
     onsiteAppointment: current ? { subject: current.subject, endsAt: current.endsAt } : null,
-    inMeetingUntil: null, // phase 2 (calendar)
+    inMeetingUntil: cal?.inMeetingUntil ?? null,
     onCall,
     extensionRegistered,
     withinBusinessHours: ctx.withinHours,
@@ -174,7 +184,9 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
     tech: agent.name,
     status: resolveTechStatus(signals),
     load: loadForTech(ctx.loads, agent.name),
-    nextCommitment: next ? `${next.subject} ${fmtEt(next.startsAt)}` : null,
+    nextCommitment: next
+      ? `${next.subject} ${fmtEtDayAware(next.startsAt, new Date(ctx.nowMs))}`
+      : null,
   };
 }
 

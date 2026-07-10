@@ -55,14 +55,30 @@ const STATE_LABEL: Record<TechStatus["state"], string> = {
   onsite: "Onsite",
   off: "Off",
   unreachable: "Unreachable",
-  unknown: "Unknown",
+  unknown: "No Signal",
 };
+
+/** A dispatcher-readable context line — only when the chip alone isn't enough. */
+function contextLine(status: TechStatus): string | null {
+  if (status.detail) return status.detail;
+  switch (status.state) {
+    case "unknown":
+      return "No phone or calendar activity right now";
+    case "unreachable":
+      return "Phone not registered";
+    default:
+      return null; // "Available" needs no elaboration
+  }
+}
 
 function degradationMessages(sources: DispatchBoard["sources"]): ReadonlyArray<string> {
   const messages: string[] = [];
-  if (!sources.threecx) messages.push("Phone status unavailable — showing partial signals.");
+  if (!sources.threecx) messages.push("Phone system unreachable — can't tell who's on a call right now.");
   if (!sources.halo) messages.push("Halo appointments unavailable — onsite visits may be missing.");
-  if (!sources.calendar) messages.push("Calendar not connected — PTO and meetings not shown.");
+  if (!sources.calendar)
+    messages.push(
+      "Outlook calendars not connected — PTO and meetings won't show. Connect Microsoft 365 under Adminland → Integrations.",
+    );
   return messages;
 }
 
@@ -113,7 +129,7 @@ export default function DispatchPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Dispatch</h1>
-            <p className="text-sm text-zinc-400">Live tech availability and suggested assignments for unassigned tickets</p>
+            <p className="text-sm text-zinc-400">Who&apos;s free right now, and who should take each unassigned ticket</p>
           </div>
         </div>
         <button
@@ -187,10 +203,11 @@ export default function DispatchPage() {
 
 function TechRow({ tech }: { readonly tech: BoardTech }) {
   const color = STATE_COLOR[tech.status.state] ?? "#71717a";
+  const context = contextLine(tech.status);
   return (
-    <div className="flex items-start gap-3 px-5 py-3">
+    <div className="flex items-start gap-3 px-5 py-3.5">
       <span
-        className="mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+        className="mt-0.5 inline-flex w-24 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
         style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}
       >
         <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
@@ -200,20 +217,21 @@ function TechRow({ tech }: { readonly tech: BoardTech }) {
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="font-semibold text-white">{tech.tech}</span>
           <span className="text-xs text-zinc-400">
-            {tech.load.open} open · {tech.load.wot} wot ·{" "}
-            <span style={{ color: tech.load.breaching > 0 ? RED : undefined }} className={tech.load.breaching > 0 ? "font-semibold" : ""}>
-              {tech.load.breaching} breaching
-            </span>
+            {tech.load.open} open · {tech.load.wot} waiting on tech
+            {tech.load.breaching > 0 && (
+              <span className="font-semibold" style={{ color: RED }}>
+                {" "}· {tech.load.breaching} breaching SLA
+              </span>
+            )}
           </span>
         </div>
-        {tech.status.detail && <div className="mt-0.5 text-xs text-zinc-300">{tech.status.detail}</div>}
+        {context && <div className="mt-0.5 text-xs text-zinc-300">{context}</div>}
         {tech.nextCommitment && (
-          <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-400">
+          <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
             <CalendarClock className="h-3 w-3 shrink-0" />
-            {tech.nextCommitment}
+            Next: {tech.nextCommitment}
           </div>
         )}
-        {tech.aiRead && <div className="mt-0.5 text-xs italic text-zinc-500">{tech.aiRead}</div>}
       </div>
     </div>
   );
@@ -232,7 +250,7 @@ function TicketSuggestions({ ticket }: { readonly ticket: SuggestTicket }) {
       {ticket.suggestions.length === 0 ? (
         <p className="mt-1.5 text-xs text-zinc-500">No suggestions available.</p>
       ) : (
-        <ul className="mt-1.5 space-y-1">
+        <ul className="mt-2 space-y-1.5">
           {ticket.suggestions.map((s, i) => (
             <li key={s.tech} className="flex items-start gap-2">
               <span
@@ -243,8 +261,17 @@ function TicketSuggestions({ ticket }: { readonly ticket: SuggestTicket }) {
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-medium text-white/90">{s.tech}</span>
-                  <span className="text-[11px] font-semibold text-zinc-400">{s.score}</span>
+                  <span className={i === 0 ? "text-sm font-semibold text-white" : "text-sm font-medium text-white/80"}>
+                    {s.tech}
+                  </span>
+                  {i === 0 && (
+                    <span
+                      className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide"
+                      style={{ background: `${RED}22`, color: "#fca5a5" }}
+                    >
+                      Best pick
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-zinc-500">{s.reasons.join(" · ")}</p>
               </div>

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ThreeCxConfig } from "@triageit/shared";
 import { isHelpdeskTechnicianName } from "@triageit/shared";
 import { HaloClient } from "../integrations/halo/client.js";
+import { MsGraphClient, type MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
 import {
   ThreeCxClient,
   type ThreeCxActiveCall,
@@ -18,6 +19,7 @@ const GAMMA_DEFAULT_TYPE_ID = 31;
 export interface RosterAgent {
   readonly id: number;
   readonly name: string;
+  readonly email: string | null;
 }
 
 export interface TechLoad {
@@ -40,13 +42,7 @@ export interface ThreeCxSnapshot {
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────
-
-export const fmtEt = (iso: string): string =>
-  new Date(iso).toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+// (Time formatting lives in time-format.ts — fmtEt / fmtEtDayAware.)
 
 /** Today's [midnight, midnight+24h) in ET, as UTC ISO strings. */
 export function etTodayBounds(now: Date): { readonly start: string; readonly end: string } {
@@ -237,6 +233,98 @@ export async function fetchAppointments(
       .filter((a): a is DispatchAppointment => a !== null);
   } catch (err) {
     console.warn("[DISPATCH] Appointments fetch failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+// ── Outlook calendars (MS Graph) ──────────────────────────────────────
+
+export interface CalendarTechSignal {
+  readonly onPtoToday: boolean;
+  readonly inMeetingUntil: string | null; // UTC ISO end of the current busy block
+}
+
+export interface CalendarSignals {
+  readonly ok: boolean; // at least one mailbox read succeeded
+  /** Keyed by roster tech name. A missing tech = their read failed or they
+   *  have no email — unknown, never "free". */
+  readonly byTech: ReadonlyMap<string, CalendarTechSignal>;
+}
+
+const BUSY_SHOW_AS: ReadonlySet<string> = new Set(["busy", "tentative"]);
+
+/** PTO/meeting signals from one tech's calendarView events. */
+export function calendarSignalFromEvents(
+  events: ReadonlyArray<MsGraphCalendarEvent>,
+  nowMs: number,
+): CalendarTechSignal {
+  const onPtoToday = events.some((e) => e.showAs === "oof" || e.isAllDay);
+  const currentBusy = events
+    .filter((e) => !e.isAllDay && BUSY_SHOW_AS.has(e.showAs))
+    .filter((e) => Date.parse(e.startsAt) <= nowMs && Date.parse(e.endsAt) > nowMs)
+    .reduce<MsGraphCalendarEvent | null>(
+      (latest, e) => (!latest || Date.parse(e.endsAt) > Date.parse(latest.endsAt) ? e : latest),
+      null,
+    );
+  return { onPtoToday, inMeetingUntil: currentBusy?.endsAt ?? null };
+}
+
+/**
+ * Per-tech PTO/meeting signals from Outlook calendars via MS Graph.
+ * Null = calendar not connected (no active msgraph integration) or the
+ * lookup blew up entirely. Each tech's read degrades independently —
+ * a failed mailbox is simply absent from the map (unknown, never free).
+ */
+export async function fetchCalendarSignals(
+  supabase: SupabaseClient,
+  roster: ReadonlyArray<RosterAgent>,
+  startIso: string,
+  endIso: string,
+): Promise<CalendarSignals | null> {
+  try {
+    const { data } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "msgraph")
+      .eq("is_active", true)
+      .maybeSingle();
+    const config = (data?.config ?? null) as Record<string, unknown> | null;
+    const tenantId = str(config?.tenant_id);
+    const clientId = str(config?.client_id);
+    const clientSecret = str(config?.client_secret);
+    if (!tenantId || !clientId || !clientSecret) {
+      console.warn("[DISPATCH] Microsoft 365 calendar not connected — PTO/meeting signals unavailable");
+      return null;
+    }
+
+    const graph = new MsGraphClient({
+      tenant_id: tenantId,
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
+    const withEmail = roster.filter((a): a is RosterAgent & { email: string } => a.email !== null);
+    if (withEmail.length === 0) {
+      console.warn("[DISPATCH] No tech emails on the roster — calendar signals unavailable");
+      return { ok: false, byTech: new Map() };
+    }
+
+    const nowMs = Date.now();
+    const results = await Promise.all(
+      withEmail.map(async (a) => ({
+        tech: a.name,
+        events: await graph.getCalendarView(a.email, startIso, endIso), // null = that tech's read failed
+      })),
+    );
+    const byTech = new Map<string, CalendarTechSignal>();
+    for (const r of results) {
+      if (r.events !== null) byTech.set(r.tech, calendarSignalFromEvents(r.events, nowMs));
+    }
+    if (byTech.size === 0) {
+      console.warn("[DISPATCH] All Graph calendar reads failed — calendar source degraded");
+    }
+    return { ok: byTech.size > 0, byTech };
+  } catch (err) {
+    console.warn("[DISPATCH] Calendar signals failed:", err instanceof Error ? err.message : err);
     return null;
   }
 }
