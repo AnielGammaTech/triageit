@@ -6,6 +6,7 @@ import { buildTicketBriefings, fetchLastCustomerUpdate, formatBriefing, toSpeaka
 import { processTextMessage, type VoicemailDeps } from "./voicemail.js";
 import { pcm16ToUlaw, ulawToPcm16 } from "./ulaw.js";
 import { DtmfMenuHandler, type VoiceCallContext, type VoiceCallHandler } from "./session.js";
+import { buildEscalationCallNote } from "./escalation-note.js";
 
 /**
  * Stage 2 voice: conversational assistant on the OpenAI Realtime API.
@@ -203,7 +204,13 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
       try {
         await this.deps.halo.addInternalNote(
           this.escalation.haloId,
-          `<b>📞 Escalation call — ${this.escalation.techName ?? "tech"}</b><br/>${summary ? `${esc(summary)}<br/>` : ""}<details><summary style="cursor:pointer;">▸ Full verbatim transcript (${this.transcript.length} exchanges)</summary><div style="padding:6px 0;line-height:1.6;">${lines}</div></details>`,
+          buildEscalationCallNote({
+            title: `Escalation call — ${this.escalation.techName ?? "tech"}`,
+            tone: "breach",
+            meta: `Ticket #${this.escalation.haloId}`,
+            intro: summary || undefined,
+            collapsed: { summary: `Full verbatim transcript (${this.transcript.length} exchanges)`, html: lines },
+          }),
         );
         console.log(`[VOICE] Escalation transcript posted on #${this.escalation.haloId} (${this.transcript.length} lines)`);
       } catch (error) {
@@ -453,7 +460,14 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           const when = target.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
           await this.deps.halo.addInternalNote(
             this.escalation.haloId,
-            `<b>⏱ SLA breach call — new resolution target agreed</b><br/>TriageIt called ${this.escalation.techName ?? "the assigned tech"} about the SLA breach on this ticket.<br/>Reason given: ${String(call.args.reason ?? "").slice(0, 500)}<br/>New resolution target: <b>${when} ET</b> (set by TriageIt with the tech's agreement on the call).`,
+            buildEscalationCallNote({
+              title: "SLA breach call — next action agreed",
+              tone: "breach",
+              meta: `${this.escalation.techName ?? "assigned tech"} · Ticket #${this.escalation.haloId}`,
+              intro: `TriageIt called ${this.escalation.techName ?? "the assigned tech"} about the SLA breach on this ticket.`,
+              fields: [{ label: "Reason given", value: String(call.args.reason ?? "").slice(0, 500) }],
+              highlight: { label: "Next action target (set on the call)", value: `${when} ET` },
+            }),
           );
           console.log(`[VOICE] SLA escalation: #${this.escalation.haloId} resolution target -> ${target.toISOString()}`);
           output = { ok: true, new_target_confirmed: when + " Eastern" };
@@ -466,7 +480,12 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           }
           await this.deps.halo.addInternalNote(
             this.escalation.haloId,
-            `<b>⏱ SLA breach call</b><br/>${String(call.args.note ?? "").slice(0, 800)}<br/><i>— TriageIt automated escalation call to ${this.escalation.techName ?? "the assigned tech"}</i>`,
+            buildEscalationCallNote({
+              title: "SLA breach call",
+              tone: "breach",
+              meta: `${this.escalation.techName ?? "assigned tech"} · Ticket #${this.escalation.haloId}`,
+              intro: String(call.args.note ?? "").slice(0, 800),
+            }),
           );
           output = { ok: true };
           break;
