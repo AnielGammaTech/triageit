@@ -6,6 +6,7 @@ import { DattoEdrClient } from "../integrations/datto-edr/client.js";
 import { HuduClient } from "../integrations/hudu/client.js";
 import { JumpCloudClient } from "../integrations/jumpcloud/client.js";
 import { Pax8Client } from "../integrations/pax8/client.js";
+import { requestClientCredentialsToken } from "../integrations/msgraph/auth.js";
 import { UnifiClient } from "../integrations/unifi/client.js";
 
 interface IntegrationRow {
@@ -382,6 +383,25 @@ async function checkBranding(config: Record<string, unknown>): Promise<CheckResu
   return { status: "healthy", message: "Branding config present (local settings, no external service)." };
 }
 
+async function checkMsGraph(config: Record<string, unknown>): Promise<CheckResult> {
+  const missing = required(config, ["tenant_id", "client_id", "client_secret"]);
+  if (missing) return { status: "down", message: missing };
+
+  const token = await requestClientCredentialsToken(
+    {
+      tenant_id: text(config, "tenant_id"),
+      client_id: text(config, "client_id"),
+      client_secret: text(config, "client_secret"),
+    },
+    fetchWithTimeout,
+  );
+  const response = await fetchWithTimeout(
+    "https://graph.microsoft.com/v1.0/users?$top=1&$select=id",
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return statusFromResponse("Microsoft Graph", response, "Graph token issued and /users reachable.");
+}
+
 const CHECKERS: Record<string, Checker> = {
   "ai-provider": checkAiProvider,
   branding: checkBranding,
@@ -392,6 +412,7 @@ const CHECKERS: Record<string, Checker> = {
   halo: checkHalo,
   hudu: checkHudu,
   jumpcloud: checkJumpCloud,
+  msgraph: checkMsGraph,
   pax8: checkPax8,
   teams: checkTeams,
   twilio: checkTwilio,

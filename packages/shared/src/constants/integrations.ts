@@ -432,6 +432,35 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     ],
   },
   {
+    service: "msgraph",
+    display_name: "Microsoft 365 Calendar",
+    description:
+      "Tech Outlook calendars for the Dispatch Board. Use Connect Microsoft 365 for one-button setup, or paste Azure app credentials manually.",
+    fields: [
+      {
+        key: "tenant_id",
+        label: "Tenant ID",
+        type: "text",
+        placeholder: "Directory (tenant) ID from Azure",
+        required: true,
+      },
+      {
+        key: "client_id",
+        label: "Client ID",
+        type: "text",
+        placeholder: "Application (client) ID",
+        required: true,
+      },
+      {
+        key: "client_secret",
+        label: "Client Secret",
+        type: "password",
+        placeholder: "Client secret value (Calendars.ReadWrite application permission)",
+        required: true,
+      },
+    ],
+  },
+  {
     service: "cipp",
     display_name: "CIPP",
     description:
