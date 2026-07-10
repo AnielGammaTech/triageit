@@ -29,6 +29,7 @@ import {
   type CalendarSignals,
   type DispatchAppointment,
   type RosterAgent,
+  type TechLoad,
   type ThreeCxSnapshot,
 } from "./board-sources.js";
 import { fmtEtDayAware } from "./time-format.js";
@@ -44,6 +45,12 @@ import { fmtEtDayAware } from "./time-format.js";
 export interface DispatchBoardTech {
   readonly tech: string;
   readonly status: TechStatus;
+  /** Raw 3CX view for the row: profile (Available/Away/DND/...), registration, live call. */
+  readonly phone: {
+    readonly profile: string | null;
+    readonly registered: boolean | null;
+    readonly onCall: boolean;
+  } | null;
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
   readonly nextCommitment: string | null; // "Onsite — Bentley Electric 2:00 PM"
   readonly aiRead: string | null; // Haiku one-liner; null until first refresh
@@ -57,15 +64,18 @@ export interface DispatchBoard {
 
 const CACHE_TTL_MS = 60_000;
 
-// Sort order: available, on_call, meeting, onsite, unknown, unreachable, off.
+// Sort order: free-est first, off last.
 const STATE_ORDER: Record<TechStatus["state"], number> = {
   available: 0,
-  on_call: 1,
-  meeting: 2,
-  onsite: 3,
-  unknown: 4,
-  unreachable: 5,
-  off: 6,
+  working: 1,
+  on_call: 2,
+  meeting: 3,
+  onsite: 4,
+  dnd: 5,
+  away: 6,
+  unknown: 7,
+  unreachable: 8,
+  off: 9,
 };
 
 let cache: { readonly at: number; readonly board: DispatchBoard } | null = null;
@@ -135,7 +145,7 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
 }
 
 interface TechRowContext {
-  readonly loads: ReadonlyMap<string, { readonly open: number; readonly wot: number; readonly breaching: number }> | null;
+  readonly loads: ReadonlyMap<string, TechLoad> | null;
   readonly threecx: ThreeCxSnapshot;
   readonly appointments: ReadonlyArray<DispatchAppointment> | null;
   readonly calendar: CalendarSignals | null;
@@ -171,11 +181,14 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
   // email — unknown (null), never "not on PTO / not in a meeting".
   const cal = ctx.calendar?.byTech.get(agent.name) ?? null;
 
+  const load = loadForTech(ctx.loads, agent.name);
   const signals: TechSignals = {
     onPtoToday: cal ? cal.onPtoToday : null,
     onsiteAppointment: current ? { subject: current.subject, endsAt: current.endsAt } : null,
     inMeetingUntil: cal?.inMeetingUntil ?? null,
     onCall,
+    workingTicket: load.inProgressTicket,
+    phoneProfile: ext?.profileName ?? null,
     extensionRegistered,
     withinBusinessHours: ctx.withinHours,
   };
@@ -183,7 +196,15 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
   return {
     tech: agent.name,
     status: resolveTechStatus(signals),
-    load: loadForTech(ctx.loads, agent.name),
+    phone:
+      ctx.threecx.extensions === null && ctx.threecx.activeCalls === null
+        ? null
+        : {
+            profile: ext?.profileName ?? null,
+            registered: extensionRegistered,
+            onCall: onCall === true,
+          },
+    load: { open: load.open, wot: load.wot, breaching: load.breaching },
     nextCommitment: next
       ? `${next.subject} ${fmtEtDayAware(next.startsAt, new Date(ctx.nowMs))}`
       : null,

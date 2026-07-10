@@ -24,7 +24,7 @@ export interface Suggestion {
 }
 
 const AVAILABILITY_POINTS: Record<TechStatus["state"], number> = {
-  available: 40, on_call: 24, meeting: 18, onsite: 10, unknown: 8, unreachable: 4, off: 0,
+  available: 40, working: 28, on_call: 24, meeting: 18, dnd: 14, away: 12, onsite: 10, unknown: 8, unreachable: 4, off: 0,
 };
 
 // Short availability phrase per state — the full status detail ("onsite —
@@ -36,6 +36,9 @@ const AVAILABILITY_PHRASE: Record<TechStatus["state"], string> = {
   meeting: "In a meeting",
   onsite: "Onsite now",
   off: "Off today",
+  working: "Working a ticket",
+  dnd: "Phone on Do Not Disturb",
+  away: "Phone set to away",
   unreachable: "Phone not registered",
   unknown: "No live signal",
 };

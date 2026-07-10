@@ -1,15 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, ClipboardList, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { CalendarClock, ClipboardList, Phone, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
 
 interface TechStatus {
-  readonly state: "off" | "onsite" | "meeting" | "on_call" | "available" | "unreachable" | "unknown";
+  readonly state:
+    | "off"
+    | "onsite"
+    | "meeting"
+    | "on_call"
+    | "working"
+    | "dnd"
+    | "away"
+    | "available"
+    | "unreachable"
+    | "unknown";
   readonly detail: string | null;
 }
 interface BoardTech {
   readonly tech: string;
   readonly status: TechStatus;
+  readonly phone: {
+    readonly profile: string | null;
+    readonly registered: boolean | null;
+    readonly onCall: boolean;
+  } | null;
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
   readonly nextCommitment: string | null;
   readonly aiRead: string | null;
@@ -41,22 +56,37 @@ const HAIRLINE = "#3a1f24";
 
 const STATE_COLOR: Record<TechStatus["state"], string> = {
   available: "#22c55e",
+  working: "#38bdf8",
   on_call: "#0f75b1",
   meeting: "#f59e0b",
   onsite: "#fe9200",
+  dnd: "#e879f9",
+  away: "#a1a1aa",
   off: "#71717a",
   unreachable: "#f87171",
   unknown: "#f87171",
 };
 const STATE_LABEL: Record<TechStatus["state"], string> = {
   available: "Available",
+  working: "Working",
   on_call: "On Call",
   meeting: "Meeting",
   onsite: "Onsite",
+  dnd: "DND",
+  away: "Away",
   off: "Off",
   unreachable: "Unreachable",
   unknown: "No Signal",
 };
+
+/** Compact "what the phone says" label for the right edge of a row. */
+function phoneLabel(phone: BoardTech["phone"]): string | null {
+  if (!phone) return null;
+  if (phone.onCall) return "On a call";
+  if (phone.registered === false) return "Not registered";
+  if (phone.profile) return phone.profile;
+  return phone.registered === true ? "Registered" : null;
+}
 
 /** A dispatcher-readable context line — only when the chip alone isn't enough. */
 function contextLine(status: TechStatus): string | null {
@@ -224,6 +254,12 @@ function TechRow({ tech }: { readonly tech: BoardTech }) {
               </span>
             )}
           </span>
+          {phoneLabel(tech.phone) && (
+            <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-zinc-500">
+              <Phone className="h-3 w-3" />
+              {phoneLabel(tech.phone)}
+            </span>
+          )}
         </div>
         {context && <div className="mt-0.5 text-xs text-zinc-300">{context}</div>}
         {tech.nextCommitment && (
