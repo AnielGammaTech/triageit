@@ -11,6 +11,7 @@ import {
   PhoneOff,
   CheckCircle2,
   User,
+  MessageSquare,
 } from "lucide-react";
 
 interface BreachRow {
@@ -22,6 +23,8 @@ interface BreachRow {
   readonly halo_sla_status: string | null;
   readonly sla_breach_alert_count: number | null;
   readonly sla_breach_alerted_at: string | null;
+  readonly sla_breach_last_alert_text: string | null;
+  readonly sla_breach_last_alert_at: string | null;
 }
 
 interface CallRow {
@@ -192,40 +195,56 @@ export default function SlaHunterPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
             {data!.breaches.map((b) => (
-              <div key={b.halo_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={haloLink(data!.haloBaseUrl, b.halo_id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1 font-mono text-sm font-bold text-white hover:underline"
-                    >
-                      #{b.halo_id}
-                      <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
-                    </a>
-                    {(b.sla_breach_alert_count ?? 0) >= 2 && (
-                      <span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: RED }}>
-                        {b.sla_breach_alert_count}× alerted
-                      </span>
-                    )}
+              <div key={b.halo_id} className="px-5 py-3" style={{ borderColor: HAIRLINE }}>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={haloLink(data!.haloBaseUrl, b.halo_id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 font-mono text-sm font-bold text-white hover:underline"
+                      >
+                        #{b.halo_id}
+                        <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
+                      </a>
+                      {(b.sla_breach_alert_count ?? 0) >= 2 && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: RED }}>
+                          {b.sla_breach_alert_count}× alerted
+                        </span>
+                      )}
+                    </div>
+                    <p className="truncate text-sm text-zinc-300">{b.summary ?? "—"}</p>
+                    <p className="text-xs text-zinc-500">
+                      {b.client_name ?? "Unknown client"}
+                      {b.halo_status ? ` · ${b.halo_status}` : ""}
+                    </p>
                   </div>
-                  <p className="truncate text-sm text-zinc-300">{b.summary ?? "—"}</p>
-                  <p className="text-xs text-zinc-500">
-                    {b.client_name ?? "Unknown client"}
-                    {b.halo_status ? ` · ${b.halo_status}` : ""}
-                  </p>
+                  <div className="text-right">
+                    <div className="flex items-center gap-1 text-xs font-semibold" style={{ color: "#f87171" }}>
+                      <Clock className="h-3 w-3" />
+                      breached {durationSince(b.sla_breach_alerted_at)}
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-zinc-400">
+                      <User className="h-3 w-3" />
+                      {b.halo_agent ?? "Unassigned"}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-1 text-xs font-semibold" style={{ color: "#f87171" }}>
-                    <Clock className="h-3 w-3" />
-                    breached {durationSince(b.sla_breach_alerted_at)}
+                {b.sla_breach_last_alert_text && (
+                  <div
+                    className="mt-2 rounded-lg border p-2.5"
+                    style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}
+                  >
+                    <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <MessageSquare className="h-3 w-3" style={{ color: "#f87171" }} />
+                      Teams message sent{b.sla_breach_last_alert_at ? ` · ${fmtTime(b.sla_breach_last_alert_at)}` : ""}
+                    </div>
+                    <p className="whitespace-pre-line text-xs leading-relaxed text-zinc-300">
+                      {b.sla_breach_last_alert_text}
+                    </p>
                   </div>
-                  <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-zinc-400">
-                    <User className="h-3 w-3" />
-                    {b.halo_agent ?? "Unassigned"}
-                  </div>
-                </div>
+                )}
               </div>
             ))}
           </div>

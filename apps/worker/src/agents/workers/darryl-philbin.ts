@@ -363,7 +363,14 @@ Respond with ONLY valid JSON:
         const [mailboxes, allDevices, logs] = await Promise.all([
           client.getMailboxes(tenantDomain).catch(() => [] as CippMailbox[]),
           client.getDevices(tenantDomain).catch(() => [] as CippDevice[]),
-          client.getSignInLogs(tenantDomain, user.userPrincipalName ?? ""),
+          // null (not []) signals lookup FAILURE — buildUserMessage renders the
+          // "sign-in log lookup FAILED" notice instead of "no risky sign-ins".
+          // An un-caught throw here would reject the whole Promise.all and nuke
+          // ALL already-fetched CIPP data (user, MFA, CA, service health).
+          client.getSignInLogs(tenantDomain, user.userPrincipalName ?? "").catch(() => {
+            console.warn("[DARRYL] CIPP sign-in log lookup failed for", user?.userPrincipalName);
+            return null as ReadonlyArray<CippSignInLog> | null;
+          }),
         ]);
 
         const upnLower = user.userPrincipalName.toLowerCase();

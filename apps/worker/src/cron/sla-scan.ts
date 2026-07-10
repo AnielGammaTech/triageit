@@ -263,7 +263,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               continue;
             }
 
-            await teams.sendSlaBreachAlert({
+            const alertText = await teams.sendSlaBreachAlert({
               haloId,
               summary: String(local?.summary ?? breacher.summary ?? "").slice(0, 120),
               clientName: (local?.client_name as string) ?? (breacher.client_name as string) ?? null,
@@ -274,6 +274,11 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               attempt,
               noUpdateSinceLastAlert,
             });
+            // Persist exactly what we sent, for the SLA Hunter accountability view.
+            await supabase
+              .from("tickets")
+              .update({ sla_breach_last_alert_text: alertText, sla_breach_last_alert_at: new Date().toISOString() })
+              .eq("halo_id", haloId);
             console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt}${noUpdateSinceLastAlert ? ", no tech update since last alert" : ""})`);
 
             // Auto call-out (user decision): 2nd alert and every one after,

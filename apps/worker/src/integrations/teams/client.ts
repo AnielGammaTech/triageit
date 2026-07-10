@@ -511,7 +511,7 @@ export class TeamsClient {
     readonly attempt?: number;
     /** True when the ticket shows NO tech activity since the previous alert — hardest tone. */
     readonly noUpdateSinceLastAlert?: boolean;
-  }): Promise<void> {
+  }): Promise<string> {
     const overText =
       breach.hoursOver != null
         ? breach.hoursOver >= 1
@@ -526,6 +526,7 @@ export class TeamsClient {
     ]
       .filter(Boolean)
       .join(" · ");
+    const headline = buildBreachHeadline(breach);
     const card = {
       type: "message",
       attachments: [
@@ -541,7 +542,7 @@ export class TeamsClient {
             body: [
               {
                 type: "TextBlock",
-                text: buildBreachHeadline(breach),
+                text: headline,
                 weight: "Bolder",
                 color: "Attention",
                 wrap: true,
@@ -567,6 +568,9 @@ export class TeamsClient {
       ],
     };
     await this.sendCard(card, "sla");
+    // Return the composed message so callers can persist exactly what was sent
+    // (surfaced on the SLA Hunter tab for accountability).
+    return info ? `${headline}\n${info}` : headline;
   }
 
   /** Onsite visit evidence but zero charged hours — lost revenue tripwire. */

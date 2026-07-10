@@ -11,6 +11,7 @@ import {
   type UnitrendsDevice,
   type UnitrendsBackupJob,
 } from "../../integrations/unitrends/client.js";
+import { CoveClient, type CoveDevice } from "../../integrations/cove/client.js";
 
 /**
  * Oscar Martinez — Backup & Recovery Specialist (Cove + Unitrends)
@@ -21,10 +22,6 @@ import {
  */
 
 // ── Cove API Types ──────────────────────────────────────────────────
-
-interface CoveSession {
-  readonly visa: string;
-}
 
 interface CoveDeviceStatistic {
   readonly AccountId: number;
@@ -47,6 +44,9 @@ interface CoveDeviceStatistic {
 interface CoveData {
   readonly devices: ReadonlyArray<CoveDeviceStatistic>;
   readonly matchedDevice: CoveDeviceStatistic | null;
+  // true = the Cove API call failed — backup status is UNKNOWN, NOT healthy
+  // and NOT empty. Mirrors UnitrendsData.lookupFailed.
+  readonly coveLookupFailed: boolean;
   readonly healthySummary: {
     readonly totalDevices: number;
     readonly healthyDevices: number;
@@ -74,6 +74,7 @@ interface UnitrendsData {
 const EMPTY_COVE_DATA: CoveData = {
   devices: [],
   matchedDevice: null,
+  coveLookupFailed: false,
   healthySummary: { totalDevices: 0, healthyDevices: 0, errorDevices: 0, unprotectedDevices: 0 },
 };
 
@@ -184,7 +185,7 @@ Respond with ONLY valid JSON:
 
     // Cross-match backup devices to Datto RMM so the tech knows WHO uses
     // each machine — backup hostnames and RMM hostnames line up
-    const userByHost = await this.fetchDattoUserMap();
+    const userByHost = await this.fetchDattoUserMap(context);
     if (userByHost.size > 0) {
       const backupHosts = new Set<string>();
       for (const d of coveData.devices) {
@@ -243,7 +244,7 @@ Respond with ONLY valid JSON:
   /**
    * hostname (lowercase) -> lastLoggedInUser from Datto RMM. Best-effort.
    */
-  private async fetchDattoUserMap(): Promise<Map<string, string>> {
+  private async fetchDattoUserMap(context: TriageContext): Promise<Map<string, string>> {
     const map = new Map<string, string>();
     try {
       const { data } = await this.supabase
@@ -253,8 +254,22 @@ Respond with ONLY valid JSON:
         .eq("is_active", true)
         .single();
       if (!data) return map;
+
+      // Scope to THIS client's Datto site. Pulling the whole MSP fleet collides
+      // on generic hostnames (DESKTOP-01, SERVER) across clients and would
+      // attach another client's last-logged-in user to this client's backup
+      // device. If the client can't be resolved to a Datto site, skip the
+      // "who is affected" enrichment entirely rather than match fleet-wide.
+      const dattoSiteId = await this.findCustomerMapping("datto", context.clientName);
+      if (!dattoSiteId) {
+        console.warn(
+          "[OSCAR] No Datto site mapping for this client — skipping device-user enrichment to avoid cross-client hostname collisions.",
+        );
+        return map;
+      }
+
       const datto = new DattoClient(data.config as DattoConfig);
-      const devices = await datto.getDevices();
+      const devices = await datto.getDevices(dattoSiteId);
       for (const device of devices) {
         const host = device.hostname?.toLowerCase();
         const user = device.lastLoggedInUser ?? device.lastUser;
@@ -324,18 +339,36 @@ Respond with ONLY valid JSON:
     deviceName: string | null,
   ): Promise<CoveData> {
     const config = await this.getCoveConfig();
+    // Not configured is not a failure — leave coveLookupFailed false.
     if (!config) return EMPTY_COVE_DATA;
 
     try {
-      const visa = await this.coveLogin(config);
-      if (!visa) return EMPTY_COVE_DATA;
-
       const customerExternalId = await this.findCustomerMapping(
         "cove",
         context.clientName,
       );
 
-      const devices = await this.enumerateDeviceStatistics(visa, customerExternalId);
+      // Unmapped client → NEVER enumerate the whole partner fleet. Doing so
+      // would attach another client's backup devices to this ticket.
+      if (!customerExternalId) {
+        await this.logThinking(
+          context.ticketId,
+          "Cove configured but no customer/partner mapping found for this client — skipping fleet-wide lookup.",
+        );
+        return EMPTY_COVE_DATA;
+      }
+
+      // Route through CoveClient: it places the visa at the envelope top level,
+      // flattens the {Settings:[{code:value}…]} rows into friendly fields, and
+      // scopes to the mapped PartnerId — none of which the old hand-rolled call did.
+      const client = new CoveClient({
+        partner_name: config.partner_name,
+        api_username: config.api_username,
+        api_token: config.api_token,
+      });
+
+      const rawDevices = await client.getDevices(Number(customerExternalId));
+      const devices = rawDevices.map(toCoveDeviceStatistic);
       const matchedDevice = deviceName ? findMatchingDevice(devices, deviceName) : null;
       const healthySummary = computeHealthSummary(devices);
 
@@ -344,10 +377,12 @@ Respond with ONLY valid JSON:
         `Cove: ${devices.length} devices. ${healthySummary.healthyDevices} healthy, ${healthySummary.errorDevices} with errors.`,
       );
 
-      return { devices, matchedDevice, healthySummary };
+      return { devices, matchedDevice, coveLookupFailed: false, healthySummary };
     } catch (error) {
+      // Lookup failed ≠ no backups — Oscar must say the lookup FAILED, never
+      // conclude the fleet is empty or all healthy.
       console.error("[OSCAR] Cove fetch failed:", error);
-      return EMPTY_COVE_DATA;
+      return { ...EMPTY_COVE_DATA, coveLookupFailed: true };
     }
   }
 
@@ -425,80 +460,6 @@ Respond with ONLY valid JSON:
       // Lookup failed ≠ no backup data — Oscar must say the lookup FAILED
       console.error("[OSCAR] Unitrends fetch failed:", error);
       return { ...EMPTY_UNITRENDS_DATA, lookupFailed: true };
-    }
-  }
-
-  // ── Cove Internal Methods ───────────────────────────────────────────
-
-  private async coveLogin(config: CoveConfig): Promise<string | null> {
-    try {
-      const response = await fetch(COVE_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "Login",
-          params: {
-            partner: config.partner_name,
-            username: config.api_username,
-            password: config.api_token,
-          },
-          id: 1,
-        }),
-      });
-
-      const data = (await response.json()) as {
-        readonly result?: { readonly result?: CoveSession };
-        readonly error?: { readonly message?: string };
-      };
-
-      if (data.error) {
-        console.error("[OSCAR] Cove login error:", data.error.message);
-        return null;
-      }
-
-      return data.result?.result?.visa ?? null;
-    } catch (error) {
-      console.error("[OSCAR] Cove login failed:", error);
-      return null;
-    }
-  }
-
-  private async enumerateDeviceStatistics(
-    visa: string,
-    customerExternalId: string | null,
-  ): Promise<ReadonlyArray<CoveDeviceStatistic>> {
-    try {
-      const params: Record<string, unknown> = { visa };
-      if (customerExternalId) {
-        params.query = { PartnerId: Number(customerExternalId) };
-      }
-
-      const response = await fetch(COVE_API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "EnumerateAccountStatistics",
-          params,
-          id: 2,
-        }),
-      });
-
-      const data = (await response.json()) as {
-        readonly result?: { readonly result?: ReadonlyArray<CoveDeviceStatistic> };
-        readonly error?: { readonly message?: string };
-      };
-
-      if (data.error) {
-        console.error("[OSCAR] Cove EnumerateAccountStatistics error:", data.error.message);
-        return [];
-      }
-
-      return data.result?.result ?? [];
-    } catch (error) {
-      console.error("[OSCAR] Failed to enumerate device statistics:", error);
-      return [];
     }
   }
 
@@ -609,6 +570,13 @@ Respond with ONLY valid JSON:
     }
 
     // ── Cove section ──────────────────────────────────────────────────
+    if (coveData.coveLookupFailed) {
+      sections.push("", "## ⚠ Cove Backup Data Lookup FAILED");
+      sections.push(
+        "⚠ Cove lookup FAILED — backup status UNAVAILABLE. Do NOT conclude there are no Cove backups / all healthy. " +
+        "State this in your findings; do NOT report Cove backup health or claim devices are protected, unprotected, or missing.",
+      );
+    }
     if (coveData.healthySummary.totalDevices > 0) {
       sections.push("", "## Cove Data Protection (N-able)");
       sections.push(`**Total Devices:** ${coveData.healthySummary.totalDevices}`);
@@ -684,8 +652,9 @@ Respond with ONLY valid JSON:
       for (const ref of UNITRENDS_KB_REFERENCES) sections.push(`- [${ref.topic}](${ref.url})`);
     }
 
-    // No data fallback — not when the lookup FAILED (that is not "no data")
-    if (!hasCove && !hasUnitrends && !unitrendsData.lookupFailed) {
+    // No data fallback — only when BOTH genuinely returned empty AND neither
+    // lookup FAILED (a failed lookup is not "no data").
+    if (!hasCove && !hasUnitrends && !unitrendsData.lookupFailed && !coveData.coveLookupFailed) {
       sections.push("", "## No Backup Integration Data Available");
       sections.push(
         "Neither Cove nor Unitrends returned data for this client. " +
@@ -697,11 +666,36 @@ Respond with ONLY valid JSON:
   }
 }
 
-// ── Constants ─────────────────────────────────────────────────────────
-
-const COVE_API_URL = "https://api.backup.management/jsonapi";
-
 // ── Helper Functions ──────────────────────────────────────────────────
+
+// Adapt CoveClient's normalized CoveDevice (friendly field names, string
+// timestamps/errors) into the numeric-typed CoveDeviceStatistic that Oscar's
+// helpers and message builder consume. CoveClient does not fetch the
+// Protected/UnprotectedData columns, so those default to "" (0 unprotected).
+function toCoveDeviceStatistic(d: CoveDevice): CoveDeviceStatistic {
+  const num = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const str = (v: unknown): string => (v == null ? "" : String(v));
+  return {
+    AccountId: num(d.AccountId),
+    AccountName: str(d.AccountName),
+    DeviceName: str(d.DeviceName ?? d.MachineName ?? d.ComputerName),
+    ComputerName: str(d.ComputerName ?? d.MachineName),
+    OsType: str(d.OsType),
+    CustomerName: str(d.CustomerName),
+    Status: str(d.Status ?? d.LastSessionStatus),
+    LastSessionTimestamp: num(d.LastSessionTimestamp),
+    LastSuccessfulSessionTimestamp: num(d.LastSuccessfulSessionTimestamp),
+    Errors: num(d.Errors),
+    SelectedSize: num(d.SelectedSize),
+    UsedStorage: num(d.UsedStorage),
+    DataSources: str(d.DataSources),
+    ProtectedData: str(d.ProtectedData),
+    UnprotectedData: str(d.UnprotectedData),
+  };
+}
 
 function normalizeName(name: string): string {
   return name

@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Ticket } from "@triageit/shared";
+import type { Ticket, TeamsConfig } from "@triageit/shared";
 import type { TriageContext, TriageOutput, ClassificationResult } from "../types.js";
 import { HaloClient } from "../../integrations/halo/client.js";
+import { TeamsClient } from "../../integrations/teams/client.js";
 import type { HaloConfig } from "@triageit/shared";
 import {
   isAlertTicket,
@@ -29,6 +30,19 @@ async function getHaloConfig(
     .single();
 
   return data ? (data.config as HaloConfig) : null;
+}
+
+async function getTeamsConfig(
+  supabase: SupabaseClient,
+): Promise<TeamsConfig | null> {
+  const { data } = await supabase
+    .from("integrations")
+    .select("config")
+    .eq("service", "teams")
+    .eq("is_active", true)
+    .single();
+
+  return data ? (data.config as TeamsConfig) : null;
 }
 
 // ── Notification Fast Path ───────────────────────────────────────────
@@ -213,6 +227,35 @@ export async function tryAlertFastPath(
     duration_ms: alertProcessingTime,
   });
 
+  // A security-flagged or urgent alert (e.g. a Huntress "ransomware detected"
+  // alert, urgency 5 + security_flag) took the fast path and would otherwise
+  // reach NO ONE — the early return skipped the pipeline's Teams step. Notify
+  // on the same thresholds the main pipeline uses (urgency 3+ or security).
+  if (classification.security_flag || classification.urgency_score >= 3) {
+    try {
+      const teamsConfig = await getTeamsConfig(supabase);
+      if (teamsConfig) {
+        const teams = new TeamsClient(teamsConfig);
+        await teams.sendTriageSummary({
+          haloId: ticket.halo_id,
+          summary: context.summary,
+          clientName: context.clientName,
+          classification: `${classification.classification.type} / ${classification.classification.subtype}`,
+          urgencyScore: classification.urgency_score,
+          recommendedPriority: classification.recommended_priority,
+          recommendedTeam: alertResult.alert_source,
+          rootCause: alertResult.summary,
+          securityFlag: classification.security_flag,
+          escalationNeeded: classification.security_flag,
+          processingTimeMs: alertProcessingTime,
+          agentCount: 1,
+        });
+      }
+    } catch (error) {
+      console.error(`[MICHAEL] Alert path: Teams notify failed for #${ticket.halo_id}:`, error);
+    }
+  }
+
   const triageId = crypto.randomUUID();
   return {
     id: triageId,
@@ -223,8 +266,12 @@ export async function tryAlertFastPath(
     recommended_priority: classification.recommended_priority,
     recommended_team: alertResult.alert_source,
     recommended_agent: null,
-    security_flag: false,
-    security_notes: null,
+    // Preserve Ryan's security determination — the fast path used to hardcode
+    // false, erasing the flag on genuine security alerts in triage_results.
+    security_flag: classification.security_flag,
+    security_notes: classification.security_flag
+      ? `Security-flagged automated alert (${alertResult.alert_type ?? "unknown"}). Fast-path summary — review the source alert.`
+      : null,
     findings: {
       ryan_howard: {
         agent_name: "ryan_howard",

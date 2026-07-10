@@ -24,6 +24,8 @@ interface BreachRow {
   readonly halo_sla_status: string | null;
   readonly sla_breach_alert_count: number | null;
   readonly sla_breach_alerted_at: string | null;
+  readonly sla_breach_last_alert_text: string | null;
+  readonly sla_breach_last_alert_at: string | null;
 }
 
 interface CallRow {
@@ -62,7 +64,7 @@ export async function GET() {
   const [breachRes, callRes] = await Promise.all([
     supabase
       .from("tickets")
-      .select("halo_id, summary, client_name, halo_agent, halo_status, halo_sla_status, sla_breach_alert_count, sla_breach_alerted_at")
+      .select("halo_id, summary, client_name, halo_agent, halo_status, halo_sla_status, sla_breach_alert_count, sla_breach_alerted_at, sla_breach_last_alert_text, sla_breach_last_alert_at")
       .not("sla_breach_alerted_at", "is", null)
       .eq("halo_is_open", true)
       .order("sla_breach_alerted_at", { ascending: true }),
