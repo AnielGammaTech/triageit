@@ -4,6 +4,7 @@ import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { CallControlClient } from "../voice/call-control.js";
 import { ThreeCxClient } from "../integrations/threecx/client.js";
 import { registerEscalationCall } from "../voice/listener.js";
+import { buildEscalationCallNote } from "../voice/escalation-note.js";
 import type { ThreeCxConfig } from "@triageit/shared";
 
 /**
@@ -154,7 +155,12 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         void halo
           .addInternalNote(
             haloId,
-            `<b>📞 Escalation call — NO ANSWER</b><br/>TriageIt called ${techLabel} (${destination}) about this ticket${req.objective ? "" : "'s SLA breach"} and got no answer. ${req.objective ? "" : "Breach alerts continue."}`,
+            buildEscalationCallNote({
+              title: `Escalation call — ${techLabel}`,
+              tone: "noanswer",
+              meta: `Ticket #${haloId}`,
+              intro: `TriageIt called ${techLabel} (${destination}) about this ticket${req.objective ? "" : "'s SLA breach"} and got no answer.${req.objective ? "" : " Breach alerts continue."}`,
+            }),
           )
           .catch((e) => console.error(`[SLA-CALL] No-answer note failed for #${haloId}:`, e instanceof Error ? e.message : e));
       });
