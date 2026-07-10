@@ -192,7 +192,7 @@ export default function TvPage() {
   // Queue row budget: at-risk fills whatever breaches/unassigned don't use
   const breachCap = Math.min(data?.breaches.length ?? 0, 6);
   const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 5);
-  const atRiskCap = Math.max(3, 12 - breachCap - unassignedCap);
+  const atRiskCap = Math.max(3, 11 - breachCap - unassignedCap);
 
   return (
     <Shell>
