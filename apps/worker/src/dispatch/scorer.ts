@@ -27,10 +27,23 @@ const AVAILABILITY_POINTS: Record<TechStatus["state"], number> = {
   available: 40, on_call: 24, meeting: 18, onsite: 10, unknown: 8, unreachable: 4, off: 0,
 };
 
+// Short availability phrase per state — the full status detail ("onsite —
+// advance medical of naples, llc — malware pop ups until 6:15 pm") floods
+// the suggestion UI; the board row already shows the detail.
+const AVAILABILITY_PHRASE: Record<TechStatus["state"], string> = {
+  available: "Available now",
+  on_call: "On a call",
+  meeting: "In a meeting",
+  onsite: "Onsite now",
+  off: "Off today",
+  unreachable: "Phone not registered",
+  unknown: "No live signal",
+};
+
 export function scoreTechForTicket(t: TechCandidate, ticket: TicketToAssign): Suggestion {
   const reasons: string[] = [];
   const avail = AVAILABILITY_POINTS[t.status.state];
-  reasons.push(t.status.state === "available" ? "available now" : (t.status.detail ?? t.status.state).toLowerCase());
+  reasons.push(AVAILABILITY_PHRASE[t.status.state]);
   // Inverse load 0-30: 0 open → 30, 30+ open → 0. Breaching tickets weigh double.
   const effectiveLoad = t.openTickets + t.breaching;
   const load = Math.max(0, 30 - effectiveLoad);

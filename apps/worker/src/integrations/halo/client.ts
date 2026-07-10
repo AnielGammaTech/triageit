@@ -343,9 +343,11 @@ export class HaloClient {
 
   /**
    * All active agents (dispatch roster source). Halo: GET /agent.
-   * Returns null when the LOOKUP FAILED — never an empty roster.
+   * Includes the agent's email when Halo carries one (`email` or
+   * `emailaddress` depending on instance). Returns null when the LOOKUP
+   * FAILED — never an empty roster.
    */
-  async getAgents(): Promise<ReadonlyArray<{ id: number; name: string }> | null> {
+  async getAgents(): Promise<ReadonlyArray<{ id: number; name: string; email: string | null }> | null> {
     try {
       const res = await this.request<unknown>("GET", "/agent?count=100");
       const rows: ReadonlyArray<Record<string, unknown>> = Array.isArray(res)
@@ -354,7 +356,14 @@ export class HaloClient {
       return rows
         .filter((a) => typeof a.id === "number" && typeof a.name === "string")
         .filter((a) => a.inactive !== true && a.isdisabled !== true)
-        .map((a) => ({ id: a.id as number, name: a.name as string }));
+        .map((a) => ({
+          id: a.id as number,
+          name: a.name as string,
+          email:
+            [a.email, a.emailaddress].find(
+              (v): v is string => typeof v === "string" && v.trim().length > 0,
+            ) ?? null,
+        }));
     } catch (err) {
       console.warn("[HALO] getAgents failed:", err instanceof Error ? err.message : err);
       return null; // lookupFailed — caller must not treat as "no agents"
