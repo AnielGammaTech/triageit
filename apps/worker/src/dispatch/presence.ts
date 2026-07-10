@@ -23,6 +23,7 @@ export interface TechStatus {
     | "dnd"
     | "away"
     | "available"
+    | "after_hours"
     | "unreachable"
     | "unknown";
   readonly detail: string | null;             // e.g. "Onsite — Allen Concrete until 4:00 PM"
@@ -46,6 +47,9 @@ export function resolveTechStatus(s: TechSignals): TechStatus {
   if (s.phoneProfile && /lunch/i.test(s.phoneProfile)) return { state: "away", detail: "Out to lunch" };
   if (s.phoneProfile && AWAY_RE.test(s.phoneProfile)) return { state: "away", detail: `Phone set to ${s.phoneProfile}` };
   if (s.extensionRegistered === true && s.withinBusinessHours) return { state: "available", detail: null };
+  // Registered but outside the workday — a calm, expected state, not an
+  // error. The chip is self-explanatory; no detail line needed.
+  if (s.extensionRegistered === true && !s.withinBusinessHours) return { state: "after_hours", detail: null };
   if (s.extensionRegistered === false) return { state: "unreachable", detail: "No phone registered" };
   return { state: "unknown", detail: "No presence signal" };
 }

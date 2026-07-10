@@ -13,6 +13,7 @@ interface TechStatus {
     | "dnd"
     | "away"
     | "available"
+    | "after_hours"
     | "unreachable"
     | "unknown";
   readonly detail: string | null;
@@ -26,12 +27,14 @@ interface BoardTech {
     readonly onCall: boolean;
   } | null;
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  readonly workingTicketId: number | null;
   readonly nextCommitment: string | null;
   readonly aiRead: string | null;
 }
 interface DispatchBoard {
   readonly generatedAt: string;
   readonly sources: { readonly halo: boolean; readonly threecx: boolean; readonly calendar: boolean };
+  readonly haloBaseUrl: string;
   readonly techs: ReadonlyArray<BoardTech>;
 }
 interface Suggestion {
@@ -47,6 +50,7 @@ interface SuggestTicket {
   readonly suggestions: ReadonlyArray<Suggestion>;
 }
 interface DispatchSuggestions {
+  readonly haloBaseUrl: string;
   readonly tickets: ReadonlyArray<SuggestTicket>;
 }
 interface WeekEvent {
@@ -56,9 +60,11 @@ interface WeekEvent {
   readonly startsAt: string;
   readonly endsAt: string;
   readonly allDay: boolean;
+  readonly ticketId: number | null;
 }
 interface WeekData {
   readonly start: string;
+  readonly haloBaseUrl: string;
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }
@@ -75,6 +81,7 @@ const STATE_COLOR: Record<TechStatus["state"], string> = {
   onsite: "#fe9200",
   dnd: "#e879f9",
   away: "#a1a1aa",
+  after_hours: "#71717a",
   off: "#71717a",
   unreachable: "#f87171",
   unknown: "#f87171",
@@ -87,10 +94,16 @@ const STATE_LABEL: Record<TechStatus["state"], string> = {
   onsite: "Onsite",
   dnd: "DND",
   away: "Away",
+  after_hours: "After Hours",
   off: "Off",
   unreachable: "Unreachable",
   unknown: "No Signal",
 };
+
+/** Halo web link for a ticket — null when the Halo base URL is unavailable. */
+function haloTicketUrl(base: string | undefined, id: number): string | null {
+  return base ? `${base}/tickets?id=${id}` : null;
+}
 
 /** Compact "what the phone says" label for the right edge of a row. */
 function phoneLabel(phone: BoardTech["phone"]): string | null {
@@ -110,7 +123,7 @@ function contextLine(status: TechStatus): string | null {
     case "unreachable":
       return "Phone not registered";
     default:
-      return null; // "Available" needs no elaboration
+      return null; // "Available" and "After Hours" need no elaboration
   }
 }
 
@@ -236,7 +249,7 @@ export default function DispatchPage() {
             ) : (
               <div className="divide-y" style={{ borderColor: HAIRLINE }}>
                 {board!.techs.map((t) => (
-                  <TechRow key={t.tech} tech={t} />
+                  <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
                 ))}
               </div>
             )}
@@ -253,7 +266,7 @@ export default function DispatchPage() {
             ) : (
               <div className="divide-y" style={{ borderColor: HAIRLINE }}>
                 {suggest!.tickets.map((t) => (
-                  <TicketSuggestions key={t.halo_id} ticket={t} />
+                  <TicketSuggestions key={t.halo_id} ticket={t} haloBaseUrl={suggest!.haloBaseUrl} />
                 ))}
               </div>
             )}
@@ -371,15 +384,33 @@ function WeekGrid({
                       <div className="space-y-1">
                         {shown.map((e, i) => {
                           const style = WEEK_EVENT_STYLE[e.type];
-                          return (
+                          const href = e.ticketId !== null ? haloTicketUrl(week.haloBaseUrl, e.ticketId) : null;
+                          const body = (
+                            <>
+                              <span className="font-semibold">{e.type === "pto" ? "OFF" : eventTime(e)}</span>{" "}
+                              {e.type === "pto" ? "" : e.subject}
+                            </>
+                          );
+                          return href ? (
+                            <a
+                              key={`${e.startsAt}-${i}`}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`${style.label}: ${e.subject}`}
+                              className="block truncate rounded px-1.5 py-1 text-[10px] leading-tight hover:underline"
+                              style={{ background: style.bg, color: style.text }}
+                            >
+                              {body}
+                            </a>
+                          ) : (
                             <div
                               key={`${e.startsAt}-${i}`}
                               title={`${style.label}: ${e.subject}`}
                               className="truncate rounded px-1.5 py-1 text-[10px] leading-tight"
                               style={{ background: style.bg, color: style.text }}
                             >
-                              <span className="font-semibold">{e.type === "pto" ? "OFF" : eventTime(e)}</span>{" "}
-                              {e.type === "pto" ? "" : e.subject}
+                              {body}
                             </div>
                           );
                         })}
@@ -409,9 +440,13 @@ function WeekGrid({
   );
 }
 
-function TechRow({ tech }: { readonly tech: BoardTech }) {
+function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly haloBaseUrl: string }) {
   const color = STATE_COLOR[tech.status.state] ?? "#71717a";
   const context = contextLine(tech.status);
+  const contextHref =
+    tech.status.state === "working" && tech.workingTicketId !== null
+      ? haloTicketUrl(haloBaseUrl, tech.workingTicketId)
+      : null;
   return (
     <div className="flex items-start gap-3 px-5 py-3.5">
       <span
@@ -439,7 +474,19 @@ function TechRow({ tech }: { readonly tech: BoardTech }) {
             </span>
           )}
         </div>
-        {context && <div className="mt-0.5 text-xs text-zinc-300">{context}</div>}
+        {context &&
+          (contextHref ? (
+            <a
+              href={contextHref}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-0.5 block text-xs text-zinc-300 hover:underline"
+            >
+              {context}
+            </a>
+          ) : (
+            <div className="mt-0.5 text-xs text-zinc-300">{context}</div>
+          ))}
         {tech.nextCommitment && (
           <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
             <CalendarClock className="h-3 w-3 shrink-0" />
@@ -451,11 +498,24 @@ function TechRow({ tech }: { readonly tech: BoardTech }) {
   );
 }
 
-function TicketSuggestions({ ticket }: { readonly ticket: SuggestTicket }) {
+function TicketSuggestions({
+  ticket,
+  haloBaseUrl,
+}: {
+  readonly ticket: SuggestTicket;
+  readonly haloBaseUrl: string;
+}) {
+  const href = haloTicketUrl(haloBaseUrl, ticket.halo_id);
   return (
     <div className="px-5 py-3">
       <div className="flex items-baseline gap-2">
-        <span className="font-mono text-sm font-bold text-white">#{ticket.halo_id}</span>
+        {href ? (
+          <a href={href} target="_blank" rel="noreferrer" className="font-mono text-sm font-bold text-white hover:underline">
+            #{ticket.halo_id}
+          </a>
+        ) : (
+          <span className="font-mono text-sm font-bold text-white">#{ticket.halo_id}</span>
+        )}
         <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
           {ticket.client_name ?? "Unknown client"}
           {ticket.summary ? ` — ${ticket.summary}` : ""}
