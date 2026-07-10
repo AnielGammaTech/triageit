@@ -321,12 +321,17 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               .eq("halo_id", haloId);
             console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt}${noUpdateSinceLastAlert ? ", no tech update since last alert" : ""})`);
 
-            // Auto call-out (user decision): 2nd alert and every one after,
-            // while the tech hasn't touched the ticket — ring their 3CX
-            // extension during business hours only
+            // Auto call-out (user decision 2026-07-10): once a ticket has been
+            // breached for 30+ minutes with no tech action since the last alert,
+            // ring their 3CX extension — don't wait for a 2nd alert. Business
+            // hours only. (timeLeft is in hours; -0.5 = 30 min over.)
             const businessHours = isWithinBusinessHours();
             const techForCall = (local?.halo_agent as string) ?? null;
-            if (attempt >= 2 && noUpdateSinceLastAlert && businessHours && techForCall) {
+            const breachedOver30m = timeLeft != null && timeLeft < 0 && Math.abs(timeLeft) >= 0.5;
+            // Tech idle = no tech action in the last 30 min (so we don't call
+            // someone who's actively working it). Works on the FIRST alert too.
+            const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
+            if (breachedOver30m && techIdle30m && businessHours && techForCall) {
               const { data: recentCall } = await supabase
                 .from("sla_call_requests")
                 .select("id")
