@@ -59,15 +59,20 @@ function ordinal(n: number): string {
 }
 
 /**
- * Business hours for real-time alerts: 8am–5pm ET, Monday–Friday. Every
- * reactive Teams alert (SLA breach, triage summary, response/update-request,
- * onsite, etc.) is suppressed outside this window — no more 11pm pings.
- * Scheduled digests (daily/weekly/Toby) bypass this via sendCard's allowAnytime.
+ * Business hours for real-time alerts: 8:00am–5:15pm ET, Monday–Friday (the
+ * 15-min grace past 5 covers normal staying-a-bit-late). Every reactive Teams
+ * alert (SLA breach, triage summary, response/update-request, onsite, etc.) is
+ * suppressed outside this window — no more 11pm pings. Scheduled digests
+ * (daily/weekly/Toby) bypass this via sendCard's allowAnytime.
  */
+const BH_START_MIN = 8 * 60; // 8:00am
+const BH_END_MIN = 17 * 60 + 15; // 5:15pm
 export function isWithinBusinessHours(now: Date = new Date()): boolean {
   const hour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const minute = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }));
+  const minsOfDay = (hour % 24) * 60 + minute;
   const day = now.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
-  return hour >= 8 && hour < 17 && !["Sat", "Sun"].includes(day);
+  return minsOfDay >= BH_START_MIN && minsOfDay <= BH_END_MIN && !["Sat", "Sun"].includes(day);
 }
 
 const FLAG_LABELS: Record<string, string> = {
