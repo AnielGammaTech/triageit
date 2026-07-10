@@ -26,6 +26,8 @@ export interface TechLoad {
   readonly open: number;
   readonly wot: number;
   readonly breaching: number;
+  /** A ticket in "In Progress" — the tech is actively working it. */
+  readonly inProgressTicket: { readonly haloId: number; readonly summary: string | null } | null;
 }
 
 export interface DispatchAppointment {
@@ -101,7 +103,7 @@ export async function fetchTicketLoads(
   try {
     const { data, error } = await supabase
       .from("tickets")
-      .select("halo_agent, halo_status, sla_currently_breached")
+      .select("halo_id, summary, halo_agent, halo_status, sla_currently_breached")
       .eq("halo_is_open", true)
       .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID);
     if (error) throw new Error(error.message);
@@ -111,11 +113,18 @@ export async function fetchTicketLoads(
       const name = ((t.halo_agent as string | null) ?? "").trim();
       if (!name || name.toLowerCase() === "unassigned") continue;
       const status = ((t.halo_status as string | null) ?? "").toLowerCase();
-      const cur = loads.get(name) ?? { open: 0, wot: 0, breaching: 0 };
+      const cur = loads.get(name) ?? EMPTY_LOAD;
+      // "In Progress" = the tech is actively working that ticket right now
+      // (user decision 2026-07-10) — surfaces as the "working" presence state.
+      const inProgressTicket =
+        status === "in progress" && typeof t.halo_id === "number"
+          ? { haloId: t.halo_id as number, summary: ((t.summary as string | null) ?? "").slice(0, 80) || null }
+          : cur.inProgressTicket;
       loads.set(name, {
         open: cur.open + 1,
         wot: cur.wot + (status.includes("waiting on tech") ? 1 : 0),
         breaching: cur.breaching + (t.sla_currently_breached ? 1 : 0),
+        inProgressTicket,
       });
     }
     return loads;
@@ -125,18 +134,20 @@ export async function fetchTicketLoads(
   }
 }
 
+const EMPTY_LOAD: TechLoad = { open: 0, wot: 0, breaching: 0, inProgressTicket: null };
+
 /** Load for a roster tech: exact agent-name match first, then token match. */
 export function loadForTech(
   loads: ReadonlyMap<string, TechLoad> | null,
   tech: string,
 ): TechLoad {
-  if (!loads) return { open: 0, wot: 0, breaching: 0 };
+  if (!loads) return EMPTY_LOAD;
   const exact = loads.get(tech);
   if (exact) return exact;
   for (const [name, load] of loads) {
     if (namesMatch(tech, name)) return load;
   }
-  return { open: 0, wot: 0, breaching: 0 };
+  return EMPTY_LOAD;
 }
 
 // ── 3CX (active calls + extensions) ───────────────────────────────────
