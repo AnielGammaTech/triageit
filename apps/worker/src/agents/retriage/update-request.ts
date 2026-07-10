@@ -125,6 +125,22 @@ export async function handleUpdateRequest(
 
   const actions = await halo.getTicketActions(haloTicketId);
 
+  // An "update request" only exists relative to a PRIOR conversation. A
+  // brand-new ticket's opening email routinely contains trigger phrases
+  // ("please advise", "checking in") — ticket #41013 false-alarmed five
+  // minutes after creation (2026-07-10). If the ticket has fewer than two
+  // customer-visible messages, the matched text IS the opening description,
+  // not a customer chasing an update — bail out.
+  const visibleMessages = actions.filter(
+    (a) => !a.hiddenfromuser && (a.note ?? "").replace(/<[^>]*>/g, "").trim().length > 0,
+  );
+  if (visibleMessages.length < 2) {
+    console.log(
+      `[UPDATE-REQUEST] Skipping #${haloTicketId} — matched text is the ticket's opening message (${visibleMessages.length} visible message${visibleMessages.length === 1 ? "" : "s"}), not a follow-up`,
+    );
+    return;
+  }
+
   // Run quick Haiku re-triage focused on the update request
   const client = new Anthropic();
 
