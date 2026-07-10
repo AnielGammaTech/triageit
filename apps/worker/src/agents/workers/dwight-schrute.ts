@@ -310,10 +310,20 @@ Respond with ONLY valid JSON:
 
         const firstWord = clientName.split(/\s+/)[0];
         if (firstWord && firstWord.length > 2) {
+          // Guard against first-word collisions: "Allen Concrete & Masonry"
+          // must NOT resolve to "Allen Family Dental". Accept a partial only
+          // when it shares ≥2 real tokens with the client name (or the client
+          // name is a single word that the company name contains).
+          const tokenize = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+          const clientTokens = new Set(tokenize(clientName));
           const partialMatch = await hudu.searchCompanies(firstWord);
-          if (partialMatch.length > 0) {
-            const c = partialMatch[0] as Record<string, unknown>;
-            return { id: partialMatch[0].id, slug: (c.slug as string) ?? null };
+          const good = partialMatch.find((m) => {
+            const shared = tokenize(m.name ?? "").filter((t) => clientTokens.has(t));
+            return shared.length >= 2 || (clientTokens.size === 1 && shared.length === 1);
+          });
+          if (good) {
+            const c = good as unknown as Record<string, unknown>;
+            return { id: good.id, slug: (c.slug as string) ?? null };
           }
         }
       }

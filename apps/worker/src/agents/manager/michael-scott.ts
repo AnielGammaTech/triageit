@@ -463,7 +463,7 @@ export async function runTriage(
         data: result.data,
         confidence: result.confidence,
       };
-      workerTokens[agentName] = 0;
+      workerTokens[agentName] = result.tokensUsed ?? 0;
     }
   }
 

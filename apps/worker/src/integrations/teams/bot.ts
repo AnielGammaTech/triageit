@@ -1,3 +1,4 @@
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createSupabaseClient } from "../../db/supabase.js";
@@ -88,24 +89,66 @@ export async function verifyBotToken(token: string): Promise<boolean> {
       return false;
     }
 
-    // Verify the signing key exists in Microsoft's published keys
+    // Cryptographically verify the RS256 signature against Microsoft's
+    // published signing key. Checking that the kid merely *exists* in the
+    // JWKS is not enough — an attacker can put any public kid in an unsigned
+    // header, so the signature itself must validate.
     const header = JSON.parse(
       Buffer.from(parts[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(),
-    ) as { kid?: string };
+    ) as { kid?: string; alg?: string };
 
-    if (header.kid) {
-      const keys = await getOpenIdKeys();
-      const matchingKey = keys.find((k) => k.kid === header.kid);
-      if (!matchingKey) {
-        console.warn(`[TEAMS-BOT] Token kid not found in Microsoft's JWKS: ${header.kid}`);
-        return false;
-      }
+    if (!header.kid) {
+      console.warn("[TEAMS-BOT] Token has no kid");
+      return false;
+    }
+    if (header.alg !== "RS256") {
+      console.warn(`[TEAMS-BOT] Unexpected token alg: ${header.alg}`);
+      return false;
+    }
+
+    const keys = await getOpenIdKeys();
+    const matchingKey = keys.find((k) => k.kid === header.kid);
+    if (!matchingKey) {
+      console.warn(`[TEAMS-BOT] Token kid not found in Microsoft's JWKS: ${header.kid}`);
+      return false;
+    }
+
+    const publicKey = jwkToPublicKey(matchingKey);
+    if (!publicKey) {
+      console.warn("[TEAMS-BOT] Could not build public key from JWKS entry");
+      return false;
+    }
+
+    const signingInput = Buffer.from(`${parts[0]}.${parts[1]}`);
+    const signature = Buffer.from(parts[2].replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    const signatureValid = cryptoVerify("RSA-SHA256", signingInput, publicKey, signature);
+    if (!signatureValid) {
+      console.warn("[TEAMS-BOT] Token signature verification FAILED");
+      return false;
     }
 
     return true;
   } catch (err) {
     console.error("[TEAMS-BOT] Token verification failed:", err);
     return false;
+  }
+}
+
+/** Build a Node public key from a JWKS entry (x5c cert preferred, else RSA n/e). */
+function jwkToPublicKey(
+  key: { x5c?: string[]; n?: string; e?: string },
+): ReturnType<typeof createPublicKey> | null {
+  try {
+    if (key.x5c && key.x5c[0]) {
+      const pem = `-----BEGIN CERTIFICATE-----\n${key.x5c[0].replace(/(.{64})/g, "$1\n")}\n-----END CERTIFICATE-----\n`;
+      return createPublicKey(pem);
+    }
+    if (key.n && key.e) {
+      return createPublicKey({ key: { kty: "RSA", n: key.n, e: key.e }, format: "jwk" });
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

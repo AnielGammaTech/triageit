@@ -5,7 +5,7 @@ import { ThreeCxClient, type ThreeCxRecording } from "../integrations/threecx/cl
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { extractResponseText } from "../agents/llm-text.js";
 import { parseLlmJson } from "../agents/parse-json.js";
-import type { ThreeCxConfig } from "@triageit/shared";
+import { isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -48,8 +48,29 @@ const MAX_TRANSCRIPT_FOR_LLM = 24_000;
 const GLOBAL_MATCH_MIN_CHARS = 400;
 const MAX_GLOBAL_CANDIDATES = 120;
 const LLM_MATCH_MIN_CONFIDENCE = 0.75;
+/** Cap retries of a matched recording whose analysis or note-post keeps failing. */
+const MAX_ANALYSIS_ATTEMPTS = 5;
+
+// The cron fires every minute but a run with new recordings can take several
+// minutes (1-3 Sonnet calls per recording). Without this guard, BullMQ's
+// concurrency-8 worker (and the boot catch-up path) would start overlapping
+// runs that read the same cursor and post every Call Summary note twice.
+let callAnalysisInFlight = false;
 
 export async function runCallAnalysis(): Promise<CallAnalysisResult> {
+  if (callAnalysisInFlight) {
+    console.log("[CALL-ANALYSIS] Previous run still in flight — skipping this tick");
+    return { checked: 0, matched: 0, notesPosted: 0 };
+  }
+  callAnalysisInFlight = true;
+  try {
+    return await runCallAnalysisInner();
+  } finally {
+    callAnalysisInFlight = false;
+  }
+}
+
+async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
   const supabase = createSupabaseClient();
 
   const { data: integration } = await supabase
@@ -108,11 +129,16 @@ export async function runCallAnalysis(): Promise<CallAnalysisResult> {
   // Sweep recent analysis failures: the ticket MATCHED but the summary LLM
   // call failed, so the note never posted (e.g. Ryan's #40862 Potter Homes
   // call, 2026-07-09) — without this they were dropped forever.
+  // Also sweeps note_failed rows (matched + analyzed, but the Halo note POST
+  // failed). Capped at MAX_ANALYSIS_ATTEMPTS so a deterministically-failing
+  // recording (e.g. a transcript the LLM always rejects) can't be retried
+  // ~1,440×/day at the every-minute cadence.
   const { data: failedRows } = await supabase
     .from("call_analyses")
-    .select("recording_id")
-    .like("matched_by", "%analysis_failed%")
+    .select("recording_id, analysis_attempts")
+    .or("matched_by.like.%analysis_failed%,matched_by.like.%note_failed%")
     .eq("note_posted", false)
+    .lt("analysis_attempts", MAX_ANALYSIS_ATTEMPTS)
     .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
     .order("recording_id", { ascending: true })
     .limit(5);
@@ -120,6 +146,12 @@ export async function runCallAnalysis(): Promise<CallAnalysisResult> {
     const recId = Number(row.recording_id);
     const [rec] = (await tcx.getRecordingsSince(recId - 1, 1)) ?? [];
     if (!rec || rec.Id !== recId) continue;
+    // Count the attempt up-front so a retry that throws still advances the
+    // counter (the processRecording upserts don't touch analysis_attempts).
+    await supabase
+      .from("call_analyses")
+      .update({ analysis_attempts: (Number(row.analysis_attempts) || 0) + 1 })
+      .eq("recording_id", recId);
     try {
       const outcome = await processRecording(supabase, halo, rec);
       console.log(`[CALL-ANALYSIS] Retried analysis-failed recording ${recId}: posted=${outcome.posted}`);
@@ -162,11 +194,13 @@ function namesOverlap(a: string | null | undefined, b: string | null | undefined
 /**
  * Ticket numbers spoken on the call ("I'm calling about ticket 40912").
  * 3CX transcribes digits as "40912" or spaced "4 0 9 1 2" — collapse digit
- * runs and keep 5-digit values (current Halo id range). Only runs that
- * correspond to a real OPEN ticket ever match, so zips/prices are inert.
+ * runs and keep 5-digit values (current Halo id range). Separators are limited
+ * to spaces and hyphens (NOT "." or ","), so spoken currency amounts like
+ * "$409.12" → "409"/"12" and "40,911" → "40"/"911" can't collapse into a
+ * bogus 5-digit ticket id and hijack the match.
  */
 function extractSpokenTicketNumbers(transcript: string): number[] {
-  const runs = transcript.match(/\d(?:[\s.,-]?\d)+/g) ?? [];
+  const runs = transcript.match(/\d(?:[\s-]?\d)+/g) ?? [];
   const ids = runs
     .map((run) => run.replace(/\D/g, ""))
     .filter((digits) => digits.length === 5)
@@ -190,8 +224,13 @@ function extractSpokenNames(transcript: string): string[] {
   for (const re of patterns) {
     for (const m of transcript.matchAll(re)) {
       const name = m[1].trim();
-      // Skip our own staff introducing themselves and obvious non-names
-      if (!/^(Gamma|Tech|Thank|Please|Monday|Tuesday|Wednesday|Thursday|Friday)/.test(name)) names.add(name);
+      // Skip obvious non-names AND our own staff introducing themselves —
+      // "Hi, this is Matthew from Gamma Tech" would otherwise resolve to a
+      // customer named Matthew and post the tech's vendor call onto that
+      // stranger's ticket (spoken_name matches bypass the relevance veto).
+      if (/^(Gamma|Tech|Thank|Please|Monday|Tuesday|Wednesday|Thursday|Friday)/.test(name)) continue;
+      if (isInternalStaffName(name)) continue;
+      names.add(name);
     }
   }
   return [...names].slice(0, 3);
@@ -452,7 +491,30 @@ async function finishMatchedRecording(
   }
 
   const note = buildCallSummaryNote(rec, insights, techName, direction, externalNumber, otherStaff ? (ticket.halo_agent ?? "no one yet") : null);
-  await halo.addInternalNote(ticket.halo_id, note);
+  try {
+    await halo.addInternalNote(ticket.halo_id, note);
+  } catch (error) {
+    // The match + analysis succeeded; only the Halo POST failed (e.g. a 500).
+    // Record a retriable marker WITHOUT losing the match metadata, so the
+    // sweeper re-posts it — the outer catch would otherwise overwrite this as
+    // matched_by:"error", which the sweeper doesn't pick up.
+    console.error(`[CALL-ANALYSIS] Note POST failed for #${ticket.halo_id} (recording ${rec.Id}):`, error instanceof Error ? error.message : error);
+    await supabase.from("call_analyses").upsert(
+      {
+        ...base,
+        ticket_id: ticket.id,
+        halo_id: ticket.halo_id,
+        external_number: externalNumber,
+        direction,
+        tech_name: techName,
+        matched_by: `${matchedBy}_note_failed`,
+        summary: insights.summary,
+        note_posted: false,
+      },
+      { onConflict: "recording_id" },
+    );
+    return { matched: true, posted: false };
+  }
 
   await supabase.from("call_analyses").upsert(
     {
