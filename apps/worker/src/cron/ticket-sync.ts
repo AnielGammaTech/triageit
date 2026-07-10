@@ -90,11 +90,21 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
     return name ?? null;
   }
 
+  // Halo uses 1900-01-01 as a "not set" sentinel for date fields.
+  const slaDate = (v: unknown): string | null => {
+    if (typeof v !== "string" || !v) return null;
+    if (v.startsWith("1900-01-01")) return null;
+    return v;
+  };
+
   function getWorkflowFields(ticket: HaloTicket): {
     workflow_status: ReturnType<typeof deriveWorkflowStatusFromHalo>;
     workflow_owner_role: ReturnType<typeof deriveWorkflowOwnerRole>;
     resolution_time_at: string | null;
     workflow_past_due: boolean;
+    sla_fix_by: string | null;
+    sla_respond_by: string | null;
+    sla_on_hold: boolean;
   } {
     const agentName = getResolvedAgentName(ticket);
     const hasAssignedTech = isHelpdeskTechnicianName(agentName);
@@ -104,6 +114,12 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
       workflow_owner_role: deriveWorkflowOwnerRole(workflowStatus, hasAssignedTech),
       resolution_time_at: ticket.deadlinedate ?? null,
       workflow_past_due: workflowStatus === "PAST_DUE",
+      // SLA fix/respond deadlines from the open-ticket list (includeslainfo) —
+      // fixbydate is the SLA engine's breach deadline (deadlinedate is the
+      // workflow resolution time). Used for the SLA Hunter "At Risk" view.
+      sla_fix_by: slaDate((ticket as Record<string, unknown>).fixbydate),
+      sla_respond_by: slaDate((ticket as Record<string, unknown>).respondbydate),
+      sla_on_hold: (ticket as Record<string, unknown>).onhold === true,
     };
   }
 
