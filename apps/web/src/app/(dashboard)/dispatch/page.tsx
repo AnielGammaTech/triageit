@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, ClipboardList, Phone, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Phone, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -48,6 +48,19 @@ interface SuggestTicket {
 }
 interface DispatchSuggestions {
   readonly tickets: ReadonlyArray<SuggestTicket>;
+}
+interface WeekEvent {
+  readonly day: string; // YYYY-MM-DD (ET)
+  readonly type: "site_visit" | "reminder" | "pto" | "meeting";
+  readonly subject: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly allDay: boolean;
+}
+interface WeekData {
+  readonly start: string;
+  readonly days: ReadonlyArray<string>;
+  readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }
 
 const RED = "#dc2626";
@@ -115,6 +128,8 @@ function degradationMessages(sources: DispatchBoard["sources"]): ReadonlyArray<s
 export default function DispatchPage() {
   const [board, setBoard] = useState<DispatchBoard | null>(null);
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
+  const [week, setWeek] = useState<WeekData | null>(null);
+  const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,11 +154,29 @@ export default function DispatchPage() {
     }
   }, []);
 
+  const loadWeek = useCallback(async (offset: number) => {
+    try {
+      const qs = offset === 0 ? "" : `?start=${weekStartIso(offset)}`;
+      const res = await fetch(`/api/dispatch/week${qs}`, { cache: "no-store" });
+      if (!res.ok) {
+        setWeek(null);
+        return;
+      }
+      setWeek((await res.json()) as WeekData);
+    } catch {
+      setWeek(null); // week view is additive — never break the page over it
+    }
+  }, []);
+
   useEffect(() => {
     void load();
     const t = setInterval(() => void load(true), 60_000);
     return () => clearInterval(t);
   }, [load]);
+
+  useEffect(() => {
+    void loadWeek(weekOffset);
+  }, [loadWeek, weekOffset]);
 
   const degraded = board ? degradationMessages(board.sources) : [];
 
@@ -227,7 +260,129 @@ export default function DispatchPage() {
           </Section>
         </div>
       </div>
+
+      {/* Week grid */}
+      {week && week.techs.length > 0 && (
+        <WeekGrid week={week} onPrev={() => setWeekOffset((w) => w - 1)} onNext={() => setWeekOffset((w) => w + 1)} onToday={() => setWeekOffset(0)} />
+      )}
     </div>
+  );
+}
+
+/** Monday (ET) of the week `offset` weeks from now, as YYYY-MM-DD. */
+function weekStartIso(offset: number): string {
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const dow = (et.getDay() + 6) % 7; // Mon=0
+  et.setDate(et.getDate() - dow + offset * 7);
+  return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
+}
+
+const WEEK_EVENT_STYLE: Record<WeekEvent["type"], { bg: string; text: string; label: string }> = {
+  site_visit: { bg: "#fe920022", text: "#fdba74", label: "Site Visit" },
+  reminder: { bg: "#38bdf822", text: "#7dd3fc", label: "Reminder" },
+  pto: { bg: "#71717a22", text: "#a1a1aa", label: "OFF" },
+  meeting: { bg: "#f59e0b22", text: "#fcd34d", label: "Meeting" },
+};
+
+function fmtDayHeader(day: string): { name: string; date: string; isToday: boolean } {
+  const d = new Date(`${day}T12:00:00`);
+  const todayEt = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const isToday =
+    todayEt.getFullYear() === d.getFullYear() && todayEt.getMonth() === d.getMonth() && todayEt.getDate() === d.getDate();
+  return {
+    name: d.toLocaleDateString("en-US", { weekday: "short" }),
+    date: d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }),
+    isToday,
+  };
+}
+
+function eventTime(e: WeekEvent): string {
+  if (e.allDay) return "";
+  return new Date(e.startsAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+}
+
+function WeekGrid({
+  week,
+  onPrev,
+  onNext,
+  onToday,
+}: {
+  readonly week: WeekData;
+  readonly onPrev: () => void;
+  readonly onNext: () => void;
+  readonly onToday: () => void;
+}) {
+  const rangeLabel = `${fmtDayHeader(week.days[0]).date} – ${fmtDayHeader(week.days[week.days.length - 1]).date}`;
+  return (
+    <Section
+      title="Week"
+      icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
+      actions={
+        <div className="flex items-center gap-1">
+          <span className="mr-2 text-xs text-zinc-400">{rangeLabel}</span>
+          <button onClick={onPrev} aria-label="Previous week" className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onToday} className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
+            Today
+          </button>
+          <button onClick={onNext} aria-label="Next week" className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      }
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr>
+              <th className="w-36 px-4 py-2 text-xs font-medium text-zinc-400" />
+              {week.days.map((day) => {
+                const h = fmtDayHeader(day);
+                return (
+                  <th key={day} className="border-l px-2 py-2 text-xs font-medium" style={{ borderColor: HAIRLINE }}>
+                    <span className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"} style={h.isToday ? { background: RED } : undefined}>
+                      {h.name} {h.date}
+                    </span>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {week.techs.map((row) => (
+              <tr key={row.tech} className="border-t align-top" style={{ borderColor: HAIRLINE }}>
+                <td className="px-4 py-2 text-sm font-medium text-white">{row.tech}</td>
+                {week.days.map((day) => {
+                  const events = row.events.filter((e) => e.day === day);
+                  return (
+                    <td key={day} className="border-l px-1.5 py-1.5" style={{ borderColor: HAIRLINE }}>
+                      <div className="space-y-1">
+                        {events.map((e, i) => {
+                          const style = WEEK_EVENT_STYLE[e.type];
+                          return (
+                            <div
+                              key={`${e.startsAt}-${i}`}
+                              title={`${style.label}: ${e.subject}`}
+                              className="rounded px-1.5 py-1 text-[10px] leading-tight"
+                              style={{ background: style.bg, color: style.text }}
+                            >
+                              <span className="font-semibold">{e.type === "pto" ? "OFF" : eventTime(e)}</span>{" "}
+                              {e.type === "pto" ? "" : e.subject.slice(0, 34)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
   );
 }
 
@@ -329,12 +484,23 @@ function BoardSkeleton() {
   );
 }
 
-function Section({ title, icon, children }: { readonly title: string; readonly icon?: React.ReactNode; readonly children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  actions,
+  children,
+}: {
+  readonly title: string;
+  readonly icon?: React.ReactNode;
+  readonly actions?: React.ReactNode;
+  readonly children: React.ReactNode;
+}) {
   return (
     <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
       <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>
+        {actions && <div className="ml-auto">{actions}</div>}
       </div>
       {children}
     </section>

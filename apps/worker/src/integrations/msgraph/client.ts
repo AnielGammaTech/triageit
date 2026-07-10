@@ -19,6 +19,16 @@ export interface MsGraphCalendarEvent {
   readonly endsAt: string;
   readonly showAs: string; // free | tentative | busy | oof | workingElsewhere | unknown
   readonly isAllDay: boolean;
+  /** Outlook categories — TriageIT-created events carry "TriageIT". */
+  readonly categories: ReadonlyArray<string>;
+}
+
+/** New event for createEvent. Times are ET wall-clock "YYYY-MM-DDTHH:mm:ss". */
+export interface MsGraphNewEvent {
+  readonly subject: string;
+  readonly bodyText: string;
+  readonly startEtWall: string;
+  readonly endEtWall: string;
 }
 
 interface GraphDateTime {
@@ -32,6 +42,7 @@ interface RawGraphEvent {
   readonly end?: GraphDateTime;
   readonly showAs?: string;
   readonly isAllDay?: boolean;
+  readonly categories?: unknown;
 }
 
 // ── Module-level token cache ──────────────────────────────────────────
@@ -103,6 +114,9 @@ function normalizeEvent(raw: RawGraphEvent): MsGraphCalendarEvent | null {
     endsAt,
     showAs: typeof raw.showAs === "string" ? raw.showAs : "unknown",
     isAllDay: raw.isAllDay === true,
+    categories: Array.isArray(raw.categories)
+      ? raw.categories.filter((c): c is string => typeof c === "string")
+      : [],
   };
 }
 
@@ -123,43 +137,152 @@ export class MsGraphClient {
     startIso: string,
     endIso: string,
   ): Promise<ReadonlyArray<MsGraphCalendarEvent> | null> {
+    return this.fetchCalendarView(
+      `/users/${encodeURIComponent(email)}/calendarView`,
+      `calendarView for ${email}`,
+      startIso,
+      endIso,
+    );
+  }
+
+  /**
+   * Events on one SPECIFIC calendar of a mailbox (e.g. a shared calendar
+   * like the employee PTO calendar). Null = lookup failed.
+   */
+  async getCalendarViewForCalendar(
+    email: string,
+    calendarId: string,
+    startIso: string,
+    endIso: string,
+  ): Promise<ReadonlyArray<MsGraphCalendarEvent> | null> {
+    return this.fetchCalendarView(
+      `/users/${encodeURIComponent(email)}/calendars/${encodeURIComponent(calendarId)}/calendarView`,
+      `calendar calendarView for ${email}`,
+      startIso,
+      endIso,
+    );
+  }
+
+  /**
+   * Id of the mailbox calendar whose name matches (case-insensitive).
+   * Null = the lookup failed OR no calendar by that name — callers probe
+   * the next mailbox either way.
+   */
+  async findCalendarIdByName(email: string, name: string): Promise<string | null> {
     try {
       const token = await getCachedToken(this.credentials, this.fetchFn);
-      const params = new URLSearchParams({
-        startDateTime: startIso,
-        endDateTime: endIso,
-        $select: "subject,start,end,showAs,isAllDay",
-        $top: "50",
-      });
+      const params = new URLSearchParams({ $select: "name,id", $top: "50" });
       const response = await this.fetchFn(
-        `${GRAPH_BASE_URL}/users/${encodeURIComponent(email)}/calendarView?${params.toString()}`,
+        `${GRAPH_BASE_URL}/users/${encodeURIComponent(email)}/calendars?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.warn(
+          `[MSGRAPH] calendars list for ${email} failed (${response.status}): ${body.slice(0, 200)}`,
+        );
+        return null;
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        value?: Array<{ id?: unknown; name?: unknown }>;
+      } | null;
+      if (!payload || !Array.isArray(payload.value)) {
+        console.warn(`[MSGRAPH] calendars list for ${email} returned an unreadable payload`);
+        return null;
+      }
+      const wanted = name.trim().toLowerCase();
+      const match = payload.value.find(
+        (c) => typeof c.name === "string" && c.name.trim().toLowerCase() === wanted,
+      );
+      return typeof match?.id === "string" ? match.id : null;
+    } catch (err) {
+      console.warn(
+        `[MSGRAPH] calendars list for ${email} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Create an event on a mailbox's default calendar (showAs busy, tagged
+   * with the "TriageIT" category for dedupe). Returns the new event id,
+   * or null when the create FAILED.
+   */
+  async createEvent(email: string, event: MsGraphNewEvent): Promise<string | null> {
+    try {
+      const token = await getCachedToken(this.credentials, this.fetchFn);
+      const response = await this.fetchFn(
+        `${GRAPH_BASE_URL}/users/${encodeURIComponent(email)}/events`,
         {
+          method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            Prefer: 'outlook.timezone="Eastern Standard Time"',
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            subject: event.subject,
+            body: { contentType: "text", content: event.bodyText },
+            start: { dateTime: event.startEtWall, timeZone: "Eastern Standard Time" },
+            end: { dateTime: event.endEtWall, timeZone: "Eastern Standard Time" },
+            showAs: "busy",
+            categories: ["TriageIT"],
+          }),
         },
       );
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         console.warn(
-          `[MSGRAPH] calendarView for ${email} failed (${response.status}): ${body.slice(0, 200)}`,
+          `[MSGRAPH] createEvent for ${email} failed (${response.status}): ${body.slice(0, 200)}`,
         );
+        return null;
+      }
+      const payload = (await response.json().catch(() => null)) as { id?: unknown } | null;
+      return typeof payload?.id === "string" ? payload.id : null;
+    } catch (err) {
+      console.warn(
+        `[MSGRAPH] createEvent for ${email} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
+  private async fetchCalendarView(
+    path: string,
+    label: string,
+    startIso: string,
+    endIso: string,
+  ): Promise<ReadonlyArray<MsGraphCalendarEvent> | null> {
+    try {
+      const token = await getCachedToken(this.credentials, this.fetchFn);
+      const params = new URLSearchParams({
+        startDateTime: startIso,
+        endDateTime: endIso,
+        $select: "subject,start,end,showAs,isAllDay,categories",
+        $top: "50",
+      });
+      const response = await this.fetchFn(`${GRAPH_BASE_URL}${path}?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Prefer: 'outlook.timezone="Eastern Standard Time"',
+        },
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.warn(`[MSGRAPH] ${label} failed (${response.status}): ${body.slice(0, 200)}`);
         return null;
       }
       const payload = (await response.json().catch(() => null)) as { value?: RawGraphEvent[] } | null;
       if (!payload || !Array.isArray(payload.value)) {
-        console.warn(`[MSGRAPH] calendarView for ${email} returned an unreadable payload`);
+        console.warn(`[MSGRAPH] ${label} returned an unreadable payload`);
         return null;
       }
       return payload.value
         .map(normalizeEvent)
         .filter((e): e is MsGraphCalendarEvent => e !== null);
     } catch (err) {
-      console.warn(
-        `[MSGRAPH] calendarView for ${email} failed:`,
-        err instanceof Error ? err.message : err,
-      );
+      console.warn(`[MSGRAPH] ${label} failed:`, err instanceof Error ? err.message : err);
       return null; // lookupFailed — caller must not treat as "no events"
     }
   }

@@ -16,9 +16,7 @@ function isDispatchBusinessHours(now: Date): boolean {
 import { resolveTechStatus, type TechSignals, type TechStatus } from "./presence.js";
 import { attachAiReads } from "./ai-read.js";
 import {
-  etTodayBounds,
   extensionForTech,
-  fetchAppointments,
   fetchCalendarSignals,
   fetchRoster,
   fetchThreeCxSnapshot,
@@ -27,12 +25,18 @@ import {
   loadForTech,
   namesMatch,
   type CalendarSignals,
-  type DispatchAppointment,
   type RosterAgent,
   type TechLoad,
   type ThreeCxSnapshot,
 } from "./board-sources.js";
-import { fmtEtDayAware } from "./time-format.js";
+import {
+  currentCommitmentLabel,
+  fetchAppointments,
+  nextCommitmentLabel,
+  qualifiesAsOnsite,
+  type DispatchAppointment,
+} from "./appointments.js";
+import { etTodayBounds } from "./et-time.js";
 
 /**
  * Dispatch board assembler — live "Right Now" tech availability from
@@ -181,10 +185,15 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
   // email — unknown (null), never "not on PTO / not in a meeting".
   const cal = ctx.calendar?.byTech.get(agent.name) ?? null;
 
+  // Only a current "Site Visit" of sane length (≤12h) counts as onsite —
+  // a month-long Site Visit or a current Reminder must not flip the status;
+  // it surfaces through the commitment label below instead.
+  const onsiteNow = current !== null && qualifiesAsOnsite(current) ? current : null;
+
   const load = loadForTech(ctx.loads, agent.name);
   const signals: TechSignals = {
     onPtoToday: cal ? cal.onPtoToday : null,
-    onsiteAppointment: current ? { subject: current.subject, endsAt: current.endsAt } : null,
+    onsiteAppointment: onsiteNow ? { subject: onsiteNow.subject, endsAt: onsiteNow.endsAt } : null,
     inMeetingUntil: cal?.inMeetingUntil ?? null,
     onCall,
     workingTicket: load.inProgressTicket,
@@ -205,9 +214,15 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
             onCall: onCall === true,
           },
     load: { open: load.open, wot: load.wot, breaching: load.breaching },
+    // Labeled with the appointment type, e.g. "Site Visit: Jenn :: Laptop
+    // Setup — Mon 1:00 PM". A current commitment that didn't qualify as
+    // onsite (long Site Visit, Reminder) surfaces here as context when
+    // nothing later is scheduled.
     nextCommitment: next
-      ? `${next.subject} ${fmtEtDayAware(next.startsAt, new Date(ctx.nowMs))}`
-      : null,
+      ? nextCommitmentLabel(next, new Date(ctx.nowMs))
+      : current && !onsiteNow
+        ? currentCommitmentLabel(current, new Date(ctx.nowMs))
+        : null,
   };
 }
 
