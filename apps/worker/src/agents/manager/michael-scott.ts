@@ -25,7 +25,6 @@ import {
   buildHaloNote,
   buildCompactRetriageNote,
   buildAccountabilityNote,
-  buildTobyDropdown,
   type BrandingConfig,
 } from "./halo-note-builder.js";
 import { describeTicketImages, stripHtmlActions } from "./image-processor.js";
@@ -631,15 +630,14 @@ export async function runTriage(
 
   const haloConfig = await getHaloConfig(supabase);
 
-  // Toby's tech review is generated FIRST so it can be folded into the triage
-  // note as a collapsed "Toby's Analysis" dropdown instead of a separate note.
-  // It's still stored in tech_reviews for the dashboard Review tab.
-  let techReviewHtml: string | null = null;
+  // Toby's tech review is generated for the dashboard Review tab but NOT posted
+  // to Halo (user: keep the ticket clean). A short good/bad recap is posted on
+  // Halo only when the ticket CLOSES (see close-reviewer).
   if (haloConfig) {
     const eligibility = checkReviewEligibility(context, classification, haloConfig, ticket.created_at);
     if (eligibility.eligible) {
       try {
-        techReviewHtml = await generateTechReview(context, classification, haloConfig, eligibility, supabase, false);
+        await generateTechReview(context, classification, haloConfig, eligibility, supabase, false);
       } catch (error) {
         console.error(`[MICHAEL] Failed to generate employee feedback for ticket #${ticket.halo_id}:`, error);
       }
@@ -666,10 +664,7 @@ export async function runTriage(
         classification.urgency_score,
         context.clientName,
       );
-      await halo.addInternalNote(
-        ticket.halo_id,
-        accountabilityNote + (techReviewHtml ? buildTobyDropdown(techReviewHtml) : ""),
-      );
+      await halo.addInternalNote(ticket.halo_id, accountabilityNote);
       console.log(`[MICHAEL] Accountability note posted for #${ticket.halo_id}`);
     } catch (error) {
       console.error(`[MICHAEL] Failed to post accountability note for #${ticket.halo_id}:`, error);
@@ -681,7 +676,7 @@ export async function runTriage(
     await postHaloNotes(
       haloConfig, context, classification, michaelResult,
       findings, processingTime, similarTickets, duplicates,
-      isRetriage, ticket, branding, clientPolicies, techReviewHtml,
+      isRetriage, ticket, branding, clientPolicies,
     );
   }
 
@@ -1173,10 +1168,8 @@ async function postHaloNotes(
   ticket: Ticket,
   branding?: BrandingConfig,
   clientPolicies: ReadonlyArray<{ readonly content: string; readonly summary: string }> = [],
-  techReviewHtml: string | null = null,
 ): Promise<void> {
   const halo = new HaloClient(haloConfig);
-  const tobyDropdown = techReviewHtml ? buildTobyDropdown(techReviewHtml) : "";
 
   // Build SLA info for note rendering
   const slaInfo = context.slaBreached
@@ -1198,7 +1191,7 @@ async function postHaloNotes(
         classification, michaelResult, findings, processingTime, slaInfo,
         ticket.original_priority,
       );
-      await halo.addInternalNote(ticket.halo_id, compactNote + tobyDropdown);
+      await halo.addInternalNote(ticket.halo_id, compactNote);
     } catch (error) {
       console.error(`[MICHAEL] Failed to write retriage note for #${ticket.halo_id}:`, error);
     }
@@ -1213,7 +1206,7 @@ async function postHaloNotes(
         similarTickets, duplicates, slaInfo, branding,
         ticket.original_priority, analyzedFiles, clientPolicies,
       );
-      await halo.addInternalNote(ticket.halo_id, internalNote + tobyDropdown);
+      await halo.addInternalNote(ticket.halo_id, internalNote);
     } catch (error) {
       console.error(`[MICHAEL] Failed to write back to Halo for ticket #${ticket.halo_id}:`, error);
     }
