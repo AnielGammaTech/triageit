@@ -103,9 +103,11 @@ export async function GET() {
     supabase
       .from("tickets")
       .select("halo_id, summary, client_name, halo_agent, halo_status, halo_sla_status, sla_breach_alert_count, sla_breach_alerted_at, sla_breach_last_alert_text, sla_breach_last_alert_at")
-      .not("sla_breach_alerted_at", "is", null)
+      // Live breach state maintained by the SLA scan — reflects what's ACTUALLY
+      // breaching now, not the sticky alert flag (on-hold/waiting tickets clear).
+      .eq("sla_currently_breached", true)
       .eq("halo_is_open", true)
-      .order("sla_breach_alerted_at", { ascending: true }),
+      .order("sla_fix_by", { ascending: true }),
     supabase
       .from("sla_call_requests")
       .select("id, halo_id, tech_name, status, objective, created_at")
@@ -117,7 +119,7 @@ export async function GET() {
       .select("halo_id, summary, client_name, halo_agent, halo_status, sla_fix_by, sla_respond_by, resolution_time_at")
       .eq("halo_is_open", true)
       .eq("tickettype_id", 31)
-      .is("sla_breach_alerted_at", null)
+      .eq("sla_currently_breached", false)
       .eq("sla_on_hold", false),
   ]);
 

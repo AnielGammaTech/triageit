@@ -157,6 +157,32 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     console.log(`[SLA SCAN] ${candidates.length} past-due-date candidates → ${breachers.length} confirmed breaches after detail check`);
   }
 
+  // LIVE breach flag for the SLA Hunter panel — true only for tickets breaching
+  // RIGHT NOW, false for everything else open (on-hold/waiting/recovered are not
+  // breaching). Runs regardless of business hours (detection is 24/7; only
+  // ALERTING is gated below). This is the source of truth for the panel, not the
+  // sticky sla_breach_alerted_at.
+  const breacherIds = breachers.map((t) => t.id as number);
+  try {
+    if (breacherIds.length > 0) {
+      await supabase.from("tickets").update({ sla_currently_breached: true }).in("halo_id", breacherIds);
+      await supabase
+        .from("tickets")
+        .update({ sla_currently_breached: false })
+        .eq("halo_is_open", true)
+        .eq("sla_currently_breached", true)
+        .not("halo_id", "in", `(${breacherIds.join(",")})`);
+    } else {
+      await supabase
+        .from("tickets")
+        .update({ sla_currently_breached: false })
+        .eq("halo_is_open", true)
+        .eq("sla_currently_breached", true);
+    }
+  } catch (error) {
+    console.error("[SLA SCAN] Failed to update live breach flags:", error instanceof Error ? error.message : error);
+  }
+
   // A ticket confirmed no-longer-breached (SLA extended / resolved-reopened)
   // gets its alert flag cleared so a FUTURE breach alerts again. Restricted to
   // tickets we actually evaluated this run — see confirmedRecoveredIds above.
