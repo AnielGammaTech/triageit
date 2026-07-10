@@ -349,8 +349,8 @@ export default function TvPage() {
                       <tr className="text-[0.7vw] uppercase tracking-[0.1em]" style={{ color: INK_FAINT }}>
                         <th className="px-[1vw] py-[0.8vh] font-semibold">Tech</th>
                         <th className="py-[0.8vh] text-center font-semibold">Open</th>
-                        <th className="py-[0.8vh] text-center font-semibold">Breach</th>
-                        <th className="py-[0.8vh] text-center font-semibold">Owes Cust.</th>
+                        <th className="py-[0.8vh] text-center font-semibold">SLA Breach</th>
+                        <th className="py-[0.8vh] text-center font-semibold">WOT</th>
                         <th className="px-[1vw] py-[0.8vh] text-center font-semibold">Unacked</th>
                       </tr>
                     </thead>
