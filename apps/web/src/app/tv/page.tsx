@@ -51,6 +51,12 @@ const statusColor = (s: string): string => STATUS_COLOR[s.toLowerCase()] ?? "#64
 
 const mins = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`);
 
+const CAROUSEL_SLIDES = [
+  { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
+  { title: "Wall of Shame", icon: <Skull className="h-[1vw] w-[1vw]" style={{ color: RED }} /> },
+  { title: "Wall of Fame", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
+] as const;
+
 export default function TvPage() {
   const [tvKey, setTvKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
@@ -173,6 +179,8 @@ export default function TvPage() {
   const dateStr = clock.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" });
   const syncAgeSec = lastOkAt > 0 ? Math.floor((nowTick - lastOkAt) / 1000) : null;
   const breachAlarm = (m?.breaching ?? 0) > 0;
+  // Carousel advances every 10s, derived from the 1s clock tick — no extra timer
+  const slide = Math.floor(nowTick / 10_000) % CAROUSEL_SLIDES.length;
 
   return (
     <Shell>
@@ -262,132 +270,128 @@ export default function TvPage() {
           </div>
         )}
 
-        {/* ── Main grid ── */}
+        {/* ── Main grid: unified action queue + rotating carousel ── */}
         <div className="grid min-h-0 flex-1 grid-cols-12 gap-[0.8vw]">
-          {/* Breach board */}
-          <div className="col-span-5 flex min-h-0 flex-col gap-[0.8vw]">
-            <Panel
-              title="SLA Breaches — Live"
-              icon={<TriangleAlert className="h-[1vw] w-[1vw]" style={{ color: RED }} />}
-              alarm={breachAlarm}
-              className="flex-1"
-            >
-              {!data ? (
-                <Loading />
-              ) : data.breaches.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-[1vh] py-[3vh]">
-                  <ShieldCheck className="h-[3.5vw] w-[3.5vw]" style={{ color: "#22c55e" }} />
-                  <span className="text-[1.6vw] font-black tracking-[0.2em] text-white">ALL CLEAR</span>
-                  <span className="text-[0.85vw]" style={{ color: INK_DIM }}>No live SLA breaches</span>
-                </div>
-              ) : (
-                <RowList
-                  items={data.breaches.slice(0, 8).map((b) => ({
-                    id: b.halo_id,
-                    left: `${b.client_name ?? "Unknown"} — ${b.summary ?? ""}`,
-                    who: b.halo_agent ?? "UNASSIGNED",
-                    badge: b.breachingForMin !== null ? `BREACHED ${mins(b.breachingForMin)}` : `${b.alertCount}× ALERTED`,
-                    badgeColor: RED,
-                  }))}
-                  more={data.breaches.length - 8}
-                />
-              )}
-            </Panel>
-            <Panel title="At Risk — SLA due soon" icon={<Timer className="h-[1vw] w-[1vw]" style={{ color: AMBER }} />}>
-              {!data ? (
-                <Loading />
-              ) : data.atRisk.length === 0 ? (
-                <Empty text="Nothing due in the next 2 hours." />
-              ) : (
-                <RowList
-                  items={data.atRisk.slice(0, 5).map((t) => ({
-                    id: t.halo_id,
-                    left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
-                    who: t.halo_agent ?? "UNASSIGNED",
-                    badge: `DUE IN ${mins(t.dueInMin)}`,
-                    badgeColor: AMBER,
-                  }))}
-                  more={data.atRisk.length - 5}
-                />
-              )}
-            </Panel>
-          </div>
+          {/* Needs Action — everything demanding a human, priority order */}
+          <Panel
+            title="Needs Action"
+            icon={<TriangleAlert className="h-[1vw] w-[1vw]" style={{ color: RED }} />}
+            alarm={breachAlarm || (data?.unassignedTickets.length ?? 0) > 0}
+            className="col-span-7"
+          >
+            {!data ? (
+              <Loading />
+            ) : data.breaches.length === 0 && data.unassignedTickets.length === 0 && data.atRisk.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-[1.2vh]">
+                <ShieldCheck className="h-[4vw] w-[4vw]" style={{ color: "#22c55e" }} />
+                <span className="text-[1.8vw] font-black tracking-[0.2em] text-white">ALL CLEAR</span>
+                <span className="text-[0.9vw]" style={{ color: INK_DIM }}>No breaches, nothing unassigned, nothing due soon</span>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col overflow-hidden">
+                {data.breaches.length > 0 && (
+                  <>
+                    <QueueHeader label="SLA BREACHES" count={data.breaches.length} color={RED} />
+                    <RowList
+                      items={data.breaches.slice(0, 6).map((b) => ({
+                        id: b.halo_id,
+                        left: `${b.client_name ?? "Unknown"} — ${b.summary ?? ""}`,
+                        who: b.halo_agent ?? "UNASSIGNED",
+                        badge: b.breachingForMin !== null ? `BREACHED ${mins(b.breachingForMin)}` : `${b.alertCount}× ALERTED`,
+                        badgeColor: RED,
+                      }))}
+                      more={data.breaches.length - 6}
+                    />
+                  </>
+                )}
+                {data.unassignedTickets.length > 0 && (
+                  <>
+                    <QueueHeader label="UNASSIGNED" count={data.unassignedTickets.length} color={RED} />
+                    <RowList
+                      items={data.unassignedTickets.slice(0, 5).map((t) => ({
+                        id: t.halo_id,
+                        left: t.client_name ?? "Unknown",
+                        who: "",
+                        badge: `WAITING ${mins(t.ageMin)}`,
+                        badgeColor: RED,
+                      }))}
+                      more={data.unassignedTickets.length - 5}
+                    />
+                  </>
+                )}
+                {data.atRisk.length > 0 && (
+                  <>
+                    <QueueHeader label="AT RISK — SLA DUE SOON" count={data.atRisk.length} color={AMBER} />
+                    <RowList
+                      items={data.atRisk.slice(0, 6).map((t) => ({
+                        id: t.halo_id,
+                        left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
+                        who: t.halo_agent ?? "UNASSIGNED",
+                        badge: `DUE IN ${mins(t.dueInMin)}`,
+                        badgeColor: AMBER,
+                      }))}
+                      more={data.atRisk.length - 6}
+                    />
+                  </>
+                )}
+              </div>
+            )}
+          </Panel>
 
-          {/* Unassigned + tech grid */}
-          <div className="col-span-4 flex min-h-0 flex-col gap-[0.8vw]">
-            <Panel
-              title="Unassigned — Needs an Owner"
-              icon={<UserX className="h-[1vw] w-[1vw]" style={{ color: RED }} />}
-              alarm={(data?.unassignedTickets.length ?? 0) > 0}
-              className="flex-1"
-            >
-              {!data ? (
-                <Loading />
-              ) : data.unassignedTickets.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-[1vh] py-[3vh]">
-                  <ShieldCheck className="h-[2.5vw] w-[2.5vw]" style={{ color: "#22c55e" }} />
-                  <span className="text-[1.1vw] font-black tracking-[0.15em] text-white">EVERY TICKET OWNED</span>
-                </div>
-              ) : (
-                <RowList
-                  items={data.unassignedTickets.slice(0, 8).map((t) => ({
-                    id: t.halo_id,
-                    left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
-                    who: t.halo_status ?? "",
-                    badge: `WAITING ${mins(t.ageMin)}`,
-                    badgeColor: RED,
-                  }))}
-                  more={data.unassignedTickets.length - 8}
-                />
-              )}
-            </Panel>
-            <Panel title="Tech Load" className="flex-1">
-              {!data ? (
-                <Loading />
-              ) : (
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="text-[0.7vw] uppercase tracking-[0.1em]" style={{ color: INK_FAINT }}>
-                      <th className="px-[1vw] py-[0.8vh] font-semibold">Tech</th>
-                      <th className="py-[0.8vh] text-center font-semibold">Open</th>
-                      <th className="py-[0.8vh] text-center font-semibold">Breach</th>
-                      <th className="py-[0.8vh] text-center font-semibold">Owes Cust.</th>
-                      <th className="px-[1vw] py-[0.8vh] text-center font-semibold">Unacked</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.techStats.slice(0, 8).map((t) => (
-                      <tr key={t.tech} className="border-t" style={{ borderColor: HAIRLINE }}>
-                        <td className="truncate px-[1vw] py-[0.9vh] text-[0.95vw] font-bold text-white">{t.tech}</td>
-                        <Num v={t.openTickets} />
-                        <Num v={t.breaching} hot={RED} />
-                        <Num v={t.waitingOnTech} hot="#fb923c" />
-                        <td className="px-[1vw] py-[0.9vh] text-center text-[1vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: t.unackedReplies > 0 ? AMBER : INK_FAINT }}>
-                          {t.unackedReplies}
-                        </td>
+          {/* Carousel — rotates every 10s */}
+          <Panel
+            title={CAROUSEL_SLIDES[slide].title}
+            icon={CAROUSEL_SLIDES[slide].icon}
+            className="col-span-5"
+            trailing={
+              <span className="ml-auto flex items-center gap-[0.4vw]">
+                {CAROUSEL_SLIDES.map((s, i) => (
+                  <span key={s.title} className="h-[0.45vw] w-[0.45vw] rounded-full" style={{ background: i === slide ? "#e4e4e7" : "#3f3f46" }} />
+                ))}
+              </span>
+            }
+          >
+            {!data ? (
+              <Loading />
+            ) : (
+              <div key={slide} className="h-full" style={{ animation: "tvFadeIn 500ms ease" }}>
+                {slide === 0 && (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[0.7vw] uppercase tracking-[0.1em]" style={{ color: INK_FAINT }}>
+                        <th className="px-[1vw] py-[0.8vh] font-semibold">Tech</th>
+                        <th className="py-[0.8vh] text-center font-semibold">Open</th>
+                        <th className="py-[0.8vh] text-center font-semibold">Breach</th>
+                        <th className="py-[0.8vh] text-center font-semibold">Owes Cust.</th>
+                        <th className="px-[1vw] py-[0.8vh] text-center font-semibold">Unacked</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </Panel>
-          </div>
-
-          {/* Shame / Fame */}
-          <div className="col-span-3 flex min-h-0 flex-col gap-[0.8vw]">
-            <Panel title="Wall of Shame" icon={<Skull className="h-[1vw] w-[1vw]" style={{ color: RED }} />} alarm={(data?.wallOfShame.length ?? 0) > 0} className="flex-1">
-              {!data ? (
-                <Loading />
-              ) : data.wallOfShame.length === 0 ? (
-                <Empty text="Nobody on the wall. Clean board." />
-              ) : (
-                <Ranked items={data.wallOfShame.slice(0, 3)} color={RED} />
-              )}
-            </Panel>
-            <Panel title="Wall of Fame" icon={<Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} />} className="flex-1">
-              {!data ? <Loading /> : data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 3)} color="#facc15" />}
-            </Panel>
-          </div>
+                    </thead>
+                    <tbody>
+                      {data.techStats.slice(0, 8).map((t) => (
+                        <tr key={t.tech} className="border-t" style={{ borderColor: HAIRLINE }}>
+                          <td className="truncate px-[1vw] py-[0.9vh] text-[0.95vw] font-bold text-white">{t.tech}</td>
+                          <Num v={t.openTickets} />
+                          <Num v={t.breaching} hot={RED} />
+                          <Num v={t.waitingOnTech} hot="#fb923c" />
+                          <td className="px-[1vw] py-[0.9vh] text-center text-[1vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: t.unackedReplies > 0 ? AMBER : INK_FAINT }}>
+                            {t.unackedReplies}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {slide === 1 &&
+                  (data.wallOfShame.length === 0 ? (
+                    <Empty text="Nobody on the wall. Clean board." />
+                  ) : (
+                    <Ranked items={data.wallOfShame.slice(0, 5)} color={RED} />
+                  ))}
+                {slide === 2 &&
+                  (data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 5)} color="#facc15" />)}
+              </div>
+            )}
+          </Panel>
         </div>
       </div>
     </Shell>
@@ -397,8 +401,23 @@ export default function TvPage() {
 function Shell({ children }: { readonly children: React.ReactNode }) {
   return (
     <main className="h-screen w-screen overflow-hidden" style={{ background: "#000", cursor: "none" }}>
+      <style>{`@keyframes tvFadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
       {children}
     </main>
+  );
+}
+
+function QueueHeader({ label, count, color }: { readonly label: string; readonly count: number; readonly color: string }) {
+  return (
+    <div className="flex shrink-0 items-center gap-[0.6vw] px-[1vw] py-[0.7vh]" style={{ background: PANEL_2 }}>
+      <span className="h-[0.5vw] w-[0.5vw] rounded-full" style={{ background: color }} />
+      <span className="text-[0.75vw] font-bold tracking-[0.15em]" style={{ color }}>
+        {label}
+      </span>
+      <span className="text-[0.75vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
+        {count}
+      </span>
+    </div>
   );
 }
 
@@ -443,12 +462,14 @@ function Panel({
   icon,
   alarm,
   className,
+  trailing,
   children,
 }: {
   readonly title: string;
   readonly icon?: React.ReactNode;
   readonly alarm?: boolean;
   readonly className?: string;
+  readonly trailing?: React.ReactNode;
   readonly children: React.ReactNode;
 }) {
   return (
@@ -459,6 +480,7 @@ function Panel({
       <div className="flex shrink-0 items-center gap-[0.5vw] border-b px-[1vw] py-[0.9vh]" style={{ borderColor: HAIRLINE, background: PANEL_2 }}>
         {icon}
         <h2 className="text-[0.85vw] font-bold uppercase tracking-[0.15em] text-white">{title}</h2>
+        {trailing}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </section>
