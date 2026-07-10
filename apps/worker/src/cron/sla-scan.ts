@@ -116,6 +116,12 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   }
 
   const breachers: Record<string, any>[] = [];
+  // Only tickets we actually fetched, that are NOT on hold and NOT breached,
+  // count as recovered. Tickets that threw on the detail fetch, are on hold,
+  // or were dropped by the 80-candidate cap must NOT have their alert state
+  // wiped — otherwise a transient Halo error re-sends a duplicate "1st alert"
+  // and restarts the escalation ladder on a still-breached ticket.
+  const confirmedRecoveredIds: number[] = [];
   for (const candidate of candidates) {
     try {
       const full = (await halo.getTicketWithSLA(candidate.id as number)) as unknown as Record<string, any>;
@@ -138,7 +144,11 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       const responseBreached =
         isSlaTargetBreached(slaSource.responsetargetmet, respondByDate) ||
         isSlaTargetBreached(full.responsetargetmet, respondByDate);
-      if (timerBreached || fixBreached || responseBreached) breachers.push({ ...candidate, ...full });
+      if (timerBreached || fixBreached || responseBreached) {
+        breachers.push({ ...candidate, ...full });
+      } else {
+        confirmedRecoveredIds.push(candidate.id as number);
+      }
     } catch (error) {
       console.warn(`[SLA SCAN] Detail fetch for #${candidate.id} failed:`, error instanceof Error ? error.message : error);
     }
@@ -147,17 +157,14 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     console.log(`[SLA SCAN] ${candidates.length} past-due-date candidates → ${breachers.length} confirmed breaches after detail check`);
   }
 
-  // A ticket that recovered (SLA extended / resolved-reopened) gets its
-  // alert flag cleared so a FUTURE breach alerts again
-  const breachedIdSet = new Set(breachers.map((t) => t.id as number));
-  const recoveredIds = allOpenTickets
-    .map((t) => t.id as number)
-    .filter((id) => !breachedIdSet.has(id));
-  if (recoveredIds.length > 0) {
+  // A ticket confirmed no-longer-breached (SLA extended / resolved-reopened)
+  // gets its alert flag cleared so a FUTURE breach alerts again. Restricted to
+  // tickets we actually evaluated this run — see confirmedRecoveredIds above.
+  if (confirmedRecoveredIds.length > 0) {
     await supabase
       .from("tickets")
       .update({ sla_breach_alerted_at: null, sla_breach_alert_count: 0 })
-      .in("halo_id", recoveredIds)
+      .in("halo_id", confirmedRecoveredIds)
       .not("sla_breach_alerted_at", "is", null);
   }
 

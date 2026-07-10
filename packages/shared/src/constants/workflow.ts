@@ -41,17 +41,19 @@ export const TEAM_FACTS = `Gamma Tech roles — use these EXACTLY, never invent 
 - Dispatcher: Bryanna Marquez. Management: Aniel (owner) and David Ayala.
 There is no "Cloud team", "Network team", or any other specialty team.`;
 
+// Full names wherever known — a bare first name matches any customer contact
+// sharing that first name (a customer "David Johnson" was being classified as
+// staff "David"). Roster last names come from TEAM_FACTS above.
 export const NON_TECH_STAFF = [
-  "Bryanna",
-  "David",
+  "Bryanna Marquez",
+  "David Ayala",
   "Jonathan",
   "Roman Hernandez",
-  "Todd",
+  "Todd Cassetty",
   "Aniel",
 ] as const;
 
 export const FORMER_STAFF_NAMES = [
-  "Dylan",
   "Dylan Henjum",
 ] as const;
 
@@ -66,14 +68,23 @@ function normalizeStaffName(name: string): string {
 }
 
 function isNameMatch(candidate: string, expected: string): boolean {
-  const normalizedCandidate = normalizeStaffName(candidate);
-  const normalizedExpected = normalizeStaffName(expected);
-  if (!normalizedCandidate || !normalizedExpected) return false;
-  if (normalizedCandidate === normalizedExpected) return true;
-  if (normalizedCandidate.includes(normalizedExpected)) return true;
+  const cTokens = normalizeStaffName(candidate).split(" ").filter(Boolean);
+  const eTokens = normalizeStaffName(expected).split(" ").filter(Boolean);
+  if (!cTokens.length || !eTokens.length) return false;
 
-  const parts = normalizedExpected.split(" ").filter(Boolean);
-  return parts.length > 1 && parts.every((part) => normalizedCandidate.includes(part));
+  const cSet = new Set(cTokens);
+  const shared = eTokens.filter((t) => cSet.has(t));
+
+  // Both sides carry a full name → require two shared WHOLE tokens (first +
+  // last), order-agnostic (handles Halo's "Carlson, Jarid" vs "Jarid Carlson").
+  // This is what stops customer "David Johnson" from matching staff "David
+  // Ayala" — only the first name is shared. Substring matches (e.g. "Aniel"
+  // inside "Danielle") are impossible because we compare whole tokens.
+  if (cTokens.length >= 2 && eTokens.length >= 2) return shared.length >= 2;
+
+  // One side is a single name (e.g. staff "Aniel", or Halo stored just
+  // "Bryanna"): match when that single token is fully shared.
+  return shared.length === Math.min(cTokens.length, eTokens.length);
 }
 
 export function isHelpdeskTechnicianName(name: string | null | undefined): boolean {

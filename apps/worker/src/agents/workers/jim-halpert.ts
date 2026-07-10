@@ -171,7 +171,19 @@ Respond with ONLY valid JSON:
     if (!config) return emptyResult;
 
     // Look up the org ID from integration_mappings for this customer
-    const orgId = await this.getOrgIdForCustomer(context.clientName);
+    const orgId = await this.getOrgIdForCustomer(context.clientName, config);
+
+    // Provider (MTP) keys are org-scoped — an unscoped query either fails or
+    // returns ANOTHER org's users, so a same-named user from a different
+    // tenant would be reported as the reporter. Refuse rather than leak.
+    if (!orgId && config.provider_id) {
+      await this.logThinking(
+        context.ticketId,
+        `Could not resolve a JumpCloud org for "${context.clientName}" — data UNAVAILABLE (not "no user"). Map this client in Adminland.`,
+      );
+      return emptyResult;
+    }
+
     const jc = orgId
       ? new JumpCloudClient(config, orgId)
       : new JumpCloudClient(config);
@@ -284,23 +296,43 @@ Respond with ONLY valid JSON:
 
   private async getOrgIdForCustomer(
     customerName: string | null,
+    config: JumpCloudConfig,
   ): Promise<string | null> {
     if (!customerName) return null;
 
+    // Saved mapping first (limit(1).maybeSingle so duplicate rows don't error).
     try {
       const { data: mapping } = await this.supabase
         .from("integration_mappings")
         .select("external_id")
         .eq("service", "jumpcloud")
         .ilike("customer_name", customerName)
-        .single();
-
-      return mapping?.external_id ?? null;
+        .limit(1)
+        .maybeSingle();
+      if (mapping?.external_id) return mapping.external_id;
     } catch (error) {
-      console.error(
-        "[JIM] Failed to look up JumpCloud org for customer:",
-        error,
-      );
+      console.error("[JIM] Failed to look up JumpCloud org mapping:", error);
+    }
+
+    // No saved mapping — match by org name, exactly like investigate.ts, so a
+    // fuzzy-gated-but-unmapped client still resolves to its own tenant instead
+    // of falling through to an unscoped (cross-tenant) query.
+    try {
+      const probe = new JumpCloudClient(config);
+      const orgs = await probe.getOrganizations();
+      const normalize = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const target = normalize(customerName);
+      const match = orgs.find((o) => {
+        const orgName =
+          o.displayName ??
+          (o.settings as { name?: string } | undefined)?.name ??
+          (typeof o.name === "string" ? o.name : "");
+        const name = normalize(orgName ?? "");
+        return name.length >= 4 && target.length >= 4 && (name.includes(target) || target.includes(name));
+      });
+      return match?._id ?? match?.id ?? null;
+    } catch (error) {
+      console.error("[JIM] Failed to name-match JumpCloud org:", error);
       return null;
     }
   }

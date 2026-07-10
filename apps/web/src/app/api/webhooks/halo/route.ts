@@ -75,6 +75,12 @@ export async function POST(request: NextRequest) {
     if (authHeader !== `Bearer ${bearerSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+  } else {
+    // Fail closed: with no webhook credentials configured this endpoint would
+    // otherwise accept unauthenticated ticket writes and trigger the triage
+    // pipeline. Refuse rather than run open.
+    console.error("[HALO-WEBHOOK] No webhook auth configured — rejecting request");
+    return NextResponse.json({ error: "Webhook auth not configured" }, { status: 503 });
   }
 
   // Parse body — Halo may send various formats

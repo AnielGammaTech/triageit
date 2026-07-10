@@ -2,6 +2,24 @@ import type { AgentFinding } from "@triageit/shared";
 import type { SimilarTicket } from "../similar-tickets.js";
 import type { DuplicateCandidate } from "../duplicate-detector.js";
 
+/**
+ * Escape HTML text content. Use for any customer-controlled string
+ * (ticket/duplicate summaries, attachment filenames) interpolated into note
+ * HTML — a subject like `<img src=x onerror=…>` would otherwise render as live
+ * markup in Halo's note viewer.
+ */
+function escHtml(text: string | null | undefined): string {
+  return (text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Escape a value destined for a double-quoted HTML attribute (href/src). */
+function escAttr(text: string | null | undefined): string {
+  return escHtml(text).replace(/"/g, "&quot;");
+}
+
 // ── URL to hyperlink converter ──────────────────────────────────────
 
 /**
@@ -261,7 +279,7 @@ function linkifyKnownEntities(
     // First occurrence only, not already inside an anchor, not a partial word
     const re = new RegExp(`(?<![\\w-])(${escaped})(?![\\w-])(?![^<]*</a>)`, "i");
     if (re.test(out)) {
-      out = out.replace(re, `<a href="${link.url}" style="color:#60a5fa;text-decoration:underline;">$1</a>`);
+      out = out.replace(re, `<a href="${escAttr(link.url)}" style="color:#60a5fa;text-decoration:underline;">$1</a>`);
     }
   }
   return out;
@@ -360,7 +378,7 @@ export function buildHaloNote(
   // chip + run stats right. Table layout keeps it email/Halo-safe.
   const brandName = branding?.name ?? "TriageIt";
   const logoHtml = branding?.logoUrl
-    ? `<img src="${branding.logoUrl}" alt="${brandName}" style="height:26px;width:auto;vertical-align:middle;margin-right:10px;border-radius:6px;" />`
+    ? `<img src="${escAttr(branding.logoUrl)}" alt="${escAttr(brandName)}" style="height:26px;width:auto;vertical-align:middle;margin-right:10px;border-radius:6px;" />`
     : "";
   // Priority suggestion lives as a small header chip — the ticket itself
   // already shows the current priority, so no dedicated rows for it
@@ -501,7 +519,7 @@ export function buildHaloNote(
   // tech sees the doors before the steps that walk through them
   if (allLinks.length > 0 || relevantPasswords.length > 0) {
     const linkItems = allLinks
-      .map((l) => `<a href="${l.url}" style="color:#60a5fa;text-decoration:underline;">${l.label}</a>`)
+      .map((l) => `<a href="${escAttr(l.url)}" style="color:#60a5fa;text-decoration:underline;">${escHtml(l.label)}</a>`)
       .join(" · ");
     const pwItems = relevantPasswords.map((p) => p.name).join(", ");
     const content = [
@@ -527,7 +545,7 @@ export function buildHaloNote(
   if (duplicates && duplicates.length > 0) {
     const dupItems = duplicates
       .slice(0, 2)
-      .map((d) => `<strong style="color:#fbbf24;">#${d.haloId}</strong> ${d.summary} <span style="color:#64748b;font-size:11px;">(${(d.similarity * 100).toFixed(0)}%)</span>`)
+      .map((d) => `<strong style="color:#fbbf24;">#${d.haloId}</strong> ${escHtml(d.summary)} <span style="color:#64748b;font-size:11px;">(${(d.similarity * 100).toFixed(0)}%)</span>`)
       .join("<br/>");
     rows.push(`<tr style="background:#3b2508;"><td style="padding:8px 12px;font-weight:600;width:100px;${border}font-size:13px;vertical-align:top;color:#fbbf24;">⚠ Duplicates</td><td style="padding:8px 12px;${border}font-size:13px;color:#fde68a;line-height:1.6;word-break:break-word;">${dupItems}</td></tr>`);
   }
@@ -562,7 +580,7 @@ export function buildHaloNote(
   // Evidence trail — which attachments the AI actually read for this triage
   if (analyzedFiles && analyzedFiles.length > 0) {
     rows.push(
-      `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;font-size:10.5px;color:#64748b;">Analyzed attachments: ${analyzedFiles.map((f) => `<span style="color:#94a3b8;">${f}</span>`).join(" · ")}</td></tr>`,
+      `<tr style="background:#1E2028;"><td colspan="2" style="padding:6px 12px;font-size:10.5px;color:#64748b;">Analyzed attachments: ${analyzedFiles.map((f) => `<span style="color:#94a3b8;">${escHtml(f)}</span>`).join(" · ")}</td></tr>`,
     );
   }
 
@@ -787,7 +805,7 @@ export function buildAlertPathNote(
     ? (similarTickets ?? [])
         .map((t) => {
           const resolved = t.resolvedAt ? ` — <strong style="color:#4ade80;">RESOLVED</strong>` : "";
-          return `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${t.summary}${resolved} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% match${t.clientName ? `, ${t.clientName}` : ""})</span>`;
+          return `<a href="#" style="color:#60a5fa;text-decoration:none;">⤴ #${t.haloId}</a> ${escHtml(t.summary)}${resolved} <span style="color:#64748b;font-size:11px;">(${(t.similarity * 100).toFixed(0)}% match${t.clientName ? `, ${escHtml(t.clientName)}` : ""})</span>`;
         })
         .join("<br/>")
     : "";

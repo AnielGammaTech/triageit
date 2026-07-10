@@ -510,7 +510,11 @@ function buildCoachingNote(
     : feedback.rating === "good" ? "linear-gradient(135deg,#1d4ed8,#3b82f6)"
     : feedback.rating === "needs_improvement" ? "linear-gradient(135deg,#b45309,#f59e0b)"
     : "linear-gradient(135deg,#991b1b,#dc2626)";
-  const commScoreBar = "█".repeat(feedback.communication_score) + "░".repeat(5 - feedback.communication_score);
+  // Clamp to 0-5 — an un-schema-checked LLM occasionally returns a score on a
+  // 1-10 scale; String.repeat(negative) throws a RangeError that would abort
+  // the whole review and lose both the coaching note and the tech_reviews row.
+  const commScore = Math.max(0, Math.min(5, Math.round(Number(feedback.communication_score) || 0)));
+  const commScoreBar = "█".repeat(commScore) + "░".repeat(5 - commScore);
 
   const suggestionsHtml = feedback.suggestions.length > 0
     ? `<ol style="margin:4px 0;padding-left:20px;">${feedback.suggestions.map((s) => `<li style="margin-bottom:4px;">${s}</li>`).join("")}</ol>`
@@ -521,7 +525,7 @@ function buildCoachingNote(
   const header =
     `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">` +
     `${ratingEmoji} Toby's Tech Review — <span style="letter-spacing:0.03em;">${feedback.rating.replace(/_/g, " ").toUpperCase()}</span>` +
-    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;"><span style="font-family:monospace;">${commScoreBar}</span> ${feedback.communication_score}/5 · ${feedback.response_time_assessment} · ${ticketAgeHours.toFixed(1)}h</span>` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;"><span style="font-family:monospace;">${commScoreBar}</span> ${commScore}/5 · ${feedback.response_time_assessment} · ${ticketAgeHours.toFixed(1)}h</span>` +
     `</td></tr>` +
     // Deterministic response-speed facts — the backbone of the verdict,
     // always visible regardless of rating
