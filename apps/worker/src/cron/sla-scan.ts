@@ -12,6 +12,29 @@ import { TeamsClient, isWithinBusinessHours } from "../integrations/teams/client
 import { enqueueTriageJob } from "../queue/producer.js";
 import { runSlaCallRequests } from "./sla-call.js";
 
+/**
+ * Last action performed by the assigned tech THEMSELVES. tickets.
+ * last_tech_action_at mirrors Halo's lastactiondate, which counts ANY action —
+ * TriageIT's own notes and System rules included — so every bot note reset the
+ * idle clock and muted escalation calls (#40537/Raul, 2026-07-10: the "tech
+ * action" that suppressed his call was TriageIT's own breach-alert note).
+ */
+async function lastActionByTech(halo: HaloClient, haloId: number, techName: string): Promise<number | null> {
+  try {
+    const actions = (await halo.getTicketActions(haloId, false)) as unknown as ReadonlyArray<Record<string, unknown>>;
+    const tech = techName.trim().toLowerCase();
+    let latest: number | null = null;
+    for (const a of actions) {
+      if (String(a.who ?? "").trim().toLowerCase() !== tech) continue;
+      const t = new Date((a.actiondatecreated ?? a.datetime ?? a.datecreated ?? 0) as string).getTime();
+      if (Number.isFinite(t) && (latest == null || t > latest)) latest = t;
+    }
+    return latest;
+  } catch {
+    return null; // unknown → treat as idle: on a live breach, calling beats staying silent
+  }
+}
+
 interface SlaScanResult {
   readonly totalChecked: number;
   readonly breachesFound: number;
@@ -347,21 +370,23 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
           : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
           : null;
         const breachedOver30m = timeLeft != null && timeLeft < 0 && Math.abs(timeLeft) >= 0.5;
-        const lastTechAction = local?.last_tech_action_at ? new Date(local.last_tech_action_at as string).getTime() : null;
-        const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
-        if (!breachedOver30m || !techIdle30m) continue;
+        if (!breachedOver30m) continue;
         try {
+          // 55-min dedup FIRST (cheap DB check) so we only hit Halo's actions
+          // API for tickets that could actually trigger a call.
           const { data: recentCall } = await supabase
             .from("sla_call_requests")
             .select("id")
             .eq("halo_id", haloId)
             .gte("created_at", new Date(Date.now() - 55 * 60_000).toISOString())
             .limit(1);
-          if (!recentCall || recentCall.length === 0) {
-            await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
-            callRequestsQueued++;
-            console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (breached 30m+, tech idle 30m+)`);
-          }
+          if (recentCall && recentCall.length > 0) continue;
+          const lastTechAction = await lastActionByTech(halo, haloId, techForCall);
+          const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
+          if (!techIdle30m) continue;
+          await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
+          callRequestsQueued++;
+          console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (breached 30m+, tech idle 30m+)`);
         } catch (error) {
           console.error(`[SLA SCAN] Call queue for #${haloId} failed:`, error instanceof Error ? error.message : error);
         }
