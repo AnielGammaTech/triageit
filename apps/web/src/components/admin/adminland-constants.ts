@@ -75,6 +75,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconColor: "text-cyan-400",
       },
       {
+        id: "halo-agents",
+        label: "Halo Agents",
+        desc: "Every Halo agent + job title — the roster used to tell techs from account managers",
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-400",
+      },
+      {
         id: "cron-jobs",
         label: "Cron Jobs",
         desc: "Scheduled tasks, SLA scans, and retriage cycles",
