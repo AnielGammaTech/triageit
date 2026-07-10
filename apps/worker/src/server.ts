@@ -37,6 +37,8 @@ import {
   getMsGraphSetupStatus,
 } from "./integrations/msgraph/setup.js";
 import { HaloClient } from "./integrations/halo/client.js";
+import { buildDispatchBoard } from "./dispatch/board.js";
+import { buildSuggestions } from "./dispatch/suggest.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
@@ -203,6 +205,26 @@ server.post<{ Body: Record<string, never> }>(
     }
   },
 );
+
+// Dispatch board — live tech availability (Halo + 3CX + local DB, 60s cache)
+server.get("/dispatch/board", async (_request, reply) => {
+  try {
+    return await buildDispatchBoard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+// Dispatch suggestions — suggest-only ranking for unassigned/New tickets
+server.get("/dispatch/suggest", async (_request, reply) => {
+  try {
+    return await buildSuggestions();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
 
 // Error ticket scan — find tickets stuck in error status
 server.post("/error-scan", async (_request, reply) => {

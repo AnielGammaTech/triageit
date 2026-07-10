@@ -318,6 +318,50 @@ export class HaloClient {
   }
 
   /**
+   * Appointments in [start, end) for all agents. Halo: GET /Appointment.
+   * Returns null when the LOOKUP FAILED (lookupFailed pattern) — callers
+   * must treat null as "could not check", NEVER as "no appointments".
+   */
+  async getAppointments(
+    start: string,
+    end: string,
+  ): Promise<ReadonlyArray<Record<string, unknown>> | null> {
+    try {
+      const res = await this.request<unknown>(
+        "GET",
+        `/Appointment?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`,
+      );
+      const rows =
+        (res as { appointments?: unknown[] })?.appointments ??
+        (Array.isArray(res) ? res : []);
+      return rows as ReadonlyArray<Record<string, unknown>>;
+    } catch (err) {
+      console.warn("[HALO] getAppointments failed:", err instanceof Error ? err.message : err);
+      return null; // lookupFailed — caller must not treat as "no appointments"
+    }
+  }
+
+  /**
+   * All active agents (dispatch roster source). Halo: GET /agent.
+   * Returns null when the LOOKUP FAILED — never an empty roster.
+   */
+  async getAgents(): Promise<ReadonlyArray<{ id: number; name: string }> | null> {
+    try {
+      const res = await this.request<unknown>("GET", "/agent?count=100");
+      const rows: ReadonlyArray<Record<string, unknown>> = Array.isArray(res)
+        ? (res as ReadonlyArray<Record<string, unknown>>)
+        : (((res as Record<string, unknown>).agents as ReadonlyArray<Record<string, unknown>>) ?? []);
+      return rows
+        .filter((a) => typeof a.id === "number" && typeof a.name === "string")
+        .filter((a) => a.inactive !== true && a.isdisabled !== true)
+        .map((a) => ({ id: a.id as number, name: a.name as string }));
+    } catch (err) {
+      console.warn("[HALO] getAgents failed:", err instanceof Error ? err.message : err);
+      return null; // lookupFailed — caller must not treat as "no agents"
+    }
+  }
+
+  /**
    * Live status id→name map from /api/status, cached module-wide for
    * 10 minutes. List responses often omit statusname, so resolving by
    * status_id against this map is the reliable path.
