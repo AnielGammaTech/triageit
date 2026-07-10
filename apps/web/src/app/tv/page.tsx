@@ -12,6 +12,7 @@ import {
   Trophy,
   BarChart3,
   ShieldCheck,
+  Users,
   WifiOff,
 } from "lucide-react";
 import type { CommandCenterPayload } from "@/lib/api/command-center-data";
@@ -50,6 +51,108 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const statusColor = (s: string): string => STATUS_COLOR[s.toLowerCase()] ?? "#8b98ad";
 
+// ── Team presence band (best-effort `dispatch` field on the TV payload) ──
+interface TvPresenceTech {
+  readonly tech: string;
+  readonly status: { readonly state: string; readonly detail: string | null };
+  readonly nextCommitment: string | null;
+}
+type TvPayload = CommandCenterPayload & {
+  readonly dispatch?: { readonly techs: ReadonlyArray<TvPresenceTech> };
+};
+
+const PRESENCE_COLOR: Record<string, string> = {
+  available: "#22c55e",
+  working: "#38bdf8",
+  on_call: "#0f75b1",
+  meeting: "#f59e0b",
+  onsite: "#fe9200",
+  dnd: "#e879f9",
+  away: "#a1a1aa",
+  after_hours: "#a1a1aa",
+  off: "#71717a",
+  unreachable: "#f87171",
+  unknown: "#f87171",
+};
+const PRESENCE_LABEL: Record<string, string> = {
+  available: "Available",
+  working: "Working",
+  on_call: "On Call",
+  meeting: "Meeting",
+  onsite: "Onsite",
+  dnd: "DND",
+  away: "Away",
+  after_hours: "After Hours",
+  off: "Off",
+  unreachable: "Unreachable",
+  unknown: "No Signal",
+};
+const presenceColor = (state: string): string => PRESENCE_COLOR[state] ?? "#f87171";
+const presenceLabel = (state: string): string =>
+  PRESENCE_LABEL[state] ?? state.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** "Onsite — Allen Concrete until 4:00 PM" → "4:00 PM" (null when not parseable). */
+function untilTime(detail: string | null): string | null {
+  const m = detail?.match(/\buntil (.+)$/i);
+  return m ? m[1] : null;
+}
+
+/** "Site Visit: Jenn :: Laptop Setup — Mon 1:00 PM" → "→ Mon 1:00 PM Site Visit" (future only, hard-truncated). */
+function commitmentHint(nextCommitment: string | null): string | null {
+  if (!nextCommitment) return null;
+  const dash = nextCommitment.lastIndexOf(" — ");
+  if (dash === -1) return null;
+  const when = nextCommitment.slice(dash + 3).trim();
+  if (!when || /^until\b/i.test(when)) return null; // happening now — the status word covers it
+  const colon = nextCommitment.indexOf(":");
+  const kind = colon > 0 ? nextCommitment.slice(0, colon).trim() : "";
+  const hint = `→ ${when}${kind ? ` ${kind}` : ""}`;
+  return hint.length > 28 ? `${hint.slice(0, 27)}…` : hint;
+}
+
+/** Slim full-width TV band: one tech = dot + first name + state (+ until / next commitment). */
+function TeamBand({ techs }: { readonly techs: ReadonlyArray<TvPresenceTech> }) {
+  return (
+    <div
+      className="flex shrink-0 items-center gap-[1vw] rounded-[0.8vw] border px-[1vw] py-[0.7vh]"
+      style={{ borderColor: HAIRLINE, background: PANEL }}
+    >
+      <span className="flex shrink-0 items-center gap-[0.5vw]">
+        <Users className="h-[1vw] w-[1vw]" style={{ color: "#fe9200" }} />
+        <span className="text-[0.72vw] font-semibold uppercase tracking-[0.12em]" style={{ color: INK_FAINT }}>
+          Team
+        </span>
+      </span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[1.6vw] gap-y-[0.4vh]">
+        {techs.map((t) => {
+          const color = presenceColor(t.status.state);
+          const until = t.status.state === "onsite" || t.status.state === "meeting" ? untilTime(t.status.detail) : null;
+          const hint = commitmentHint(t.nextCommitment);
+          return (
+            <span key={t.tech} className="flex items-center gap-[0.45vw]">
+              <span className="h-[0.6vw] w-[0.6vw] shrink-0 rounded-full" style={{ background: color, boxShadow: `0 0 0.6vw ${color}66` }} />
+              <span className="text-[1vw] font-black text-white">{t.tech.split(" ")[0]}</span>
+              <span className="text-[0.9vw] font-bold" style={{ color }}>
+                {presenceLabel(t.status.state)}
+              </span>
+              {until && (
+                <span className="text-[0.85vw] font-semibold" style={{ color: INK_DIM }}>
+                  til {until}
+                </span>
+              )}
+              {hint && (
+                <span className="max-w-[12vw] truncate text-[0.85vw] font-semibold" style={{ color: INK_DIM }}>
+                  {hint}
+                </span>
+              )}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const mins = (m: number): string => {
   if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
   if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
@@ -71,7 +174,7 @@ const CAROUSEL_SLIDES = [
 export default function TvPage() {
   const [tvKey, setTvKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
-  const [data, setData] = useState<CommandCenterPayload | null>(null);
+  const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
@@ -110,7 +213,7 @@ export default function TvPage() {
         return;
       }
       if (!res.ok) return; // keep last good data; staleness indicator handles it
-      setData((await res.json()) as CommandCenterPayload);
+      setData((await res.json()) as TvPayload);
       setAuthFailed(false);
       setLastOkAt(Date.now());
     } catch {
@@ -260,6 +363,9 @@ export default function TvPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Team presence band — who's onsite / on a call / free right now ── */}
+        {(data?.dispatch?.techs.length ?? 0) > 0 && <TeamBand techs={data!.dispatch!.techs} />}
 
         {/* ── Main grid: unified action queue + rotating carousel ── */}
         <div className="grid min-h-0 flex-1 grid-cols-12 gap-[0.8vw]">

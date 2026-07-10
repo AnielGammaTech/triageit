@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   LayoutDashboard,
   TriangleAlert,
   RefreshCw,
   UserX,
+  Users,
   Clock,
   MessageSquareWarning,
   Skull,
@@ -76,6 +78,68 @@ function statusColor(s: string): string {
 }
 function haloLink(base: string, id: number): string {
   return base ? `${base}/tickets?id=${id}` : "#";
+}
+
+// ── Team presence (worker dispatch board via /api/dispatch/board) ──
+interface PresenceTech {
+  readonly tech: string;
+  readonly status: { readonly state: string; readonly detail: string | null };
+  readonly nextCommitment: string | null;
+}
+interface PresenceBoard {
+  readonly techs: ReadonlyArray<PresenceTech>;
+}
+
+const PRESENCE_COLOR: Record<string, string> = {
+  available: "#22c55e",
+  working: "#38bdf8",
+  on_call: "#0f75b1",
+  meeting: "#f59e0b",
+  onsite: "#fe9200",
+  dnd: "#e879f9",
+  away: "#a1a1aa",
+  after_hours: "#a1a1aa",
+  off: "#71717a",
+  unreachable: "#f87171",
+  unknown: "#f87171",
+};
+const PRESENCE_LABEL: Record<string, string> = {
+  available: "Available",
+  working: "Working",
+  on_call: "On Call",
+  meeting: "Meeting",
+  onsite: "Onsite",
+  dnd: "DND",
+  away: "Away",
+  after_hours: "After Hours",
+  off: "Off",
+  unreachable: "Unreachable",
+  unknown: "No Signal",
+};
+function presenceColor(state: string): string {
+  return PRESENCE_COLOR[state] ?? "#f87171";
+}
+function presenceLabel(state: string): string {
+  return PRESENCE_LABEL[state] ?? state.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** "Onsite — Allen Concrete until 4:00 PM" → "4:00 PM" (null when not parseable). */
+function untilTime(detail: string | null): string | null {
+  const m = detail?.match(/\buntil (.+)$/i);
+  return m ? m[1] : null;
+}
+
+/** "Site Visit: Jenn :: Laptop Setup — Mon 1:00 PM" → "→ Mon 1:00 PM Site Visit" (future only, hard-truncated). */
+function commitmentHint(nextCommitment: string | null): string | null {
+  if (!nextCommitment) return null;
+  const dash = nextCommitment.lastIndexOf(" — ");
+  if (dash === -1) return null;
+  const when = nextCommitment.slice(dash + 3).trim();
+  if (!when || /^until\b/i.test(when)) return null; // happening now — the status chip covers it
+  const colon = nextCommitment.indexOf(":");
+  const kind = colon > 0 ? nextCommitment.slice(0, colon).trim() : "";
+  const hint = `→ ${when}${kind ? ` ${kind}` : ""}`;
+  return hint.length > 28 ? `${hint.slice(0, 27)}…` : hint;
 }
 
 /** Fetch the key-gated wallboard URL and open it in a new tab. */
@@ -174,6 +238,9 @@ export default function CommandPage() {
         <Tile label="Waiting on Tech" value={m?.waitingOnTech ?? 0} icon={<Clock className="h-5 w-5" />} accent="#fb923c" />
         <Tile label="Unassigned" value={m?.unassigned ?? 0} icon={<UserX className="h-5 w-5" />} accent="#f87171" />
       </div>
+
+      {/* Team presence strip */}
+      <TeamStrip />
 
       {/* Status breakdown */}
       <Section title="Tickets by Status">
@@ -297,6 +364,70 @@ export default function CommandPage() {
         )}
       </Section>
     </div>
+  );
+}
+
+/**
+ * "Team Right Now" — one wrapping row of tech presence pills fed by the
+ * worker's dispatch board. Best-effort: renders nothing until the board
+ * loads, keeps the last good snapshot on refresh errors. Click → /dispatch.
+ */
+function TeamStrip() {
+  const [techs, setTechs] = useState<ReadonlyArray<PresenceTech> | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dispatch/board", { cache: "no-store" });
+      if (!res.ok) return; // keep last good snapshot
+      const board = (await res.json()) as PresenceBoard;
+      if (Array.isArray(board.techs)) setTechs(board.techs);
+    } catch {
+      /* network blip — keep last good snapshot */
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 60_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (!techs || techs.length === 0) return null;
+
+  return (
+    <Link
+      href="/dispatch"
+      className="block rounded-xl border px-4 py-2.5 transition hover:bg-white/[0.02]"
+      style={{ borderColor: HAIRLINE, background: PANEL }}
+      title="Open the Dispatch board"
+    >
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+          <Users className="h-3.5 w-3.5" />
+          Team Right Now
+        </span>
+        {techs.map((t) => {
+          const color = presenceColor(t.status.state);
+          const until = t.status.state === "onsite" || t.status.state === "meeting" ? untilTime(t.status.detail) : null;
+          const hint = commitmentHint(t.nextCommitment);
+          return (
+            <span
+              key={t.tech}
+              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+              style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+              <span className="font-semibold text-white/90">{t.tech.split(" ")[0]}</span>
+              <span className="font-medium" style={{ color }}>
+                {presenceLabel(t.status.state)}
+              </span>
+              {until && <span className="text-zinc-500">til {until}</span>}
+              {hint && <span className="max-w-[160px] truncate text-zinc-500">{hint}</span>}
+            </span>
+          );
+        })}
+      </div>
+    </Link>
   );
 }
 
