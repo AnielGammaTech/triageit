@@ -82,6 +82,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconColor: "text-emerald-400",
       },
       {
+        id: "halo-statuses",
+        label: "Halo Statuses",
+        desc: "Every Halo status and how TriageIt reads it — open/closed, paused SLA, re-triage triggers",
+        iconBg: "bg-sky-500/10",
+        iconColor: "text-sky-400",
+      },
+      {
         id: "cron-jobs",
         label: "Cron Jobs",
         desc: "Scheduled tasks, SLA scans, and retriage cycles",
