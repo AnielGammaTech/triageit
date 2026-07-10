@@ -60,7 +60,10 @@ User decision 2026-07-10: no manual Azure work at all. Adminland → Integration
    create service principal → grant admin consent programmatically
    (`POST /servicePrincipals/{graphSp}/appRoleAssignedTo`).
 3. Verify: client-credentials token with the new secret (retry ≤60s for
-   propagation) + `GET /users?$top=1`. Store `tenant_id`, `client_id`,
+   propagation), checking the token's `roles` claim contains
+   `Calendars.ReadWrite` — NOT a `GET /users` probe, which the app is
+   correctly denied (its only permission is Calendars.ReadWrite; learned
+   live 2026-07-10). Store `tenant_id`, `client_id`,
    `client_secret`, `app_object_id`, `consented_at` in the `integrations` row
    (`service: "msgraph"`). UI shows each step ✓ live.
 4. Manual tenant/client/secret fields remain as fallback (conditional-access
