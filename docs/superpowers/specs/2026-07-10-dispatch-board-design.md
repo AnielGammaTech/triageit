@@ -42,6 +42,31 @@ new). Web talks only to worker through authenticated proxy API routes.
 
 ## Components
 
+### 0. One-button Microsoft 365 setup (Adminland)
+
+User decision 2026-07-10: no manual Azure work at all. Adminland → Integrations →
+"Microsoft 365 Calendar" has ONE button, **Connect Microsoft 365**:
+
+1. Web starts a **device-code flow** against the well-known Microsoft Graph
+   Command Line Tools public client (`14d82eec-204b-4c2f-b7e8-296a70dab67e`,
+   `/organizations` endpoint, delegated scopes `Application.ReadWrite.All
+   AppRoleAssignment.ReadWrite.All`). UI shows the short code + a button opening
+   `microsoft.com/devicelogin`; the admin signs in once.
+2. With the delegated token TriageIT provisions everything via Graph:
+   create application ("TriageIT Calendar", single-tenant, requiredResourceAccess
+   = Graph `Calendars.ReadWrite` application role
+   `ef54d2bf-783f-4e0f-bca1-3210c0444d99` on resource
+   `00000003-0000-0000-c000-000000000000`) → `addPassword` (24-month secret) →
+   create service principal → grant admin consent programmatically
+   (`POST /servicePrincipals/{graphSp}/appRoleAssignedTo`).
+3. Verify: client-credentials token with the new secret (retry ≤60s for
+   propagation) + `GET /users?$top=1`. Store `tenant_id`, `client_id`,
+   `client_secret`, `app_object_id`, `consented_at` in the `integrations` row
+   (`service: "msgraph"`). UI shows each step ✓ live.
+4. Manual tenant/client/secret fields remain as fallback (conditional-access
+   policies can block device code); the delegated token is used only during
+   setup and never stored.
+
 ### 1. Graph client (worker, new: `integrations/msgraph/client.ts`)
 
 Client-credentials OAuth (tenant id, client id, secret; `Calendars.ReadWrite`
