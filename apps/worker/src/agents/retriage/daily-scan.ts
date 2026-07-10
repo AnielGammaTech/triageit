@@ -670,7 +670,20 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         })
         .sort((a, b) => new Date(actionDate(b)).getTime() - new Date(actionDate(a)).getTime())[0];
 
-      if (latestCustomerAction?.note && isUpdateRequest(latestCustomerAction.note)) {
+      // The ticket's opening message is never an "update request" — a
+      // follow-up needs something to follow. Without this, a new ticket
+      // whose first email says "please advise" false-alarms on the very
+      // next scan pass (#41013, 2026-07-10).
+      const earliestActionTime = actions.reduce<number>((min, a) => {
+        const t = new Date(actionDate(a) || 0).getTime();
+        return t > 0 && (min === 0 || t < min) ? t : min;
+      }, 0);
+      const isOpeningMessage =
+        latestCustomerAction != null &&
+        earliestActionTime > 0 &&
+        new Date(actionDate(latestCustomerAction) || 0).getTime() <= earliestActionTime;
+
+      if (latestCustomerAction?.note && !isOpeningMessage && isUpdateRequest(latestCustomerAction.note)) {
         // Guard against perpetual re-alerting: the scan sees the same latest
         // customer message every pass. Only alert when the request is FRESH
         // (last 24h) and no customer-visible staff reply has landed since —
