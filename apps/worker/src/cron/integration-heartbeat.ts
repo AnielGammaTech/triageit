@@ -6,7 +6,7 @@ import { DattoEdrClient } from "../integrations/datto-edr/client.js";
 import { HuduClient } from "../integrations/hudu/client.js";
 import { JumpCloudClient } from "../integrations/jumpcloud/client.js";
 import { Pax8Client } from "../integrations/pax8/client.js";
-import { requestClientCredentialsToken } from "../integrations/msgraph/auth.js";
+import { decodeJwtClaimArray, requestClientCredentialsToken } from "../integrations/msgraph/auth.js";
 import { UnifiClient } from "../integrations/unifi/client.js";
 
 interface IntegrationRow {
@@ -395,11 +395,15 @@ async function checkMsGraph(config: Record<string, unknown>): Promise<CheckResul
     },
     fetchWithTimeout,
   );
-  const response = await fetchWithTimeout(
-    "https://graph.microsoft.com/v1.0/users?$top=1&$select=id",
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  return statusFromResponse("Microsoft Graph", response, "Graph token issued and /users reachable.");
+  // The app's only permission is Calendars.ReadWrite — directory probes like
+  // GET /users are correctly denied, so the roles claim IS the health check.
+  if (!decodeJwtClaimArray(token, "roles").includes("Calendars.ReadWrite")) {
+    return {
+      status: "down",
+      message: "Graph token issued, but Calendars.ReadWrite is missing — re-run Connect Microsoft 365.",
+    };
+  }
+  return { status: "healthy", message: "Graph token issued with Calendars.ReadWrite." };
 }
 
 const CHECKERS: Record<string, Checker> = {

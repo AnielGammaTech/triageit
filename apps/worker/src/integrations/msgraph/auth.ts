@@ -47,18 +47,27 @@ export async function requestClientCredentialsToken(
   return payload.access_token;
 }
 
-/** Extract a claim from a JWT without verifying it — we only need `tid`
- *  from a token Microsoft just handed us over TLS. */
-export function decodeJwtClaim(token: string, claim: string): string | null {
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length < 2) return null;
   try {
-    const payload = JSON.parse(
+    return JSON.parse(
       Buffer.from(parts[1], "base64url").toString("utf8"),
     ) as Record<string, unknown>;
-    const value = payload[claim];
-    return typeof value === "string" ? value : null;
   } catch {
     return null;
   }
+}
+
+/** Extract a claim from a JWT without verifying it — we only read claims
+ *  from tokens Microsoft just handed us over TLS. */
+export function decodeJwtClaim(token: string, claim: string): string | null {
+  const value = decodeJwtPayload(token)?.[claim];
+  return typeof value === "string" ? value : null;
+}
+
+/** Array claim (e.g. `roles` on an app token). Empty array when absent. */
+export function decodeJwtClaimArray(token: string, claim: string): ReadonlyArray<string> {
+  const value = decodeJwtPayload(token)?.[claim];
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }

@@ -5,7 +5,7 @@ import {
   PROVISIONED_APP_DISPLAY_NAME,
   SECRET_LIFETIME_MONTHS,
 } from "./constants.js";
-import { requestClientCredentialsToken } from "./auth.js";
+import { decodeJwtClaimArray, requestClientCredentialsToken } from "./auth.js";
 
 export type ProvisionStepKey =
   | "create_app"
@@ -103,20 +103,41 @@ export async function provisionGraphApp(
 
   const app = await step(
     "create_app",
-    () =>
-      graphRequest<{ id: string; appId: string }>(fetchFn, delegatedToken, "POST", "/applications", {
-        displayName: PROVISIONED_APP_DISPLAY_NAME,
-        signInAudience: "AzureADMyOrg",
-        requiredResourceAccess: [
-          {
-            resourceAppId: GRAPH_RESOURCE_APP_ID,
-            resourceAccess: [
-              { id: CALENDARS_READWRITE_ROLE_ID, type: "Role" },
-            ],
-          },
-        ],
-      }),
-    (created) => `App registration created (client id ${created.appId})`,
+    async () => {
+      // Idempotent: a failed earlier run may have already created the app —
+      // reuse it instead of piling up duplicate registrations.
+      const existing = await graphRequest<{ value: ReadonlyArray<{ id: string; appId: string }> }>(
+        fetchFn,
+        delegatedToken,
+        "GET",
+        `/applications?$filter=displayName eq '${PROVISIONED_APP_DISPLAY_NAME}'&$select=id,appId`,
+      );
+      const found = existing.value[0];
+      if (found) return { ...found, reused: true };
+      const created = await graphRequest<{ id: string; appId: string }>(
+        fetchFn,
+        delegatedToken,
+        "POST",
+        "/applications",
+        {
+          displayName: PROVISIONED_APP_DISPLAY_NAME,
+          signInAudience: "AzureADMyOrg",
+          requiredResourceAccess: [
+            {
+              resourceAppId: GRAPH_RESOURCE_APP_ID,
+              resourceAccess: [
+                { id: CALENDARS_READWRITE_ROLE_ID, type: "Role" },
+              ],
+            },
+          ],
+        },
+      );
+      return { ...created, reused: false };
+    },
+    (result) =>
+      result.reused
+        ? `Reusing the existing app registration (client id ${result.appId})`
+        : `App registration created (client id ${result.appId})`,
   );
 
   const secretEnd = new Date();
@@ -141,11 +162,25 @@ export async function provisionGraphApp(
 
   const servicePrincipal = await step(
     "service_principal",
-    () =>
-      graphRequest<{ id: string }>(fetchFn, delegatedToken, "POST", "/servicePrincipals", {
-        appId: app.appId,
-      }),
-    () => "Service principal created in your tenant",
+    async () => {
+      try {
+        return await graphRequest<{ id: string }>(fetchFn, delegatedToken, "POST", "/servicePrincipals", {
+          appId: app.appId,
+        });
+      } catch (createError) {
+        // Reused app → the SP likely already exists; find it before failing.
+        const existing = await graphRequest<{ value: ReadonlyArray<{ id: string }> }>(
+          fetchFn,
+          delegatedToken,
+          "GET",
+          `/servicePrincipals?$filter=appId eq '${app.appId}'&$select=id`,
+        );
+        const sp = existing.value[0];
+        if (sp) return sp;
+        throw createError;
+      }
+    },
+    () => "Service principal ready in your tenant",
   );
 
   await step(
@@ -161,17 +196,25 @@ export async function provisionGraphApp(
       if (!graphSpId) {
         throw new Error("Microsoft Graph service principal not found in tenant");
       }
-      return graphRequest(
-        fetchFn,
-        delegatedToken,
-        "POST",
-        `/servicePrincipals/${graphSpId}/appRoleAssignedTo`,
-        {
-          principalId: servicePrincipal.id,
-          resourceId: graphSpId,
-          appRoleId: CALENDARS_READWRITE_ROLE_ID,
-        },
-      );
+      try {
+        return await graphRequest(
+          fetchFn,
+          delegatedToken,
+          "POST",
+          `/servicePrincipals/${graphSpId}/appRoleAssignedTo`,
+          {
+            principalId: servicePrincipal.id,
+            resourceId: graphSpId,
+            appRoleId: CALENDARS_READWRITE_ROLE_ID,
+          },
+        );
+      } catch (assignError) {
+        // Consent from an earlier run is still valid — Graph reports the
+        // duplicate assignment as an error, but for us it means "done".
+        const message = assignError instanceof Error ? assignError.message : String(assignError);
+        if (/already exists/i.test(message)) return { alreadyGranted: true };
+        throw assignError;
+      }
     },
     () => "Admin consent granted for Calendars.ReadWrite",
   );
@@ -185,23 +228,29 @@ export async function provisionGraphApp(
   await step(
     "verify",
     async () => {
+      // Calendars.ReadWrite is the app's ONLY permission — a directory read
+      // like GET /users is correctly denied, so it can't be the probe
+      // (that's exactly how the first live run failed, 2026-07-10). The
+      // token's `roles` claim proves both the secret AND the consent: the
+      // role only appears once the appRoleAssignment is effective.
       let lastError: unknown = null;
       for (let attempt = 1; attempt <= VERIFY_ATTEMPTS; attempt++) {
         try {
           const appToken = await requestClientCredentialsToken(credentials, fetchFn);
-          await graphRequest(fetchFn, appToken, "GET", "/users?$top=1&$select=id");
-          return true;
+          const roles = decodeJwtClaimArray(appToken, "roles");
+          if (roles.includes("Calendars.ReadWrite")) return true;
+          lastError = new Error("Token issued, but Calendars.ReadWrite is not in its roles yet");
         } catch (err) {
-          // New secrets and fresh consent can take up to a minute to
-          // propagate across AAD — keep retrying until the budget runs out.
           lastError = err;
-          if (attempt < VERIFY_ATTEMPTS) await sleep(VERIFY_RETRY_MS);
         }
+        // New secrets and fresh consent can take up to a minute to
+        // propagate across AAD — keep retrying until the budget runs out.
+        if (attempt < VERIFY_ATTEMPTS) await sleep(VERIFY_RETRY_MS);
       }
       const message = lastError instanceof Error ? lastError.message : String(lastError);
       throw new Error(`App sign-in never succeeded after provisioning: ${message}`);
     },
-    () => "Verified: the new app signed in and reached Microsoft Graph",
+    () => "Verified: the app signs in and its token carries Calendars.ReadWrite",
   );
 
   return {

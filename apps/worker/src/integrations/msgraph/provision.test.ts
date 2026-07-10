@@ -16,11 +16,23 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+/** Unsigned JWT with the given payload — enough for claim decoding. */
+function makeJwt(payload: Record<string, unknown>): string {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `header.${body}.sig`;
+}
+
+const APP_TOKEN = makeJwt({ roles: ["Calendars.ReadWrite"] });
+
 interface FakeGraphOptions {
   /** Number of token requests that fail before one succeeds. */
   readonly tokenFailures?: number;
   /** Fail the application create call. */
   readonly failCreateApp?: boolean;
+  /** An app registration from a previous run already exists. */
+  readonly existingApp?: boolean;
+  /** appRoleAssignedTo rejects with "already exists" (prior consent). */
+  readonly consentAlreadyExists?: boolean;
 }
 
 function makeFakeGraph(options: FakeGraphOptions = {}) {
@@ -47,7 +59,12 @@ function makeFakeGraph(options: FakeGraphOptions = {}) {
           error_description: "AADSTS7000215: secret not yet propagated",
         });
       }
-      return jsonResponse(200, { access_token: "app-token" });
+      return jsonResponse(200, { access_token: APP_TOKEN });
+    }
+    if (url.includes("/applications?$filter=")) {
+      return jsonResponse(200, {
+        value: options.existingApp ? [{ id: "app-object-id", appId: "new-client-id" }] : [],
+      });
     }
     if (url.endsWith("/applications") && method === "POST") {
       if (options.failCreateApp) {
@@ -63,14 +80,19 @@ function makeFakeGraph(options: FakeGraphOptions = {}) {
     if (url.endsWith("/servicePrincipals") && method === "POST") {
       return jsonResponse(201, { id: "new-sp-id" });
     }
-    if (url.includes("/servicePrincipals?$filter=")) {
+    if (url.includes("/servicePrincipals?$filter=appId eq '00000003")) {
       return jsonResponse(200, { value: [{ id: "graph-sp-id" }] });
     }
-    if (url.includes("/appRoleAssignedTo")) {
-      return jsonResponse(201, { id: "assignment-id" });
+    if (url.includes("/servicePrincipals?$filter=")) {
+      return jsonResponse(200, { value: [{ id: "new-sp-id" }] });
     }
-    if (url.includes("/users?$top=1")) {
-      return jsonResponse(200, { value: [{ id: "some-user" }] });
+    if (url.includes("/appRoleAssignedTo")) {
+      if (options.consentAlreadyExists) {
+        return jsonResponse(409, {
+          error: { code: "Request_MultipleObjectsWithSameKeyValue", message: "Permission being assigned already exists on the object" },
+        });
+      }
+      return jsonResponse(201, { id: "assignment-id" });
     }
     return jsonResponse(404, { error: { code: "NotFound", message: `unmatched ${url}` } });
   }) as typeof fetch;
@@ -127,9 +149,25 @@ describe("provisionGraphApp", () => {
       appRoleId: "ef54d2bf-783f-4e0f-bca1-3210c0444d99",
     });
 
-    // Verify uses the NEW app's credentials, not the delegated token.
+    // Verify uses the NEW app's credentials, not the delegated token, and
+    // never probes /users — Calendars.ReadWrite doesn't allow directory reads.
     const tokenCall = calls.find((c) => c.url.includes("/tenant-123/oauth2/v2.0/token"));
     expect(String(tokenCall?.body)).toContain("client_id=new-client-id");
+    expect(calls.some((c) => c.url.includes("/users"))).toBe(false);
+  });
+
+  it("reuses an existing app registration and tolerates prior consent on retry", async () => {
+    const { fetchFn, calls } = makeFakeGraph({ existingApp: true, consentAlreadyExists: true });
+
+    const result = await provisionGraphApp("delegated-token", "tenant-123", {
+      fetchFn,
+      sleep: noSleep,
+    });
+
+    expect(result.client_id).toBe("new-client-id");
+    expect(result.client_secret).toBe("s3cret-value");
+    // No second app registration was created.
+    expect(calls.some((c) => c.url.endsWith("/applications") && c.method === "POST")).toBe(false);
   });
 
   it("retries verification while the new secret propagates", async () => {
