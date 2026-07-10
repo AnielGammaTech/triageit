@@ -14,12 +14,6 @@ const NAV_ITEMS = [
   { href: "/sla-hunter", label: "SLA Hunter" },
   { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
   { href: "/toby", label: "Toby", avatar: "/toby.png" },
-  { href: "/workers", label: "Workers" },
-  {
-    href: process.env.NEXT_PUBLIC_FOLLOWIT_URL ?? "http://localhost:3001",
-    label: "FollowIT",
-    external: true,
-  },
 ] as const;
 
 const PRIMARY_COLOR = "#b91c1c";
@@ -117,21 +111,13 @@ export function Sidebar({ userEmail }: SidebarProps) {
           {/* Center: Navigation (desktop) */}
           <nav className="hidden items-center h-full lg:flex">
             {NAV_ITEMS.map((item) => {
-              const isActive = "external" in item ? false : pathname.startsWith(item.href);
+              const isActive = pathname.startsWith(item.href);
               const className = cn(
                 "relative flex items-center gap-2 px-4 h-14 text-sm font-medium transition-colors",
                 isActive
                   ? "text-white"
                   : "text-white/60 hover:text-white hover:bg-white/5",
               );
-
-              if ("external" in item) {
-                return (
-                  <a key={item.href} href={item.href} className={className}>
-                    {item.label}
-                  </a>
-                );
-              }
 
               return (
                 <Link
@@ -251,7 +237,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
           >
             <div className="flex flex-col py-2">
               {NAV_ITEMS.map((item) => {
-                const isActive = "external" in item ? false : pathname.startsWith(item.href);
+                const isActive = pathname.startsWith(item.href);
                 const className = cn(
                   "flex items-center px-6 py-3 text-sm font-medium transition-colors",
                   isActive
@@ -259,19 +245,6 @@ export function Sidebar({ userEmail }: SidebarProps) {
                     : "text-white/60 hover:text-white hover:bg-white/5",
                 );
                 const style = isActive ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" };
-
-                if ("external" in item) {
-                  return (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      className={className}
-                      style={style}
-                    >
-                      {item.label}
-                    </a>
-                  );
-                }
 
                 return (
                   <Link

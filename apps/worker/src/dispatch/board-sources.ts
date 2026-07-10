@@ -5,7 +5,7 @@ import { HaloClient } from "../integrations/halo/client.js";
 import {
   ThreeCxClient,
   type ThreeCxActiveCall,
-  type ThreeCxExtension,
+  type ThreeCxUserPresence,
 } from "../integrations/threecx/client.js";
 
 /**
@@ -36,7 +36,7 @@ export interface DispatchAppointment {
 
 export interface ThreeCxSnapshot {
   readonly activeCalls: ReadonlyArray<ThreeCxActiveCall> | null;
-  readonly extensions: ReadonlyArray<ThreeCxExtension> | null;
+  readonly extensions: ReadonlyArray<ThreeCxUserPresence> | null;
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────
@@ -160,8 +160,8 @@ export async function fetchThreeCxSnapshot(supabase: SupabaseClient): Promise<Th
     const tcx = new ThreeCxClient(data.config as ThreeCxConfig);
     const [activeCalls, extensions] = await Promise.all([
       tcx.getActiveCalls(), // already null on failure
-      tcx.getExtensions().catch((err: unknown) => {
-        console.warn("[DISPATCH] 3CX getExtensions failed:", err instanceof Error ? err.message : err);
+      tcx.listUsersPresence().catch((err: unknown) => {
+        console.warn("[DISPATCH] 3CX listUsersPresence failed:", err instanceof Error ? err.message : err);
         return null;
       }),
     ]);
@@ -174,15 +174,10 @@ export async function fetchThreeCxSnapshot(supabase: SupabaseClient): Promise<Th
 
 /** The tech's 3CX extension, matched by name (same matching as sla-call). */
 export function extensionForTech(
-  extensions: ReadonlyArray<ThreeCxExtension>,
+  extensions: ReadonlyArray<ThreeCxUserPresence>,
   techName: string,
-): ThreeCxExtension | null {
-  return (
-    extensions.find((e) => {
-      const name = e.Name ?? [e.FirstName, e.LastName].filter(Boolean).join(" ");
-      return namesMatch(techName, name);
-    }) ?? null
-  );
+): ThreeCxUserPresence | null {
+  return extensions.find((e) => namesMatch(techName, e.name)) ?? null;
 }
 
 /** Whether any active call involves the tech's extension number or name. */
