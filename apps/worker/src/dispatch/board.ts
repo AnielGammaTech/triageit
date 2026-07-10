@@ -144,14 +144,12 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
     ctx.threecx.extensions === null
       ? null // 3CX unavailable — unknown, never "unreachable"
       : ext
-        ? typeof ext.IsRegistered === "boolean"
-          ? ext.IsRegistered
-          : null
+        ? ext.isRegistered
         : false;
   const onCall =
     ctx.threecx.activeCalls === null
       ? null
-      : isTechOnCall(ctx.threecx.activeCalls, ext?.Number ?? null, agent.name);
+      : isTechOnCall(ctx.threecx.activeCalls, ext?.number ?? null, agent.name);
 
   const signals: TechSignals = {
     onPtoToday: null, // phase 2 (calendar)

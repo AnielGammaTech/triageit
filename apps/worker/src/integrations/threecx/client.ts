@@ -142,6 +142,16 @@ export class ThreeCxClient {
   // ── Active Calls ───────────────────────────────────────────────────
 
   async getActiveCalls(): Promise<ReadonlyArray<ThreeCxActiveCall> | null> {
+    // V20 exposes XAPI /xapi/v1/ActiveCalls; the legacy /api/activeCalls
+    // 404s there (verified live 2026-07-10) — try XAPI first.
+    try {
+      const result = await this.request<{ value?: ThreeCxActiveCall[] }>(
+        "/xapi/v1/ActiveCalls",
+      );
+      return result.value ?? [];
+    } catch {
+      // fall through to the legacy endpoint
+    }
     try {
       const result = await this.request<{ list?: ThreeCxActiveCall[]; value?: ThreeCxActiveCall[] }>(
         "/api/activeCalls",
@@ -150,6 +160,34 @@ export class ThreeCxClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Per-user phone presence from XAPI: extension, registration, and the
+   * 3CX profile status (Available / Away / Do Not Disturb / ...).
+   * Verified live 2026-07-10 — the legacy /api/ExtensionList 404s on V20.
+   */
+  async listUsersPresence(): Promise<ReadonlyArray<ThreeCxUserPresence>> {
+    const result = await this.request<{
+      value?: Array<{
+        Number?: string;
+        FirstName?: string;
+        LastName?: string;
+        IsRegistered?: boolean;
+        CurrentProfileName?: string;
+      }>;
+    }>("/xapi/v1/Users", {
+      "$select": "Number,FirstName,LastName,IsRegistered,CurrentProfileName",
+      "$top": "100",
+    });
+    return (result.value ?? [])
+      .filter((u) => u.Number && /^\d{2,5}$/.test(u.Number))
+      .map((u) => ({
+        number: String(u.Number),
+        name: [u.FirstName, u.LastName].filter(Boolean).join(" ").trim(),
+        isRegistered: typeof u.IsRegistered === "boolean" ? u.IsRegistered : null,
+        profileName: u.CurrentProfileName ?? null,
+      }));
   }
 
   // ── Call Logs ──────────────────────────────────────────────────────
@@ -318,6 +356,13 @@ export interface ThreeCxActiveCall {
   readonly Duration?: string;
   readonly LastChangeTime?: string;
   readonly [key: string]: unknown;
+}
+
+export interface ThreeCxUserPresence {
+  readonly number: string;
+  readonly name: string;
+  readonly isRegistered: boolean | null;
+  readonly profileName: string | null;
 }
 
 export interface ThreeCxCallLog {

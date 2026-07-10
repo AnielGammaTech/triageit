@@ -56,6 +56,12 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
     </svg>
   ),
+  workers: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
+    </svg>
+  ),
   "triage-rules": (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 20h9" /><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z" />
@@ -193,6 +199,12 @@ export default function AdminlandPage() {
     if (view.type === "menu") {
       router.push("/adminland");
     } else if (view.type === "section") {
+      // AI Workers lives on its own page (deep-linkable agent detail) —
+      // the Adminland entry navigates there instead of an inline section.
+      if (view.id === "workers") {
+        router.push("/workers");
+        return;
+      }
       router.push(`/adminland?section=${view.id}`);
     } else if (view.type === "integrations") {
       router.push("/adminland?section=integrations");
