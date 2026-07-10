@@ -110,9 +110,14 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
   const allCandidates = allOpenTickets
     .filter((t) => datePast(t.fixbydate) || datePast(t.respondbydate))
     .sort((a, b) => Number(datePast(b.fixbydate)) - Number(datePast(a.fixbydate)));
-  const candidates = allCandidates.slice(0, 80);
+  // Cap the per-run detail fetches, but high enough to cover every past-due
+  // candidate at current volume — a real breach dropped by the cap would be
+  // invisible on the panel AND never alerted. ~250ms/GET, so 250 ≈ 60s worst
+  // case, well under the 300s cron lock.
+  const CANDIDATE_CAP = 250;
+  const candidates = allCandidates.slice(0, CANDIDATE_CAP);
   if (allCandidates.length > candidates.length) {
-    console.warn(`[SLA SCAN] ${allCandidates.length - candidates.length} past-due candidates dropped by the 80 cap`);
+    console.warn(`[SLA SCAN] ${allCandidates.length - candidates.length} past-due candidates dropped by the ${CANDIDATE_CAP} cap — a real breach could be hidden; raise the cap`);
   }
 
   const breachers: Record<string, any>[] = [];
