@@ -17,6 +17,8 @@ import {
  */
 
 export interface DispatchSuggestions {
+  /** Halo web base URL (no trailing slash) for ticket links; "" when Halo isn't configured. */
+  readonly haloBaseUrl: string;
   readonly tickets: ReadonlyArray<{
     readonly halo_id: number;
     readonly summary: string | null;
@@ -64,7 +66,7 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       client_name: (t.client_name as string | null) ?? null,
       halo_status: (t.halo_status as string | null) ?? null,
     }));
-  if (targets.length === 0) return { tickets: [] };
+  if (targets.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [] };
 
   const [typeByTicketId, profiles] = await Promise.all([
     fetchLatestTypes(supabase, targets.map((t) => t.id)),
@@ -111,7 +113,7 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
   });
 
   console.log(`[DISPATCH] Suggestions built for ${tickets.length} unassigned/New tickets`);
-  return { tickets };
+  return { haloBaseUrl: board.haloBaseUrl, tickets };
 }
 
 // ── Batched lookups (each degrades independently — never blocks ranking) ──

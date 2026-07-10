@@ -25,10 +25,14 @@ export interface WeekEvent {
   readonly startsAt: string;
   readonly endsAt: string;
   readonly allDay: boolean;
+  /** Halo ticket the appointment belongs to — null for PTO and unlinked events. */
+  readonly ticketId: number | null;
 }
 
 export interface WeekData {
   readonly start: string;
+  /** Halo web base URL (no trailing slash) for ticket links; "" when Halo isn't configured. */
+  readonly haloBaseUrl: string;
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{
     readonly tech: string;
@@ -84,6 +88,7 @@ function appointmentEvents(
         startsAt: a.startsAt,
         endsAt: a.endsAt,
         allDay: false,
+        ticketId: a.ticketId,
       }));
     });
 }
@@ -102,9 +107,13 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
 
   const supabase = createSupabaseClient();
   let halo: HaloClient | null = null;
+  let haloBaseUrl = "";
   try {
     const haloConfig = await getCachedHaloConfig(supabase);
-    if (haloConfig) halo = new HaloClient(haloConfig);
+    if (haloConfig) {
+      halo = new HaloClient(haloConfig);
+      haloBaseUrl = (haloConfig.base_url ?? "").replace(/\/$/, "");
+    }
   } catch (err) {
     console.warn("[DISPATCH] Week: Halo config lookup failed:", err instanceof Error ? err.message : err);
   }
@@ -132,6 +141,7 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
           startsAt: e.startsAt,
           endsAt: e.endsAt,
           allDay: true,
+          ticketId: null,
         })),
       );
     // Halo can return near-identical rows (recurrences, ticket copies) —
@@ -148,7 +158,7 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
     return { tech: agent.name, events };
   });
 
-  const data: WeekData = { start, days, techs };
+  const data: WeekData = { start, haloBaseUrl, days, techs };
   cache = { key: start, at: Date.now(), data };
   console.log(
     `[DISPATCH] Week built ${start}: ${techs.length} techs, ${techs.reduce((n, t) => n + t.events.length, 0)} events (halo=${appointments !== null}, pto=${ptoEvents !== null})`,

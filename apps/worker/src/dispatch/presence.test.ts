@@ -54,4 +54,9 @@ describe("resolveTechStatus priority order", () => {
   it("outside business hours never claims available", () => {
     expect(resolveTechStatus({ ...base, withinBusinessHours: false }).state).not.toBe("available");
   });
+  it("registered outside business hours = after_hours, not an error state", () => {
+    const s = resolveTechStatus({ ...base, withinBusinessHours: false });
+    expect(s.state).toBe("after_hours");
+    expect(s.detail).toBeNull();
+  });
 });

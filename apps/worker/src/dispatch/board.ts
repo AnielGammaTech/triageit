@@ -56,6 +56,8 @@ export interface DispatchBoardTech {
     readonly onCall: boolean;
   } | null;
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  /** Halo id of the tech's In Progress ticket — lets the UI link the status detail. */
+  readonly workingTicketId: number | null;
   readonly nextCommitment: string | null; // "Onsite — Bentley Electric 2:00 PM"
   readonly aiRead: string | null; // Haiku one-liner; null until first refresh
 }
@@ -63,6 +65,8 @@ export interface DispatchBoardTech {
 export interface DispatchBoard {
   readonly generatedAt: string;
   readonly sources: { readonly halo: boolean; readonly threecx: boolean; readonly calendar: boolean }; // false = degraded
+  /** Halo web base URL (no trailing slash) for ticket links; "" when Halo isn't configured. */
+  readonly haloBaseUrl: string;
   readonly techs: ReadonlyArray<DispatchBoardTech>;
 }
 
@@ -77,9 +81,10 @@ const STATE_ORDER: Record<TechStatus["state"], number> = {
   onsite: 4,
   dnd: 5,
   away: 6,
-  unknown: 7,
-  unreachable: 8,
-  off: 9,
+  after_hours: 7,
+  unknown: 8,
+  unreachable: 9,
+  off: 10,
 };
 
 let cache: { readonly at: number; readonly board: DispatchBoard } | null = null;
@@ -94,10 +99,13 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
   const supabase = createSupabaseClient();
 
   let halo: HaloClient | null = null;
+  let haloBaseUrl = "";
   try {
     const haloConfig = await getCachedHaloConfig(supabase);
-    if (haloConfig) halo = new HaloClient(haloConfig);
-    else console.warn("[DISPATCH] Halo not configured — roster/appointments unavailable");
+    if (haloConfig) {
+      halo = new HaloClient(haloConfig);
+      haloBaseUrl = (haloConfig.base_url ?? "").replace(/\/$/, "");
+    } else console.warn("[DISPATCH] Halo not configured — roster/appointments unavailable");
   } catch (err) {
     console.warn("[DISPATCH] Halo config lookup failed:", err instanceof Error ? err.message : err);
   }
@@ -139,6 +147,7 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
       threecx: threecx.activeCalls !== null,
       calendar: calendar?.ok ?? false, // false = not connected or all reads failed
     },
+    haloBaseUrl,
     techs: attachAiReads(sorted),
   };
   cache = { at: Date.now(), board };
@@ -214,6 +223,7 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
             onCall: onCall === true,
           },
     load: { open: load.open, wot: load.wot, breaching: load.breaching },
+    workingTicketId: load.inProgressTicket?.haloId ?? null,
     // Labeled with the appointment type, e.g. "Site Visit: Jenn :: Laptop
     // Setup — Mon 1:00 PM". A current commitment that didn't qualify as
     // onsite (long Site Visit, Reminder) surfaces here as context when
