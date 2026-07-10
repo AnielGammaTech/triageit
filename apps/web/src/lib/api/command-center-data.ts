@@ -54,6 +54,7 @@ export interface CommandUnassigned {
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly halo_status: string | null;
+  readonly halo_agent?: string | null;
   readonly ageMin: number;
 }
 
@@ -223,13 +224,15 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     }))
     .sort((a, b) => b.ageMin - a.ageMin);
 
-  // ── Oldest open tickets — the ones quietly rotting ──
+  // ── Oldest Waiting-on-Tech tickets — the tech owes the next move, oldest first ──
   const oldestTickets: CommandUnassigned[] = tickets
+    .filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech"))
     .map((t) => ({
       halo_id: t.halo_id,
       summary: t.summary,
       client_name: t.client_name,
       halo_status: t.halo_status,
+      halo_agent: t.halo_agent,
       ageMin: Math.max(0, Math.floor((now - new Date(t.created_at).getTime()) / 60_000)),
     }))
     .sort((a, b) => b.ageMin - a.ageMin)
