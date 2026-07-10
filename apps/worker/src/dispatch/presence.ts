@@ -43,6 +43,7 @@ export function resolveTechStatus(s: TechSignals): TechStatus {
     };
   }
   if (s.phoneProfile && DND_RE.test(s.phoneProfile)) return { state: "dnd", detail: "Phone set to Do Not Disturb" };
+  if (s.phoneProfile && /lunch/i.test(s.phoneProfile)) return { state: "away", detail: "Out to lunch" };
   if (s.phoneProfile && AWAY_RE.test(s.phoneProfile)) return { state: "away", detail: `Phone set to ${s.phoneProfile}` };
   if (s.extensionRegistered === true && s.withinBusinessHours) return { state: "available", detail: null };
   if (s.extensionRegistered === false) return { state: "unreachable", detail: "No phone registered" };

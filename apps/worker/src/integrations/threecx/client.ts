@@ -166,8 +166,16 @@ export class ThreeCxClient {
    * Per-user phone presence from XAPI: extension, registration, and the
    * 3CX profile status (Available / Away / Do Not Disturb / ...).
    * Verified live 2026-07-10 — the legacy /api/ExtensionList 404s on V20.
+   *
+   * Custom profiles come back as "Custom 1"/"Custom 2"; their friendly
+   * labels are the stock 3CX names (Lunch / Business Trip) unless the user
+   * renamed them (CustomName on the forwarding profile).
    */
   async listUsersPresence(): Promise<ReadonlyArray<ThreeCxUserPresence>> {
+    const STOCK_CUSTOM_LABELS: Record<string, string> = {
+      "Custom 1": "Lunch",
+      "Custom 2": "Business Trip",
+    };
     const result = await this.request<{
       value?: Array<{
         Number?: string;
@@ -175,19 +183,27 @@ export class ThreeCxClient {
         LastName?: string;
         IsRegistered?: boolean;
         CurrentProfileName?: string;
+        ForwardingProfiles?: Array<{ Name?: string; CustomName?: string }>;
       }>;
     }>("/xapi/v1/Users", {
       "$select": "Number,FirstName,LastName,IsRegistered,CurrentProfileName",
+      "$expand": "ForwardingProfiles($select=Name,CustomName)",
       "$top": "100",
     });
     return (result.value ?? [])
       .filter((u) => u.Number && /^\d{2,5}$/.test(u.Number))
-      .map((u) => ({
-        number: String(u.Number),
-        name: [u.FirstName, u.LastName].filter(Boolean).join(" ").trim(),
-        isRegistered: typeof u.IsRegistered === "boolean" ? u.IsRegistered : null,
-        profileName: u.CurrentProfileName ?? null,
-      }));
+      .map((u) => {
+        const current = u.CurrentProfileName ?? null;
+        const renamed = current
+          ? u.ForwardingProfiles?.find((p) => p.Name === current)?.CustomName?.trim() || null
+          : null;
+        return {
+          number: String(u.Number),
+          name: [u.FirstName, u.LastName].filter(Boolean).join(" ").trim(),
+          isRegistered: typeof u.IsRegistered === "boolean" ? u.IsRegistered : null,
+          profileName: renamed ?? (current ? STOCK_CUSTOM_LABELS[current] ?? current : null),
+        };
+      });
   }
 
   // ── Call Logs ──────────────────────────────────────────────────────
