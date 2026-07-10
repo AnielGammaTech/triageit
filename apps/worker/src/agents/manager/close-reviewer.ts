@@ -96,6 +96,42 @@ Analyze the full ticket lifecycle and produce a close-out review.
 // In-memory lock to prevent concurrent close reviews for the same ticket
 const activeReviews = new Set<number>();
 
+/**
+ * Compact good/bad tech recap posted on the ticket at CLOSE — the full review
+ * lives in the dashboard Review tab; Halo just gets this quick summary (user).
+ */
+function buildTechRecapNote(
+  tech: string,
+  rating: string,
+  strengths: string | null,
+  improvement: string | null,
+  responseTime: string | null,
+): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const firstSentence = (t: string) => {
+    const s = t.trim();
+    const m = s.match(/^([\s\S]+?[.!?])\s/);
+    const first = m ? m[1] : s;
+    return first.length > 220 ? first.slice(0, 217) + "…" : first;
+  };
+  const ratingMap: Record<string, { label: string; color: string }> = {
+    great: { label: "GREAT", color: "#10b981" },
+    good: { label: "GOOD", color: "#3b82f6" },
+    needs_improvement: { label: "NEEDS IMPROVEMENT", color: "#f59e0b" },
+    poor: { label: "POOR", color: "#dc2626" },
+  };
+  const r = ratingMap[rating.toLowerCase()] ?? { label: (rating || "review").toUpperCase(), color: "#94a3b8" };
+  const rows: string[] = [];
+  if (strengths) rows.push(`<div style="margin-top:6px;color:#bbf7d0;"><span style="color:#4ade80;font-weight:700;">&#10003; Good — </span>${esc(firstSentence(strengths))}</div>`);
+  if (improvement) rows.push(`<div style="margin-top:6px;color:#fde68a;"><span style="color:#fbbf24;font-weight:700;">&#10007; Improve — </span>${esc(firstSentence(improvement))}</div>`);
+  return [
+    `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:640px;border-collapse:collapse;background:#151013;border:1px solid #3a1f24;border-radius:8px;overflow:hidden;">`,
+    `<tr><td style="padding:8px 12px;background:#1a1114;color:#e2e8f0;font-size:12.5px;font-weight:700;">Tech Recap — ${esc(tech)}<span style="float:right;font-size:10px;font-weight:700;background:${r.color};color:#0a0505;padding:2px 8px;border-radius:10px;letter-spacing:0.03em;">${r.label}</span></td></tr>`,
+    `<tr><td style="padding:8px 12px;font-size:12.5px;line-height:1.5;">${rows.join("")}${responseTime ? `<div style="margin-top:6px;color:#94a3b8;font-size:11px;">Response: ${esc(responseTime)}</div>` : ""}</td></tr>`,
+    `</table>`,
+  ].join("");
+}
+
 export async function generateCloseReview(
   haloId: number,
   supabase: SupabaseClient,
@@ -259,6 +295,24 @@ async function _generateCloseReview(
 
   // Post to Halo
   await halo.addInternalNote(haloId, noteHtml);
+
+  // Short good/bad tech recap at close (full review is dashboard-only).
+  if (techReview && (techReview.strengths || techReview.improvement_areas)) {
+    try {
+      await halo.addInternalNote(
+        haloId,
+        buildTechRecapNote(
+          ticket.halo_agent ?? "Unassigned",
+          String(techReview.rating ?? ""),
+          techReview.strengths ? String(techReview.strengths) : null,
+          techReview.improvement_areas ? String(techReview.improvement_areas) : null,
+          techReview.response_time ? String(techReview.response_time) : null,
+        ),
+      );
+    } catch (error) {
+      console.error(`[CLOSE-REVIEW] Failed to post tech recap for #${haloId}:`, error);
+    }
+  }
 
   // Store in DB
   await supabase.from("close_reviews").insert({
