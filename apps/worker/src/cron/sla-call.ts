@@ -121,6 +121,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         .maybeSingle();
 
       let hoursOver: number | null = null;
+      let liveTechName: string | null = null;
       try {
         const full = (await halo.getTicketWithSLA(haloId)) as unknown as Record<string, unknown>;
         const timeLeft =
@@ -128,24 +129,47 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
           : typeof full.slatimeleft === "number" ? (full.slatimeleft as number)
           : null;
         if (timeLeft != null && timeLeft < 0) hoursOver = Math.abs(timeLeft);
+        // The CURRENT assignee straight from Halo — the local tickets row and
+        // the queued request can both be stale after a reassignment (a call
+        // greeted "Tony" on Matthew's ticket, user report 2026-07-10).
+        liveTechName = await halo.resolveAgentName(
+          (full.agent_name as string | undefined) ?? null,
+          typeof full.agent_id === "number" ? full.agent_id : null,
+        );
       } catch {
         // call proceeds without the exact figure
       }
 
-      const destination = req.phone ? String(req.phone) : extensionFor((req.tech_name as string) ?? (ticket?.halo_agent as string) ?? null);
+      // ONE resolved name everywhere (greeting, note title, dialing):
+      // live Halo assignee first, then the name captured at queue time,
+      // then the local sync.
+      const techName =
+        liveTechName ?? (req.tech_name as string | null) ?? (ticket?.halo_agent as string | null) ?? null;
+      const destination = req.phone ? String(req.phone) : extensionFor(techName);
       if (!destination) {
-        console.warn(`[SLA-CALL] No phone/extension resolvable for #${haloId} (tech: ${req.tech_name ?? ticket?.halo_agent ?? "?"}) — marking failed`);
+        console.warn(`[SLA-CALL] No phone/extension resolvable for #${haloId} (tech: ${techName ?? "?"}) — marking failed`);
         await supabase.from("sla_call_requests").update({ status: "failed" }).eq("id", req.id);
         continue;
       }
-      const techLabel = (req.tech_name as string) ?? (ticket?.halo_agent as string) ?? "the assigned tech";
+      const techLabel = techName ?? "the assigned tech";
+
+      // How many times has TriageIt already called about this ticket?
+      // Feeds the manager tone ("this is the third call about this ticket").
+      const { count: priorCallCount } = await supabase
+        .from("sla_call_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("halo_id", haloId)
+        .eq("status", "calling")
+        .neq("id", req.id);
+
       const lastCommunication = await fetchLastCommunication(halo, haloId);
       registerEscalationCall(destination, {
         haloId,
         summary: String(ticket?.summary ?? `ticket ${haloId}`).slice(0, 150),
         clientName: (ticket?.client_name as string) ?? null,
-        techName: (ticket?.halo_agent as string) ?? null,
+        techName,
         hoursOver,
+        priorCalls: priorCallCount ?? 0,
         objective: (req.objective as string) ?? null,
         lastCommunication,
         lastTechUpdate: ticket?.last_tech_action_at
