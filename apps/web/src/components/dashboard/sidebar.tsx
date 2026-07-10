@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
+  { href: "/command", label: "Command" },
   { href: "/tickets", label: "Tickets" },
   { href: "/sla-hunter", label: "SLA Hunter" },
   { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
