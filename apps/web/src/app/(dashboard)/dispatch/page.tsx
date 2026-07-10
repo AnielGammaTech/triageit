@@ -302,6 +302,8 @@ function eventTime(e: WeekEvent): string {
   return new Date(e.startsAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
+const MAX_CHIPS_PER_DAY = 3;
+
 function WeekGrid({
   week,
   onPrev,
@@ -314,6 +316,12 @@ function WeekGrid({
   readonly onToday: () => void;
 }) {
   const rangeLabel = `${fmtDayHeader(week.days[0]).date} – ${fmtDayHeader(week.days[week.days.length - 1]).date}`;
+  // Weekend columns only earn their space when something is scheduled on them.
+  const busyDays = new Set(week.techs.flatMap((t) => t.events.map((e) => e.day)));
+  const days = week.days.filter((day, i) => i < 5 || busyDays.has(day));
+  // People with an empty week collapse into a single footer line.
+  const activeTechs = week.techs.filter((t) => t.events.length > 0);
+  const quietTechs = week.techs.filter((t) => t.events.length === 0).map((t) => t.tech);
   return (
     <Section
       title="Week"
@@ -334,11 +342,11 @@ function WeekGrid({
       }
     >
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left">
+        <table className="w-full table-fixed border-collapse text-left">
           <thead>
             <tr>
-              <th className="w-36 px-4 py-2 text-xs font-medium text-zinc-400" />
-              {week.days.map((day) => {
+              <th className="w-32 px-4 py-2 text-xs font-medium text-zinc-400" />
+              {days.map((day) => {
                 const h = fmtDayHeader(day);
                 return (
                   <th key={day} className="border-l px-2 py-2 text-xs font-medium" style={{ borderColor: HAIRLINE }}>
@@ -351,28 +359,38 @@ function WeekGrid({
             </tr>
           </thead>
           <tbody>
-            {week.techs.map((row) => (
+            {activeTechs.map((row) => (
               <tr key={row.tech} className="border-t align-top" style={{ borderColor: HAIRLINE }}>
-                <td className="px-4 py-2 text-sm font-medium text-white">{row.tech}</td>
-                {week.days.map((day) => {
+                <td className="truncate px-4 py-2 text-sm font-medium text-white">{row.tech}</td>
+                {days.map((day) => {
                   const events = row.events.filter((e) => e.day === day);
+                  const shown = events.slice(0, MAX_CHIPS_PER_DAY);
+                  const hidden = events.length - shown.length;
                   return (
                     <td key={day} className="border-l px-1.5 py-1.5" style={{ borderColor: HAIRLINE }}>
                       <div className="space-y-1">
-                        {events.map((e, i) => {
+                        {shown.map((e, i) => {
                           const style = WEEK_EVENT_STYLE[e.type];
                           return (
                             <div
                               key={`${e.startsAt}-${i}`}
                               title={`${style.label}: ${e.subject}`}
-                              className="rounded px-1.5 py-1 text-[10px] leading-tight"
+                              className="truncate rounded px-1.5 py-1 text-[10px] leading-tight"
                               style={{ background: style.bg, color: style.text }}
                             >
                               <span className="font-semibold">{e.type === "pto" ? "OFF" : eventTime(e)}</span>{" "}
-                              {e.type === "pto" ? "" : e.subject.slice(0, 34)}
+                              {e.type === "pto" ? "" : e.subject}
                             </div>
                           );
                         })}
+                        {hidden > 0 && (
+                          <div
+                            className="rounded px-1.5 py-0.5 text-[10px] text-zinc-500"
+                            title={events.slice(MAX_CHIPS_PER_DAY).map((e) => `${eventTime(e)} ${e.subject}`).join("\n")}
+                          >
+                            +{hidden} more
+                          </div>
+                        )}
                       </div>
                     </td>
                   );
@@ -382,6 +400,11 @@ function WeekGrid({
           </tbody>
         </table>
       </div>
+      {quietTechs.length > 0 && (
+        <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          Nothing scheduled this week: {quietTechs.join(", ")}
+        </p>
+      )}
     </Section>
   );
 }

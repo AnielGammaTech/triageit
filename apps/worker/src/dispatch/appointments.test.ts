@@ -37,11 +37,12 @@ const appt = (over: Partial<DispatchAppointment>): DispatchAppointment => ({
 });
 
 describe("parseAppointment", () => {
-  it("converts ET wall-clock dates to real UTC and carries type/ticket/note", () => {
+  it("treats Halo's offset-less dates as UTC and carries type/ticket/note", () => {
+    // Verified live (ticket #40930): Halo returns UTC without a Z suffix.
     const parsed = parseAppointment(liveRow);
     expect(parsed).not.toBeNull();
-    expect(parsed!.startsAt).toBe("2026-07-13T15:00:00.000Z"); // 11 AM EDT
-    expect(parsed!.endsAt).toBe("2026-07-13T17:00:00.000Z");
+    expect(parsed!.startsAt).toBe("2026-07-13T11:00:00.000Z");
+    expect(parsed!.endsAt).toBe("2026-07-13T13:00:00.000Z");
     expect(parsed!.type).toBe("Site Visit");
     expect(parsed!.ticketId).toBe(41013);
     expect(parsed!.note).toBe("Bring the dock");

@@ -22,9 +22,8 @@ describe("etWallToUtcIso", () => {
 });
 
 describe("haloEtToUtcIso", () => {
-  it("treats offset-less strings as ET wall-clock (the 'until 3:30 AM' fix)", () => {
-    // 11:30 PM ET must NOT render as 3:30 AM — it is 03:30 UTC next day.
-    expect(haloEtToUtcIso("2026-07-10T23:30:00")).toBe("2026-07-11T03:30:00.000Z");
+  it("treats offset-less strings as UTC (verified live: ticket #40930's 4 PM ET came back as 20:00)", () => {
+    expect(haloEtToUtcIso("2026-07-14T20:00:00")).toBe("2026-07-14T20:00:00.000Z");
   });
 
   it("passes through explicit UTC/offset strings unchanged", () => {
