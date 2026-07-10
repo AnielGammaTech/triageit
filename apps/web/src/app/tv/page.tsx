@@ -381,11 +381,11 @@ export default function TvPage() {
               ) : data.wallOfShame.length === 0 ? (
                 <Empty text="Nobody on the wall. Clean board." />
               ) : (
-                <Ranked items={data.wallOfShame.slice(0, 4)} color={RED} />
+                <Ranked items={data.wallOfShame.slice(0, 3)} color={RED} />
               )}
             </Panel>
             <Panel title="Wall of Fame" icon={<Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} />} className="flex-1">
-              {!data ? <Loading /> : data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 4)} color="#facc15" />}
+              {!data ? <Loading /> : data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 3)} color="#facc15" />}
             </Panel>
           </div>
         </div>
