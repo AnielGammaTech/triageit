@@ -665,6 +665,16 @@ async function analyzeCall(
   }
 }
 
+/**
+ * Parse a 3CX time string as UTC so it always renders correctly in Eastern.
+ * 3CX returns UTC, but a naive string (no offset) would otherwise be parsed as
+ * the server's local time and shift the displayed call time.
+ */
+function parse3cxTime(s: string): Date {
+  const hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(s.trim());
+  return new Date(hasZone ? s : s.replace(" ", "T") + "Z");
+}
+
 function buildCallSummaryNote(
   rec: ThreeCxRecording,
   insights: CallInsights,
@@ -676,7 +686,7 @@ function buildCallSummaryNote(
 ): string {
   const border = "border-bottom:1px solid #3a3f4b;";
   const when = rec.StartTime
-    ? new Date(rec.StartTime).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    ? parse3cxTime(rec.StartTime).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : "?";
   const durationMin =
     rec.StartTime && rec.EndTime
