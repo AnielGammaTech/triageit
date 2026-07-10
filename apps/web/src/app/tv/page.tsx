@@ -9,7 +9,8 @@ import {
   UserX,
   Wrench,
   ArrowDownUp,
-  Skull,
+  Trophy,
+  Hourglass,
   BarChart3,
   ShieldCheck,
   WifiOff,
@@ -28,7 +29,6 @@ const STALE_AFTER_MS = 120_000;
 const RELOAD_AFTER_MS = 6 * 3600_000;
 
 const RED = "#ef4444";
-const RED_DEEP = "#7f1d1d";
 const AMBER = "#f59e0b";
 const PANEL = "#0d0608";
 const PANEL_2 = "#120a0d";
@@ -49,11 +49,21 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const statusColor = (s: string): string => STATUS_COLOR[s.toLowerCase()] ?? "#64748b";
 
-const mins = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`);
+const mins = (m: number): string => {
+  if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`;
+  if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return `${m}m`;
+};
+
+function BrandMark({ size }: { readonly size: string }) {
+  // Real TriageIT logo (app icon.svg — served by Next at /icon.svg)
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/icon.svg" alt="TriageIT" style={{ width: size, height: size, filter: "drop-shadow(0 0 1.2vw rgba(239,68,68,0.5))" }} />;
+}
 
 const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
-  { title: "Wall of Shame & Fame", icon: <Skull className="h-[1vw] w-[1vw]" style={{ color: RED }} /> },
+  { title: "Tech Scoreboard — 30 days", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
@@ -125,13 +135,10 @@ export default function TvPage() {
     return (
       <Shell>
         <div className="flex h-full flex-col items-center justify-center gap-[2vh]">
-          <div
-            className="flex h-[8vw] w-[8vw] items-center justify-center rounded-[1.5vw]"
-            style={{ background: `linear-gradient(135deg, ${RED}, ${RED_DEEP})`, boxShadow: `0 0 6vw -1vw ${RED}` }}
-          >
-            <Activity className="h-[4vw] w-[4vw] text-white" strokeWidth={2.5} />
-          </div>
-          <h1 className="text-[2.6vw] font-black tracking-tight text-white">TRIAGEIT COMMAND</h1>
+          <BrandMark size="7vw" />
+          <h1 className="text-[2.6vw] font-black tracking-tight text-white">
+            TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
+          </h1>
           <p className="text-[1.1vw]" style={{ color: INK_DIM }}>
             {authFailed ? "That access key was rejected — enter the current one." : "Enter the access key to bring the board online."}
           </p>
@@ -192,15 +199,10 @@ export default function TvPage() {
         {/* ── Header ── */}
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-[1vw]">
-            <div
-              className="flex h-[3.4vw] w-[3.4vw] items-center justify-center rounded-[0.7vw]"
-              style={{ background: `linear-gradient(135deg, ${RED}, ${RED_DEEP})`, boxShadow: `0 0 2.5vw -0.6vw ${RED}` }}
-            >
-              <Activity className="h-[1.9vw] w-[1.9vw] text-white" strokeWidth={2.5} />
-            </div>
+            <BrandMark size="3.4vw" />
             <div>
               <h1 className="text-[1.7vw] font-black leading-none tracking-tight text-white">
-                TRIAGEIT <span style={{ color: RED }}>COMMAND</span>
+                TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
               </h1>
               <div className="mt-[0.4vh] flex items-center gap-[0.6vw] text-[0.85vw]" style={{ color: INK_DIM }}>
                 {stale ? (
@@ -303,6 +305,7 @@ export default function TvPage() {
                         badge: `WAITING ${mins(t.ageMin)}`,
                         badgeColor: "#e4e4e7",
                         badgeFg: "#000",
+                        highlight: true,
                       }))}
                       more={data.unassignedTickets.length - unassignedCap}
                     />
@@ -327,11 +330,12 @@ export default function TvPage() {
             )}
           </Panel>
 
-          {/* Carousel — rotates every 10s */}
+          {/* Carousel (top) + Oldest Open (bottom) */}
+          <div className="col-span-5 flex min-h-0 flex-col gap-[0.8vw]">
           <Panel
             title={CAROUSEL_SLIDES[slide].title}
             icon={CAROUSEL_SLIDES[slide].icon}
-            className="col-span-5"
+            className="flex-[3]"
             trailing={
               <span className="ml-auto flex items-center gap-[0.4vw]">
                 {CAROUSEL_SLIDES.map((s, i) => (
@@ -343,7 +347,7 @@ export default function TvPage() {
             {!data ? (
               <Loading />
             ) : (
-              <div key={slide} className="h-full" style={{ animation: "tvFadeIn 500ms ease" }}>
+              <div key={slide} className="h-full" style={{ animation: "tvFadeIn 1100ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
                 {slide === 0 && (
                   <table className="h-full w-full text-left">
                     <thead>
@@ -371,19 +375,43 @@ export default function TvPage() {
                   </table>
                 )}
                 {slide === 1 && (
-                  <div className="grid h-full grid-cols-2 divide-x" style={{ borderColor: HAIRLINE }}>
-                    <div className="flex min-h-0 flex-col">
-                      <QueueHeader label="SHAME" count={data.wallOfShame.length} color={RED} />
-                      {data.wallOfShame.length === 0 ? (
-                        <Empty text="Nobody. Clean board." />
-                      ) : (
-                        <Ranked items={data.wallOfShame.slice(0, 6)} color={RED} />
-                      )}
-                    </div>
-                    <div className="flex min-h-0 flex-col" style={{ borderColor: HAIRLINE }}>
-                      <QueueHeader label="FAME" count={data.wallOfFame.length} color="#facc15" />
-                      {data.wallOfFame.length === 0 ? <Empty text="Earn it." /> : <Ranked items={data.wallOfFame.slice(0, 6)} color="#facc15" />}
-                    </div>
+                  <div className="flex h-full flex-col">
+                    {data.scoreboard.slice(0, 7).map((t, i, arr) => {
+                      const worst = i === arr.length - 1 && t.score < 0;
+                      const chips: Array<{ label: string; color: string }> = [];
+                      if (t.good > 0) chips.push({ label: `${t.good} good`, color: "#4ade80" });
+                      if (t.poor > 0) chips.push({ label: `${t.poor} poor`, color: "#f87171" });
+                      if (t.breaching > 0) chips.push({ label: `${t.breaching} breaching`, color: RED });
+                      if (t.unacked > 0) chips.push({ label: `${t.unacked} unacked`, color: AMBER });
+                      return (
+                        <div key={t.tech} className="flex flex-1 items-center gap-[0.8vw] border-b px-[1.1vw] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
+                          <span
+                            className="flex h-[1.9vw] w-[1.9vw] shrink-0 items-center justify-center rounded-full text-[0.95vw] font-black"
+                            style={{
+                              background: i === 0 ? "#facc15" : worst ? RED : "transparent",
+                              border: i === 0 || worst ? "none" : `1px solid ${HAIRLINE}`,
+                              color: i === 0 ? "#000" : worst ? "#fff" : INK_DIM,
+                            }}
+                          >
+                            {i + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[1.15vw] font-black text-white">{t.tech}</span>
+                          <span className="flex shrink-0 items-center gap-[0.5vw]">
+                            {chips.map((c) => (
+                              <span key={c.label} className="rounded-full border px-[0.55vw] py-[0.2vh] text-[0.75vw] font-bold" style={{ borderColor: c.color, color: c.color }}>
+                                {c.label}
+                              </span>
+                            ))}
+                          </span>
+                          <span
+                            className="w-[3vw] shrink-0 text-right text-[1.3vw] font-black"
+                            style={{ fontFamily: "var(--font-mono-tv), monospace", color: t.score > 0 ? "#4ade80" : t.score < 0 ? RED : INK_DIM }}
+                          >
+                            {t.score > 0 ? `+${t.score}` : t.score}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {slide === 2 && (
@@ -412,6 +440,23 @@ export default function TvPage() {
               </div>
             )}
           </Panel>
+          <Panel title="Oldest Open Tickets" icon={<Hourglass className="h-[1vw] w-[1vw]" style={{ color: INK_DIM }} />} className="flex-[2]">
+            {!data ? (
+              <Loading />
+            ) : (
+              <RowList
+                items={data.oldestTickets.slice(0, 4).map((t) => ({
+                  id: t.halo_id,
+                  left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
+                  who: t.halo_status ?? "",
+                  badge: `OPEN ${mins(t.ageMin)}`,
+                  badgeColor: "#3f3f46",
+                }))}
+                more={0}
+              />
+            )}
+          </Panel>
+          </div>
         </div>
       </div>
     </Shell>
@@ -421,7 +466,7 @@ export default function TvPage() {
 function Shell({ children }: { readonly children: React.ReactNode }) {
   return (
     <main className="h-screen w-screen overflow-hidden" style={{ background: "#000", cursor: "none" }}>
-      <style>{`@keyframes tvFadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+      <style>{`@keyframes tvFadeIn { from { opacity: 0; transform: translateY(0.8vh); } to { opacity: 1; transform: none; } }`}</style>
       {children}
     </main>
   );
@@ -518,13 +563,18 @@ function RowList({
     readonly badge: string;
     readonly badgeColor: string;
     readonly badgeFg?: string;
+    readonly highlight?: boolean;
   }>;
   readonly more: number;
 }) {
   return (
     <div>
       {items.map((r) => (
-        <div key={r.id} className="flex items-center gap-[0.7vw] border-b px-[1vw] py-[1vh] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
+        <div
+          key={r.id}
+          className="flex items-center gap-[0.7vw] border-b px-[1vw] py-[1vh] last:border-b-0"
+          style={{ borderColor: "#1f0d11", background: r.highlight ? "rgba(228,228,231,0.08)" : undefined }}
+        >
           <span className="shrink-0 text-[0.95vw] font-bold text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
             #{r.id}
           </span>
@@ -549,33 +599,6 @@ function RowList({
   );
 }
 
-function Ranked({ items, color }: { readonly items: ReadonlyArray<{ readonly tech: string; readonly reasons: ReadonlyArray<string> }>; readonly color: string }) {
-  // Rows stretch to fill the panel — a wallboard widget shouldn't trail off
-  // into dead space when the list is short.
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {items.map((w, i) => (
-        <div key={w.tech} className="flex flex-1 items-center gap-[0.8vw] border-b px-[1.1vw] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
-          <span
-            className="flex h-[1.9vw] w-[1.9vw] shrink-0 items-center justify-center rounded-full text-[0.95vw] font-black"
-            style={{ background: i === 0 ? color : "transparent", border: i === 0 ? "none" : `1px solid ${HAIRLINE}`, color: i === 0 ? "#000" : INK_DIM }}
-          >
-            {i + 1}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[1.2vw] font-black text-white">{w.tech}</div>
-            {w.reasons.slice(0, 2).map((r) => (
-              <div key={r} className="truncate text-[0.85vw]" style={{ color: INK_DIM }}>
-                {r}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function Num({ v, hot }: { readonly v: number; readonly hot?: string }) {
   return (
     <td className="py-[0.9vh] text-center text-[1vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: v > 0 && hot ? hot : v > 0 ? "#e4e4e7" : INK_FAINT }}>
@@ -592,10 +615,3 @@ function Loading() {
   );
 }
 
-function Empty({ text }: { readonly text: string }) {
-  return (
-    <div className="px-[1vw] py-[1.5vh] text-[0.9vw]" style={{ color: INK_DIM }}>
-      {text}
-    </div>
-  );
-}

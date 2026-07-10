@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { isHelpdeskTechnicianName } from "@triageit/shared";
 
 /**
  * Shared Command Center aggregation — consumed by the authenticated dashboard
@@ -73,6 +74,15 @@ export interface CommandRanked {
   readonly reasons: ReadonlyArray<string>;
 }
 
+export interface CommandScore {
+  readonly tech: string;
+  readonly score: number;
+  readonly good: number;
+  readonly poor: number;
+  readonly breaching: number;
+  readonly unacked: number;
+}
+
 export interface CommandCenterPayload {
   readonly generatedAt: string;
   readonly metrics: {
@@ -90,9 +100,11 @@ export interface CommandCenterPayload {
   readonly breaches: ReadonlyArray<CommandBreach>;
   readonly atRisk: ReadonlyArray<CommandAtRisk>;
   readonly unassignedTickets: ReadonlyArray<CommandUnassigned>;
+  readonly oldestTickets: ReadonlyArray<CommandUnassigned>;
   readonly techStats: ReadonlyArray<CommandTechStat>;
   readonly wallOfShame: ReadonlyArray<CommandRanked>;
   readonly wallOfFame: ReadonlyArray<CommandRanked>;
+  readonly scoreboard: ReadonlyArray<CommandScore>;
   readonly haloBaseUrl: string;
 }
 
@@ -211,6 +223,18 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     }))
     .sort((a, b) => b.ageMin - a.ageMin);
 
+  // ── Oldest open tickets — the ones quietly rotting ──
+  const oldestTickets: CommandUnassigned[] = tickets
+    .map((t) => ({
+      halo_id: t.halo_id,
+      summary: t.summary,
+      client_name: t.client_name,
+      halo_status: t.halo_status,
+      ageMin: Math.max(0, Math.floor((now - new Date(t.created_at).getTime()) / 60_000)),
+    }))
+    .sort((a, b) => b.ageMin - a.ageMin)
+    .slice(0, 8);
+
   // ── Per-tech stats ──
   interface TechAgg {
     tech: string;
@@ -287,6 +311,20 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     .filter((t) => t.score > 0 && t.reasons.length > 0)
     .sort((a, b) => b.score - a.score);
 
+  // ── Tech scoreboard — ONE ranked list (replaces shame/fame confusion):
+  // real helpdesk techs only, net score = credits minus live problems.
+  const scoreboard: CommandScore[] = techStats
+    .filter((t) => isHelpdeskTechnicianName(t.tech))
+    .map((t) => ({
+      tech: t.tech,
+      score: t.goodReviews * 2 - t.poorReviews * 2 - t.breaching * 3 - t.unackedReplies * 2,
+      good: t.goodReviews,
+      poor: t.poorReviews,
+      breaching: t.breaching,
+      unacked: t.unackedReplies,
+    }))
+    .sort((a, b) => b.score - a.score);
+
   const metrics = {
     open: tickets.length,
     breaching: breaches.length,
@@ -299,5 +337,5 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     resolvedToday: resolvedTodayRes.count ?? 0,
   };
 
-  return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, unassignedTickets, techStats, wallOfShame, wallOfFame, haloBaseUrl };
+  return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, unassignedTickets, oldestTickets, techStats, wallOfShame, wallOfFame, scoreboard, haloBaseUrl };
 }
