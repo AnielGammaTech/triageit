@@ -273,7 +273,7 @@ export default function TvPage() {
           >
             {!data ? (
               <Loading />
-            ) : data.breaches.length === 0 && data.unassignedTickets.length === 0 && data.atRisk.length === 0 ? (
+            ) : data.breaches.length === 0 && data.unassignedTickets.length === 0 && data.oldestTickets.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-[1.2vh]">
                 <ShieldCheck className="h-[4vw] w-[4vw]" style={{ color: "#22c55e" }} />
                 <span className="text-[1.8vw] font-black tracking-[0.2em] text-white">ALL CLEAR</span>
@@ -313,18 +313,18 @@ export default function TvPage() {
                     />
                   </>
                 )}
-                {data.atRisk.length > 0 && (
+                {data.oldestTickets.length > 0 && (
                   <>
-                    <QueueHeader label="AT RISK — SLA DUE SOON" count={data.atRisk.length} color={AMBER} />
+                    <QueueHeader label="WAITING ON TECH — OLDEST FIRST" count={m?.waitingOnTech ?? data.oldestTickets.length} color="#fe9200" />
                     <RowList
-                      items={data.atRisk.slice(0, atRiskCap).map((t) => ({
+                      items={data.oldestTickets.slice(0, atRiskCap).map((t) => ({
                         id: t.halo_id,
                         left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
                         who: t.halo_agent ?? "UNASSIGNED",
-                        badge: `DUE IN ${mins(t.dueInMin)}`,
-                        badgeColor: AMBER,
+                        badge: `WAITING ${mins(t.ageMin)}`,
+                        badgeColor: "#fe9200",
                       }))}
-                      more={data.atRisk.length - atRiskCap}
+                      more={(m?.waitingOnTech ?? 0) - Math.min(data.oldestTickets.length, atRiskCap)}
                     />
                   </>
                 )}
@@ -420,19 +420,23 @@ export default function TvPage() {
               </div>
             )}
           </Panel>
-          <Panel title="Waiting on Tech — Oldest" icon={<Hourglass className="h-[1vw] w-[1vw]" style={{ color: "#fe9200" }} />} className="flex-[2]">
+          <Panel title="At Risk — SLA Due Soon" icon={<Timer className="h-[1vw] w-[1vw]" style={{ color: AMBER }} />} className="flex-[2]">
             {!data ? (
               <Loading />
+            ) : data.atRisk.length === 0 ? (
+              <div className="px-[1vw] py-[1.5vh] text-[0.9vw]" style={{ color: INK_DIM }}>
+                Nothing due in the next 2 hours.
+              </div>
             ) : (
               <RowList
-                items={data.oldestTickets.slice(0, 4).map((t) => ({
+                items={data.atRisk.slice(0, 4).map((t) => ({
                   id: t.halo_id,
                   left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
-                  who: t.halo_agent ?? "",
-                  badge: `WAITING ${mins(t.ageMin)}`,
-                  badgeColor: "#fe9200",
+                  who: t.halo_agent ?? "UNASSIGNED",
+                  badge: `DUE IN ${mins(t.dueInMin)}`,
+                  badgeColor: AMBER,
                 }))}
-                more={0}
+                more={data.atRisk.length - 4}
               />
             )}
           </Panel>

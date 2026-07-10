@@ -236,7 +236,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       ageMin: Math.max(0, Math.floor((now - new Date(t.created_at).getTime()) / 60_000)),
     }))
     .sort((a, b) => b.ageMin - a.ageMin)
-    .slice(0, 8);
+    .slice(0, 12);
 
   // ── Per-tech stats ──
   interface TechAgg {
