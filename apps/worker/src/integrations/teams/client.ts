@@ -58,6 +58,18 @@ function ordinal(n: number): string {
   return `${n}th`;
 }
 
+/**
+ * Business hours for real-time alerts: 8am–5pm ET, Monday–Friday. Every
+ * reactive Teams alert (SLA breach, triage summary, response/update-request,
+ * onsite, etc.) is suppressed outside this window — no more 11pm pings.
+ * Scheduled digests (daily/weekly/Toby) bypass this via sendCard's allowAnytime.
+ */
+export function isWithinBusinessHours(now: Date = new Date()): boolean {
+  const hour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const day = now.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+  return hour >= 8 && hour < 17 && !["Sat", "Sun"].includes(day);
+}
+
 const FLAG_LABELS: Record<string, string> = {
   wot_overdue: "WOT > 24hrs",
   customer_waiting: "Customer waiting 24hrs+",
@@ -75,7 +87,13 @@ export class TeamsClient {
    * channel "sla" = SLA breach alerts ONLY (sla_webhook_url when
    * configured, else falls back to the ops webhook so nothing is lost).
    */
-  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops"): Promise<void> {
+  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops", allowAnytime = false): Promise<void> {
+    // Suppress reactive alerts outside 8am–5pm ET, Mon–Fri. Scheduled digests
+    // pass allowAnytime=true so they still fire at their set times.
+    if (!allowAnytime && !isWithinBusinessHours()) {
+      console.log(`[TEAMS] Suppressed ${channel} alert — outside business hours (8am–5pm ET, Mon–Fri)`);
+      return;
+    }
     const url = channel === "sla" && this.config.sla_webhook_url ? this.config.sla_webhook_url : this.config.webhook_url;
     const response = await fetch(url, {
       method: "POST",
@@ -216,7 +234,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "ops", true);
   }
 
   async sendTriageSummary(triage: {
@@ -347,7 +365,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "ops", true);
   }
 
   async sendTechPerformanceSummary(reviews: ReadonlyArray<{
@@ -780,7 +798,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card);
+    await this.sendCard(card, "ops", true);
   }
 
   async sendPermanentFailureAlert(tickets: ReadonlyArray<{

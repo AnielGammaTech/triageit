@@ -8,7 +8,7 @@ import {
   type HaloConfig,
   type TeamsConfig,
 } from "@triageit/shared";
-import { TeamsClient } from "../integrations/teams/client.js";
+import { TeamsClient, isWithinBusinessHours } from "../integrations/teams/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
 import { runSlaCallRequests } from "./sla-call.js";
 
@@ -211,14 +211,23 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
         : null;
       return timeLeft != null && timeLeft < 0 ? Math.abs(timeLeft) : null;
     };
-    const toAlert = breachers.filter((t) => {
-      const age = breachAge(t);
-      if (age == null || age < GRACE_HOURS) return false;
-      const local = localByHaloId.get(t.id as number);
-      const lastAlerted = local?.sla_breach_alerted_at ? new Date(local.sla_breach_alerted_at as string).getTime() : null;
-      if (lastAlerted == null) return true; // first notice
-      return Date.now() - lastAlerted >= REALERT_MS; // hourly escalation
-    });
+    // Alerts + call-outs only during business hours (8am–5pm ET, Mon–Fri).
+    // Off-hours we still DETECT and record breaches, but claim/send/call
+    // nothing — so the first in-hours alert is a proper "1st notice", not a
+    // harsh "2nd alert" against a claim the tech never actually received.
+    const toAlert = !isWithinBusinessHours()
+      ? []
+      : breachers.filter((t) => {
+          const age = breachAge(t);
+          if (age == null || age < GRACE_HOURS) return false;
+          const local = localByHaloId.get(t.id as number);
+          const lastAlerted = local?.sla_breach_alerted_at ? new Date(local.sla_breach_alerted_at as string).getTime() : null;
+          if (lastAlerted == null) return true; // first notice
+          return Date.now() - lastAlerted >= REALERT_MS; // hourly escalation
+        });
+    if (breachers.length > 0 && toAlert.length === 0 && !isWithinBusinessHours()) {
+      console.log(`[SLA SCAN] ${breachers.length} breach(es) detected but alerts suppressed — outside business hours (8am–5pm ET, Mon–Fri)`);
+    }
 
     if (toAlert.length > 0) {
       const { data: teamsIntegration } = await supabase
@@ -284,9 +293,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
             // Auto call-out (user decision): 2nd alert and every one after,
             // while the tech hasn't touched the ticket — ring their 3CX
             // extension during business hours only
-            const etHour = Number(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
-            const etDay = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
-            const businessHours = etHour >= 7 && etHour < 18 && !["Sat", "Sun"].includes(etDay);
+            const businessHours = isWithinBusinessHours();
             const techForCall = (local?.halo_agent as string) ?? null;
             if (attempt >= 2 && noUpdateSinceLastAlert && businessHours && techForCall) {
               const { data: recentCall } = await supabase
