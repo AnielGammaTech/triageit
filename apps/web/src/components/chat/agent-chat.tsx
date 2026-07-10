@@ -78,7 +78,7 @@ export function AgentChat({ config, ticketContext }: AgentChatProps) {
   const [streamingText, setStreamingText] = useState("");
   const [statusText, setStatusText] = useState("");
   const [activityLog, setActivityLog] = useState<ReadonlyArray<string>>([]);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<ReadonlyArray<LearnedSkill>>([]);
   const [sessionCost, setSessionCost] = useState(0);
@@ -169,6 +169,7 @@ export function AgentChat({ config, ticketContext }: AgentChatProps) {
   const selectConversation = useCallback((convId: string) => {
     setActiveConversationId(convId);
     loadMessages(convId);
+    setShowSidebar(false);
   }, [loadMessages]);
 
   const startNewConversation = useCallback(() => {
@@ -298,56 +299,59 @@ export function AgentChat({ config, ticketContext }: AgentChatProps) {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
-      {/* Sidebar */}
+      {/* Drawer scrim (mobile only) */}
       {showSidebar && (
-        <div className="w-64 shrink-0 border-r border-white/[0.06] bg-white/[0.02] flex flex-col">
-          <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
-            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">History</span>
-            <button onClick={startNewConversation} className="rounded-md p-1 text-white/40 hover:text-white hover:bg-white/5 transition-colors" title="New conversation">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {conversations.map((conv) => (
-              <div key={conv.id} className={cn("group flex items-center gap-2 px-3 py-2.5 cursor-pointer transition-colors", activeConversationId === conv.id ? "bg-white/[0.08] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.04]")} onClick={() => selectConversation(conv.id)}>
-                <span className="flex-1 truncate text-sm">{conv.title}</span>
-                <button onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }} className="shrink-0 cursor-pointer rounded p-0.5 text-white/25 opacity-60 transition-colors hover:text-red-400 hover:opacity-100 group-hover:opacity-100">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                </button>
-              </div>
-            ))}
-            {conversations.length === 0 && <p className="px-3 py-4 text-xs text-white/30 text-center">No conversations yet</p>}
-          </div>
-          {/* Skills */}
-          <div className="border-t border-white/[0.06]">
-            <button onClick={() => setShowSkills((prev) => !prev)} className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-semibold text-white/50 uppercase tracking-wider hover:bg-white/[0.04] transition-colors">
-              <span>Learned Skills ({skills.filter((s) => s.is_active).length})</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn("transition-transform", showSkills && "rotate-180")}><polyline points="6 9 12 15 18 9" /></svg>
-            </button>
-            {showSkills && (
-              <div className="max-h-40 overflow-y-auto border-t border-white/[0.04]">
-                {skills.filter((s) => s.is_active).map((skill) => (
-                  <div key={skill.id} className="group flex items-start gap-2 px-3 py-2 text-xs text-white/50">
-                    <span className="flex-1">{skill.title}</span>
-                    <button onClick={() => deleteSkill(skill.id)} className="hidden group-hover:block shrink-0 text-red-400/60 hover:text-red-400" title="Remove skill">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                    </button>
-                  </div>
-                ))}
-                {skills.filter((s) => s.is_active).length === 0 && (
-                  <p className="px-3 py-2 text-xs text-white/20">{config.skillLearnHint}</p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        <div className="fixed bottom-0 left-0 right-0 top-14 z-30 bg-black/60 lg:hidden" onClick={() => setShowSidebar(false)} />
       )}
+
+      {/* Sidebar — overlay drawer below lg, inline column at lg+ */}
+      <div className={cn("fixed bottom-0 left-0 top-14 z-40 w-72 flex-col border-r border-white/[0.06] bg-[#0e0e10] shadow-xl", "lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:bg-white/[0.02] lg:shadow-none", showSidebar ? "flex" : "hidden lg:flex")}>
+        <div className="flex items-center justify-between p-3 border-b border-white/[0.06]">
+          <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">History</span>
+          <button onClick={startNewConversation} className="-m-2 rounded-md p-3 text-white/40 hover:text-white hover:bg-white/5 transition-colors" title="New conversation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {conversations.map((conv) => (
+            <div key={conv.id} className={cn("group flex items-center gap-2 px-3 py-2.5 cursor-pointer transition-colors", activeConversationId === conv.id ? "bg-white/[0.08] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.04]")} onClick={() => selectConversation(conv.id)}>
+              <span className="flex-1 truncate text-sm">{conv.title}</span>
+              <button onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }} className="-m-1.5 shrink-0 cursor-pointer rounded p-2 text-white/25 opacity-60 transition-colors hover:text-red-400 hover:opacity-100 group-hover:opacity-100">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+          ))}
+          {conversations.length === 0 && <p className="px-3 py-4 text-xs text-white/30 text-center">No conversations yet</p>}
+        </div>
+        {/* Skills */}
+        <div className="border-t border-white/[0.06]">
+          <button onClick={() => setShowSkills((prev) => !prev)} className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-semibold text-white/50 uppercase tracking-wider hover:bg-white/[0.04] transition-colors">
+            <span>Learned Skills ({skills.filter((s) => s.is_active).length})</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cn("transition-transform", showSkills && "rotate-180")}><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+          {showSkills && (
+            <div className="max-h-40 overflow-y-auto border-t border-white/[0.04]">
+              {skills.filter((s) => s.is_active).map((skill) => (
+                <div key={skill.id} className="group flex items-start gap-2 px-3 py-2 text-xs text-white/50">
+                  <span className="flex-1">{skill.title}</span>
+                  <button onClick={() => deleteSkill(skill.id)} className="-m-1.5 block shrink-0 rounded p-2 text-red-400/60 hover:text-red-400" title="Remove skill">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                </div>
+              ))}
+              {skills.filter((s) => s.is_active).length === 0 && (
+                <p className="px-3 py-2 text-xs text-white/20">{config.skillLearnHint}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Main chat */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3">
-          <button onClick={() => setShowSidebar((prev) => !prev)} className="rounded-md p-1 text-white/40 hover:text-white hover:bg-white/5 transition-colors lg:hidden">
+          <button onClick={() => setShowSidebar((prev) => !prev)} className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-white/40 hover:text-white hover:bg-white/5 transition-colors lg:hidden" title="Toggle conversation history">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
           </button>
           <img src={agentAvatar} alt={config.name} className="h-8 w-8 rounded-full object-cover" />

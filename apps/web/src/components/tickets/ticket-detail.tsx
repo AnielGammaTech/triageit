@@ -552,7 +552,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <button
           onClick={onBack}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/5 hover:text-white self-start"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/50 transition-colors hover:bg-white/5 hover:text-white self-start sm:h-8 sm:w-8"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="m15 18-6-6 6-6" />
@@ -603,12 +603,12 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
           </div>
           <p className="mt-1 text-sm text-white/70">{ticket.summary}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2 self-start">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 self-start">
           <button
             onClick={handleSummarize}
             disabled={summarizing}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex min-h-11 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
               summarizing
                 ? "cursor-not-allowed bg-white/5 text-white/20"
                 : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20",
@@ -631,7 +631,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             onClick={handleRetriage}
             disabled={retriaging || isTriaging}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex min-h-11 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
               retriaging || isTriaging
                 ? "cursor-not-allowed bg-white/5 text-white/20"
                 : "bg-[#b91c1c]/10 text-[#b91c1c] hover:bg-[#b91c1c]/20",
@@ -653,7 +653,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
             onClick={handleCloseReview}
             disabled={closeReviewing || closeReviewDone}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex min-h-11 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
               closeReviewDone
                 ? "bg-emerald-500/10 text-emerald-400"
                 : closeReviewing
@@ -681,7 +681,7 @@ export function TicketDetail({ ticketId, onBack, haloBaseUrl }: TicketDetailProp
               onClick={() => setShowAgentMenu(!showAgentMenu)}
               disabled={!!invokingAgent}
               className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                "flex min-h-11 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
                 invokingAgent
                   ? "cursor-not-allowed bg-white/5 text-white/20"
                   : "bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20",

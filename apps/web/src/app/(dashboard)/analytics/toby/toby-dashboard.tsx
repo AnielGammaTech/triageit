@@ -100,7 +100,7 @@ function TechScorecard({ tech }: { readonly tech: TechProfileRow }) {
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-xs">
+      <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
         <div>
           <p className="text-zinc-500">Avg Response</p>
           <p className={cn("font-semibold", responseColor(tech.avg_response_hours))}>
@@ -362,7 +362,7 @@ function AccuracySummary({
       : null;
 
   return (
-    <div className="grid grid-cols-3 gap-3 p-4">
+    <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-center">
         <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Overall Accuracy
