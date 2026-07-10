@@ -69,8 +69,10 @@ export function buildEscalationCallNote(opts: EscalationNoteOptions): string {
       `<div style="padding:8px 0;line-height:1.6;font-size:12px;color:#cbd5e1;">${opts.collapsed.html}</div></details></td></tr>`
     : "";
 
+  // Full width — no max-width cap; the card stretches to the note pane edges
+  // (user request 2026-07-10).
   return (
-    `<table style="border-collapse:collapse;width:100%;max-width:640px;border:1px solid #3a1f24;border-radius:10px;overflow:hidden;background:#151013;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">` +
+    `<table style="border-collapse:collapse;width:100%;border:1px solid #3a1f24;border-radius:10px;overflow:hidden;background:#151013;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">` +
     header +
     metaRow +
     body +
