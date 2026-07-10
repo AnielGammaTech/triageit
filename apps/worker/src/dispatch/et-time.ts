@@ -29,15 +29,16 @@ export function etWallToUtcIso(wall: string): string | null {
 }
 
 /**
- * Halo date string → UTC ISO. Halo sends ET wall-clock without an offset,
- * but tolerate explicit offsets/Z in case an instance setting changes.
+ * Halo date string → UTC ISO. Halo's /api/Appointment returns UTC WITHOUT
+ * a Z suffix — verified live against ticket #40930 (2026-07-10): the
+ * appointment Halo displays as "7/14/2026 04:00 PM (-04:00)" comes back as
+ * "2026-07-14T20:00:00". Treat offset-less values as UTC; honor explicit
+ * offsets if an instance setting ever adds them.
  */
 export function haloEtToUtcIso(value: string): string | null {
-  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) {
-    const ms = Date.parse(value);
-    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-  }
-  return etWallToUtcIso(value);
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value);
+  const ms = Date.parse(hasOffset ? value : `${value}Z`);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
 /**

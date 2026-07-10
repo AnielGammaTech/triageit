@@ -134,9 +134,17 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
           allDay: true,
         })),
       );
-    const events = [...fromAppointments, ...fromPto].sort(
-      (a, b) => a.day.localeCompare(b.day) || Date.parse(a.startsAt) - Date.parse(b.startsAt),
-    );
+    // Halo can return near-identical rows (recurrences, ticket copies) —
+    // one chip per (day, subject, start) is what a human wants to see.
+    const seen = new Set<string>();
+    const events = [...fromAppointments, ...fromPto]
+      .filter((e) => {
+        const key = `${e.day}|${e.type}|${e.subject.toLowerCase()}|${e.startsAt}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.day.localeCompare(b.day) || Date.parse(a.startsAt) - Date.parse(b.startsAt));
     return { tech: agent.name, events };
   });
 
