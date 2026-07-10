@@ -130,18 +130,21 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
   // call failed, so the note never posted (e.g. Ryan's #40862 Potter Homes
   // call, 2026-07-09) — without this they were dropped forever.
   // Also sweeps note_failed rows (matched + analyzed, but the Halo note POST
-  // failed). Capped at MAX_ANALYSIS_ATTEMPTS so a deterministically-failing
-  // recording (e.g. a transcript the LLM always rejects) can't be retried
-  // ~1,440×/day at the every-minute cadence.
+  // failed) AND transcript_too_short rows. The latter is the key one: 3CX
+  // transcribes ASYNCHRONOUSLY, so a recording grabbed seconds after the call
+  // often has an empty/partial transcript → marked too_short → skipped forever.
+  // Re-fetching a few minutes later usually gets the finished transcript, which
+  // then matches (e.g. recording 85401 → #40979). Capped at MAX_ANALYSIS_ATTEMPTS
+  // so a genuinely short call isn't retried ~1,440×/day.
   const { data: failedRows } = await supabase
     .from("call_analyses")
     .select("recording_id, analysis_attempts")
-    .or("matched_by.like.%analysis_failed%,matched_by.like.%note_failed%")
+    .or("matched_by.like.%analysis_failed%,matched_by.like.%note_failed%,matched_by.eq.transcript_too_short")
     .eq("note_posted", false)
     .lt("analysis_attempts", MAX_ANALYSIS_ATTEMPTS)
     .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
-    .order("recording_id", { ascending: true })
-    .limit(5);
+    .order("recording_id", { ascending: false })
+    .limit(8);
   for (const row of failedRows ?? []) {
     const recId = Number(row.recording_id);
     const [rec] = (await tcx.getRecordingsSince(recId - 1, 1)) ?? [];
