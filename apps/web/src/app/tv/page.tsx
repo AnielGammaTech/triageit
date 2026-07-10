@@ -175,7 +175,7 @@ export default function TvPage() {
   const m = data?.metrics;
   const stale = lastOkAt > 0 && nowTick - lastOkAt > STALE_AFTER_MS;
   const clock = new Date(nowTick);
-  const timeStr = clock.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
+  const timeStr = clock.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
   const dateStr = clock.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" });
   const syncAgeSec = lastOkAt > 0 ? Math.floor((nowTick - lastOkAt) / 1000) : null;
   const breachAlarm = (m?.breaching ?? 0) > 0;
@@ -351,7 +351,7 @@ export default function TvPage() {
                         <th className="py-[0.8vh] text-center font-semibold">Open</th>
                         <th className="py-[0.8vh] text-center font-semibold">SLA Breach</th>
                         <th className="py-[0.8vh] text-center font-semibold">WOT</th>
-                        <th className="px-[1vw] py-[0.8vh] text-center font-semibold">Unacked</th>
+                        <th className="px-[1vw] py-[0.8vh] text-center font-semibold">Customer Reply</th>
                       </tr>
                     </thead>
                     <tbody>
