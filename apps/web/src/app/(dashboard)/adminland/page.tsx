@@ -12,6 +12,7 @@ import {
 import { IntegrationConfig } from "@/components/admin/integration-config";
 import { AutoMapperConfig } from "@/components/admin/automapper-config";
 import { AgentConfigSection } from "@/components/admin/agent-config";
+import { HaloAgentsSection } from "@/components/admin/halo-agents-section";
 import { TriageRulesSection } from "@/components/admin/triage-rules-config";
 import { UsersSecuritySection } from "@/components/admin/users-security";
 import { CronJobsSection } from "@/components/admin/cron-jobs-config";
@@ -426,6 +427,8 @@ export default function AdminlandPage() {
           <UsersSecuritySection />
         ) : activeView.id === "agent-config" ? (
           <AgentConfigSection />
+        ) : activeView.id === "halo-agents" ? (
+          <HaloAgentsSection />
         ) : activeView.id === "triage-rules" ? (
           <TriageRulesSection />
         ) : activeView.id === "cron-jobs" ? (
