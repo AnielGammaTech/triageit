@@ -255,7 +255,52 @@ function TicketsTab({
 
   return (
     <div className="overflow-hidden rounded-xl border border-white/10">
-      <table className="w-full text-sm">
+      {/* Mobile: ticket cards */}
+      <div className="md:hidden divide-y divide-white/5">
+        {tickets.map((ticket) => {
+          const triage = ticket.triage_results?.[0];
+          return (
+            <div key={ticket.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs text-white/50">#{ticket.halo_id}</span>
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+                  STATUS_STYLES[ticket.status] ?? "bg-white/5 text-white/40",
+                )}>
+                  {ticket.status}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-white">
+                {ticket.summary}
+                {triage?.security_flag && (
+                  <span className="ml-2 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+                    SECURITY
+                  </span>
+                )}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                {triage ? (
+                  <span className={cn("font-bold", PRIORITY_COLORS[triage.recommended_priority] ?? "text-white/40")}>
+                    P{triage.recommended_priority}
+                  </span>
+                ) : (
+                  <span className="text-white/20">—</span>
+                )}
+                {triage?.classification && (
+                  <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
+                    {triage.classification.type}
+                  </span>
+                )}
+                <span className="text-white/50">{triage?.recommended_team ?? "—"}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-white/40">Ticket</th>
@@ -316,6 +361,7 @@ function TicketsTab({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

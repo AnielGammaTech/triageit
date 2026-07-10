@@ -53,6 +53,16 @@ export function Sidebar({ userEmail }: SidebarProps) {
     setMobileMenuOpen(false);
   }, [pathname]);
 
+  // Lock body scroll while the mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
+
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -72,7 +82,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="lg:hidden rounded-md p-1.5 text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+              className="lg:hidden -m-1.5 rounded-md p-3 text-white/60 hover:text-white hover:bg-white/5 transition-colors"
               aria-label="Toggle menu"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -150,10 +160,11 @@ export function Sidebar({ userEmail }: SidebarProps) {
           <div className="flex items-center gap-2" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen((prev) => !prev)}
-              className="flex items-center rounded-full transition-colors hover:ring-2 hover:ring-white/20"
+              className="group -m-1.5 flex items-center rounded-full p-1.5"
+              aria-label="Open profile menu"
             >
               <div
-                className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white transition-shadow group-hover:ring-2 group-hover:ring-white/20"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
                 {getUserInitials(userEmail)}
@@ -232,7 +243,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             onClick={() => setMobileMenuOpen(false)}
           />
           <nav
-            className="absolute top-14 left-0 right-0 border-b border-white/10 shadow-xl"
+            className="absolute top-14 left-0 right-0 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-b border-white/10 shadow-xl"
             style={{ backgroundColor: HEADER_BG }}
           >
             <div className="flex flex-col py-2">

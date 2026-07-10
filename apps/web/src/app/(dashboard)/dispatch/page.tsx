@@ -341,21 +341,42 @@ function WeekGrid({
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
       actions={
         <div className="flex items-center gap-1">
-          <span className="mr-2 text-xs text-zinc-400">{rangeLabel}</span>
-          <button onClick={onPrev} aria-label="Previous week" className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
-            <ChevronLeft className="h-3.5 w-3.5" />
+          {/* Agenda day headers carry the dates on mobile; hide the range to keep the ≥40px nav buttons from overflowing at 390px. */}
+          <span className="mr-2 hidden text-xs text-zinc-400 sm:inline">{rangeLabel}</span>
+          <button
+            onClick={onPrev}
+            aria-label="Previous week"
+            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronLeft className="h-4 w-4" />
           </button>
-          <button onClick={onToday} className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
+          <button
+            onClick={onToday}
+            className="flex h-10 cursor-pointer items-center justify-center rounded-md border px-3 text-xs text-zinc-300 hover:text-white"
+            style={{ borderColor: HAIRLINE }}
+          >
             Today
           </button>
-          <button onClick={onNext} aria-label="Next week" className="rounded-md border px-2 py-1 text-xs text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
-            <ChevronRight className="h-3.5 w-3.5" />
+          <button
+            onClick={onNext}
+            aria-label="Next week"
+            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronRight className="h-4 w-4" />
           </button>
         </div>
       }
     >
-      <div className="overflow-x-auto">
-        <table className="w-full table-fixed border-collapse text-left">
+      {/* Mobile: per-day agenda list (the 8-column grid is unreadable under ~760px) */}
+      <div className="md:hidden">
+        <WeekAgenda week={week} days={days} techs={activeTechs} />
+      </div>
+
+      {/* Desktop: tech × day grid */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[760px] table-fixed border-collapse text-left">
           <thead>
             <tr>
               <th className="w-32 px-4 py-2 text-xs font-medium text-zinc-400" />
@@ -440,6 +461,93 @@ function WeekGrid({
   );
 }
 
+interface AgendaItem {
+  readonly tech: string;
+  readonly event: WeekEvent;
+}
+
+/** Mobile week view — one section per day, one ≥44px row per event, full subjects. */
+function WeekAgenda({
+  week,
+  days,
+  techs,
+}: {
+  readonly week: WeekData;
+  readonly days: ReadonlyArray<string>;
+  readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
+}) {
+  const byDay = days
+    .map((day) => ({
+      day,
+      items: techs
+        .flatMap((t): ReadonlyArray<AgendaItem> => t.events.filter((e) => e.day === day).map((event) => ({ tech: t.tech, event })))
+        .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt)),
+    }))
+    .filter((d) => d.items.length > 0);
+
+  if (byDay.length === 0) {
+    return <div className="p-5 text-sm text-zinc-400">Nothing scheduled this week.</div>;
+  }
+
+  return (
+    <div>
+      {byDay.map(({ day, items }) => {
+        const h = fmtDayHeader(day);
+        return (
+          <div key={day} className="border-t first:border-t-0" style={{ borderColor: HAIRLINE }}>
+            <div className="px-4 pb-1 pt-3 text-xs font-medium">
+              <span
+                className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"}
+                style={h.isToday ? { background: RED } : undefined}
+              >
+                {h.name} {h.date}
+              </span>
+            </div>
+            {items.map(({ tech, event: e }, i) => (
+              <AgendaRow key={`${e.startsAt}-${tech}-${i}`} tech={tech} event={e} haloBaseUrl={week.haloBaseUrl} />
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AgendaRow({
+  tech,
+  event: e,
+  haloBaseUrl,
+}: {
+  readonly tech: string;
+  readonly event: WeekEvent;
+  readonly haloBaseUrl: string;
+}) {
+  const style = WEEK_EVENT_STYLE[e.type];
+  const href = e.ticketId !== null ? haloTicketUrl(haloBaseUrl, e.ticketId) : null;
+  const time = e.type === "pto" ? "OFF" : e.allDay ? "All day" : eventTime(e);
+  const firstName = tech.split(" ")[0];
+  const body = (
+    <>
+      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: style.text }} />
+      <span className="w-16 shrink-0 text-xs font-semibold leading-5" style={{ color: style.text }}>
+        {time}
+      </span>
+      <span className="w-16 shrink-0 truncate text-xs font-medium leading-5 text-white">{firstName}</span>
+      <span className={`min-w-0 flex-1 text-xs leading-5 text-zinc-300 ${href ? "underline-offset-2 group-hover:underline" : ""}`}>
+        {e.subject || style.label}
+      </span>
+    </>
+  );
+  const rowClass = "flex min-h-11 items-start gap-2.5 px-4 py-2.5";
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className={`group ${rowClass}`}>
+      {body}
+    </a>
+  ) : (
+    <div className={rowClass}>{body}</div>
+  );
+}
+
 function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly haloBaseUrl: string }) {
   const color = STATE_COLOR[tech.status.state] ?? "#71717a";
   const context = contextLine(tech.status);
@@ -468,9 +576,9 @@ function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly hal
             )}
           </span>
           {phoneLabel(tech.phone) && (
-            <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-zinc-500">
-              <Phone className="h-3 w-3" />
-              {phoneLabel(tech.phone)}
+            <span className="ml-auto inline-flex min-w-0 max-w-full items-center gap-1 text-[11px] text-zinc-500">
+              <Phone className="h-3 w-3 shrink-0" />
+              <span className="truncate">{phoneLabel(tech.phone)}</span>
             </span>
           )}
         </div>
