@@ -10,7 +10,6 @@ import {
   Wrench,
   ArrowDownUp,
   Trophy,
-  Hourglass,
   BarChart3,
   ShieldCheck,
   WifiOff,
@@ -291,6 +290,7 @@ export default function TvPage() {
                         who: b.halo_agent ?? "UNASSIGNED",
                         badge: b.breachingForMin !== null ? `BREACHED ${mins(b.breachingForMin)}` : `${b.alertCount}× ALERTED`,
                         badgeColor: RED,
+                        highlight: "rgba(239,68,68,0.16)",
                       }))}
                       more={data.breaches.length - breachCap}
                     />
@@ -307,7 +307,7 @@ export default function TvPage() {
                         badge: `WAITING ${mins(t.ageMin)}`,
                         badgeColor: "#e4e4e7",
                         badgeFg: "#000",
-                        highlight: true,
+                        highlight: "rgba(228,228,231,0.08)",
                       }))}
                       more={data.unassignedTickets.length - unassignedCap}
                     />
@@ -620,7 +620,7 @@ function RowList({
     readonly badge: string;
     readonly badgeColor: string;
     readonly badgeFg?: string;
-    readonly highlight?: boolean;
+    readonly highlight?: string;
   }>;
   readonly more: number;
 }) {
@@ -630,7 +630,7 @@ function RowList({
         <div
           key={r.id}
           className="flex items-center gap-[0.7vw] border-b px-[1vw] py-[1vh] last:border-b-0"
-          style={{ borderColor: "#1f0d11", background: r.highlight ? "rgba(228,228,231,0.08)" : undefined }}
+          style={{ borderColor: "#1f0d11", background: r.highlight }}
         >
           <span className="shrink-0 text-[0.95vw] font-bold text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
             #{r.id}
