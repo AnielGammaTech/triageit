@@ -10,6 +10,7 @@ import {
   MessageSquareWarning,
   Skull,
   ArrowUpRight,
+  Tv,
 } from "lucide-react";
 
 interface StatusCount {
@@ -77,6 +78,22 @@ function haloLink(base: string, id: number): string {
   return base ? `${base}/tickets?id=${id}` : "#";
 }
 
+/** Fetch the key-gated wallboard URL and open it in a new tab. */
+async function openTvMode(): Promise<void> {
+  try {
+    const res = await fetch("/api/tv/link", { cache: "no-store" });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      window.alert(body?.error ?? "TV link unavailable — is TV_DASHBOARD_KEY set on the web service?");
+      return;
+    }
+    const { url } = (await res.json()) as { url: string };
+    window.open(url, "_blank", "noopener");
+  } catch {
+    window.alert("Couldn't fetch the TV link.");
+  }
+}
+
 export default function CommandPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,14 +139,25 @@ export default function CommandPage() {
             <p className="text-sm text-zinc-400">Tickets, tech stats, live SLA breaches, and the wall of shame</p>
           </div>
         </div>
-        <button
-          onClick={() => void load(true)}
-          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
-          style={{ borderColor: HAIRLINE, background: PANEL }}
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void openTvMode()}
+            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+            title="Open the key-gated TV wallboard link"
+          >
+            <Tv className="h-4 w-4" />
+            TV Mode
+          </button>
+          <button
+            onClick={() => void load(true)}
+            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
