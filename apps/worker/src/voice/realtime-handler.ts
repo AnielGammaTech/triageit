@@ -165,22 +165,41 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     // asked and exactly what the tech said (user requirement)
     if (this.escalation && this.transcript.length > 0) {
       const esc = (t: string) => t.replace(/</g, "&lt;");
-      const lines = this.transcript
-        .map((l) => `<b style="color:${l.who === "TriageIt" ? "#94a3b8" : "#fbbf24"};">${esc(l.who)}:</b> ${esc(l.text)}`)
-        .join("<br/>");
-      // Short human summary on top, verbatim transcript collapsed below
+      const rawTranscript = this.transcript.map((l) => `${l.who}: ${l.text}`).join("\n");
+      // Techs here often speak Spanish — post the summary AND the verbatim
+      // transcript in ENGLISH (user requirement), falling back to the raw text
+      // if the translate/summarize call fails.
       let summary = "";
+      let englishTranscript = rawTranscript;
       try {
         const anthropic = new Anthropic();
         const res = await anthropic.messages.create({
           model: "claude-haiku-4-5-20251001",
-          max_tokens: 200,
-          messages: [{ role: "user", content: `Summarize this phone call between the TriageIt assistant and a technician in 2-3 plain sentences — what was discussed, what the tech said, and any commitment made. No preamble.\n\n${this.transcript.map((l) => `${l.who}: ${l.text}`).join("\n")}` }],
+          max_tokens: 1500,
+          messages: [{ role: "user", content: `Below is a phone call transcript between the TriageIt assistant and a technician. Parts may be in Spanish or another language.\n\nReturn EXACTLY this format and nothing else:\nSUMMARY: <2-3 plain ENGLISH sentences — what was discussed, what the tech said, any commitment made>\n---\n<the full transcript with EVERY line translated to natural English, keeping each line as "Speaker: text" in the SAME order with the SAME speaker labels>\n\nTranscript:\n${rawTranscript}` }],
         });
-        summary = extractResponseText(res).trim();
+        const out = extractResponseText(res).trim();
+        const parts = out.split(/\n---\n/);
+        summary = parts[0].replace(/^SUMMARY:\s*/i, "").trim();
+        if (parts.length > 1 && parts.slice(1).join("\n---\n").trim()) {
+          englishTranscript = parts.slice(1).join("\n---\n").trim();
+        }
       } catch {
-        // transcript still posts without a summary
+        // transcript still posts (untranslated) without a summary
       }
+      const lines = englishTranscript
+        .split("\n")
+        .filter((l) => l.trim())
+        .map((line) => {
+          const idx = line.indexOf(":");
+          const who = idx > 0 ? line.slice(0, idx).trim() : "";
+          const text = idx > 0 ? line.slice(idx + 1).trim() : line.trim();
+          const color = who === "TriageIt" ? "#94a3b8" : "#fbbf24";
+          return who
+            ? `<b style="color:${color};">${esc(who)}:</b> ${esc(text)}`
+            : esc(text);
+        })
+        .join("<br/>");
       try {
         await this.deps.halo.addInternalNote(
           this.escalation.haloId,
