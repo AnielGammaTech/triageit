@@ -293,6 +293,14 @@ export const INTEGRATION_CATEGORIES: ReadonlyArray<{
         iconBg: "bg-blue-500/10",
         iconColor: "text-blue-400",
       },
+      {
+        id: "msgraph",
+        label: "Microsoft 365 Calendar",
+        desc: "Tech Outlook calendars for the Dispatch Board — one-button setup",
+        service: "msgraph",
+        iconBg: "bg-sky-500/10",
+        iconColor: "text-sky-400",
+      },
     ],
   },
   {

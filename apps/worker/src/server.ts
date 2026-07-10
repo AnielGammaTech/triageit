@@ -32,6 +32,10 @@ import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
 import { runSlaCallRequests } from "./cron/sla-call.js";
 import { getCachedHaloConfig } from "./integrations/get-config.js";
+import {
+  startMsGraphSetup,
+  getMsGraphSetupStatus,
+} from "./integrations/msgraph/setup.js";
 import { HaloClient } from "./integrations/halo/client.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
@@ -294,6 +298,33 @@ server.post<{ Body: { services?: string[] } }>(
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
     }
+  },
+);
+
+// One-button Microsoft 365 setup (Adminland → Microsoft 365 Calendar)
+server.post<{ Body: Record<string, never> }>(
+  "/msgraph/setup/start",
+  async (_request, reply) => {
+    try {
+      const session = await startMsGraphSetup();
+      return session;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  },
+);
+
+server.get<{ Querystring: { id?: string } }>(
+  "/msgraph/setup/status",
+  async (request, reply) => {
+    const id = request.query.id;
+    if (!id) return reply.status(400).send({ error: "Missing setup id" });
+    const session = getMsGraphSetupStatus(id);
+    if (!session) {
+      return reply.status(404).send({ error: "Setup session not found or expired" });
+    }
+    return session;
   },
 );
 

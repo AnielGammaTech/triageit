@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { INTEGRATION_DEFINITIONS } from "@triageit/shared";
 import type { IntegrationItem } from "./adminland-constants";
+import { MsGraphConnect } from "./msgraph-connect";
 import { cn } from "@/lib/utils/cn";
 
 interface IntegrationConfigProps {
@@ -251,8 +252,9 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       )}
 
       {/* Tabs — hide mapping tab for services that don't need it.
-          Halo is the source of truth so it doesn't need customer mapping. */}
-      {!["teams", "ai-provider", "halo"].includes(item.service) && (
+          Halo is the source of truth so it doesn't need customer mapping,
+          and msgraph reads tech (not customer) calendars. */}
+      {!["teams", "ai-provider", "halo", "msgraph"].includes(item.service) && (
         <div className="flex gap-1 border-b border-white/10">
           <button
             onClick={() => setActiveTab("config")}
@@ -287,6 +289,14 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       {/* Config tab */}
       {activeTab === "config" && (
         <div className="space-y-4">
+          {item.service === "msgraph" && (
+            <>
+              <MsGraphConnect onComplete={loadIntegration} />
+              <p className="pt-2 text-xs font-medium uppercase tracking-wide text-white/30">
+                Manual setup (fallback)
+              </p>
+            </>
+          )}
           {(definition?.fields ?? []).map((field) => (
             <div key={field.key}>
               <label className="mb-1 block text-sm font-medium text-white/70">

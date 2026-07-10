@@ -19,6 +19,7 @@ export type ServiceType =
   | "ai-provider"
   | "teams"
   | "cipp"
+  | "msgraph"
   | "web-search";
 
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
@@ -131,6 +132,16 @@ export interface Pax8Config {
   readonly client_secret: string;
 }
 
+export interface MsGraphConfig {
+  readonly tenant_id: string;
+  readonly client_id: string;
+  readonly client_secret: string;
+  /** Azure AD application object id — needed later for secret rotation. */
+  readonly app_object_id?: string;
+  /** Set when admin consent was granted via the one-button Adminland setup. */
+  readonly consented_at?: string;
+}
+
 export type IntegrationConfig =
   | HaloConfig
   | HuduConfig
@@ -147,6 +158,7 @@ export type IntegrationConfig =
   | CoveConfig
   | UnitrendsConfig
   | CippConfig
+  | MsGraphConfig
   | Record<string, string>;
 
 export interface IntegrationConfigField {
