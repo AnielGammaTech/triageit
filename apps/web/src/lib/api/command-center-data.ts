@@ -48,6 +48,14 @@ export interface CommandAtRisk {
   readonly dueInMin: number;
 }
 
+export interface CommandUnassigned {
+  readonly halo_id: number;
+  readonly summary: string | null;
+  readonly client_name: string | null;
+  readonly halo_status: string | null;
+  readonly ageMin: number;
+}
+
 export interface CommandTechStat {
   readonly tech: string;
   readonly openTickets: number;
@@ -81,6 +89,7 @@ export interface CommandCenterPayload {
   readonly statusCounts: ReadonlyArray<{ readonly status: string; readonly count: number; readonly breaching: number }>;
   readonly breaches: ReadonlyArray<CommandBreach>;
   readonly atRisk: ReadonlyArray<CommandAtRisk>;
+  readonly unassignedTickets: ReadonlyArray<CommandUnassigned>;
   readonly techStats: ReadonlyArray<CommandTechStat>;
   readonly wallOfShame: ReadonlyArray<CommandRanked>;
   readonly wallOfFame: ReadonlyArray<CommandRanked>;
@@ -189,6 +198,19 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     }))
     .sort((a, b) => a.dueInMin - b.dueInMin);
 
+  // ── Unassigned tickets (oldest first — these should always be near zero) ──
+  const isUnassigned = (t: TicketRow): boolean => !t.halo_agent || t.halo_agent.toLowerCase() === "unassigned";
+  const unassignedTickets: CommandUnassigned[] = tickets
+    .filter(isUnassigned)
+    .map((t) => ({
+      halo_id: t.halo_id,
+      summary: t.summary,
+      client_name: t.client_name,
+      halo_status: t.halo_status,
+      ageMin: Math.max(0, Math.floor((now - new Date(t.created_at).getTime()) / 60_000)),
+    }))
+    .sort((a, b) => b.ageMin - a.ageMin);
+
   // ── Per-tech stats ──
   interface TechAgg {
     tech: string;
@@ -269,7 +291,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     open: tickets.length,
     breaching: breaches.length,
     atRisk: atRisk.length,
-    unassigned: tickets.filter((t) => !t.halo_agent || t.halo_agent.toLowerCase() === "unassigned").length,
+    unassigned: unassignedTickets.length,
     waitingOnTech: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech")).length,
     customerReply: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("customer reply")).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
@@ -277,5 +299,5 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     resolvedToday: resolvedTodayRes.count ?? 0,
   };
 
-  return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, techStats, wallOfShame, wallOfFame, haloBaseUrl };
+  return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, unassignedTickets, techStats, wallOfShame, wallOfFame, haloBaseUrl };
 }
