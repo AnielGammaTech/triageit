@@ -20,6 +20,51 @@ import type { ThreeCxConfig } from "@triageit/shared";
 
 const ROUTE_POINT_DN = process.env.VOICE_ROUTE_POINT_DN ?? "triageit";
 
+// TriageIt's own AI-generated notes — skip these when finding the last real
+// human communication to read to the tech.
+const TRIAGEIT_NOTE_RE = /triage\s*it|call summary|tech review|escalation call|phone message|licensing|client policy|ai triage|suggested reply/i;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The last REAL communication on the ticket (public or private note), skipping
+ * TriageIt's own AI notes, preformatted for the assistant to read aloud —
+ * e.g. `private note from Jarid Carlson on July 9: "waiting on the vendor"`.
+ */
+async function fetchLastCommunication(halo: HaloClient, haloId: number): Promise<string | null> {
+  let actions: ReadonlyArray<Record<string, unknown>>;
+  try {
+    actions = (await halo.getTicketActions(haloId, false)) as unknown as ReadonlyArray<Record<string, unknown>>;
+  } catch {
+    return null;
+  }
+  const dateOf = (a: Record<string, unknown>): number =>
+    new Date((a.actiondatecreated ?? a.datetime ?? a.datecreated ?? 0) as string).getTime();
+  const sorted = [...actions].sort((a, b) => dateOf(b) - dateOf(a));
+  for (const a of sorted) {
+    const plain = stripHtml(String(a.note ?? ""));
+    if (plain.length < 3) continue;
+    if (TRIAGEIT_NOTE_RE.test(plain)) continue;
+    const kind = a.hiddenfromuser ? "private" : "public";
+    const who = a.who ? ` from ${String(a.who)}` : "";
+    const rawWhen = (a.actiondatecreated ?? a.datetime ?? a.datecreated) as string | undefined;
+    const whenStr = rawWhen
+      ? ` on ${new Date(rawWhen).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric" })}`
+      : "";
+    return `${kind} note${who}${whenStr}: "${plain.slice(0, 280)}"`;
+  }
+  return null;
+}
+
 export async function runSlaCallRequests(): Promise<{ processed: number; called: number }> {
   const supabase = createSupabaseClient();
 
@@ -93,6 +138,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         continue;
       }
       const techLabel = (req.tech_name as string) ?? (ticket?.halo_agent as string) ?? "the assigned tech";
+      const lastCommunication = await fetchLastCommunication(halo, haloId);
       registerEscalationCall(destination, {
         haloId,
         summary: String(ticket?.summary ?? `ticket ${haloId}`).slice(0, 150),
@@ -100,6 +146,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         techName: (ticket?.halo_agent as string) ?? null,
         hoursOver,
         objective: (req.objective as string) ?? null,
+        lastCommunication,
         lastTechUpdate: ticket?.last_tech_action_at
           ? new Date(ticket.last_tech_action_at as string).toLocaleString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })
           : null,
