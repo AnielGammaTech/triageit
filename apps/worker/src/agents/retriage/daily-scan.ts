@@ -569,12 +569,13 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   const startTime = Date.now();
   let tokensUsed = 0;
 
-  // Only run during business hours: Mon-Fri, 7 AM - 6 PM Eastern
+  // Only run during business hours: Mon-Fri, 8:00 AM - 5:15 PM Eastern
   const now = new Date();
   const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const hour = eastern.getHours();
   const day = eastern.getDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6 || hour < 7 || hour >= 18) {
+  const minsOfDay = hour * 60 + eastern.getMinutes();
+  if (day === 0 || day === 6 || minsOfDay < 8 * 60 || minsOfDay > 17 * 60 + 15) {
     console.log(`[RETRIAGE] Outside business hours (${eastern.toLocaleString("en-US")} ET) — skipping scan`);
     return {
       totalOpen: 0, scanned: 0, critical: [], warnings: [], info: [],
@@ -745,8 +746,13 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         }
       }
 
-      // ── Urgency-based timer check ──
-      // Look up the last triage's urgency score from pre-fetched maps
+      // ── Status-driven nudge check ──
+      // The retriage NUDGE fires ONLY when the clock is running and the tech
+      // owes the customer a response: Waiting on Tech (WOT) or Customer Reply.
+      // In Progress = tech is actively working — leave it alone (the SLA scan
+      // still catches a real breach). Everything else (Scheduled, Waiting on
+      // Customer, On Hold, Waiting on Parts, Resolved, PAST-DUE, order/invoice
+      // statuses) is paused / closed / unused — no nudge. (Per user 2026-07-10.)
       const localIdForUrgency = localTicketMap.get(enrichedTicket.id) ?? null;
       const latestTriage = localIdForUrgency ? triageMap.get(localIdForUrgency) ?? null : null;
 
@@ -758,39 +764,57 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
         continue;
       }
 
-      const urgencyScore: number | null = (latestTriage?.urgency_score as number) ?? null;
-      const lastTriageAt: string | null = (latestTriage?.created_at as string) ?? null;
-
-      const intervalHours = getRetriageIntervalHours(urgencyScore);
-
-      // Check if there's NEW customer activity since the last triage.
-      const lastCustomerFacing = getLastCustomerFacingActivity(actions, enrichedTicket.datecreated, staffNames);
-      const customerFacingTime = new Date(lastCustomerFacing).getTime();
-      const lastTriageTime = lastTriageAt ? new Date(lastTriageAt).getTime() : 0;
-      const hasNewCustomerActivity = customerFacingTime > lastTriageTime && lastTriageTime > 0;
-
-      // Hard cooldown: never re-evaluate a ticket within 2 hours of last triage.
-      // This prevents spamming the same ticket with repeated AI evaluations.
-      const hoursSinceLastTriage = lastTriageTime > 0
-        ? (Date.now() - lastTriageTime) / (1000 * 60 * 60)
-        : Infinity;
-
-      if (hoursSinceLastTriage < 2) {
+      const statusName = getStatusName(enrichedTicket);
+      const statusId = enrichedTicket.status_id;
+      const isCustomerReply = statusId === 30 || /customer reply/i.test(statusName ?? "");
+      const isWaitingOnTech = statusId === 32 || /waiting on tech/i.test(statusName ?? "");
+      if (!isCustomerReply && !isWaitingOnTech) {
         await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
         continue;
       }
 
-      if (!hasNewCustomerActivity) {
-        // No new customer activity — use standard urgency timer
-        if (hoursSinceLastTriage < intervalHours) {
-          await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
-          continue;
-        }
+      const urgencyScore: number | null = (latestTriage?.urgency_score as number) ?? null;
+      const lastTriageAt: string | null = (latestTriage?.created_at as string) ?? null;
+      const lastTriageTime = lastTriageAt ? new Date(lastTriageAt).getTime() : 0;
+      // Urgency modulates the interval: 4-5 → 1h, 3 → 2h, 1-2 → 3h.
+      const intervalHours = getRetriageIntervalHours(urgencyScore);
+
+      // The clock resets on ANY tech action (public reply or internal note).
+      const lastTechAt = getLastTechAction(actions);
+      const techTime = lastTechAt ? new Date(lastTechAt).getTime() : 0;
+      const custTime = new Date(getLastCustomerFacingActivity(actions, enrichedTicket.datecreated, staffNames)).getTime();
+      const hasNewCustomerActivity = custTime > lastTriageTime && lastTriageTime > 0;
+
+      let eligible = false;
+      if (isCustomerReply) {
+        // Customer replied — the tech has 30 minutes to at least acknowledge
+        // them. Eligible once 30m pass with no tech action AFTER the reply.
+        const techRespondedAfter = techTime > custTime;
+        const minsSinceCustomer = custTime > 0 ? (Date.now() - custTime) / 60_000 : Infinity;
+        eligible = !techRespondedAfter && minsSinceCustomer >= 30;
+      } else {
+        // Waiting on Tech — nudge when the tech hasn't touched it for the
+        // urgency interval; "when are you getting back to the customer?"
+        const hoursSinceTech = techTime > 0 ? (Date.now() - techTime) / 3_600_000 : Infinity;
+        eligible = hoursSinceTech >= intervalHours;
       }
 
-      const reason = hasNewCustomerActivity
-        ? `new customer activity since last triage`
-        : `timer expired (interval: ${intervalHours}h, urgency: ${urgencyScore ?? "unknown"})`;
+      if (!eligible) {
+        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        continue;
+      }
+
+      // Repeat guard: at most one nudge every intervalHours (min 2h) so we
+      // don't spam the ticket — this is the "then every 2 hours" cadence.
+      const hoursSinceLastTriage = lastTriageTime > 0 ? (Date.now() - lastTriageTime) / 3_600_000 : Infinity;
+      if (hoursSinceLastTriage < Math.max(2, intervalHours)) {
+        await upsertTicketFromHalo(supabase, enrichedTicket, actions, halo);
+        continue;
+      }
+
+      const reason = isCustomerReply
+        ? `customer reply unacknowledged 30m+`
+        : `waiting on tech ${intervalHours}h+ (urgency ${urgencyScore ?? "?"})`;
       console.log(`[RETRIAGE] Processing #${enrichedTicket.id}: ${reason}`);
 
       // Quick rule-based check (free, no tokens) — collect flags but ALWAYS run AI too
