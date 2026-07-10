@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   User,
   MessageSquare,
+  CalendarClock,
+  Moon,
 } from "lucide-react";
 
 interface BreachRow {
@@ -36,9 +38,21 @@ interface CallRow {
   readonly created_at: string;
 }
 
+interface AtRiskRow {
+  readonly halo_id: number;
+  readonly summary: string | null;
+  readonly client_name: string | null;
+  readonly halo_agent: string | null;
+  readonly halo_status: string | null;
+  readonly deadline: string;
+  readonly afterHours: boolean;
+}
+
 interface Metrics {
   readonly currentlyBreaching: number;
   readonly escalated: number;
+  readonly atRisk: number;
+  readonly atRiskAfterHours: number;
   readonly callOutsTotal: number;
   readonly callOutsToday: number;
   readonly callOutsThisWeek: number;
@@ -48,6 +62,7 @@ interface Metrics {
 
 interface Payload {
   readonly breaches: ReadonlyArray<BreachRow>;
+  readonly atRisk: ReadonlyArray<AtRiskRow>;
   readonly calls: ReadonlyArray<CallRow>;
   readonly metrics: Metrics;
   readonly haloBaseUrl: string;
@@ -62,6 +77,15 @@ function durationSince(iso: string | null): string {
   if (!iso) return "—";
   const ms = Date.now() - new Date(iso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "—";
+  const h = Math.floor(ms / 3600_000);
+  const m = Math.floor((ms % 3600_000) / 60_000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function durationUntil(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "now";
   const h = Math.floor(ms / 3600_000);
   const m = Math.floor((ms % 3600_000) / 60_000);
   if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
@@ -156,22 +180,24 @@ export default function SlaHunterPage() {
           emphasis
         />
         <MetricTile
-          label="Escalated (2nd+ alert)"
-          value={m?.escalated ?? 0}
-          icon={<Siren className="h-5 w-5" />}
+          label="At Risk (upcoming)"
+          value={m?.atRisk ?? 0}
+          icon={<CalendarClock className="h-5 w-5" />}
           accent="#f59e0b"
+          emphasis
         />
         <MetricTile
-          label="Call-outs Today"
-          value={m?.callOutsToday ?? 0}
-          icon={<PhoneCall className="h-5 w-5" />}
-          accent="#f87171"
+          label="Breaches After Hours"
+          value={m?.atRiskAfterHours ?? 0}
+          icon={<Moon className="h-5 w-5" />}
+          accent="#c084fc"
+          emphasis
         />
         <MetricTile
           label="Call-outs This Week"
           value={m?.callOutsThisWeek ?? 0}
-          icon={<Clock className="h-5 w-5" />}
-          accent="#a1a1aa"
+          icon={<PhoneCall className="h-5 w-5" />}
+          accent="#f87171"
         />
       </div>
 
@@ -245,6 +271,72 @@ export default function SlaHunterPage() {
                     </p>
                   </div>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* At risk — upcoming breaches */}
+      <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+          <CalendarClock className="h-4 w-4" style={{ color: "#f59e0b" }} />
+          <h2 className="text-sm font-semibold text-white">At Risk — Upcoming Breaches</h2>
+          <span className="ml-1 rounded-full px-2 py-0.5 text-xs font-bold text-black" style={{ background: "#f59e0b" }}>
+            {data?.atRisk.length ?? 0}
+          </span>
+          <span className="text-xs text-zinc-500">next 96h — clear the after-hours ones before you leave</span>
+        </div>
+
+        {loading ? (
+          <div className="p-6 text-sm text-zinc-500">Loading…</div>
+        ) : (data?.atRisk.length ?? 0) === 0 ? (
+          <div className="flex items-center gap-2 p-6 text-sm text-zinc-400">
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            Nothing due to breach in the next 96 hours.
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+            {data!.atRisk.map((t) => (
+              <div key={t.halo_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={haloLink(data!.haloBaseUrl, t.halo_id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 font-mono text-sm font-bold text-white hover:underline"
+                    >
+                      #{t.halo_id}
+                      <ArrowUpRight className="h-3.5 w-3.5 text-zinc-500" />
+                    </a>
+                    {t.afterHours && (
+                      <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" style={{ background: "#7c3aed" }}>
+                        <Moon className="h-2.5 w-2.5" />
+                        breaches after hours
+                      </span>
+                    )}
+                  </div>
+                  <p className="truncate text-sm text-zinc-300">{t.summary ?? "—"}</p>
+                  <p className="text-xs text-zinc-500">
+                    {t.client_name ?? "Unknown client"}
+                    {t.halo_status ? ` · ${t.halo_status}` : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div
+                    className="flex items-center justify-end gap-1 text-xs font-semibold"
+                    style={{ color: t.afterHours ? "#c084fc" : "#fbbf24" }}
+                  >
+                    <Clock className="h-3 w-3" />
+                    due in {durationUntil(t.deadline)}
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-500">{fmtTime(t.deadline)}</div>
+                  <div className="mt-0.5 flex items-center justify-end gap-1 text-xs text-zinc-400">
+                    <User className="h-3 w-3" />
+                    {t.halo_agent ?? "Unassigned"}
+                  </div>
+                </div>
               </div>
             ))}
           </div>
