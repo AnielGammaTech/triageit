@@ -565,13 +565,33 @@ export async function runTriage(
     .limit(1);
   const isRetriage = (existingTriages?.length ?? 0) > 0;
 
-  // Content-aware dedup: detect if retriage produced identical results
+  // Content-aware dedup: detect if a retriage is a near-duplicate. The old
+  // check compared the WHOLE classification JSON — but that includes the LLM's
+  // confidence (drifts every run) and the free-text subtype (reworded every
+  // run, e.g. "file_system_access_issue" vs "drive access / file system"), so
+  // it almost never matched and near-identical retriages kept posting notes.
+  // Now: same CORE classification (normalized type + urgency + priority +
+  // security), with the subtype rewording tolerated inside a cooldown window.
   const priorResult = existingTriages?.[0];
-  const isIdenticalRetriage = isRetriage && priorResult != null &&
-    JSON.stringify(priorResult.classification) === JSON.stringify(classification.classification) &&
+  const RETRIAGE_DEDUP_HOURS = 6;
+  const normType = (c: unknown) =>
+    String((c as { type?: string } | null)?.type ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normSub = (c: unknown) =>
+    String((c as { subtype?: string } | null)?.subtype ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const hoursSinceLast = priorResult?.created_at
+    ? (Date.now() - new Date(priorResult.created_at as string).getTime()) / 3_600_000
+    : Infinity;
+  const sameCore =
+    priorResult != null &&
+    normType(priorResult.classification) === normType(classification.classification) &&
     priorResult.urgency_score === classification.urgency_score &&
     priorResult.recommended_priority === classification.recommended_priority &&
     priorResult.security_flag === classification.security_flag;
+  const isIdenticalRetriage =
+    isRetriage &&
+    sameCore &&
+    (normSub(priorResult!.classification) === normSub(classification.classification) ||
+      hoursSinceLast < RETRIAGE_DEDUP_HOURS);
 
   // If findings are unchanged, check if the tech has taken any action since the last triage.
   // No tech activity + no change = accountability flag (red note to Halo).
