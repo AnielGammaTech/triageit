@@ -246,6 +246,22 @@ export default function TvPage() {
           </div>
         </div>
 
+        {/* ── Status strip — one-line board pulse ── */}
+        {data && data.statusCounts.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-[1.2vw] gap-y-[0.6vh] rounded-[0.8vw] border px-[1vw] py-[0.8vh]" style={{ borderColor: HAIRLINE, background: PANEL }}>
+            {data.statusCounts.slice(0, 10).map((s) => (
+              <span key={s.status} className="flex items-center gap-[0.4vw] text-[0.8vw]">
+                <span className="h-[0.55vw] w-[0.55vw] rounded-full" style={{ background: statusColor(s.status) }} />
+                <span className="text-zinc-400">{s.status}</span>
+                <span className="font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>{s.count}</span>
+                {s.breaching > 0 && (
+                  <span className="rounded-full px-[0.4vw] text-[0.65vw] font-bold text-white" style={{ background: RED }}>{s.breaching}</span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* ── Main grid ── */}
         <div className="grid min-h-0 flex-1 grid-cols-12 gap-[0.8vw]">
           {/* Breach board */}
@@ -295,57 +311,34 @@ export default function TvPage() {
                 />
               )}
             </Panel>
+          </div>
+
+          {/* Unassigned + tech grid */}
+          <div className="col-span-4 flex min-h-0 flex-col gap-[0.8vw]">
             <Panel
               title="Unassigned — Needs an Owner"
               icon={<UserX className="h-[1vw] w-[1vw]" style={{ color: RED }} />}
               alarm={(data?.unassignedTickets.length ?? 0) > 0}
+              className="flex-1"
             >
               {!data ? (
                 <Loading />
               ) : data.unassignedTickets.length === 0 ? (
-                <Empty text="None — every ticket has an owner." />
+                <div className="flex h-full flex-col items-center justify-center gap-[1vh] py-[3vh]">
+                  <ShieldCheck className="h-[2.5vw] w-[2.5vw]" style={{ color: "#22c55e" }} />
+                  <span className="text-[1.1vw] font-black tracking-[0.15em] text-white">EVERY TICKET OWNED</span>
+                </div>
               ) : (
                 <RowList
-                  items={data.unassignedTickets.slice(0, 4).map((t) => ({
+                  items={data.unassignedTickets.slice(0, 8).map((t) => ({
                     id: t.halo_id,
                     left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
                     who: t.halo_status ?? "",
                     badge: `WAITING ${mins(t.ageMin)}`,
                     badgeColor: RED,
                   }))}
-                  more={data.unassignedTickets.length - 4}
+                  more={data.unassignedTickets.length - 8}
                 />
-              )}
-            </Panel>
-          </div>
-
-          {/* Status + tech grid */}
-          <div className="col-span-4 flex min-h-0 flex-col gap-[0.8vw]">
-            <Panel title="Board by Status">
-              {!data ? (
-                <Loading />
-              ) : (
-                <div className="space-y-[0.9vh] px-[1vw] py-[1vh]">
-                  {data.statusCounts.slice(0, 9).map((s) => {
-                    const max = Math.max(1, ...data.statusCounts.map((x) => x.count));
-                    return (
-                      <div key={s.status} className="flex items-center gap-[0.7vw]">
-                        <div className="w-[9vw] shrink-0 truncate text-[0.85vw] font-semibold text-zinc-300">{s.status}</div>
-                        <div className="h-[1.5vh] flex-1 overflow-hidden rounded-full" style={{ background: "#1a0d10" }}>
-                          <div className="h-full rounded-full" style={{ width: `${Math.max(4, (s.count / max) * 100)}%`, background: statusColor(s.status) }} />
-                        </div>
-                        <span className="w-[2.2vw] text-right text-[1vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
-                          {s.count}
-                        </span>
-                        {s.breaching > 0 && (
-                          <span className="rounded-full px-[0.5vw] py-[0.2vh] text-[0.65vw] font-bold text-white" style={{ background: RED }}>
-                            {s.breaching}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
               )}
             </Panel>
             <Panel title="Tech Load" className="flex-1">
