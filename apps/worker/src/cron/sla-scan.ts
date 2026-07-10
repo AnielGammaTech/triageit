@@ -320,36 +320,51 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
               .update({ sla_breach_last_alert_text: alertText, sla_breach_last_alert_at: new Date().toISOString() })
               .eq("halo_id", haloId);
             console.log(`[SLA SCAN] Teams breach alert sent for #${haloId} (alert #${attempt}${noUpdateSinceLastAlert ? ", no tech update since last alert" : ""})`);
-
-            // Auto call-out (user decision 2026-07-10): once a ticket has been
-            // breached for 30+ minutes with no tech action since the last alert,
-            // ring their 3CX extension — don't wait for a 2nd alert. Business
-            // hours only. (timeLeft is in hours; -0.5 = 30 min over.)
-            const businessHours = isWithinBusinessHours();
-            const techForCall = (local?.halo_agent as string) ?? null;
-            const breachedOver30m = timeLeft != null && timeLeft < 0 && Math.abs(timeLeft) >= 0.5;
-            // Tech idle = no tech action in the last 30 min (so we don't call
-            // someone who's actively working it). Works on the FIRST alert too.
-            const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
-            if (breachedOver30m && techIdle30m && businessHours && techForCall) {
-              const { data: recentCall } = await supabase
-                .from("sla_call_requests")
-                .select("id")
-                .eq("halo_id", haloId)
-                .gte("created_at", new Date(Date.now() - 55 * 60_000).toISOString())
-                .limit(1);
-              if (!recentCall || recentCall.length === 0) {
-                await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
-                callRequestsQueued++;
-                console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (alert #${attempt})`);
-              }
-            }
           } catch (error) {
             console.error(`[SLA SCAN] Teams alert for #${haloId} failed:`, error instanceof Error ? error.message : error);
           }
         }
       } else {
         console.warn("[SLA SCAN] Teams not configured — breach alerts skipped");
+      }
+    }
+
+    // Auto call-out (user decision 2026-07-10): breached 30+ min, tech idle
+    // 30+ min, business hours → ring their 3CX extension. Evaluated for EVERY
+    // current breacher on EVERY scan — NOT just when an hourly alert fires.
+    // (Raul case, 2026-07-10: he touched the ticket 2 min after the alert, so
+    // the call was skipped; he then went idle 40+ min with no call because the
+    // gate only ran inside the alert send. The 55-min dedup below still keeps
+    // it to at most ~one call per ticket per hour.)
+    if (isWithinBusinessHours()) {
+      for (const breacher of breachers) {
+        const haloId = breacher.id as number;
+        const local = localByHaloId.get(haloId);
+        const techForCall = (local?.halo_agent as string) ?? null;
+        if (!techForCall || techForCall.toLowerCase() === "unassigned") continue;
+        const timeLeft =
+          typeof breacher.fixtimeleft === "number" ? breacher.fixtimeleft
+          : typeof breacher.slatimeleft === "number" ? breacher.slatimeleft
+          : null;
+        const breachedOver30m = timeLeft != null && timeLeft < 0 && Math.abs(timeLeft) >= 0.5;
+        const lastTechAction = local?.last_tech_action_at ? new Date(local.last_tech_action_at as string).getTime() : null;
+        const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
+        if (!breachedOver30m || !techIdle30m) continue;
+        try {
+          const { data: recentCall } = await supabase
+            .from("sla_call_requests")
+            .select("id")
+            .eq("halo_id", haloId)
+            .gte("created_at", new Date(Date.now() - 55 * 60_000).toISOString())
+            .limit(1);
+          if (!recentCall || recentCall.length === 0) {
+            await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
+            callRequestsQueued++;
+            console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (breached 30m+, tech idle 30m+)`);
+          }
+        } catch (error) {
+          console.error(`[SLA SCAN] Call queue for #${haloId} failed:`, error instanceof Error ? error.message : error);
+        }
       }
     }
   } catch (error) {

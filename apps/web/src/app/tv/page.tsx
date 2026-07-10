@@ -237,7 +237,7 @@ export default function TvPage() {
           <Kpi label="Open Tickets" value={m?.open} icon={Activity} accent="#e4e4e7" />
           <Kpi label="Breaching Now" value={m?.breaching} icon={TriangleAlert} accent={RED} alarm={breachAlarm} />
           <Kpi label="At Risk < 2h" value={m?.atRisk} icon={Timer} accent={AMBER} alarm={(m?.atRisk ?? 0) > 0} />
-          <Kpi label="Unacked Replies" value={m?.unackedReplies} icon={MessageSquareWarning} accent={AMBER} alarm={(m?.unackedReplies ?? 0) > 0} />
+          <Kpi label="Customer Reply" value={m?.unackedReplies} icon={MessageSquareWarning} accent={AMBER} alarm={(m?.unackedReplies ?? 0) > 0} />
           <Kpi label="Waiting on Tech" value={m?.waitingOnTech} icon={Wrench} accent="#fb923c" />
           <Kpi label="Unassigned" value={m?.unassigned} icon={UserX} accent="#f87171" />
           <div className="rounded-[0.8vw] border p-[0.9vw]" style={{ borderColor: HAIRLINE, background: PANEL }}>
@@ -349,24 +349,24 @@ export default function TvPage() {
             ) : (
               <div key={slide} className="h-full" style={{ animation: "tvFadeIn 1100ms cubic-bezier(0.22, 1, 0.36, 1)" }}>
                 {slide === 0 && (
-                  <table className="h-full w-full text-left">
+                  <table className="w-full text-left">
                     <thead>
-                      <tr className="text-[0.8vw] uppercase tracking-[0.1em]" style={{ color: INK_FAINT }}>
-                        <th className="px-[1.1vw] py-[1vh] font-semibold">Tech</th>
-                        <th className="py-[1vh] text-center font-semibold">Open</th>
-                        <th className="py-[1vh] text-center font-semibold">SLA Breach</th>
-                        <th className="py-[1vh] text-center font-semibold">WOT</th>
-                        <th className="px-[1.1vw] py-[1vh] text-center font-semibold">Customer Reply</th>
+                      <tr className="text-[0.7vw] uppercase tracking-[0.1em]" style={{ color: INK_FAINT }}>
+                        <th className="px-[1.1vw] py-[0.6vh] font-semibold">Tech</th>
+                        <th className="py-[0.6vh] text-center font-semibold">Open</th>
+                        <th className="py-[0.6vh] text-center font-semibold">SLA Breach</th>
+                        <th className="py-[0.6vh] text-center font-semibold">WOT</th>
+                        <th className="px-[1.1vw] py-[0.6vh] text-center font-semibold">Customer Reply</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.techStats.slice(0, 8).map((t) => (
+                      {data.techStats.slice(0, 12).map((t) => (
                         <tr key={t.tech} className="border-t" style={{ borderColor: HAIRLINE }}>
-                          <td className="truncate px-[1.1vw] py-[1vh] text-[1.15vw] font-bold text-white">{t.tech}</td>
+                          <td className="truncate px-[1.1vw] py-[0.55vh] text-[0.92vw] font-bold text-white">{t.tech}</td>
                           <Num v={t.openTickets} />
                           <Num v={t.breaching} hot={RED} />
                           <Num v={t.waitingOnTech} hot="#fb923c" />
-                          <td className="px-[1.1vw] py-[1vh] text-center text-[1.15vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: t.unackedReplies > 0 ? AMBER : INK_FAINT }}>
+                          <td className="px-[1.1vw] py-[0.55vh] text-center text-[0.92vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: t.unackedReplies > 0 ? AMBER : INK_FAINT }}>
                             {t.unackedReplies}
                           </td>
                         </tr>
@@ -415,32 +415,32 @@ export default function TvPage() {
                   </div>
                 )}
                 {slide === 2 && (
-                  <div className="flex h-full flex-col justify-evenly px-[1.1vw] py-[1vh]">
-                    {data.statusCounts.slice(0, 10).map((s) => {
-                      const max = Math.max(1, ...data.statusCounts.map((x) => x.count));
-                      return (
-                        <div key={s.status} className="flex items-center gap-[0.8vw]">
-                          <div className="w-[10vw] shrink-0 truncate text-[1vw] font-semibold text-zinc-300">{s.status}</div>
-                          <div className="h-[2.2vh] flex-1 overflow-hidden rounded-full" style={{ background: "#1a0d10" }}>
-                            <div className="h-full rounded-full" style={{ width: `${Math.max(4, (s.count / max) * 100)}%`, background: statusColor(s.status) }} />
-                          </div>
-                          <span className="w-[2.6vw] text-right text-[1.2vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
-                            {s.count}
-                          </span>
+                  <div className="grid h-full grid-cols-2 gap-[0.6vw] p-[0.8vw]">
+                    {data.statusCounts.slice(0, 10).map((s) => (
+                      <div
+                        key={s.status}
+                        className="flex items-center justify-between rounded-[0.6vw] px-[0.9vw]"
+                        style={{ background: PANEL_2, borderLeft: `0.3vw solid ${statusColor(s.status)}` }}
+                      >
+                        <span className="min-w-0 truncate text-[0.9vw] font-semibold text-zinc-300">{s.status}</span>
+                        <span className="flex shrink-0 items-center gap-[0.5vw]">
                           {s.breaching > 0 && (
-                            <span className="rounded-full px-[0.5vw] py-[0.2vh] text-[0.75vw] font-bold text-white" style={{ background: RED }}>
+                            <span className="rounded-full px-[0.5vw] py-[0.15vh] text-[0.7vw] font-bold text-white" style={{ background: RED }}>
                               {s.breaching}
                             </span>
                           )}
-                        </div>
-                      );
-                    })}
+                          <span className="text-[1.5vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
+                            {s.count}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             )}
           </Panel>
-          <Panel title="Oldest Open Tickets" icon={<Hourglass className="h-[1vw] w-[1vw]" style={{ color: INK_DIM }} />} className="flex-[2]">
+          <Panel title="Waiting on Tech — Oldest" icon={<Hourglass className="h-[1vw] w-[1vw]" style={{ color: "#fe9200" }} />} className="flex-[2]">
             {!data ? (
               <Loading />
             ) : (
@@ -448,9 +448,9 @@ export default function TvPage() {
                 items={data.oldestTickets.slice(0, 4).map((t) => ({
                   id: t.halo_id,
                   left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
-                  who: t.halo_status ?? "",
-                  badge: `OPEN ${mins(t.ageMin)}`,
-                  badgeColor: "#3f3f46",
+                  who: t.halo_agent ?? "",
+                  badge: `WAITING ${mins(t.ageMin)}`,
+                  badgeColor: "#fe9200",
                 }))}
                 more={0}
               />
@@ -601,7 +601,7 @@ function RowList({
 
 function Num({ v, hot }: { readonly v: number; readonly hot?: string }) {
   return (
-    <td className="py-[0.9vh] text-center text-[1vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: v > 0 && hot ? hot : v > 0 ? "#e4e4e7" : INK_FAINT }}>
+    <td className="py-[0.55vh] text-center text-[0.92vw] font-black" style={{ fontFamily: "var(--font-mono-tv), monospace", color: v > 0 && hot ? hot : v > 0 ? "#e4e4e7" : INK_FAINT }}>
       {v}
     </td>
   );
