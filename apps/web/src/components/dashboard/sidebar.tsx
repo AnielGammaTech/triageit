@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
   { href: "/command", label: "Command" },
+  { href: "/dispatch", label: "Dispatch", icon: Radio },
   { href: "/tickets", label: "Tickets" },
   { href: "/sla-hunter", label: "SLA Hunter" },
   { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
@@ -145,6 +147,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                       className="h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
                     />
                   )}
+                  {"icon" in item && <item.icon className="h-4 w-4" />}
                   {item.label}
                   {isActive && (
                     <span
@@ -285,6 +288,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                         className="mr-2 h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
                       />
                     )}
+                    {"icon" in item && <item.icon className="mr-2 h-4 w-4" />}
                     {item.label}
                   </Link>
                 );
