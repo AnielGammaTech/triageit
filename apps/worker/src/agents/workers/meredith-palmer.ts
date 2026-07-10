@@ -30,6 +30,13 @@ interface SpanningData {
   readonly matchedErrors: ReadonlyArray<SpanningError>;
   readonly affectedUser: SpanningUser | null;
   readonly affectedUserBackup: SpanningUserBackup | null;
+  // true = the Spanning API call itself FAILED — the all-null data below does
+  // NOT mean the mailbox is unprotected or that Spanning returned "no data".
+  // Meredith must state the status is UNAVAILABLE, not claim it is running.
+  readonly lookupFailed?: boolean;
+  // true = the recent-errors feed lookup itself FAILED — an empty recentErrors
+  // here means "unknown", NOT "zero errors".
+  readonly errorsLookupFailed?: boolean;
 }
 
 export class MeredithPalmerAgent extends BaseAgent {
@@ -268,14 +275,17 @@ Respond with ONLY valid JSON:
         };
       }
 
-      // Fetch all data in parallel
-      const [tenant, tenantStatus, backupSummary, recentErrors] =
+      // Fetch all data in parallel. getRecentErrors returns null on FAILURE so
+      // a failed error-feed lookup is not silently rendered as "zero errors".
+      const [tenant, tenantStatus, backupSummary, recentErrorsRaw] =
         await Promise.all([
           client.getTenantInfo().catch(() => null),
           client.getTenantStatus().catch(() => null),
           client.getBackupSummary().catch(() => null),
-          client.getRecentErrors(50).catch(() => []),
+          client.getRecentErrors(50).catch(() => null),
         ]);
+      const errorsLookupFailed = recentErrorsRaw === null;
+      const recentErrors: ReadonlyArray<SpanningError> = recentErrorsRaw ?? [];
 
       // Match errors by error code or site URL
       const matchedErrors = recentErrors.filter((e) => {
@@ -314,14 +324,17 @@ Respond with ONLY valid JSON:
         matchedErrors,
         affectedUser,
         affectedUserBackup,
+        errorsLookupFailed,
       };
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown error";
       await this.logThinking(
         context.ticketId,
-        `⚠ Spanning API error: ${message}. Falling back to AI analysis.`,
+        `⚠ Spanning API error: ${message}. Backup protection status UNAVAILABLE (lookup failed, not "no data").`,
       );
+      // Lookup FAILED ≠ mailbox unprotected — Meredith must say the status is
+      // UNAVAILABLE, never claim Spanning is running.
       return {
         tenant: null,
         tenantStatus: null,
@@ -330,6 +343,7 @@ Respond with ONLY valid JSON:
         matchedErrors: [],
         affectedUser: null,
         affectedUserBackup: null,
+        lookupFailed: true,
       };
     }
   }
@@ -441,6 +455,11 @@ Respond with ONLY valid JSON:
           `- **Code ${err.errorCode}** | ${err.errorMessage ?? "No message"} | ${err.siteUrl ?? err.userPrincipalName ?? "N/A"} | ${err.timestamp ?? ""}`,
         );
       }
+    } else if (data.errorsLookupFailed) {
+      sections.push("");
+      sections.push(
+        "**⚠ Spanning recent-errors lookup FAILED** — the error feed could not be retrieved. This does NOT mean there are zero recent errors; recent error state is UNKNOWN. State this; do NOT report the backup as error-free.",
+      );
     }
 
     // Affected user info
@@ -468,14 +487,24 @@ Respond with ONLY valid JSON:
       }
     }
 
-    // No data fallback
+    // No data fallback — distinguish a FAILED lookup from genuinely-empty data.
     if (!data.tenant && !data.tenantStatus && !data.backupSummary) {
       sections.push("");
-      sections.push("## ⚠ No Spanning Data Available");
-      sections.push(
-        "Spanning integration is not configured or API returned no data. " +
-        "Analyze the ticket using your backup/recovery expertise and common Spanning error knowledge.",
-      );
+      if (data.lookupFailed) {
+        sections.push("## ⚠ Spanning Lookup FAILED");
+        sections.push(
+          "Spanning lookup FAILED — backup protection status UNAVAILABLE. " +
+          "State this; do NOT claim the mailbox is protected/running. " +
+          "Do NOT assert the reporter's mailbox is backed up — you have no data to support it. " +
+          "Analyze the ticket using your backup/recovery expertise and common Spanning error knowledge only.",
+        );
+      } else {
+        sections.push("## ⚠ No Spanning Data Available");
+        sections.push(
+          "Spanning integration is not configured or genuinely returned no data for this client. " +
+          "Analyze the ticket using your backup/recovery expertise and common Spanning error knowledge.",
+        );
+      }
     }
 
     return sections.join("\n");

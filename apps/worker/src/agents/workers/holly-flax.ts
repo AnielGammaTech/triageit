@@ -23,6 +23,9 @@ interface Pax8Data {
   readonly companyId: string | null;
   readonly companyName: string | null;
   readonly subscriptions: ReadonlyArray<Pax8Subscription>;
+  // true = the Pax8 subscription API call itself failed — an empty
+  // subscriptions list does NOT mean the client owns no licenses
+  readonly lookupFailed?: boolean;
 }
 
 const EMPTY_PAX8: Pax8Data = {
@@ -152,9 +155,11 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     // 3. Log what we found
     await this.logThinking(
       context.ticketId,
-      pax8Data.companyId
-        ? `Found "${pax8Data.companyName}" in Pax8 (ID: ${pax8Data.companyId}). ${pax8Data.subscriptions.length} subscriptions. Analyzing licensing data now.`
-        : `Could not find client "${context.clientName}" in Pax8. Running analysis with ticket info only.`,
+      pax8Data.lookupFailed
+        ? `⚠ Pax8 subscription lookup FAILED for "${pax8Data.companyName}" — live licensing data unavailable. Analyzing from ticket context only; NOT concluding the client owns no licenses.`
+        : pax8Data.companyId
+          ? `Found "${pax8Data.companyName}" in Pax8 (ID: ${pax8Data.companyId}). ${pax8Data.subscriptions.length} subscriptions. Analyzing licensing data now.`
+          : `Could not find client "${context.clientName}" in Pax8. Running analysis with ticket info only.`,
     );
 
     // 4. Send everything to the AI
@@ -192,13 +197,27 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     if (!company) return EMPTY_PAX8;
 
     // Fetch subscriptions — client auto-resolves product names via /products/:id
-    const subscriptions = await this.fetchSubscriptions(pax8, company.id);
-
-    return {
-      companyId: company.id,
-      companyName: company.name,
-      subscriptions,
-    };
+    try {
+      const subscriptions = await this.fetchSubscriptions(pax8, company.id);
+      return {
+        companyId: company.id,
+        companyName: company.name,
+        subscriptions,
+      };
+    } catch (error) {
+      // Lookup failed ≠ no licenses — preserve the company match and flag the
+      // failure so Holly reports "data unavailable" instead of "owns nothing"
+      console.error(
+        `[HOLLY] Pax8 subscription lookup FAILED for "${company.name}" (${company.id}):`,
+        error,
+      );
+      return {
+        companyId: company.id,
+        companyName: company.name,
+        subscriptions: [],
+        lookupFailed: true,
+      };
+    }
   }
 
   private async findCompany(
@@ -285,8 +304,10 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
     try {
       return await pax8.getSubscriptions(companyId);
     } catch (error) {
+      // Rethrow so fetchPax8Data flags lookupFailed — returning [] here would
+      // be reported as "client owns no licenses"
       console.error(`[HOLLY] Failed to fetch subscriptions for company ${companyId}:`, error);
-      return [];
+      throw error;
     }
   }
 
@@ -395,6 +416,11 @@ Set "license_mismatch.detected" to false and omit the other mismatch fields if n
             `- Across ${m365Subs.length} subscription(s)`,
           );
         }
+      } else if (pax8Data.lookupFailed) {
+        sections.push(
+          "",
+          "**⚠ Pax8 subscription lookup FAILED** — live licensing data unavailable. State this; do NOT conclude the client owns no licenses or that no licensing action is needed.",
+        );
       } else {
         sections.push("", "*No subscriptions found for this company in Pax8.*");
       }

@@ -386,6 +386,13 @@ Respond with ONLY valid JSON:
 
   // ── Config Getters ─────────────────────────────────────────────────
 
+  // NOTE: `integrations` has UNIQUE(service), so there is exactly ONE threecx
+  // row — a SINGLE shared 3CX PBX that hosts every Gamma client. There is no
+  // per-client 3CX instance/config to resolve here (the schema cannot hold a
+  // second threecx row), so `.single()` is correct. Because the returned
+  // trunks/extensions/system-status describe the WHOLE shared PBX rather than
+  // one client, buildUserMessage must attribute that data as PBX-wide so the
+  // LLM never reports another client's trunk/extension as this client's.
   private async getThreeCxConfig(): Promise<ThreeCxConfig | null> {
     const { data } = await this.supabase
       .from("integrations")
@@ -465,18 +472,33 @@ Respond with ONLY valid JSON:
     // 3CX Data
     if (data.threeCx) {
       const tcx = data.threeCx;
+      const client = context.clientName ?? "this client";
       sections.push("");
       sections.push("## 3CX System Data");
+      // CRITICAL scoping guard: Gamma hosts ALL its clients on ONE shared 3CX
+      // PBX (there is only one 3CX config). Every trunk / trunk-registration /
+      // extension figure below describes the ENTIRE PBX across all
+      // Gamma-hosted clients — NOT just this client. Without this note the
+      // LLM presents another client's down trunk as this client's outage.
+      sections.push(
+        `> **Scope — SHARED PBX (all Gamma-hosted clients):** The trunk list, ` +
+          `trunk registration statuses, and extension counts below are for the ` +
+          `WHOLE shared 3CX PBX, not just ${client}. Do NOT attribute any trunk, ` +
+          `DID, or extension to ${client} unless it appears in the ⭐ Matched ` +
+          `Trunk / Matched DID sections (those are derived from THIS ticket). ` +
+          `Use PBX-wide figures only to judge whether the entire system is down; ` +
+          `scope all client-specific findings to the matched trunk/DID.`,
+      );
 
       if (tcx.systemStatus) {
         sections.push(`**Version:** ${tcx.systemStatus.Version ?? "Unknown"}`);
         sections.push(`**FQDN:** ${tcx.systemStatus.FQDN ?? "Unknown"}`);
         sections.push(
-          `**Trunks Registered:** ${tcx.systemStatus.TrunksRegistered ?? "?"}/${tcx.systemStatus.TrunksTotal ?? "?"}`,
+          `**Trunks Registered (PBX-wide):** ${tcx.systemStatus.TrunksRegistered ?? "?"}/${tcx.systemStatus.TrunksTotal ?? "?"}`,
         );
         if (tcx.registeredExtensions !== null) {
           sections.push(
-            `**Extensions Registered:** ${tcx.registeredExtensions}/${tcx.totalExtensions}`,
+            `**Extensions Registered (PBX-wide):** ${tcx.registeredExtensions}/${tcx.totalExtensions}`,
           );
         }
         if (tcx.systemStatus.HasNotRunningServices) {
@@ -500,7 +522,7 @@ Respond with ONLY valid JSON:
         );
       } else if (tcx.trunks.length > 0) {
         sections.push("");
-        sections.push("### All Trunks");
+        sections.push("### All Trunks (entire shared PBX — not client-specific)");
         for (const trunk of tcx.trunks) {
           const status = trunk.IsRegistered ? "✅ Registered" : "❌ Not Registered";
           sections.push(
@@ -515,7 +537,7 @@ Respond with ONLY valid JSON:
         );
       } else if (tcx.trunkStatuses.length > 0) {
         sections.push("");
-        sections.push("### Trunk Registration Status");
+        sections.push("### Trunk Registration Status (entire shared PBX — not client-specific)");
         for (const ts of tcx.trunkStatuses) {
           sections.push(
             `- **${ts.TrunkName ?? "Trunk " + ts.TrunkId}**: ${ts.Status ?? ts.RegistrarStatus ?? "Unknown"} ${ts.LastError ? `| Last Error: ${ts.LastError}` : ""}`,

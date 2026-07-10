@@ -28,6 +28,23 @@ interface VultrData {
   readonly firewallGroups: ReadonlyArray<VultrFirewallGroup>;
   readonly firewallRules: ReadonlyArray<{ groupId: string; rules: ReadonlyArray<VultrFirewallRule> }>;
   readonly backups: ReadonlyArray<VultrBackup>;
+  // true = no Vultr integration_mapping exists for this client, so the shared
+  // Vultr account was NOT queried — empty arrays here mean "unknown", not
+  // "this client has no cloud infrastructure". Dumping the whole account
+  // instead would leak another client's servers/DNS/firewall rules.
+  readonly unmapped?: boolean;
+  // true = the Vultr API (or the mapping lookup) errored — empty arrays do NOT
+  // mean the client has no infrastructure or that everything is healthy.
+  readonly lookupFailed?: boolean;
+}
+
+/** Resolved scope for a single client's Vultr resources. */
+interface VultrScope {
+  readonly externalId: string;
+  readonly externalName: string;
+  // Lowercased match tokens (external id + name) used to filter account-wide
+  // Vultr resources down to this client's instances/domains/firewalls.
+  readonly tokens: ReadonlyArray<string>;
 }
 
 export class StanleyHudsonAgent extends BaseAgent {
@@ -133,7 +150,11 @@ Respond with ONLY valid JSON:
     // 3. Log what we found
     await this.logThinking(
       context.ticketId,
-      `Vultr data retrieved: ${vultrData.instances.length} instances, ${vultrData.domains.length} domains, ${vultrData.firewallGroups.length} firewall groups, ${vultrData.backups.length} backups. Analyzing cloud infrastructure now.`,
+      vultrData.lookupFailed
+        ? `⚠ Vultr lookup FAILED — cloud data unavailable for "${context.clientName}". Analyzing from ticket context only.`
+        : vultrData.unmapped
+          ? `No Vultr mapping for "${context.clientName}" — shared account not queried (avoids cross-client leak). Analyzing from ticket context only.`
+          : `Vultr data (scoped to "${context.clientName}"): ${vultrData.instances.length} instances, ${vultrData.domains.length} domains, ${vultrData.firewallGroups.length} firewall groups, ${vultrData.backups.length} backups. Analyzing cloud infrastructure now.`,
     );
 
     // 4. Send everything to the AI
@@ -172,47 +193,182 @@ Respond with ONLY valid JSON:
     const config = await this.getVultrConfig();
     if (!config) return emptyResult;
 
+    // Vultr is a single shared account holding EVERY client's cloud infra.
+    // We must scope to THIS client via integration_mappings before any data
+    // reaches the prompt — otherwise client A's ticket gets client B's server
+    // IPs, DNS zones, and firewall rules (cross-client data leak).
+    let scope: VultrScope | null;
+    try {
+      scope = await this.resolveVultrScope(context);
+    } catch (error) {
+      console.error("[STANLEY] Vultr mapping lookup failed:", error);
+      return { ...emptyResult, lookupFailed: true };
+    }
+
+    // No mapping → do NOT query the shared account. Return empty+unmapped so
+    // buildUserMessage states Vultr is not mapped rather than listing another
+    // client's infrastructure.
+    if (!scope) {
+      console.log(
+        `[STANLEY] No Vultr mapping for "${context.clientName}" — skipping shared account to avoid cross-client leak`,
+      );
+      return { ...emptyResult, unmapped: true };
+    }
+
     const vultr = new VultrClient(config);
 
-    // Fetch all data in parallel
-    const [instances, domains, firewallGroups, backups] = await Promise.all([
-      this.fetchInstances(vultr, context),
-      this.fetchDomains(vultr, context),
-      this.fetchFirewalls(vultr),
-      this.fetchBackups(vultr),
-    ]);
+    try {
+      // getInstances() is the canonical failure signal: an expired/invalid key
+      // rejects here → caught below → lookupFailed. Domains/firewalls stay
+      // tolerant so a partial outage still yields scoped instance data.
+      const [instances, domains, firewallGroups] = await Promise.all([
+        vultr.getInstances(),
+        this.fetchDomains(vultr),
+        this.fetchFirewalls(vultr),
+      ]);
 
-    // Fetch DNS records for relevant domains
-    const dnsRecords = await this.fetchDnsRecords(vultr, domains);
+      // Filter account-wide resources down to THIS client's scope.
+      const scoped = this.scopeToClient(scope, instances, domains, firewallGroups);
 
-    // Fetch firewall rules for each group
-    const firewallRules = await this.fetchFirewallRules(vultr, firewallGroups);
+      // Fetch dependent data only for the already-scoped resources.
+      const [dnsRecords, firewallRules, backups] = await Promise.all([
+        this.fetchDnsRecords(vultr, scoped.domains),
+        this.fetchFirewallRules(vultr, scoped.firewallGroups),
+        this.fetchBackupsForInstances(vultr, scoped.instances),
+      ]);
+
+      return {
+        instances: scoped.instances,
+        domains: scoped.domains,
+        dnsRecords,
+        firewallGroups: scoped.firewallGroups,
+        firewallRules,
+        backups,
+      };
+    } catch (error) {
+      // API failure ≠ "no infrastructure" — flag it so Stanley does not
+      // conclude the cloud is healthy.
+      console.error("[STANLEY] Vultr data fetch failed:", error);
+      return { ...emptyResult, lookupFailed: true };
+    }
+  }
+
+  /**
+   * Resolve this client's Vultr scope from integration_mappings
+   * (service='vultr'), mirroring how other specialists resolve a customer
+   * mapping — customer_id first, then case-insensitive customer_name.
+   * Returns null when the client has no Vultr mapping.
+   */
+  private async resolveVultrScope(
+    context: TriageContext,
+  ): Promise<VultrScope | null> {
+    if (!context.clientName && !context.clientId) return null;
+
+    let mapping: { external_id: string; external_name: string } | null = null;
+
+    if (context.clientId) {
+      const { data } = await this.supabase
+        .from("integration_mappings")
+        .select("external_id, external_name")
+        .eq("service", "vultr")
+        .eq("customer_id", String(context.clientId))
+        .limit(1)
+        .maybeSingle();
+      mapping = data;
+    }
+
+    if (!mapping && context.clientName) {
+      const { data } = await this.supabase
+        .from("integration_mappings")
+        .select("external_id, external_name")
+        .eq("service", "vultr")
+        .ilike("customer_name", context.clientName)
+        .limit(1)
+        .maybeSingle();
+      mapping = data;
+    }
+
+    if (!mapping) return null;
+
+    const tokens = [mapping.external_id, mapping.external_name]
+      .filter((t): t is string => typeof t === "string")
+      .map((t) => t.toLowerCase().trim())
+      .filter((t) => t.length > 0);
+
+    if (tokens.length === 0) return null;
+
+    console.log(
+      `[STANLEY] Scoping Vultr to mapping "${mapping.external_name}" (external_id: ${mapping.external_id})`,
+    );
 
     return {
-      instances,
-      domains,
-      dnsRecords,
-      firewallGroups,
-      firewallRules,
-      backups,
+      externalId: mapping.external_id,
+      externalName: mapping.external_name,
+      tokens,
     };
   }
 
-  private async fetchInstances(
-    vultr: VultrClient,
-    _context: TriageContext,
-  ): Promise<ReadonlyArray<VultrInstance>> {
-    try {
-      return await vultr.getInstances();
-    } catch (error) {
-      console.error("[STANLEY] Failed to fetch Vultr instances:", error);
-      return [];
-    }
+  /**
+   * Filter account-wide Vultr resources down to a single client's scope.
+   * Vultr has no strict per-customer field, so we match on the mapping's
+   * external id/name against instance id/label/hostname/tag(s), firewall
+   * group attachment or description, and domain name. Backups are fetched
+   * per scoped instance separately.
+   */
+  private scopeToClient(
+    scope: VultrScope,
+    instances: ReadonlyArray<VultrInstance>,
+    domains: ReadonlyArray<VultrDomain>,
+    firewallGroups: ReadonlyArray<VultrFirewallGroup>,
+  ): {
+    instances: ReadonlyArray<VultrInstance>;
+    domains: ReadonlyArray<VultrDomain>;
+    firewallGroups: ReadonlyArray<VultrFirewallGroup>;
+  } {
+    const matchesToken = (value: unknown): boolean => {
+      if (typeof value !== "string" || value.length === 0) return false;
+      const v = value.toLowerCase();
+      return scope.tokens.some((t) => v === t || v.includes(t) || t.includes(v));
+    };
+
+    const scopedInstances = instances.filter((inst) => {
+      const tagValues: string[] = [];
+      if (typeof inst.tag === "string") tagValues.push(inst.tag);
+      if (Array.isArray(inst.tags)) {
+        for (const t of inst.tags) {
+          if (typeof t === "string") tagValues.push(t);
+        }
+      }
+      return (
+        matchesToken(inst.id) ||
+        matchesToken(inst.label) ||
+        matchesToken(inst.hostname) ||
+        tagValues.some(matchesToken)
+      );
+    });
+
+    // Firewall groups attached to a scoped instance (or matching by description)
+    const scopedGroupIds = new Set(
+      scopedInstances
+        .map((i) => i.firewall_group_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+    const scopedFirewallGroups = firewallGroups.filter(
+      (g) => (g.id != null && scopedGroupIds.has(g.id)) || matchesToken(g.description),
+    );
+
+    // Domains the client owns — matched by zone name against the scope tokens.
+    const scopedDomains = domains.filter((d) => matchesToken(d.domain));
+
+    return {
+      instances: scopedInstances,
+      domains: scopedDomains,
+      firewallGroups: scopedFirewallGroups,
+    };
   }
 
   private async fetchDomains(
     vultr: VultrClient,
-    _context: TriageContext,
   ): Promise<ReadonlyArray<VultrDomain>> {
     try {
       return await vultr.getDomains();
@@ -273,11 +429,28 @@ Respond with ONLY valid JSON:
     }
   }
 
-  private async fetchBackups(
+  private async fetchBackupsForInstances(
     vultr: VultrClient,
+    instances: ReadonlyArray<VultrInstance>,
   ): Promise<ReadonlyArray<VultrBackup>> {
+    // Scope backups to the client's instances — the account-wide backup list
+    // would surface other clients' backup metadata.
+    const withId = instances.filter(
+      (i) => typeof i.id === "string" && i.id.length > 0,
+    );
+    if (withId.length === 0) return [];
+
     try {
-      return await vultr.getBackups();
+      const results = await Promise.allSettled(
+        withId.slice(0, 20).map((i) => vultr.getBackups(i.id as string)),
+      );
+
+      return results
+        .filter(
+          (r): r is PromiseFulfilledResult<ReadonlyArray<VultrBackup>> =>
+            r.status === "fulfilled",
+        )
+        .flatMap((r) => r.value);
     } catch (error) {
       console.error("[STANLEY] Failed to fetch Vultr backups:", error);
       return [];
@@ -370,10 +543,20 @@ Respond with ONLY valid JSON:
           );
         }
       }
+    } else if (vultrData.lookupFailed) {
+      sections.push("");
+      sections.push(
+        "**⚠ Vultr lookup FAILED** — live cloud data unavailable (API error or expired key). State this in your findings; do NOT conclude the client has no cloud infrastructure or that everything is healthy. Analyze from ticket context only.",
+      );
+    } else if (vultrData.unmapped) {
+      sections.push("");
+      sections.push(
+        `**Note:** Vultr is not mapped for client "${context.clientName ?? "this client"}" — cloud infrastructure data is unavailable for this client. Do NOT assume they have no Vultr infrastructure; there is simply no mapping to scope their resources. Analyze from ticket context only.`,
+      );
     } else {
       sections.push("");
       sections.push(
-        "**Note:** No Vultr data available. Analyze based on ticket information only.",
+        "**Note:** No matching Vultr resources found for this client. Analyze based on ticket information only.",
       );
     }
 

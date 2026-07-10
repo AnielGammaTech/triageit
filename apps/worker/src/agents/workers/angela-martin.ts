@@ -18,6 +18,9 @@ import { AbuseIpdbClient } from "../../integrations/abuseipdb/client.js";
 interface EdrData {
   readonly alerts: ReadonlyArray<EdrAlert & { readonly occurrences: number; readonly reporterDevice: boolean }>;
   readonly reporterHostnames: ReadonlyArray<string>;
+  // Whether this Halo client name actually matched an EDR target group. A
+  // false here with 0 alerts means NO endpoint visibility — NOT a clean feed.
+  readonly clientMatched: boolean;
 }
 
 /**
@@ -229,13 +232,27 @@ Respond with ONLY valid JSON:
         }
       }
 
+      // Does this Halo client name actually map to an EDR target group?
+      // getRecentAlerts filters by a case-insensitive substring match of the
+      // client name against targetGroupName, so replicate that same match
+      // against the target list. Without a match, 0 alerts means we have NO
+      // visibility for this client — it must NOT read as a clean feed.
+      let clientMatched = false;
+      try {
+        const targets = await edr.getTargets();
+        const needle = context.clientName.toLowerCase();
+        clientMatched = targets.some((t) => t.name.toLowerCase().includes(needle));
+      } catch {
+        // Can't list targets → can't assert a clean feed; stay conservative.
+      }
+
       const alerts = await edr.getRecentAlerts({
         clientName: context.clientName,
         hostnames: reporterHostnames,
         days: 7,
         limit: 50,
       });
-      if (alerts.length === 0) return { alerts: [], reporterHostnames };
+      if (alerts.length === 0) return { alerts: [], reporterHostnames, clientMatched };
 
       const reporterSet = new Set(reporterHostnames.map((h) => h.toLowerCase()));
       const deduped = dedupeAlerts(alerts)
@@ -249,7 +266,7 @@ Respond with ONLY valid JSON:
       console.log(
         `[ANGELA] EDR: ${alerts.length} alerts (${deduped.length} unique) for "${context.clientName}", ${deduped.filter((a) => a.reporterDevice).length} on reporter's device(s)`,
       );
-      return { alerts: deduped, reporterHostnames };
+      return { alerts: deduped, reporterHostnames, clientMatched };
     } catch (error) {
       console.warn("[ANGELA] Datto EDR fetch failed (continuing without):", error);
       return null;
@@ -474,8 +491,10 @@ Respond with ONLY valid JSON:
         sections.push(
           "## EDR Correlation Task\nCompare what the customer DESCRIBES with the detections above. If the customer's symptoms (slowness, popups, locked files, weird behavior, crashes) plausibly line up with a detection — especially one on the reporter's own device — call it out explicitly in edr_correlation with the hostname and detection, raise severity accordingly, and make isolating/scanning that device an immediate action. If nothing correlates, say so in one sentence.",
         );
-      } else {
+      } else if (edrData.clientMatched) {
         sections.push("## Datto EDR: no detections in the last 7 days for this client (REAL data — a clean EDR feed is meaningful evidence against active malware).");
+      } else {
+        sections.push("## ⚠ Datto EDR: no matching organization for this client — endpoint detection visibility is UNAVAILABLE. Do NOT treat this as a clean feed or as evidence against compromise.");
       }
     }
 
