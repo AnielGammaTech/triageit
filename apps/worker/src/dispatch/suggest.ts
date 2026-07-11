@@ -24,13 +24,22 @@ export interface DispatchSuggestions {
     readonly summary: string | null;
     readonly client_name: string | null;
     readonly status: string | null;
+    /** How many other open tickets share this client+summary (grouped duplicates). */
+    readonly duplicates: number;
     readonly suggestions: ReadonlyArray<Suggestion>; // top 3
   }>;
+  /** Tickets beyond the display cap (after grouping). */
+  readonly omitted: number;
 }
 
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 const TOP_N = 3;
+/** Keep the helper scannable — the queue view covers the long tail. */
+const MAX_TICKETS = 8;
+/** Automated alerts are triaged, not dispatched — never suggest assignees. */
+const ALERT_CLIENT_RE = /^alerts?$/i;
+const ALERT_TYPE_RE = /alert|notification|monitor/i;
 
 interface TargetTicket {
   readonly id: string;
@@ -66,12 +75,33 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       client_name: (t.client_name as string | null) ?? null,
       halo_status: (t.halo_status as string | null) ?? null,
     }));
-  if (targets.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [] };
+  if (targets.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [], omitted: 0 };
 
   const [typeByTicketId, profiles] = await Promise.all([
     fetchLatestTypes(supabase, targets.map((t) => t.id)),
     fetchTechProfiles(supabase),
   ]);
+
+  // Alerts are handled by the triage pipeline, not the dispatcher — drop
+  // anything classified as an alert or filed under the Alerts client, and
+  // fold duplicate storms (same client + summary) into one entry.
+  const dispatchable = targets.filter((t) => {
+    if (t.client_name && ALERT_CLIENT_RE.test(t.client_name.trim())) return false;
+    const type = typeByTicketId.get(t.id);
+    if (type && ALERT_TYPE_RE.test(type)) return false;
+    return true;
+  });
+  const grouped = new Map<string, { ticket: TargetTicket; duplicates: number }>();
+  for (const t of dispatchable) {
+    const key = `${(t.client_name ?? "").toLowerCase()}|${(t.summary ?? "").trim().toLowerCase()}`;
+    const existing = grouped.get(key);
+    if (existing) grouped.set(key, { ...existing, duplicates: existing.duplicates + 1 });
+    else grouped.set(key, { ticket: t, duplicates: 0 });
+  }
+  const groupedList = [...grouped.values()];
+  const shown = groupedList.slice(0, MAX_TICKETS);
+  const omitted = groupedList.length - shown.length;
+  if (groupedList.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [], omitted: 0 };
   const clients = [...new Set(targets.map((t) => t.client_name).filter((c): c is string => !!c))];
   const recentSimilar = await fetchRecentSimilar(supabase, clients);
 
@@ -79,7 +109,7 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
   // assignment candidates stay techs-only.
   const candidates = board.techs.filter((bt) => isHelpdeskTechnicianName(bt.tech));
 
-  const tickets = targets.map((t) => {
+  const tickets = shown.map(({ ticket: t, duplicates }) => {
     const ticket: TicketToAssign = {
       halo_id: t.halo_id,
       summary: t.summary,
@@ -108,12 +138,15 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       summary: t.summary,
       client_name: t.client_name,
       status: t.halo_status,
+      duplicates,
       suggestions,
     };
   });
 
-  console.log(`[DISPATCH] Suggestions built for ${tickets.length} unassigned/New tickets`);
-  return { haloBaseUrl: board.haloBaseUrl, tickets };
+  console.log(
+    `[DISPATCH] Suggestions built: ${tickets.length} shown, ${omitted} omitted, ${targets.length - dispatchable.length} alert tickets excluded`,
+  );
+  return { haloBaseUrl: board.haloBaseUrl, tickets, omitted };
 }
 
 // ── Batched lookups (each degrades independently — never blocks ranking) ──

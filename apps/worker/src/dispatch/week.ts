@@ -43,13 +43,14 @@ export interface WeekData {
 const CACHE_TTL_MS = 5 * 60_000;
 const DAY_MS = 24 * 3600_000;
 const MAX_SUBJECT = 60;
+/** Dispatcher decision (2026-07-10): the schedule view is the NEXT few days, never the past. */
+const WINDOW_DAYS = 3;
 
 let cache: { readonly key: string; readonly at: number; readonly data: WeekData } | null = null;
 
-/** Monday of the current ET week as YYYY-MM-DD. */
-function currentEtMonday(now: Date): string {
+/** Today's ET date as YYYY-MM-DD. */
+function todayEt(now: Date): string {
   const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  et.setDate(et.getDate() - ((et.getDay() + 6) % 7));
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
 }
 
@@ -95,9 +96,12 @@ function appointmentEvents(
 
 export async function buildWeekData(startParam?: string | null): Promise<WeekData> {
   const now = new Date();
-  const start =
-    startParam && /^\d{4}-\d{2}-\d{2}$/.test(startParam) ? startParam : currentEtMonday(now);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const today = todayEt(now);
+  // Never look backwards — the earliest visible day is always today.
+  const requested =
+    startParam && /^\d{4}-\d{2}-\d{2}$/.test(startParam) ? startParam : today;
+  const start = requested < today ? today : requested;
+  const days = Array.from({ length: WINDOW_DAYS }, (_, i) => addDays(start, i));
 
   if (cache && cache.key === start && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
 

@@ -47,11 +47,13 @@ interface SuggestTicket {
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly status: string | null;
+  readonly duplicates?: number;
   readonly suggestions: ReadonlyArray<Suggestion>;
 }
 interface DispatchSuggestions {
   readonly haloBaseUrl: string;
   readonly tickets: ReadonlyArray<SuggestTicket>;
+  readonly omitted?: number;
 }
 interface WeekEvent {
   readonly day: string; // YYYY-MM-DD (ET)
@@ -238,25 +240,35 @@ export default function DispatchPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Right Now tech board */}
-        <div className="lg:col-span-7">
-          <Section title="Right Now" icon={<Users className="h-4 w-4" style={{ color: RED }} />}>
-            {loading && !board ? (
-              <BoardSkeleton />
-            ) : (board?.techs.length ?? 0) === 0 ? (
-              <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
-            ) : (
-              <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-                {board!.techs.map((t) => (
-                  <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
-                ))}
+      {/* Right Now — full-width compact card grid */}
+      <Section title="Right Now" icon={<Users className="h-4 w-4" style={{ color: RED }} />}>
+        {loading && !board ? (
+          <BoardSkeleton />
+        ) : (board?.techs.length ?? 0) === 0 ? (
+          <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-px sm:grid-cols-2 xl:grid-cols-3" style={{ background: HAIRLINE }}>
+            {board!.techs.map((t) => (
+              <div key={t.tech} style={{ background: PANEL }}>
+                <TechRow tech={t} haloBaseUrl={board!.haloBaseUrl} />
               </div>
-            )}
-          </Section>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Next 3 days schedule + assignment helper, side by side */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-7">
+          {week && week.techs.length > 0 ? (
+            <WeekGrid week={week} onPrev={() => setWeekOffset((w) => Math.max(0, w - 1))} onNext={() => setWeekOffset((w) => w + 1)} onToday={() => setWeekOffset(0)} atToday={weekOffset === 0} />
+          ) : (
+            <Section title="Next 3 Days" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
+              <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
+            </Section>
+          )}
         </div>
 
-        {/* Assignment helper */}
         <div className="lg:col-span-5">
           <Section title="Assignment Helper" icon={<ClipboardList className="h-4 w-4" style={{ color: RED }} />}>
             {loading && !suggest ? (
@@ -264,30 +276,30 @@ export default function DispatchPage() {
             ) : (suggest?.tickets.length ?? 0) === 0 ? (
               <div className="p-5 text-sm text-zinc-400">No unassigned or New tickets — queue is clean.</div>
             ) : (
-              <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-                {suggest!.tickets.map((t) => (
-                  <TicketSuggestions key={t.halo_id} ticket={t} haloBaseUrl={suggest!.haloBaseUrl} />
-                ))}
-              </div>
+              <>
+                <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+                  {suggest!.tickets.map((t) => (
+                    <TicketSuggestions key={t.halo_id} ticket={t} haloBaseUrl={suggest!.haloBaseUrl} />
+                  ))}
+                </div>
+                {(suggest!.omitted ?? 0) > 0 && (
+                  <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+                    +{suggest!.omitted} more unassigned — see the Tickets queue.
+                  </p>
+                )}
+              </>
             )}
           </Section>
         </div>
       </div>
-
-      {/* Week grid */}
-      {week && week.techs.length > 0 && (
-        <WeekGrid week={week} onPrev={() => setWeekOffset((w) => w - 1)} onNext={() => setWeekOffset((w) => w + 1)} onToday={() => setWeekOffset(0)} />
-      )}
     </div>
   );
 }
 
-/** Monday (ET) of the week `offset` weeks from now, as YYYY-MM-DD. */
+/** Today (ET) plus `offset` 3-day pages, as YYYY-MM-DD. Never in the past. */
 function weekStartIso(offset: number): string {
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const dow = (et.getDay() + 6) % 7; // Mon=0
-  et.setDate(et.getDate() - dow + offset * 7);
+  const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  et.setDate(et.getDate() + Math.max(0, offset) * 3);
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
 }
 
@@ -322,22 +334,22 @@ function WeekGrid({
   onPrev,
   onNext,
   onToday,
+  atToday,
 }: {
   readonly week: WeekData;
   readonly onPrev: () => void;
   readonly onNext: () => void;
   readonly onToday: () => void;
+  readonly atToday: boolean;
 }) {
   const rangeLabel = `${fmtDayHeader(week.days[0]).date} – ${fmtDayHeader(week.days[week.days.length - 1]).date}`;
-  // Weekend columns only earn their space when something is scheduled on them.
-  const busyDays = new Set(week.techs.flatMap((t) => t.events.map((e) => e.day)));
-  const days = week.days.filter((day, i) => i < 5 || busyDays.has(day));
-  // People with an empty week collapse into a single footer line.
+  const days = week.days;
+  // People with nothing coming up collapse into a single footer line.
   const activeTechs = week.techs.filter((t) => t.events.length > 0);
   const quietTechs = week.techs.filter((t) => t.events.length === 0).map((t) => t.tech);
   return (
     <Section
-      title="Week"
+      title="Next 3 Days"
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
       actions={
         <div className="flex items-center gap-1">
@@ -345,8 +357,9 @@ function WeekGrid({
           <span className="mr-2 hidden text-xs text-zinc-400 sm:inline">{rangeLabel}</span>
           <button
             onClick={onPrev}
-            aria-label="Previous week"
-            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
+            disabled={atToday}
+            aria-label="Previous days"
+            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white disabled:cursor-default disabled:opacity-30"
             style={{ borderColor: HAIRLINE }}
           >
             <ChevronLeft className="h-4 w-4" />
@@ -360,7 +373,7 @@ function WeekGrid({
           </button>
           <button
             onClick={onNext}
-            aria-label="Next week"
+            aria-label="Next days"
             className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
@@ -454,7 +467,7 @@ function WeekGrid({
       </div>
       {quietTechs.length > 0 && (
         <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          Nothing scheduled this week: {quietTechs.join(", ")}
+          Nothing coming up: {quietTechs.join(", ")}
         </p>
       )}
     </Section>
@@ -628,38 +641,35 @@ function TicketSuggestions({
           {ticket.client_name ?? "Unknown client"}
           {ticket.summary ? ` — ${ticket.summary}` : ""}
         </span>
+        {(ticket.duplicates ?? 0) > 0 && (
+          <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] text-zinc-400" style={{ borderColor: HAIRLINE }}>
+            ×{(ticket.duplicates ?? 0) + 1}
+          </span>
+        )}
       </div>
       {ticket.suggestions.length === 0 ? (
         <p className="mt-1.5 text-xs text-zinc-500">No suggestions available.</p>
       ) : (
-        <ul className="mt-2 space-y-1.5">
-          {ticket.suggestions.map((s, i) => (
-            <li key={s.tech} className="flex items-start gap-2">
-              <span
-                className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                style={{ background: i === 0 ? RED : "#7f1d1d" }}
-              >
-                {i + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className={i === 0 ? "text-sm font-semibold text-white" : "text-sm font-medium text-white/80"}>
-                    {s.tech}
-                  </span>
-                  {i === 0 && (
-                    <span
-                      className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide"
-                      style={{ background: `${RED}22`, color: "#fca5a5" }}
-                    >
-                      Best pick
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500">{s.reasons.join(" · ")}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-1.5">
+          {/* One clear recommendation; the runners-up are a single muted line. */}
+          <div className="flex items-baseline gap-2">
+            <span
+              className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide"
+              style={{ background: `${RED}22`, color: "#fca5a5" }}
+            >
+              Assign
+            </span>
+            <span className="text-sm font-semibold text-white">{ticket.suggestions[0].tech}</span>
+            <span className="min-w-0 truncate text-xs text-zinc-500">
+              {ticket.suggestions[0].reasons.slice(0, 2).join(" · ")}
+            </span>
+          </div>
+          {ticket.suggestions.length > 1 && (
+            <p className="mt-0.5 truncate text-xs text-zinc-600">
+              Also: {ticket.suggestions.slice(1).map((s) => s.tech.split(" ")[0]).join(", ")}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
