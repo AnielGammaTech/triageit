@@ -28,12 +28,23 @@ export const HELPDESK_TECHNICIANS = [
   "Darren Davillier",
 ] as const;
 
+// Calls are operationally useful only when a helpdesk tech, the dispatcher,
+// or IT leadership is involved. Other Gamma extensions are intentionally
+// excluded from the TriageIT call audit.
+export const SUPPORT_CALL_STAFF = [
+  ...HELPDESK_TECHNICIANS,
+  "Bryanna Marquez",
+  "David Ayala",
+  "Aniel",
+] as const;
+
 /**
  * Real org roles (user-corrected 2026-07-09 after the AI invented a
  * "Cloud team"): there are NO specialty teams — techs handle everything.
  * Account managers own billing/licensing/account requests.
  */
 export const ACCOUNT_MANAGERS = ["Todd Cassetty", "Roman Hernandez"] as const;
+export const CALL_AUDIT_STAFF = [...SUPPORT_CALL_STAFF, ...ACCOUNT_MANAGERS] as const;
 export const DISPATCHER = "Bryanna Marquez";
 export const TEAM_FACTS = `Gamma Tech roles — use these EXACTLY, never invent teams or roles:
 - Helpdesk techs (handle ALL technical work, no specialty teams exist): Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier.
@@ -90,6 +101,21 @@ function isNameMatch(candidate: string, expected: string): boolean {
 export function isHelpdeskTechnicianName(name: string | null | undefined): boolean {
   if (!name) return false;
   return HELPDESK_TECHNICIANS.some((tech) => isNameMatch(name, tech));
+}
+
+export function isSupportCallStaffName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return SUPPORT_CALL_STAFF.some((staff) => isNameMatch(name, staff));
+}
+
+export function isAccountManagerName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return ACCOUNT_MANAGERS.some((staff) => isNameMatch(name, staff));
+}
+
+export function isCallAuditStaffName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return CALL_AUDIT_STAFF.some((staff) => isNameMatch(name, staff));
 }
 
 export function isKnownNonTechStaffName(name: string | null | undefined): boolean {

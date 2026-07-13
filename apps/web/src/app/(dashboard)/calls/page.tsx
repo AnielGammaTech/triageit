@@ -224,7 +224,14 @@ export default function CallsPage() {
           <div className="p-8 text-center text-sm text-zinc-500">No calls match this view.</div>
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-            {visible.map((item) => <CallRow key={item.recordingId} item={item} haloBaseUrl={data?.haloBaseUrl ?? ""} />)}
+            {visible.map((item) => (
+              <CallRow
+                key={item.recordingId}
+                item={item}
+                haloBaseUrl={data?.haloBaseUrl ?? ""}
+                onMatched={() => load(true)}
+              />
+            ))}
           </div>
         )}
 
@@ -267,7 +274,7 @@ function ViewButton({ active, onClick, label, count }: { readonly active: boolea
   );
 }
 
-function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly haloBaseUrl: string }) {
+function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; readonly haloBaseUrl: string; readonly onMatched: () => Promise<void> }) {
   const href = item.ticket ? ticketUrl(haloBaseUrl, item.ticket.haloId) : null;
   const elapsed = duration(item.startedAt, item.endedAt);
   const DirectionIcon = item.direction === "inbound" ? PhoneIncoming : item.direction === "outbound" ? PhoneOutgoing : PhoneCall;
@@ -328,6 +335,9 @@ function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly halo
             </a>
           )}
         </div>
+        {!internal && !item.ticket && (
+          <ManualMatchForm recordingId={item.recordingId} onMatched={onMatched} />
+        )}
         {item.callSummary && (
           <div className="mt-4 border-l-2 pl-3" style={{ borderColor: stateColor }}>
             <p className="text-[10px] font-bold uppercase text-zinc-600">AI call summary</p>
@@ -342,5 +352,63 @@ function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly halo
         </div>
       </div>
     </details>
+  );
+}
+
+function ManualMatchForm({ recordingId, onMatched }: { readonly recordingId: number; readonly onMatched: () => Promise<void> }) {
+  const [ticketNumber, setTicketNumber] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const haloId = Number(ticketNumber);
+    if (!Number.isInteger(haloId) || haloId <= 0) {
+      setError("Enter a valid ticket number");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/calls/${recordingId}/match`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ halo_id: haloId }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Could not match the call");
+      await onMatched();
+    } catch (matchError) {
+      setError(matchError instanceof Error ? matchError.message : "Could not match the call");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4" style={{ borderColor: HAIRLINE }}>
+      <label className="min-w-44">
+        <span className="mb-1.5 block text-[10px] font-bold uppercase text-zinc-600">Halo ticket</span>
+        <input
+          value={ticketNumber}
+          onChange={(event) => setTicketNumber(event.target.value.replace(/\D/g, ""))}
+          inputMode="numeric"
+          placeholder="Ticket #"
+          aria-label="Halo ticket number"
+          className="h-9 w-full rounded-md border bg-black/20 px-3 text-sm tabular-nums text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-red-800"
+          style={{ borderColor: HAIRLINE }}
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={submitting || !ticketNumber}
+        className="inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold text-zinc-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ borderColor: HAIRLINE, background: "#201418" }}
+      >
+        <Link2 className="h-3.5 w-3.5" />
+        {submitting ? "Matching..." : "Match & post"}
+      </button>
+      {error && <p className="w-full text-xs text-red-400">{error}</p>}
+    </form>
   );
 }

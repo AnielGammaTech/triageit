@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HaloConfig, ThreeCxConfig } from "@triageit/shared";
+import { isAccountManagerName, isSupportCallStaffName, type HaloConfig, type ThreeCxConfig } from "@triageit/shared";
 import { ThreeCxClient, type ThreeCxRecording } from "../integrations/threecx/client.js";
 
 interface CallAnalysisRow {
@@ -29,6 +29,7 @@ interface TicketLookup {
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly halo_status: string | null;
+  readonly halo_agent: string | null;
   readonly user_name: string | null;
 }
 
@@ -55,6 +56,7 @@ export interface CallTranscriptionItem {
     readonly summary: string | null;
     readonly clientName: string | null;
     readonly status: string | null;
+    readonly agentName: string | null;
     readonly customerName: string | null;
   } | null;
 }
@@ -71,6 +73,10 @@ let cache: { readonly at: number; readonly payload: CallTranscriptionPayload } |
 const CACHE_MS = 60_000;
 const RECENT_CALL_LIMIT = 75;
 
+export function invalidateCallTranscriptionCache(): void {
+  cache = null;
+}
+
 function directionOf(value: string | null): CallTranscriptionItem["direction"] {
   return value === "inbound" || value === "outbound" ? value : "unknown";
 }
@@ -86,6 +92,26 @@ function itemPartyName(
   return rawName?.replace(/^\[V\]\s*/i, "").trim() || null;
 }
 
+function samePerson(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
+  const tokens = (value: string) => new Set(value.toLowerCase().split(/[^a-z]+/).filter((token) => token.length >= 3));
+  const leftTokens = tokens(left);
+  const rightTokens = tokens(right);
+  return [...leftTokens].filter((token) => rightTokens.has(token)).length >= 2;
+}
+
+export function shouldIncludeCallTranscription(
+  item: Pick<CallTranscriptionItem, "techName" | "from" | "to" | "ticket" | "matchMethod">,
+): boolean {
+  if (item.matchMethod === "ignored_non_support_staff") return false;
+  if ([item.techName, item.from.name, item.to.name].some((name) => isSupportCallStaffName(name))) return true;
+  return Boolean(
+    item.ticket
+    && isAccountManagerName(item.techName)
+    && samePerson(item.techName, item.ticket.agentName)
+  );
+}
+
 export function callMatchLabel(method: string | null): string {
   const base = (method ?? "unknown").replace(/_(?:other_staff|note_failed|analysis_failed|irrelevant)$/g, "");
   const labels: Record<string, string> = {
@@ -99,7 +125,9 @@ export function callMatchLabel(method: string | null): string {
     llm_transcript_named: "Spoken customer name and transcript",
     llm_transcript_global: "Transcript matched across open tickets",
     llm_ticket_callback_number: "Callback number and transcript matched",
+    manual_dispatch: "Matched by dispatch",
     internal_call: "Internal staff call",
+    ignored_non_support_staff: "Outside the TriageIT support team",
     transcript_too_short: "Transcript unavailable or too short",
     no_external_number: "No external caller number",
     no_halo_user: "Caller not found and transcript had no safe match",
@@ -174,7 +202,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number")
     .neq("matched_by", "cursor_seed")
     .order("recording_id", { ascending: false })
-    .limit(RECENT_CALL_LIMIT);
+    .limit(RECENT_CALL_LIMIT * 3);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as ReadonlyArray<CallAnalysisRow>;
 
@@ -183,7 +211,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
   if (ticketIds.length > 0) {
     const { data: tickets, error: ticketError } = await supabase
       .from("tickets")
-      .select("id, summary, client_name, halo_status, user_name")
+      .select("id, summary, client_name, halo_status, halo_agent, user_name")
       .in("id", ticketIds);
     if (ticketError) throw new Error(ticketError.message);
     for (const ticket of (tickets ?? []) as ReadonlyArray<TicketLookup>) ticketById.set(ticket.id, ticket);
@@ -235,11 +263,12 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
             summary: ticketLookup?.summary ?? null,
             clientName: ticketLookup?.client_name ?? null,
             status: ticketLookup?.halo_status ?? null,
+            agentName: ticketLookup?.halo_agent ?? null,
             customerName: ticketLookup?.user_name ?? null,
           }
         : null,
     };
-  });
+  }).filter(shouldIncludeCallTranscription).slice(0, RECENT_CALL_LIMIT);
   const payload: CallTranscriptionPayload = {
     generatedAt: new Date().toISOString(),
     haloBaseUrl: haloConfig?.base_url ?? "",

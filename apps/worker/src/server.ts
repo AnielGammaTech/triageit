@@ -37,9 +37,11 @@ import {
   getMsGraphSetupStatus,
 } from "./integrations/msgraph/setup.js";
 import { HaloClient } from "./integrations/halo/client.js";
+import { ThreeCxClient } from "./integrations/threecx/client.js";
 import { buildDispatchBoard } from "./dispatch/board.js";
 import { buildSuggestions } from "./dispatch/suggest.js";
-import { buildCallTranscriptionPayload } from "./dispatch/call-transcriptions.js";
+import { buildCallTranscriptionPayload, invalidateCallTranscriptionCache } from "./dispatch/call-transcriptions.js";
+import { manuallyMatchRecording } from "./cron/call-analysis.js";
 import {
   approveCustomerUpdate,
   dismissCustomerUpdate,
@@ -49,6 +51,7 @@ import {
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
+import type { ThreeCxConfig } from "@triageit/shared";
 
 const server = Fastify({ logger: true });
 const TRIAGE_QUEUE_NAME = "triage";
@@ -241,6 +244,46 @@ server.get("/calls/transcriptions", async (_request, reply) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return reply.status(500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { recordingId: string };
+  Body: { halo_id?: number };
+}>("/calls/transcriptions/:recordingId/match", async (request, reply) => {
+  const recordingId = Number(request.params.recordingId);
+  const haloId = Number(request.body?.halo_id);
+  if (!Number.isInteger(recordingId) || recordingId <= 0 || !Number.isInteger(haloId) || haloId <= 0) {
+    return reply.status(400).send({ error: "A valid recording id and Halo ticket number are required" });
+  }
+
+  const supabase = createSupabaseClient();
+  const { data: existing } = await supabase
+    .from("call_analyses")
+    .select("halo_id, note_posted")
+    .eq("recording_id", recordingId)
+    .maybeSingle();
+  if (existing?.halo_id) {
+    return reply.status(409).send({ error: `Recording ${recordingId} is already matched to ticket #${existing.halo_id}` });
+  }
+
+  const [{ data: integration }, haloConfig] = await Promise.all([
+    supabase.from("integrations").select("config").eq("service", "threecx").eq("is_active", true).maybeSingle(),
+    getCachedHaloConfig(supabase),
+  ]);
+  if (!integration || !haloConfig) return reply.status(503).send({ error: "3CX or Halo is unavailable" });
+
+  const tcx = new ThreeCxClient(integration.config as ThreeCxConfig);
+  const [recording] = (await tcx.getRecordingsSince(recordingId - 1, 1)) ?? [];
+  if (!recording || recording.Id !== recordingId) return reply.status(404).send({ error: "3CX recording was not found" });
+
+  try {
+    const result = await manuallyMatchRecording(supabase, new HaloClient(haloConfig), recording, haloId);
+    invalidateCallTranscriptionCache();
+    return { status: "matched", halo_id: haloId, note_posted: result.posted };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not match the call";
+    return reply.status(400).send({ error: message });
   }
 });
 

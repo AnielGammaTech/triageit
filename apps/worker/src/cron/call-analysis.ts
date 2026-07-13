@@ -5,8 +5,13 @@ import { ThreeCxClient, type ThreeCxRecording } from "../integrations/threecx/cl
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { extractResponseText } from "../agents/llm-text.js";
 import { parseLlmJson } from "../agents/parse-json.js";
-import { isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
-import { choosePhoneTicketMatchStrategy, phoneTicketSearchTerms } from "./call-match-policy.js";
+import { isCallAuditStaffName, isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
+import {
+  choosePhoneTicketMatchStrategy,
+  phoneTicketSearchTerms,
+  transcriptTicketMatchMinConfidence,
+  type TranscriptTicketMatchScope,
+} from "./call-match-policy.js";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -47,9 +52,10 @@ const MAX_TRANSCRIPT_FOR_LLM = 24_000;
 /** Global (no-Halo-user) matching needs enough conversation to be trustworthy. */
 const GLOBAL_MATCH_MIN_CHARS = 400;
 const MAX_GLOBAL_CANDIDATES = 120;
-const LLM_MATCH_MIN_CONFIDENCE = 0.75;
 /** Cap retries of a matched recording whose analysis or note-post keeps failing. */
 const MAX_ANALYSIS_ATTEMPTS = 5;
+const MAX_TRANSCRIPT_POLL_ATTEMPTS = 20;
+const MAX_UNMATCHED_REMATCH_ATTEMPTS = 2;
 
 // The cron fires every minute but a run with new recordings can take several
 // minutes (1-3 Sonnet calls per recording). Without this guard, BullMQ's
@@ -126,26 +132,41 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
   let matched = 0;
   let notesPosted = 0;
 
-  // Sweep recent analysis failures: the ticket MATCHED but the summary LLM
-  // call failed, so the note never posted (e.g. Ryan's #40862 Potter Homes
-  // call, 2026-07-09) — without this they were dropped forever.
-  // Also sweeps note_failed rows (matched + analyzed, but the Halo note POST
-  // failed) AND transcript_too_short rows. The latter is the key one: 3CX
-  // transcribes ASYNCHRONOUSLY, so a recording grabbed seconds after the call
-  // often has an empty/partial transcript → marked too_short → skipped forever.
-  // Re-fetching a few minutes later usually gets the finished transcript, which
-  // then matches (e.g. recording 85401 → #40979). Capped at MAX_ANALYSIS_ATTEMPTS
-  // so a genuinely short call isn't retried ~1,440×/day.
-  const { data: failedRows } = await supabase
-    .from("call_analyses")
-    .select("recording_id, analysis_attempts")
-    .or("matched_by.like.%analysis_failed%,matched_by.like.%note_failed%,matched_by.eq.transcript_too_short")
-    .eq("note_posted", false)
-    .lt("analysis_attempts", MAX_ANALYSIS_ATTEMPTS)
-    .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
-    .order("recording_id", { ascending: false })
-    .limit(8);
-  for (const row of failedRows ?? []) {
+  // 3CX transcription is asynchronous, so transcript polling gets a longer
+  // budget than actual LLM/note failures. Recent unmatched calls also get a
+  // small rematch budget so improved customer context can repair old misses.
+  const recentCutoff = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const [failureResult, transcriptResult, unmatchedResult] = await Promise.all([
+    supabase
+      .from("call_analyses")
+      .select("recording_id, analysis_attempts, matched_by")
+      .or("matched_by.like.%analysis_failed%,matched_by.like.%note_failed%,matched_by.eq.error")
+      .eq("note_posted", false)
+      .lt("analysis_attempts", MAX_ANALYSIS_ATTEMPTS)
+      .gte("created_at", recentCutoff)
+      .order("recording_id", { ascending: false })
+      .limit(4),
+    supabase
+      .from("call_analyses")
+      .select("recording_id, analysis_attempts, matched_by")
+      .eq("matched_by", "transcript_too_short")
+      .lt("analysis_attempts", MAX_TRANSCRIPT_POLL_ATTEMPTS)
+      .gte("created_at", recentCutoff)
+      .order("recording_id", { ascending: false })
+      .limit(8),
+    supabase
+      .from("call_analyses")
+      .select("recording_id, analysis_attempts, matched_by")
+      .in("matched_by", ["no_halo_user", "shared_phone_no_transcript_match", "ambiguous_multiple_open", "no_open_ticket"])
+      .lt("analysis_attempts", MAX_UNMATCHED_REMATCH_ATTEMPTS)
+      .gte("created_at", recentCutoff)
+      .order("recording_id", { ascending: false })
+      .limit(6),
+  ]);
+  const retryRows = [...(failureResult.data ?? []), ...(transcriptResult.data ?? []), ...(unmatchedResult.data ?? [])]
+    .filter((row, index, all) => all.findIndex((candidate) => candidate.recording_id === row.recording_id) === index)
+    .slice(0, 12);
+  for (const row of retryRows) {
     const recId = Number(row.recording_id);
     const [rec] = (await tcx.getRecordingsSince(recId - 1, 1)) ?? [];
     if (!rec || rec.Id !== recId) continue;
@@ -157,7 +178,7 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
       .eq("recording_id", recId);
     try {
       const outcome = await processRecording(supabase, halo, rec);
-      console.log(`[CALL-ANALYSIS] Retried analysis-failed recording ${recId}: posted=${outcome.posted}`);
+      console.log(`[CALL-ANALYSIS] Retried ${row.matched_by} recording ${recId}: matched=${outcome.matched} posted=${outcome.posted}`);
       if (outcome.posted) notesPosted++;
     } catch (error) {
       console.error(`[CALL-ANALYSIS] Retry of recording ${recId} failed:`, error instanceof Error ? error.message : error);
@@ -251,6 +272,29 @@ function externalNumberOf(rec: ThreeCxRecording): { number: string; direction: "
   return null;
 }
 
+function recordingBase(
+  rec: ThreeCxRecording,
+  external: ReturnType<typeof externalNumberOf>,
+  techName: string,
+): RecordingBase {
+  const transcript = (rec.Transcription ?? "").trim();
+  return {
+    recording_id: rec.Id,
+    started_at: rec.StartTime ?? null,
+    ended_at: rec.EndTime ?? null,
+    transcript_chars: transcript.length,
+    transcript: transcript.slice(0, 100_000) || null,
+    external_number: external?.number ?? null,
+    direction: external?.direction ?? null,
+    tech_name: techName,
+    call_type: rec.CallType ?? null,
+    from_name: rec.FromDisplayName?.trim() || null,
+    from_number: rec.FromCallerNumber?.trim() || null,
+    to_name: rec.ToDisplayName?.trim() || null,
+    to_number: rec.ToCallerNumber?.trim() || null,
+  };
+}
+
 export async function processRecording(
   supabase: ReturnType<typeof createSupabaseClient>,
   halo: HaloClient,
@@ -262,21 +306,22 @@ export async function processRecording(
   const initialTechName = external
     ? (initialDirection === "inbound" ? rec.ToDisplayName : rec.FromDisplayName) ?? "Unknown tech"
     : (rec.FromDisplayName ?? rec.ToDisplayName ?? "Unknown tech");
-  const base = {
-    recording_id: rec.Id,
-    started_at: rec.StartTime ?? null,
-    ended_at: rec.EndTime ?? null,
-    transcript_chars: transcript.length,
-    transcript: transcript.slice(0, 100_000) || null,
-    external_number: external?.number ?? null,
-    direction: initialDirection,
-    tech_name: initialTechName,
-    call_type: rec.CallType ?? null,
-    from_name: rec.FromDisplayName?.trim() || null,
-    from_number: rec.FromCallerNumber?.trim() || null,
-    to_name: rec.ToDisplayName?.trim() || null,
-    to_number: rec.ToCallerNumber?.trim() || null,
-  };
+  const base = recordingBase(rec, external, initialTechName);
+
+  const auditCall = external
+    ? isCallAuditStaffName(initialTechName)
+    : isCallAuditStaffName(rec.FromDisplayName) || isCallAuditStaffName(rec.ToDisplayName);
+  if (!auditCall) {
+    await supabase.from("call_analyses").upsert({
+      ...base,
+      ticket_id: null,
+      halo_id: null,
+      summary: null,
+      matched_by: "ignored_non_support_staff",
+      note_posted: false,
+    }, { onConflict: "recording_id" });
+    return { matched: false, posted: false };
+  }
 
   const internalCall = /local/i.test(rec.CallType ?? "")
     || (!external && /^\w{2,8}$/.test(rec.FromCallerNumber ?? "") && /^\w{2,8}$/.test(rec.ToCallerNumber ?? ""));
@@ -303,6 +348,10 @@ export async function processRecording(
 
   const direction = external.direction;
   const techName = initialTechName;
+  const externalParty = {
+    name: (direction === "inbound" ? rec.FromDisplayName : rec.ToDisplayName)?.trim() || null,
+    number: external.number,
+  };
 
   // A ticket number SPOKEN on the call is the strongest cue there is —
   // it beats every phone-number heuristic and works even when the caller's
@@ -335,7 +384,7 @@ export async function processRecording(
     ]).join(",");
     const { data: callbackTickets, error: callbackError } = await supabase
       .from("tickets")
-      .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open")
+      .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
       .eq("tickettype_id", 31)
       .or(phoneFilter)
       .order("updated_at", { ascending: false })
@@ -343,7 +392,7 @@ export async function processRecording(
     if (callbackError) {
       console.warn(`[CALL-ANALYSIS] Callback-number ticket search failed for ${external.number}: ${callbackError.message}`);
     }
-    const callbackPick = await selectTicketByTranscript(transcript, callbackTickets ?? [], techName, "callback_number");
+    const callbackPick = await selectTicketByTranscript(supabase, transcript, callbackTickets ?? [], techName, externalParty, "callback_number");
     if (callbackPick) {
       console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: callback number ${external.number} found in #${callbackPick.halo_id} and transcript confirmed the issue`);
       return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, callbackPick, "llm_ticket_callback_number", transcript);
@@ -396,7 +445,7 @@ export async function processRecording(
         return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, assignedToCaller[0], "spoken_name_assigned_tech", transcript);
       }
 
-      const pick = await selectTicketByTranscript(transcript, candidates, techName, "client");
+      const pick = await selectTicketByTranscript(supabase, transcript, candidates, techName, externalParty, "client");
       if (pick) {
         console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: matched via spoken name "${name}" → ${namedClients.join("/")} → #${pick.halo_id}`);
         return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, pick, "llm_transcript_named", transcript);
@@ -412,7 +461,7 @@ export async function processRecording(
         .eq("halo_is_open", true)
         .order("created_at", { ascending: false })
         .limit(MAX_GLOBAL_CANDIDATES);
-      globalPick = await selectTicketByTranscript(transcript, allOpen ?? [], techName, "global");
+      globalPick = await selectTicketByTranscript(supabase, transcript, allOpen ?? [], techName, externalParty, "global");
     }
     if (!globalPick) {
       await supabase
@@ -451,14 +500,16 @@ export async function processRecording(
     ticket = byUser[0] ?? null;
     matchedBy = ticket ? "user_phone" : null;
   } else if (strategy === "transcript_user") {
-    ticket = await selectTicketByTranscript(transcript, byUser, techName, "user");
+    ticket = await selectTicketByTranscript(supabase, transcript, byUser, techName, externalParty, "user");
     matchedBy = ticket ? "llm_transcript_user" : null;
   } else if (strategy === "transcript_client") {
     const sharedPhone = users.length > 1;
     ticket = await selectTicketByTranscript(
+      supabase,
       transcript,
       candidates,
       techName,
+      externalParty,
       sharedPhone ? "shared_phone" : "client",
     );
     if (ticket) {
@@ -490,6 +541,41 @@ export async function processRecording(
   return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, ticket, matchedBy, transcript);
 }
 
+export async function manuallyMatchRecording(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  halo: HaloClient,
+  rec: ThreeCxRecording,
+  haloId: number,
+): Promise<{ matched: boolean; posted: boolean }> {
+  const transcript = (rec.Transcription ?? "").trim();
+  const external = externalNumberOf(rec);
+  if (!external) throw new Error("Only external customer calls can be matched to a ticket");
+  const techName = (external.direction === "inbound" ? rec.ToDisplayName : rec.FromDisplayName) ?? "Unknown tech";
+  if (!isCallAuditStaffName(techName)) throw new Error("This call does not involve the TriageIT support team");
+  if (transcript.length < MIN_TRANSCRIPT_CHARS) throw new Error("The 3CX transcript is not ready yet");
+
+  const { data: ticket, error } = await supabase
+    .from("tickets")
+    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open")
+    .eq("halo_id", haloId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!ticket) throw new Error(`Ticket #${haloId} is not available in TriageIT`);
+
+  return finishMatchedRecording(
+    supabase,
+    halo,
+    rec,
+    recordingBase(rec, external, techName),
+    external.number,
+    external.direction,
+    techName,
+    ticket as CandidateTicket,
+    "manual_dispatch",
+    transcript,
+  );
+}
+
 interface CandidateTicket {
   readonly id: string;
   readonly halo_id: number;
@@ -500,6 +586,7 @@ interface CandidateTicket {
   readonly halo_status: string | null;
   readonly halo_agent: string | null;
   readonly halo_is_open?: boolean | null;
+  readonly created_at?: string | null;
 }
 
 interface RecordingBase {
@@ -559,6 +646,7 @@ async function finishMatchedRecording(
   const contentMatched =
     matchedBy.startsWith("llm_transcript") ||
     matchedBy === "llm_ticket_callback_number" ||
+    matchedBy === "manual_dispatch" ||
     matchedBy === "spoken_ticket_number" ||
     matchedBy === "spoken_name_assigned_tech";
   if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
@@ -623,27 +711,46 @@ async function finishMatchedRecording(
  * back to the conservative skip paths.
  */
 async function selectTicketByTranscript(
+  supabase: ReturnType<typeof createSupabaseClient>,
   transcript: string,
   candidates: ReadonlyArray<CandidateTicket>,
   techName: string,
-  scope: "user" | "client" | "shared_phone" | "global" | "callback_number",
+  externalParty: { readonly name: string | null; readonly number: string },
+  scope: TranscriptTicketMatchScope,
 ): Promise<CandidateTicket | null> {
   if (candidates.length === 0) return null;
   try {
     const anthropic = new Anthropic();
     const clean = (s: unknown, max: number) => String(s ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
-    const lines = candidates.map((t) => {
+    const { data: triageRows } = await supabase
+      .from("triage_results")
+      .select("ticket_id, internal_notes, created_at")
+      .in("ticket_id", candidates.map((ticket) => ticket.id))
+      .order("created_at", { ascending: false });
+    const triageByTicket = new Map<string, string>();
+    for (const triage of triageRows ?? []) {
+      if (!triageByTicket.has(triage.ticket_id) && triage.internal_notes) {
+        triageByTicket.set(triage.ticket_id, String(triage.internal_notes));
+      }
+    }
+    const prioritized = candidates.slice().sort((left, right) =>
+      Number(namesOverlap(techName, right.halo_agent)) - Number(namesOverlap(techName, left.halo_agent))
+    );
+    const lines = prioritized.map((t) => {
       // Ticket bodies carry the names/mailboxes the summary omits — "Email
       // Forward" says nothing, its details name the actual people involved
       const details = clean(t.details, 160);
-      return `#${t.halo_id} | ${t.halo_is_open === false ? "recently closed" : "open"} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}`;
+      const triageSummary = clean(triageByTicket.get(t.id), 240);
+      const opened = t.created_at ? new Date(t.created_at).toISOString().slice(0, 10) : "unknown";
+      return `#${t.halo_id} | ${t.halo_is_open === false ? "closed" : "open"} | opened: ${opened} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}${triageSummary ? ` | TriageIT summary: ${triageSummary}` : ""}`;
     });
 
     const prompt = [
       `A support call at an MSP was recorded and transcribed. Decide which support ticket (if any) the call is about, so the call summary lands on the right ticket. A recently closed ticket is valid when this is a follow-up or return call about the same issue.`,
       ``,
       `Tech on the call: ${techName}`,
-      `CRITICAL — OWNERSHIP BEATS TITLE WORDS: techs make calls about THEIR OWN tickets. When a candidate assigned to the tech on the call plausibly fits the conversation, pick it over another tech's ticket at the same client — even if the other ticket's TITLE matches the words more literally. (A tech calling a camera vendor about his own camera-related ticket must not land on a teammate's ticket just because that one is titled "Camera Issue".)`,
+      `3CX external party: ${externalParty.name ?? "name unavailable"} | ${externalParty.number}`,
+      `CRITICAL — OWNERSHIP BEATS TITLE WORDS: candidates assigned to this tech are listed first. When one plausibly fits the customer, company, issue, and TriageIT summary in the transcript, pick it over another tech's ticket at the same client — even if the other ticket's title shares more generic words.`,
       scope === "callback_number"
         ? `The external phone number is written in one or more ticket bodies as a callback number. Use the transcript to choose only the ticket whose customer, company, and issue match this call; the number alone is not enough.`
         : scope === "global"
@@ -670,7 +777,7 @@ async function selectTicketByTranscript(
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-5",
-      max_tokens: 300,
+      max_tokens: 1_000,
       messages: [{ role: "user", content: prompt }],
     });
     const text = extractResponseText(response);
@@ -679,18 +786,18 @@ async function selectTicketByTranscript(
     // Client-scoped picks (caller's company already established via number
     // or spoken name) risk at most the wrong ticket at the RIGHT client —
     // global picks can land on a stranger's ticket, so they stay strict.
-    const minConfidence = scope === "global" || scope === "shared_phone"
-      ? LLM_MATCH_MIN_CONFIDENCE
-      : 0.6;
-    if (!pick.halo_id || (pick.confidence ?? 0) < minConfidence) {
+    const ticket = pick.halo_id ? candidates.find((candidate) => candidate.halo_id === pick.halo_id) ?? null : null;
+    const minConfidence = transcriptTicketMatchMinConfidence(
+      scope,
+      ticket?.halo_is_open,
+      ticket?.created_at,
+    );
+    if (!ticket || (pick.confidence ?? 0) < minConfidence) {
       console.log(`[CALL-ANALYSIS] Ticket selection (${scope}) declined: halo_id=${pick.halo_id ?? "null"} confidence=${pick.confidence ?? 0} — "${(pick.evidence ?? "").slice(0, 100)}"`);
       return null;
     }
 
-    const ticket = candidates.find((t) => t.halo_id === pick.halo_id) ?? null;
-    if (ticket) {
-      console.log(`[CALL-ANALYSIS] Transcript match (${scope}): #${ticket.halo_id} at ${pick.confidence} — "${(pick.evidence ?? "").slice(0, 120)}"`);
-    }
+    console.log(`[CALL-ANALYSIS] Transcript match (${scope}): #${ticket.halo_id} at ${pick.confidence} — "${(pick.evidence ?? "").slice(0, 120)}"`);
     return ticket;
   } catch (error) {
     console.error("[CALL-ANALYSIS] Ticket selection failed:", error instanceof Error ? error.message : error);
