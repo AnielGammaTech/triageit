@@ -23,12 +23,20 @@ export interface RosterAgent {
   readonly email: string | null;
 }
 
+/** Working = In Progress AND the tech acted on it within this window. */
+export const WORKING_RECENCY_MS = 60 * 60_000;
+
 export interface TechLoad {
   readonly open: number;
   readonly wot: number;
   readonly breaching: number;
-  /** A ticket in "In Progress" — the tech is actively working it. */
-  readonly inProgressTicket: { readonly haloId: number; readonly summary: string | null } | null;
+  /** The In Progress ticket the tech most recently touched (within the
+   *  recency window) — stale In Progress tickets never count. */
+  readonly inProgressTicket: {
+    readonly haloId: number;
+    readonly summary: string | null;
+    readonly touchedMs: number;
+  } | null;
 }
 
 export interface ThreeCxSnapshot {
@@ -116,7 +124,7 @@ export async function fetchTicketLoads(
   try {
     const { data, error } = await supabase
       .from("tickets")
-      .select("halo_id, summary, halo_agent, halo_status, sla_currently_breached")
+      .select("halo_id, summary, halo_agent, halo_status, sla_currently_breached, last_tech_action_at")
       .eq("halo_is_open", true);
     if (error) throw new Error(error.message);
 
@@ -128,9 +136,22 @@ export async function fetchTicketLoads(
       const cur = loads.get(name) ?? EMPTY_LOAD;
       // "In Progress" = the tech is actively working that ticket right now
       // (user decision 2026-07-10) — surfaces as the "working" presence state.
+      // "In Progress" alone is unreliable — techs park tickets there for
+      // days (user report 2026-07-13). Working = In Progress AND the tech
+      // touched it recently; among several, keep the most recently touched.
+      const touchedMs = t.last_tech_action_at ? Date.parse(t.last_tech_action_at as string) : NaN;
+      const activeNow =
+        status === "in progress" &&
+        typeof t.halo_id === "number" &&
+        Number.isFinite(touchedMs) &&
+        Date.now() - touchedMs <= WORKING_RECENCY_MS;
       const inProgressTicket =
-        status === "in progress" && typeof t.halo_id === "number"
-          ? { haloId: t.halo_id as number, summary: ((t.summary as string | null) ?? "").slice(0, 80) || null }
+        activeNow && (!cur.inProgressTicket || touchedMs > cur.inProgressTicket.touchedMs)
+          ? {
+              haloId: t.halo_id as number,
+              summary: ((t.summary as string | null) ?? "").slice(0, 80) || null,
+              touchedMs,
+            }
           : cur.inProgressTicket;
       loads.set(name, {
         open: cur.open + 1,
