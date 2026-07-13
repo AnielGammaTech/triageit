@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { normalizeHaloUtcTimestamp } from "@/lib/halo/date";
 import { AGENTS } from "@triageit/shared";
 import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh, TriageFeedback } from "./actions";
 import { ToggleableSection, SectionSettings } from "./sections";
@@ -93,7 +94,7 @@ interface HaloAction {
 }
 
 function getActionDate(a: HaloAction): string {
-  return a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when ?? "";
+  return normalizeHaloUtcTimestamp(a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when);
 }
 
 interface TriageITNote {

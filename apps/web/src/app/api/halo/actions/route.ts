@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { normalizeHaloUtcTimestamp } from "@/lib/halo/date";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -56,7 +57,7 @@ function stripHtml(html: string): string {
 }
 
 function actionDate(action: HaloAction): string {
-  return action.actiondatecreated ?? action.datetime ?? action.datecreated ?? "";
+  return normalizeHaloUtcTimestamp(action.actiondatecreated ?? action.datetime ?? action.datecreated);
 }
 
 export async function GET(request: NextRequest) {
