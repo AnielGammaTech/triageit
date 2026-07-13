@@ -742,6 +742,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         ``,
         `ABOUT THE "RESOLUTION TARGET" / NEXT-ACTION DATE`,
         `- At Gamma Tech, the ticket's resolution-target date does NOT mean when the ticket will be fully closed — tickets can legitimately take days. It marks when the NEXT ACTION on the ticket is expected. So you are asking for the tech's next step and WHEN it will happen, not a final close date.`,
+        `- The phone system has a five-minute limit. Finish this entire workflow within four minutes. Ask for the breach reason once, allow at most one clarification, and allow at most two attempts to obtain a firm next-action time. If the tech still will not commit, document that and move on immediately.`,
+        `- When CUSTOMER WAITING is present, reserve at least the final two minutes for the customer update. Do not spend the whole call debating the breach reason or target.`,
         ``,
         ...(e.objective
           ? [
@@ -759,7 +761,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
               `4. After the breach reason and next-action target are handled, say the ticket review shows the customer is waiting for a call or update. Ask: "Would you like me to prepare an update for the customer?"`,
               `5. If yes, ask the tech what they want the customer told. Turn only those facts into a warm, concise customer update. Do not invent dates, work completed, promises, causes, or technical details.`,
               `6. Read the COMPLETE enhanced draft back word for word, then ask if they approve that exact wording. If they request a change, revise it and read the complete new version again. Only after an explicit yes use stage_customer_update with the original request, exact approved draft, and technician_confirmed true.`,
-              `7. After the tool succeeds, say it is queued in Dispatch for a person to review, edit if needed, and approve. Make clear it has NOT been sent yet. Never tell the tech that the customer was already contacted.`,
+              `7. After asking whether they approve the exact wording, STOP and wait for their answer. Do not end the call while approval is pending. After the tool succeeds, say it is queued in Dispatch for a person to review, edit if needed, and approve. Make clear it has NOT been sent yet. Never tell the tech that the customer was already contacted.`,
             ]
           : []),
         `${e.customerWaitingForUpdate ? "8" : "4"}. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
@@ -769,6 +771,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         `CUSTOMER UPDATE SAFETY`,
         `- stage_customer_update can only queue a draft. It cannot and must not email the customer. A signed-in staff member in Dispatch is the only person who can approve the send.`,
         `- Explicit approval means the tech heard the complete final wording and clearly said yes. Silence, "sounds about right", or approval of only the general idea is not enough.`,
+        `- Never say or write in a ticket note that TriageIt will send, has sent, or is sending the customer update unless stage_customer_update succeeded; even then, say only that the draft is queued for Dispatch approval and has not been sent.`,
         `- Do not put passwords, access codes, private internal discussion, blame, billing details, or unsupported promises in the customer draft.`,
         ``,
         `PHONE RULES`,
