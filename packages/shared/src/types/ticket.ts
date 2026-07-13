@@ -30,6 +30,8 @@ export interface HaloTicket {
   readonly deadlinedate?: string;
   readonly customfields?: ReadonlyArray<HaloCustomField>;
   readonly user_emailaddress?: string;
+  readonly user_email?: string;
+  readonly emailtolist?: string;
   readonly lastactiondate?: string;
   readonly lastcustomeractiondate?: string;
   readonly status_name?: string;
@@ -48,6 +50,8 @@ export interface HaloAction {
   readonly outcome: string;
   readonly hiddenfromuser: boolean;
   readonly who?: string;
+  readonly who_type?: number;
+  readonly emaildirection?: string;
   // Halo returns date in multiple fields depending on context.
   // `actiondatecreated` and `datetime` are the primary fields from the API.
   // `datecreated` is NOT returned by the actions endpoint despite what docs imply.

@@ -6,7 +6,8 @@ import { ThreeCxClient } from "../integrations/threecx/client.js";
 import { isWithinBusinessHours } from "../integrations/teams/client.js";
 import { registerEscalationCall } from "../voice/listener.js";
 import { buildEscalationCallNote } from "../voice/escalation-note.js";
-import type { ThreeCxConfig } from "@triageit/shared";
+import { analyzeCustomerWaitState, type CustomerWaitState } from "../voice/customer-wait-state.js";
+import type { HaloAction, ThreeCxConfig } from "@triageit/shared";
 
 /**
  * SLA escalation calls: processes pending sla_call_requests rows — for
@@ -42,29 +43,45 @@ function stripHtml(html: string): string {
  * TriageIt's own AI notes, preformatted for the assistant to read aloud —
  * e.g. `private note from Jarid Carlson on July 9: "waiting on the vendor"`.
  */
-async function fetchLastCommunication(halo: HaloClient, haloId: number): Promise<string | null> {
-  let actions: ReadonlyArray<Record<string, unknown>>;
+async function fetchCommunicationContext(
+  halo: HaloClient,
+  haloId: number,
+  statusName: string | null,
+): Promise<{ lastCommunication: string | null; customerWait: CustomerWaitState }> {
+  let actions: ReadonlyArray<HaloAction>;
   try {
-    actions = (await halo.getTicketActions(haloId, false)) as unknown as ReadonlyArray<Record<string, unknown>>;
+    actions = await halo.getTicketActions(haloId, false);
   } catch {
-    return null;
+    return {
+      lastCommunication: null,
+      customerWait: {
+        waitingForUpdate: false,
+        reason: null,
+        latestCustomerMessage: null,
+        latestCustomerAt: null,
+        latestOutboundAt: null,
+      },
+    };
   }
-  const dateOf = (a: Record<string, unknown>): number =>
-    new Date((a.actiondatecreated ?? a.datetime ?? a.datecreated ?? 0) as string).getTime();
+  const customerWait = analyzeCustomerWaitState(actions, statusName);
+  const dateOf = (a: HaloAction): number =>
+    new Date(a.actiondatecreated ?? a.datetime ?? a.datecreated ?? 0).getTime();
   const sorted = [...actions].sort((a, b) => dateOf(b) - dateOf(a));
+  let lastCommunication: string | null = null;
   for (const a of sorted) {
     const plain = stripHtml(String(a.note ?? ""));
     if (plain.length < 3) continue;
     if (TRIAGEIT_NOTE_RE.test(plain)) continue;
     const kind = a.hiddenfromuser ? "private" : "public";
     const who = a.who ? ` from ${String(a.who)}` : "";
-    const rawWhen = (a.actiondatecreated ?? a.datetime ?? a.datecreated) as string | undefined;
+    const rawWhen = a.actiondatecreated ?? a.datetime ?? a.datecreated;
     const whenStr = rawWhen
       ? ` on ${new Date(rawWhen).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric" })}`
       : "";
-    return `${kind} note${who}${whenStr}: "${plain.slice(0, 280)}"`;
+    lastCommunication = `${kind} note${who}${whenStr}: "${plain.slice(0, 280)}"`;
+    break;
   }
-  return null;
+  return { lastCommunication, customerWait };
 }
 
 export async function runSlaCallRequests(): Promise<{ processed: number; called: number }> {
@@ -122,14 +139,16 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
     try {
       const { data: ticket } = await supabase
         .from("tickets")
-        .select("halo_id, summary, client_name, halo_agent, last_tech_action_at")
+        .select("id, halo_id, summary, client_name, user_name, user_email, halo_agent, last_tech_action_at")
         .eq("halo_id", haloId)
         .maybeSingle();
 
       let hoursOver: number | null = null;
       let liveTechName: string | null = null;
+      let liveTicket: Record<string, unknown> | null = null;
       try {
         const full = (await halo.getTicketWithSLA(haloId)) as unknown as Record<string, unknown>;
+        liveTicket = full;
         const timeLeft =
           typeof full.fixtimeleft === "number" ? full.fixtimeleft
           : typeof full.slatimeleft === "number" ? (full.slatimeleft as number)
@@ -168,8 +187,13 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         .eq("status", "calling")
         .neq("id", req.id);
 
-      const lastCommunication = await fetchLastCommunication(halo, haloId);
+      const liveStatus = String(liveTicket?.status_name ?? liveTicket?.statusname ?? liveTicket?.status ?? "").trim() || null;
+      const { lastCommunication, customerWait } = await fetchCommunicationContext(halo, haloId, liveStatus);
+      const liveUser = liveTicket?.user as { emailaddress?: unknown } | undefined;
+      const emailCandidate = liveTicket?.user_email ?? liveTicket?.user_emailaddress ?? liveUser?.emailaddress ?? ticket?.user_email;
+      const customerEmail = typeof emailCandidate === "string" && emailCandidate.includes("@") ? emailCandidate.trim() : null;
       registerEscalationCall(destination, {
+        ticketId: (ticket?.id as string | null) ?? null,
         haloId,
         summary: String(ticket?.summary ?? `ticket ${haloId}`).slice(0, 150),
         clientName: (ticket?.client_name as string) ?? null,
@@ -178,6 +202,11 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         priorCalls: priorCallCount ?? 0,
         objective: (req.objective as string) ?? null,
         lastCommunication,
+        customerWaitingForUpdate: customerWait.waitingForUpdate,
+        customerWaitingReason: customerWait.reason,
+        customerLastMessage: customerWait.latestCustomerMessage,
+        customerName: (liveTicket?.user_name as string | null) ?? (ticket?.user_name as string | null) ?? null,
+        customerEmail,
         lastTechUpdate: ticket?.last_tech_action_at
           ? new Date(ticket.last_tech_action_at as string).toLocaleString("en-US", { timeZone: "America/New_York", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })
           : null,

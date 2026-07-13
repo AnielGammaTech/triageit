@@ -39,6 +39,11 @@ import {
 import { HaloClient } from "./integrations/halo/client.js";
 import { buildDispatchBoard } from "./dispatch/board.js";
 import { buildSuggestions } from "./dispatch/suggest.js";
+import {
+  approveCustomerUpdate,
+  dismissCustomerUpdate,
+  listCustomerUpdateApprovals,
+} from "./dispatch/customer-update-approvals.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
@@ -223,6 +228,57 @@ server.get("/dispatch/suggest", async (_request, reply) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return reply.status(500).send({ error: message });
+  }
+});
+
+// Tech-approved drafts awaiting a second human check in Dispatch.
+server.get("/dispatch/customer-updates", async (_request, reply) => {
+  try {
+    const updates = await listCustomerUpdateApprovals(createSupabaseClient());
+    return { updates };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { id: string };
+  Body: { draft_message?: string; approved_by_user_id?: string; approved_by_email?: string | null };
+}>("/dispatch/customer-updates/:id/approve", async (request, reply) => {
+  const draft = String(request.body?.draft_message ?? "").trim();
+  const userId = String(request.body?.approved_by_user_id ?? "").trim();
+  if (!draft || !userId) return reply.status(400).send({ error: "draft_message and approved_by_user_id are required" });
+  try {
+    const result = await approveCustomerUpdate(createSupabaseClient(), request.params.id, draft, {
+      userId,
+      email: request.body?.approved_by_email?.trim() || null,
+    });
+    return { status: "sent", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const conflict = /outside business hours|already handled/i.test(message);
+    const invalid = /too short|valid email address|never receiving emails/i.test(message);
+    return reply.status(conflict ? 409 : invalid ? 422 : 500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { id: string };
+  Body: { approved_by_user_id?: string; approved_by_email?: string | null };
+}>("/dispatch/customer-updates/:id/dismiss", async (request, reply) => {
+  const userId = String(request.body?.approved_by_user_id ?? "").trim();
+  if (!userId) return reply.status(400).send({ error: "approved_by_user_id is required" });
+  try {
+    await dismissCustomerUpdate(createSupabaseClient(), request.params.id, {
+      userId,
+      email: request.body?.approved_by_email?.trim() || null,
+    });
+    return { status: "dismissed" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const conflict = /already handled/i.test(message);
+    return reply.status(conflict ? 409 : 500).send({ error: message });
   }
 });
 

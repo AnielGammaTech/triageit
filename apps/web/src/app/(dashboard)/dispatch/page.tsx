@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -96,6 +96,22 @@ interface WeekData {
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }
+interface CustomerUpdateApproval {
+  readonly id: string;
+  readonly halo_id: number;
+  readonly ticket_summary: string;
+  readonly client_name: string | null;
+  readonly customer_name: string | null;
+  readonly customer_email: string | null;
+  readonly tech_name: string | null;
+  readonly customer_waiting_reason: string;
+  readonly raw_message: string;
+  readonly draft_message: string;
+  readonly status: "pending" | "failed";
+  readonly error_message: string | null;
+  readonly tech_approved_at: string;
+  readonly created_at: string;
+}
 
 const RED = "#dc2626";
 const PANEL = "#151013";
@@ -162,6 +178,10 @@ export default function DispatchPage() {
   const [board, setBoard] = useState<DispatchBoard | null>(null);
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
   const [week, setWeek] = useState<WeekData | null>(null);
+  const [customerUpdates, setCustomerUpdates] = useState<ReadonlyArray<CustomerUpdateApproval>>([]);
+  const [customerDrafts, setCustomerDrafts] = useState<Record<string, string>>({});
+  const [customerUpdateBusy, setCustomerUpdateBusy] = useState<string | null>(null);
+  const [customerUpdateError, setCustomerUpdateError] = useState<string | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
   const [actionLane, setActionLane] = useState<"now" | "today">("now");
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -172,14 +192,28 @@ export default function DispatchPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const [boardRes, suggestRes] = await Promise.all([
+      const [boardRes, suggestRes, customerUpdatesRes] = await Promise.all([
         fetch("/api/dispatch/board", { cache: "no-store" }),
         fetch("/api/dispatch/suggest", { cache: "no-store" }),
+        fetch("/api/dispatch/customer-updates", { cache: "no-store" }),
       ]);
       if (!boardRes.ok) throw new Error(`HTTP ${boardRes.status}`);
       if (!suggestRes.ok) throw new Error(`HTTP ${suggestRes.status}`);
       setBoard((await boardRes.json()) as DispatchBoard);
       setSuggest((await suggestRes.json()) as DispatchSuggestions);
+      if (customerUpdatesRes.ok) {
+        const payload = await customerUpdatesRes.json() as { updates?: ReadonlyArray<CustomerUpdateApproval> };
+        const updates = payload.updates ?? [];
+        setCustomerUpdates(updates);
+        setCustomerDrafts((current) => {
+          const next: Record<string, string> = {};
+          for (const update of updates) next[update.id] = current[update.id] ?? update.draft_message;
+          return next;
+        });
+        setCustomerUpdateError(null);
+      } else {
+        setCustomerUpdateError("Customer update approvals are unavailable right now.");
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -188,6 +222,30 @@ export default function DispatchPage() {
       setRefreshing(false);
     }
   }, []);
+
+  const actOnCustomerUpdate = useCallback(async (id: string, action: "approve" | "dismiss") => {
+    setCustomerUpdateBusy(id);
+    setCustomerUpdateError(null);
+    try {
+      const response = await fetch(`/api/dispatch/customer-updates/${encodeURIComponent(id)}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: action === "approve" ? JSON.stringify({ draft_message: customerDrafts[id] ?? "" }) : "{}",
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
+      setCustomerUpdates((current) => current.filter((update) => update.id !== id));
+      setCustomerDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    } catch (error) {
+      setCustomerUpdateError(error instanceof Error ? error.message : "Could not update this approval");
+    } finally {
+      setCustomerUpdateBusy(null);
+    }
+  }, [customerDrafts]);
 
   const loadDay = useCallback(async (offset: number) => {
     try {
@@ -318,6 +376,17 @@ export default function DispatchPage() {
         </div>
       </div>
 
+      <CustomerUpdateQueue
+        updates={customerUpdates}
+        drafts={customerDrafts}
+        busyId={customerUpdateBusy}
+        error={customerUpdateError}
+        haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""}
+        onDraftChange={(id, value) => setCustomerDrafts((current) => ({ ...current, [id]: value }))}
+        onApprove={(id) => void actOnCustomerUpdate(id, "approve")}
+        onDismiss={(id) => void actOnCustomerUpdate(id, "dismiss")}
+      />
+
       <Section
         title="Next Actions"
         icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}
@@ -343,6 +412,129 @@ export default function DispatchPage() {
         {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} lane={actionLane} />}
       </Section>
     </div>
+  );
+}
+
+function CustomerUpdateQueue({
+  updates,
+  drafts,
+  busyId,
+  error,
+  haloBaseUrl,
+  onDraftChange,
+  onApprove,
+  onDismiss,
+}: {
+  readonly updates: ReadonlyArray<CustomerUpdateApproval>;
+  readonly drafts: Readonly<Record<string, string>>;
+  readonly busyId: string | null;
+  readonly error: string | null;
+  readonly haloBaseUrl: string;
+  readonly onDraftChange: (id: string, value: string) => void;
+  readonly onApprove: (id: string) => void;
+  readonly onDismiss: (id: string) => void;
+}) {
+  return (
+    <Section
+      title="Customer Updates"
+      icon={<MailCheck className="h-4 w-4 text-amber-400" />}
+      actions={
+        <span className="inline-flex min-w-7 items-center justify-center rounded border px-2 py-1 text-xs font-bold tabular-nums text-amber-300" style={{ borderColor: "#92400e", background: "#1c1206" }}>
+          {updates.length}
+        </span>
+      }
+    >
+      {error && (
+        <div className="border-b px-5 py-3 text-sm text-red-300" style={{ borderColor: HAIRLINE, background: "#210d12" }}>
+          {error}
+        </div>
+      )}
+      {updates.length === 0 ? (
+        <div className="px-5 py-5 text-sm text-zinc-500">No customer updates awaiting approval.</div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+          {updates.map((update) => {
+            const href = haloTicketUrl(haloBaseUrl, update.halo_id);
+            const busy = busyId === update.id;
+            const draft = drafts[update.id] ?? update.draft_message;
+            const approvedAt = new Date(update.tech_approved_at).toLocaleString("en-US", {
+              timeZone: "America/New_York",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            });
+            return (
+              <div key={update.id} className="px-4 py-4 sm:px-5">
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="font-mono text-xs font-bold text-white">#{update.halo_id}</span>
+                      <span className="text-sm font-semibold text-zinc-200">{update.client_name ?? "Unknown client"}</span>
+                      <span className="min-w-0 break-words text-sm text-zinc-400">{update.ticket_summary}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-zinc-500">
+                      <span>{update.customer_name ?? "Customer"}{update.customer_email ? ` · ${update.customer_email}` : ""}</span>
+                      <span className="text-zinc-700">·</span>
+                      <span>Tech: <span className="text-zinc-300">{update.tech_name ?? "Unknown"}</span></span>
+                      <span className="text-zinc-700">·</span>
+                      <span>{approvedAt}</span>
+                    </div>
+                  </div>
+                  {href && (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ticket ${update.halo_id} in Halo`}
+                      title={`Open ticket #${update.halo_id} in Halo`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-zinc-500 transition hover:text-white"
+                      style={{ borderColor: HAIRLINE }}
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+                <p className="mt-3 border-l-2 pl-3 text-xs leading-5 text-amber-200/80" style={{ borderColor: "#d97706" }}>
+                  {update.customer_waiting_reason}
+                </p>
+                {update.status === "failed" && update.error_message && (
+                  <p className="mt-2 text-xs text-red-300">Last send failed: {update.error_message}</p>
+                )}
+                <textarea
+                  value={draft}
+                  onChange={(event) => onDraftChange(update.id, event.target.value)}
+                  disabled={busy}
+                  aria-label={`Customer update for ticket ${update.halo_id}`}
+                  className="mt-3 min-h-24 w-full resize-y rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-200 outline-none transition placeholder:text-zinc-700 focus:border-red-700 disabled:opacity-60"
+                  style={{ borderColor: HAIRLINE }}
+                />
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => onDismiss(update.id)}
+                    disabled={busy}
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-semibold text-zinc-400 transition hover:text-white disabled:cursor-default disabled:opacity-50"
+                    style={{ borderColor: HAIRLINE }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Dismiss
+                  </button>
+                  <button
+                    onClick={() => onApprove(update.id)}
+                    disabled={busy || draft.trim().length < 20}
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-default disabled:opacity-50"
+                    style={{ borderColor: "#dc2626", background: "#991b1b" }}
+                  >
+                    <Send className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
+                    Approve &amp; Send
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
   );
 }
 
