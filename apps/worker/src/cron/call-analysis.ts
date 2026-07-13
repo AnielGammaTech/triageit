@@ -6,7 +6,7 @@ import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { extractResponseText } from "../agents/llm-text.js";
 import { parseLlmJson } from "../agents/parse-json.js";
 import { isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
-import { choosePhoneTicketMatchStrategy } from "./call-match-policy.js";
+import { choosePhoneTicketMatchStrategy, phoneTicketSearchTerms } from "./call-match-policy.js";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -271,7 +271,28 @@ export async function processRecording(
     external_number: external?.number ?? null,
     direction: initialDirection,
     tech_name: initialTechName,
+    call_type: rec.CallType ?? null,
+    from_name: rec.FromDisplayName?.trim() || null,
+    from_number: rec.FromCallerNumber?.trim() || null,
+    to_name: rec.ToDisplayName?.trim() || null,
+    to_number: rec.ToCallerNumber?.trim() || null,
   };
+
+  const internalCall = /local/i.test(rec.CallType ?? "")
+    || (!external && /^\w{2,8}$/.test(rec.FromCallerNumber ?? "") && /^\w{2,8}$/.test(rec.ToCallerNumber ?? ""));
+  if (internalCall) {
+    await supabase
+      .from("call_analyses")
+      .upsert({
+        ...base,
+        ticket_id: null,
+        halo_id: null,
+        summary: null,
+        matched_by: "internal_call",
+        note_posted: false,
+      }, { onConflict: "recording_id" });
+    return { matched: false, posted: false };
+  }
 
   if (!external || transcript.length < MIN_TRANSCRIPT_CHARS) {
     await supabase
@@ -300,6 +321,32 @@ export async function processRecording(
     if (byFirstMention[0]) {
       console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: ticket #${byFirstMention[0].halo_id} spoken on the call — direct match`);
       return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, byFirstMention[0], "spoken_ticket_number", transcript);
+    }
+  }
+
+  // Callback numbers are often typed into the ticket body but not saved on
+  // the Halo contact. Include recent closed tickets: a return call commonly
+  // happens after the dispatcher or tech already closed the ticket.
+  const phoneTerms = phoneTicketSearchTerms(external.number);
+  if (phoneTerms.length > 0) {
+    const phoneFilter = phoneTerms.flatMap((term) => [
+      `details.ilike.%${term}%`,
+      `summary.ilike.%${term}%`,
+    ]).join(",");
+    const { data: callbackTickets, error: callbackError } = await supabase
+      .from("tickets")
+      .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open")
+      .eq("tickettype_id", 31)
+      .or(phoneFilter)
+      .order("updated_at", { ascending: false })
+      .limit(25);
+    if (callbackError) {
+      console.warn(`[CALL-ANALYSIS] Callback-number ticket search failed for ${external.number}: ${callbackError.message}`);
+    }
+    const callbackPick = await selectTicketByTranscript(transcript, callbackTickets ?? [], techName, "callback_number");
+    if (callbackPick) {
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: callback number ${external.number} found in #${callbackPick.halo_id} and transcript confirmed the issue`);
+      return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, callbackPick, "llm_ticket_callback_number", transcript);
     }
   }
 
@@ -452,6 +499,7 @@ interface CandidateTicket {
   readonly client_name: string | null;
   readonly halo_status: string | null;
   readonly halo_agent: string | null;
+  readonly halo_is_open?: boolean | null;
 }
 
 interface RecordingBase {
@@ -463,6 +511,11 @@ interface RecordingBase {
   readonly external_number: string | null;
   readonly direction: "inbound" | "outbound" | null;
   readonly tech_name: string;
+  readonly call_type: string | null;
+  readonly from_name: string | null;
+  readonly from_number: string | null;
+  readonly to_name: string | null;
+  readonly to_number: string | null;
 }
 
 /** Tech guard → transcript analysis → Call Summary note. Shared tail for every match path. */
@@ -505,6 +558,7 @@ async function finishMatchedRecording(
   // else entirely.
   const contentMatched =
     matchedBy.startsWith("llm_transcript") ||
+    matchedBy === "llm_ticket_callback_number" ||
     matchedBy === "spoken_ticket_number" ||
     matchedBy === "spoken_name_assigned_tech";
   if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
@@ -572,7 +626,7 @@ async function selectTicketByTranscript(
   transcript: string,
   candidates: ReadonlyArray<CandidateTicket>,
   techName: string,
-  scope: "user" | "client" | "shared_phone" | "global",
+  scope: "user" | "client" | "shared_phone" | "global" | "callback_number",
 ): Promise<CandidateTicket | null> {
   if (candidates.length === 0) return null;
   try {
@@ -582,21 +636,23 @@ async function selectTicketByTranscript(
       // Ticket bodies carry the names/mailboxes the summary omits — "Email
       // Forward" says nothing, its details name the actual people involved
       const details = clean(t.details, 160);
-      return `#${t.halo_id} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}`;
+      return `#${t.halo_id} | ${t.halo_is_open === false ? "recently closed" : "open"} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}`;
     });
 
     const prompt = [
-      `A support call at an MSP was recorded and transcribed. Decide which open ticket (if any) the call is about, so the call summary lands on the right ticket.`,
+      `A support call at an MSP was recorded and transcribed. Decide which support ticket (if any) the call is about, so the call summary lands on the right ticket. A recently closed ticket is valid when this is a follow-up or return call about the same issue.`,
       ``,
       `Tech on the call: ${techName}`,
       `CRITICAL — OWNERSHIP BEATS TITLE WORDS: techs make calls about THEIR OWN tickets. When a candidate assigned to the tech on the call plausibly fits the conversation, pick it over another tech's ticket at the same client — even if the other ticket's TITLE matches the words more literally. (A tech calling a camera vendor about his own camera-related ticket must not land on a teammate's ticket just because that one is titled "Camera Issue".)`,
-      scope === "global"
+      scope === "callback_number"
+        ? `The external phone number is written in one or more ticket bodies as a callback number. Use the transcript to choose only the ticket whose customer, company, and issue match this call; the number alone is not enough.`
+        : scope === "global"
         ? `The caller's number is not in the PSA, so be STRICT: only match when the transcript clearly names the company, person, or the exact issue of a listed ticket.`
         : scope === "shared_phone"
           ? `The phone number is a shared company line assigned to multiple contacts. Do not infer the caller or ticket from the number; match only when the transcript clearly describes a listed ticket's issue.`
         : `The caller's phone number maps to the client(s) below but matches more than one open ticket.`,
       ``,
-      `OPEN TICKETS:`,
+      `CANDIDATE TICKETS:`,
       ...lines,
       ``,
       `TRANSCRIPT (3CX auto-transcription, may include IVR audio and errors):`,

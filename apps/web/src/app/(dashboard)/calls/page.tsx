@@ -13,8 +13,8 @@ import {
   PhoneOutgoing,
   RefreshCw,
   Search,
-  TriangleAlert,
   Unlink,
+  Users,
 } from "lucide-react";
 
 interface CallItem {
@@ -27,16 +27,20 @@ interface CallItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
   readonly analysisAttempts: number;
+  readonly callType: string | null;
+  readonly from: { readonly name: string | null; readonly number: string | null };
+  readonly to: { readonly name: string | null; readonly number: string | null };
   readonly ticket: {
     readonly haloId: number;
     readonly summary: string | null;
     readonly clientName: string | null;
     readonly status: string | null;
+    readonly customerName: string | null;
   } | null;
 }
 
@@ -45,10 +49,10 @@ interface CallPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly attention: number };
 }
 
-type View = "all" | "matched" | "unmatched";
+type View = "all" | "matched" | "unmatched" | "internal";
 const PAGE_SIZE = 15;
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
@@ -92,6 +96,10 @@ function phone(value: string | null): string {
   return digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : value || "No external number";
 }
 
+function partyName(party: CallItem["from"] | CallItem["to"]): string {
+  return party.name || phone(party.number);
+}
+
 export default function CallsPage() {
   const [data, setData] = useState<CallPayload | null>(null);
   const [view, setView] = useState<View>("all");
@@ -129,17 +137,23 @@ export default function CallsPage() {
     const needle = search.trim().toLowerCase();
     return (data?.items ?? []).filter((item) => {
       if (view === "matched" && !item.ticket) return false;
-      if (view === "unmatched" && item.ticket) return false;
+      if (view === "unmatched" && item.matchState !== "unmatched") return false;
+      if (view === "internal" && item.matchState !== "internal") return false;
       if (!needle) return true;
       return [
         item.techName,
         item.externalNumber,
+        item.from.name,
+        item.from.number,
+        item.to.name,
+        item.to.number,
         item.transcript,
         item.callSummary,
         item.matchLabel,
         item.ticket?.haloId,
         item.ticket?.summary,
         item.ticket?.clientName,
+        item.ticket?.customerName,
       ].some((value) => String(value ?? "").toLowerCase().includes(needle));
     });
   }, [data, search, view]);
@@ -175,7 +189,7 @@ export default function CallsPage() {
         <Metric label="Recent Calls" value={data?.counts.total ?? 0} icon={<PhoneCall className="h-4 w-4" />} color="#e4e4e7" />
         <Metric label="Matched" value={data?.counts.matched ?? 0} icon={<Link2 className="h-4 w-4" />} color="#4ade80" />
         <Metric label="Unmatched" value={data?.counts.unmatched ?? 0} icon={<Unlink className="h-4 w-4" />} color="#fbbf24" />
-        <Metric label="Needs Attention" value={data?.counts.attention ?? 0} icon={<TriangleAlert className="h-4 w-4" />} color="#fb7185" />
+        <Metric label="Internal" value={data?.counts.internal ?? 0} icon={<Users className="h-4 w-4" />} color="#60a5fa" />
       </div>
 
       <section className="overflow-hidden rounded-lg border" style={{ borderColor: HAIRLINE, background: PANEL }}>
@@ -184,6 +198,7 @@ export default function CallsPage() {
             <ViewButton active={view === "all"} onClick={() => setView("all")} label="All" count={data?.counts.total ?? 0} />
             <ViewButton active={view === "matched"} onClick={() => setView("matched")} label="Matched" count={data?.counts.matched ?? 0} />
             <ViewButton active={view === "unmatched"} onClick={() => setView("unmatched")} label="Unmatched" count={data?.counts.unmatched ?? 0} />
+            <ViewButton active={view === "internal"} onClick={() => setView("internal")} label="Internal" count={data?.counts.internal ?? 0} />
           </div>
           <label className="relative ml-auto min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-600" />
@@ -256,8 +271,9 @@ function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly halo
   const href = item.ticket ? ticketUrl(haloBaseUrl, item.ticket.haloId) : null;
   const elapsed = duration(item.startedAt, item.endedAt);
   const DirectionIcon = item.direction === "inbound" ? PhoneIncoming : item.direction === "outbound" ? PhoneOutgoing : PhoneCall;
-  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : "#fbbf24";
-  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : "Unmatched";
+  const internal = item.matchState === "internal";
+  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : "#fbbf24";
+  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : "Unmatched";
   return (
     <details className="group">
       <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3.5 transition hover:bg-white/[0.02] sm:grid-cols-[150px_minmax(160px,0.8fr)_minmax(240px,1.4fr)_auto] sm:items-center">
@@ -266,14 +282,24 @@ function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly halo
           <p className="mt-0.5 text-[11px] text-zinc-600">Recording {item.recordingId}{elapsed ? ` · ${elapsed}` : ""}</p>
         </div>
         <div className="hidden min-w-0 sm:block">
-          <p className="flex items-center gap-1.5 truncate text-sm text-zinc-300"><DirectionIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />{item.techName}</p>
-          <p className="mt-0.5 truncate text-xs text-zinc-500">{phone(item.externalNumber)} · {item.direction}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm text-zinc-300">
+            <DirectionIcon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+            <span className="truncate">{partyName(item.from)} → {partyName(item.to)}</span>
+          </p>
+          <p className="mt-0.5 truncate text-xs text-zinc-500">{phone(item.from.number)} → {phone(item.to.number)} · {internal ? "internal" : item.direction}</p>
         </div>
         <div className="col-span-2 min-w-0 sm:col-span-1">
-          {item.ticket ? (
+          {internal ? (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-sky-300">Internal call</p>
+              <p className="mt-0.5 truncate text-xs text-zinc-500">{partyName(item.from)} called {partyName(item.to)}</p>
+            </div>
+          ) : item.ticket ? (
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-zinc-200">#{item.ticket.haloId} · {item.ticket.clientName ?? "Unknown client"}</p>
-              <p className="mt-0.5 truncate text-xs text-zinc-500">{item.ticket.summary ?? item.callSummary ?? "Ticket subject unavailable"}</p>
+              <p className="mt-0.5 truncate text-xs text-zinc-500">
+                {[item.ticket.customerName, item.ticket.summary ?? item.callSummary ?? "Ticket subject unavailable"].filter(Boolean).join(" · ")}
+              </p>
             </div>
           ) : (
             <div className="min-w-0">
@@ -292,7 +318,7 @@ function CallRow({ item, haloBaseUrl }: { readonly item: CallItem; readonly halo
           <div>
             <p className="text-xs font-semibold text-zinc-300">{item.matchLabel}</p>
             <p className="mt-1 text-xs text-zinc-600">
-              {item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
+              {internal ? "Internal staff call; no ticket match expected" : item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
               {item.analysisAttempts > 0 ? ` · ${item.analysisAttempts} retry attempt${item.analysisAttempts === 1 ? "" : "s"}` : ""}
             </p>
           </div>

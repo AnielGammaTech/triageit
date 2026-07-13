@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { choosePhoneTicketMatchStrategy } from "./call-match-policy.js";
+import { choosePhoneTicketMatchStrategy, phoneTicketSearchTerms } from "./call-match-policy.js";
 
 describe("choosePhoneTicketMatchStrategy", () => {
   it("allows a direct match for one contact with one open ticket", () => {
@@ -40,5 +40,17 @@ describe("choosePhoneTicketMatchStrategy", () => {
       exactUserTicketCount: 0,
       clientTicketCount: 0,
     })).toBe("none");
+  });
+});
+
+describe("phoneTicketSearchTerms", () => {
+  it("builds the callback-number formats found in ticket bodies", () => {
+    expect(phoneTicketSearchTerms("+1 (239) 404-2533")).toEqual([
+      "2394042533",
+      "12394042533",
+      "239-404-2533",
+      "239 404 2533",
+      "239.404.2533",
+    ]);
   });
 });

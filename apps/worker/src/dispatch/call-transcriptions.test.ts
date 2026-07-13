@@ -5,6 +5,11 @@ describe("callMatchLabel", () => {
   it("explains direct and AI ticket matches", () => {
     expect(callMatchLabel("spoken_ticket_number")).toBe("Ticket number spoken on call");
     expect(callMatchLabel("llm_transcript_global")).toBe("Transcript matched across open tickets");
+    expect(callMatchLabel("llm_ticket_callback_number")).toBe("Callback number and transcript matched");
+  });
+
+  it("identifies calls between staff without implying a failed ticket match", () => {
+    expect(callMatchLabel("internal_call")).toBe("Internal staff call");
   });
 
   it("surfaces a failed Halo note without hiding the match method", () => {

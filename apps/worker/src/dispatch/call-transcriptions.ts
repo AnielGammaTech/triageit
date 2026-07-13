@@ -17,6 +17,11 @@ interface CallAnalysisRow {
   readonly summary: string | null;
   readonly note_posted: boolean;
   readonly analysis_attempts: number;
+  readonly call_type: string | null;
+  readonly from_name: string | null;
+  readonly from_number: string | null;
+  readonly to_name: string | null;
+  readonly to_number: string | null;
 }
 
 interface TicketLookup {
@@ -24,6 +29,7 @@ interface TicketLookup {
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly halo_status: string | null;
+  readonly user_name: string | null;
 }
 
 export interface CallTranscriptionItem {
@@ -36,16 +42,20 @@ export interface CallTranscriptionItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
   readonly analysisAttempts: number;
+  readonly callType: string | null;
+  readonly from: { readonly name: string | null; readonly number: string | null };
+  readonly to: { readonly name: string | null; readonly number: string | null };
   readonly ticket: {
     readonly haloId: number;
     readonly summary: string | null;
     readonly clientName: string | null;
     readonly status: string | null;
+    readonly customerName: string | null;
   } | null;
 }
 
@@ -54,7 +64,7 @@ export interface CallTranscriptionPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallTranscriptionItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly attention: number };
 }
 
 let cache: { readonly at: number; readonly payload: CallTranscriptionPayload } | null = null;
@@ -63,6 +73,17 @@ const RECENT_CALL_LIMIT = 75;
 
 function directionOf(value: string | null): CallTranscriptionItem["direction"] {
   return value === "inbound" || value === "outbound" ? value : "unknown";
+}
+
+function itemPartyName(
+  side: "from" | "to",
+  direction: CallTranscriptionItem["direction"],
+  rawName: string | null,
+  customerName: string | null,
+): string | null {
+  const customerSide = (direction === "inbound" && side === "from") || (direction === "outbound" && side === "to");
+  if (customerSide && customerName) return customerName;
+  return rawName?.replace(/^\[V\]\s*/i, "").trim() || null;
 }
 
 export function callMatchLabel(method: string | null): string {
@@ -77,6 +98,8 @@ export function callMatchLabel(method: string | null): string {
     llm_transcript_shared_phone: "Transcript matched from shared number",
     llm_transcript_named: "Spoken customer name and transcript",
     llm_transcript_global: "Transcript matched across open tickets",
+    llm_ticket_callback_number: "Callback number and transcript matched",
+    internal_call: "Internal staff call",
     transcript_too_short: "Transcript unavailable or too short",
     no_external_number: "No external caller number",
     no_halo_user: "Caller not found and transcript had no safe match",
@@ -106,7 +129,7 @@ async function loadRecentRecordings(
   supabase: SupabaseClient,
   rows: ReadonlyArray<CallAnalysisRow>,
 ): Promise<{ readonly available: boolean; readonly recordings: ReadonlyMap<number, ThreeCxRecording> }> {
-  const missing = rows.filter((row) => !row.transcript && row.matched_by !== "cursor_seed");
+  const missing = rows.filter((row) => (!row.transcript || !row.from_name || !row.to_name) && row.matched_by !== "cursor_seed");
   if (missing.length === 0) return { available: true, recordings: new Map() };
 
   const { data: integration, error } = await supabase
@@ -129,8 +152,13 @@ async function loadRecentRecordings(
       recording_id: recording.Id,
       transcript: (recording.Transcription ?? "").trim().slice(0, 100_000) || null,
       transcript_chars: (recording.Transcription ?? "").trim().length,
+      call_type: recording.CallType ?? null,
+      from_name: recording.FromDisplayName?.trim() || null,
+      from_number: recording.FromCallerNumber?.trim() || null,
+      to_name: recording.ToDisplayName?.trim() || null,
+      to_number: recording.ToCallerNumber?.trim() || null,
     }))
-    .filter((recording) => recording.transcript);
+    .filter((recording) => recording.recording_id > 0);
   if (backfill.length > 0) {
     const { error: backfillError } = await supabase.from("call_analyses").upsert(backfill, { onConflict: "recording_id" });
     if (backfillError) console.warn("[CALLS] Could not persist transcript backfill:", backfillError.message);
@@ -143,7 +171,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
 
   const { data, error } = await supabase
     .from("call_analyses")
-    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts")
+    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number")
     .neq("matched_by", "cursor_seed")
     .order("recording_id", { ascending: false })
     .limit(RECENT_CALL_LIMIT);
@@ -155,7 +183,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
   if (ticketIds.length > 0) {
     const { data: tickets, error: ticketError } = await supabase
       .from("tickets")
-      .select("id, summary, client_name, halo_status")
+      .select("id, summary, client_name, halo_status, user_name")
       .in("id", ticketIds);
     if (ticketError) throw new Error(ticketError.message);
     for (const ticket of (tickets ?? []) as ReadonlyArray<TicketLookup>) ticketById.set(ticket.id, ticket);
@@ -171,7 +199,12 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     const recording = recordingResult.recordings.get(Number(row.recording_id));
     const ticketLookup = row.ticket_id ? ticketById.get(row.ticket_id) : null;
     const hasMatch = row.halo_id != null;
-    const attention = hasMatch && !row.note_posted;
+    const internal = row.matched_by === "internal_call" || /local/i.test(row.call_type ?? recording?.CallType ?? "");
+    const effectiveMatchMethod = internal ? "internal_call" : row.matched_by ?? "unknown";
+    const attention = !internal && hasMatch && !row.note_posted;
+    const fromName = (row.from_name ?? recording?.FromDisplayName?.trim()) || null;
+    const toName = (row.to_name ?? recording?.ToDisplayName?.trim()) || null;
+    const customerName = internal ? null : ticketLookup?.user_name ?? null;
     return {
       recordingId: Number(row.recording_id),
       startedAt: row.started_at ?? recording?.StartTime ?? null,
@@ -182,17 +215,27 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       transcript: row.transcript ?? recording?.Transcription?.trim() ?? null,
       transcriptChars: row.transcript_chars ?? recording?.Transcription?.length ?? 0,
       callSummary: row.summary,
-      matchState: hasMatch ? (attention ? "attention" : "matched") : "unmatched",
-      matchMethod: row.matched_by ?? "unknown",
-      matchLabel: callMatchLabel(row.matched_by),
+      matchState: internal ? "internal" : hasMatch ? (attention ? "attention" : "matched") : "unmatched",
+      matchMethod: effectiveMatchMethod,
+      matchLabel: callMatchLabel(effectiveMatchMethod),
       notePosted: row.note_posted,
       analysisAttempts: row.analysis_attempts ?? 0,
-      ticket: hasMatch
+      callType: row.call_type ?? recording?.CallType ?? null,
+      from: {
+        name: itemPartyName("from", directionOf(row.direction), fromName, customerName),
+        number: row.from_number ?? recording?.FromCallerNumber?.trim() ?? null,
+      },
+      to: {
+        name: itemPartyName("to", directionOf(row.direction), toName, customerName),
+        number: row.to_number ?? recording?.ToCallerNumber?.trim() ?? null,
+      },
+      ticket: hasMatch && !internal
         ? {
             haloId: Number(row.halo_id),
             summary: ticketLookup?.summary ?? null,
             clientName: ticketLookup?.client_name ?? null,
             status: ticketLookup?.halo_status ?? null,
+            customerName: ticketLookup?.user_name ?? null,
           }
         : null,
     };
@@ -205,7 +248,8 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     counts: {
       total: items.length,
       matched: items.filter((item) => item.ticket !== null).length,
-      unmatched: items.filter((item) => item.ticket === null).length,
+      unmatched: items.filter((item) => item.matchState === "unmatched").length,
+      internal: items.filter((item) => item.matchState === "internal").length,
       attention: items.filter((item) => item.matchState === "attention").length,
     },
   };

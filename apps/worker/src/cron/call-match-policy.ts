@@ -20,3 +20,19 @@ export function choosePhoneTicketMatchStrategy(
   if (counts.exactUserTicketCount > 1) return "transcript_user";
   return "transcript_client";
 }
+
+/** Phone formats commonly embedded in ticket bodies and email signatures. */
+export function phoneTicketSearchTerms(rawNumber: string): ReadonlyArray<string> {
+  const digits = rawNumber.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  if (digits.length !== 10) return digits.length >= 7 ? [digits] : [];
+  const area = digits.slice(0, 3);
+  const exchange = digits.slice(3, 6);
+  const line = digits.slice(6);
+  return [
+    digits,
+    `1${digits}`,
+    `${area}-${exchange}-${line}`,
+    `${area} ${exchange} ${line}`,
+    `${area}.${exchange}.${line}`,
+  ];
+}
