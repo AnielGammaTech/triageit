@@ -4,6 +4,7 @@ import { parseLlmJson } from "../parse-json.js";
 import { HaloClient, type TicketImage } from "../../integrations/halo/client.js";
 import { MemoryManager } from "../../memory/memory-manager.js";
 import { TeamsClient } from "../../integrations/teams/client.js";
+import { hasConfirmedGammaOnsiteEvidence } from "./onsite-evidence.js";
 import type { TeamsConfig } from "@triageit/shared";
 import type { HaloConfig } from "@triageit/shared";
 
@@ -57,7 +58,7 @@ Analyze the full ticket lifecycle and produce a close-out review.
 - Be factual — only state what the ticket history shows
 - Hudu updates should ONLY be permanent environment documentation: network configs, device inventories, passwords, procedures, contact info, DNS records. NOT ticket-specific details.
 - Rate the tech honestly — great/good/needs_improvement/poor
-- ONSITE DETECTION IS CRITICAL (unbilled onsite = lost revenue): scan EVERY note including private/internal ones for ANY indication of an onsite visit — 'went onsite', 'swing by', 'stopped by', 'head over', 'at their office', 'on site', dispatch/appointment language, or the ticket having been in Scheduled status (Scheduled almost always means an onsite appointment). For each onsite indication, include the EVIDENCE QUOTE in onsite_visits.
+- ONSITE DETECTION IS CRITICAL (unbilled onsite = lost revenue), but it must be high confidence: only report a Gamma staff onsite visit when a note authored by Gamma staff explicitly confirms that Gamma performed work at the client location. Customer, user, or vendor personnel checking/resetting equipment is NOT a Gamma onsite visit. A Scheduled status or appointment proves intent only, not that the visit occurred. For each confirmed Gamma onsite visit, include the staff-authored EVIDENCE QUOTE in onsite_visits. Otherwise return an empty array.
 - Keep everything concise
 - For hudu_kb_drafts: Draft READY-TO-PASTE content for Hudu. Each draft should be a complete article/section the admin can copy directly into Hudu. ONLY draft if the ticket revealed MEANINGFUL permanent knowledge — specific configs, non-obvious procedures, vendor contacts, network details, workarounds for known bugs, etc. Do NOT draft articles for trivial/obvious things like "how to restart a computer", "how to reset a password in M365 admin", "how to check email on Outlook" — only document things a tech wouldn't already know. Return an EMPTY array if nothing is worth documenting. Categories: procedure (step-by-step fix), troubleshooting (diagnosis guide), environment (infra/config details), contact (vendor contacts discovered), network (network/DNS/firewall configs), password (credential notes — NO actual passwords, just what exists and where), general (other).
 
@@ -288,7 +289,14 @@ async function _generateCloseReview(
     .map((b) => b.text)
     .join("");
 
-  const review = parseLlmJson<CloseReviewResult>(text);
+  const parsedReview = parseLlmJson<CloseReviewResult>(text);
+  const confirmedOnsite = hasConfirmedGammaOnsiteEvidence(actions);
+  const review: CloseReviewResult = confirmedOnsite
+    ? parsedReview
+    : { ...parsedReview, onsite_visits: [] };
+  if (parsedReview.onsite_visits.length > 0 && !confirmedOnsite) {
+    console.warn(`[CLOSE-REVIEW] #${haloId} ignored unverified onsite evidence — no Gamma staff action confirmed a visit`);
+  }
 
   // Build Halo note HTML
   const noteHtml = buildCloseReviewNote(review, ticket.halo_agent ?? "Unknown Tech", haloId);
