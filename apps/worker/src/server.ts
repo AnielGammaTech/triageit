@@ -39,6 +39,7 @@ import {
 import { HaloClient } from "./integrations/halo/client.js";
 import { buildDispatchBoard } from "./dispatch/board.js";
 import { buildSuggestions } from "./dispatch/suggest.js";
+import { buildCallTranscriptionPayload } from "./dispatch/call-transcriptions.js";
 import {
   approveCustomerUpdate,
   dismissCustomerUpdate,
@@ -226,6 +227,17 @@ server.get("/dispatch/board", async (_request, reply) => {
 server.get("/dispatch/suggest", async (_request, reply) => {
   try {
     return await buildSuggestions();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+// Recent 3CX recordings with the complete match audit and transcript. This is
+// protected because call text and phone numbers contain customer PII.
+server.get("/calls/transcriptions", async (_request, reply) => {
+  try {
+    return await buildCallTranscriptionPayload(createSupabaseClient());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return reply.status(500).send({ error: message });

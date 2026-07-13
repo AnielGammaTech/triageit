@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { Radio } from "lucide-react";
+import { PhoneCall, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/command", label: "Command" },
   { href: "/dispatch", label: "Dispatch", icon: Radio },
   { href: "/tickets", label: "Tickets" },
+  { href: "/calls", label: "Calls", icon: PhoneCall },
   { href: "/sla-hunter", label: "SLA Hunter" },
   { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
   { href: "/toby", label: "Toby", avatar: "/toby.png" },

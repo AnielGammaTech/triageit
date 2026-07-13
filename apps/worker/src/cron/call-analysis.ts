@@ -256,15 +256,22 @@ export async function processRecording(
   halo: HaloClient,
   rec: ThreeCxRecording,
 ): Promise<{ matched: boolean; posted: boolean }> {
+  const transcript = (rec.Transcription ?? "").trim();
+  const external = externalNumberOf(rec);
+  const initialDirection = external?.direction ?? null;
+  const initialTechName = external
+    ? (initialDirection === "inbound" ? rec.ToDisplayName : rec.FromDisplayName) ?? "Unknown tech"
+    : (rec.FromDisplayName ?? rec.ToDisplayName ?? "Unknown tech");
   const base = {
     recording_id: rec.Id,
     started_at: rec.StartTime ?? null,
     ended_at: rec.EndTime ?? null,
-    transcript_chars: (rec.Transcription ?? "").length,
+    transcript_chars: transcript.length,
+    transcript: transcript.slice(0, 100_000) || null,
+    external_number: external?.number ?? null,
+    direction: initialDirection,
+    tech_name: initialTechName,
   };
-
-  const external = externalNumberOf(rec);
-  const transcript = (rec.Transcription ?? "").trim();
 
   if (!external || transcript.length < MIN_TRANSCRIPT_CHARS) {
     await supabase
@@ -274,7 +281,7 @@ export async function processRecording(
   }
 
   const direction = external.direction;
-  const techName = (direction === "inbound" ? rec.ToDisplayName : rec.FromDisplayName) ?? "Unknown tech";
+  const techName = initialTechName;
 
   // A ticket number SPOKEN on the call is the strongest cue there is —
   // it beats every phone-number heuristic and works even when the caller's
@@ -452,6 +459,10 @@ interface RecordingBase {
   readonly started_at: string | null;
   readonly ended_at: string | null;
   readonly transcript_chars: number;
+  readonly transcript: string | null;
+  readonly external_number: string | null;
+  readonly direction: "inbound" | "outbound" | null;
+  readonly tech_name: string;
 }
 
 /** Tech guard → transcript analysis → Call Summary note. Shared tail for every match path. */
