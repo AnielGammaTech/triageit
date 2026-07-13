@@ -40,6 +40,7 @@ const VAD_SILENCE_MS = Number(process.env.VOICE_VAD_SILENCE_MS ?? "800");
 const VAD_PREFIX_MS = Number(process.env.VOICE_VAD_PREFIX_MS ?? "300");
 /** Hard cost/runaway cap — nobody needs a 15-minute robot call. */
 const MAX_CALL_MS = 10 * 60_000;
+const CALL_ENDING_WARNING_MS = MAX_CALL_MS - 60_000;
 /** Buffer caller audio into ~100ms chunks before appending upstream. */
 const INPUT_CHUNK_BYTES = 1600;
 
@@ -87,6 +88,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private lastLookedUpTicket: CallerTicket | null = null;
   private inputBuffer: Buffer = Buffer.alloc(0);
   private maxCallTimer: ReturnType<typeof setTimeout> | null = null;
+  private callEndingWarningTimer: ReturnType<typeof setTimeout> | null = null;
   private ended = false;
   /** Verbatim exchange, in order — posted to the ticket on escalation calls. */
   private transcript: Array<{ who: string; text: string }> = [];
@@ -135,6 +137,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         void this.hangup();
       }, MAX_CALL_MS);
       this.maxCallTimer.unref?.();
+      this.callEndingWarningTimer = setTimeout(() => this.announceCallEndingSoon(), CALL_ENDING_WARNING_MS);
+      this.callEndingWarningTimer.unref?.();
       console.log(
         this.escalation
           ? `[VOICE] SLA escalation call live to ${ctx.callerNumber} (ticket #${this.escalation.haloId})`
@@ -179,6 +183,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   async onCallEnd(): Promise<void> {
     this.ended = true;
     if (this.maxCallTimer) clearTimeout(this.maxCallTimer);
+    if (this.callEndingWarningTimer) clearTimeout(this.callEndingWarningTimer);
     if (this.fallback) {
       await this.fallback.onCallEnd();
       return;
@@ -302,6 +307,21 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(event));
     }
+  }
+
+  private announceCallEndingSoon(): void {
+    if (this.ended || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    console.log(`[VOICE] Realtime call ending warning for ${this.ctx?.callerNumber ?? "unknown"}`);
+    this.ctx?.stopAudio();
+    this.send({ type: "response.cancel" });
+    this.send({
+      type: "response.create",
+      response: {
+        instructions: this.escalation
+          ? `Say: "We have about one minute left on this call, so let's finish the final approval now." If an exact customer draft is awaiting approval, briefly read that exact draft again and ask for a clear yes or the requested change. Otherwise summarize the unresolved next step. Do not say a customer message was sent.`
+          : `Say: "We have about one minute left on this call, so let's wrap up the last item now." Help the caller finish their current request concisely, then confirm the outcome.`,
+      },
+    });
   }
 
   private sendSessionUpdate(briefing: string): void {
