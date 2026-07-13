@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isHelpdeskTechnicianName } from "@triageit/shared";
-import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, CircleAlert, Clock3, ListChecks, Phone, Radio, RefreshCw, ShieldAlert, TriangleAlert, Users } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, LayoutDashboard, ListChecks, Phone, Radio, RefreshCw, TriangleAlert, Tv, Users } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -161,12 +162,26 @@ function degradationMessages(sources: DispatchBoard["sources"]): ReadonlyArray<s
   return messages;
 }
 
+async function openTvMode(): Promise<void> {
+  try {
+    const response = await fetch("/api/tv/link", { cache: "no-store" });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      window.alert(body?.error ?? "TV Mode is unavailable right now.");
+      return;
+    }
+    const { url } = (await response.json()) as { url: string };
+    window.open(url, "_blank", "noopener");
+  } catch {
+    window.alert("Could not open TV Mode.");
+  }
+}
+
 export default function DispatchPage() {
   const [board, setBoard] = useState<DispatchBoard | null>(null);
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
   const [week, setWeek] = useState<WeekData | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
-  const [queueLane, setQueueLane] = useState<"all" | DispatchActionLane>("now");
   const [rosterScope, setRosterScope] = useState<"helpdesk" | "all">("helpdesk");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -232,18 +247,40 @@ export default function DispatchPage() {
           </div>
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white">Dispatch</h1>
-            <p className="text-sm text-zinc-400">What needs action, who can take it, and what&apos;s coming next</p>
+            <p className="hidden text-sm text-zinc-400 sm:block">What needs action, who can take it, and what&apos;s coming next</p>
           </div>
         </div>
-        <button
-          onClick={() => void load(true)}
-          aria-label="Refresh dispatch data"
-          title="Refresh dispatch data"
-          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border text-zinc-300 transition hover:text-white"
-          style={{ borderColor: HAIRLINE, background: PANEL }}
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/command"
+            aria-label="Open Command Center"
+            title="Open Command Center"
+            className="flex h-10 items-center justify-center gap-2 rounded-lg border px-3 text-sm text-zinc-300 transition hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            <span className="hidden lg:inline">Command Center</span>
+          </Link>
+          <button
+            onClick={() => void openTvMode()}
+            aria-label="Open TV Mode"
+            title="Open TV Mode"
+            className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm text-zinc-300 transition hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+          >
+            <Tv className="h-4 w-4" />
+            <span className="hidden lg:inline">TV Mode</span>
+          </button>
+          <button
+            onClick={() => void load(true)}
+            aria-label="Refresh dispatch data"
+            title="Refresh dispatch data"
+            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border text-zinc-300 transition hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -266,68 +303,59 @@ export default function DispatchPage() {
         </div>
       )}
 
-      <Section title="Dispatch Queue" icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}>
-        {loading && !suggest ? (
-          <BoardSkeleton />
-        ) : (
-          <DispatchActionQueue
-            data={suggest}
-            lane={queueLane}
-            onLaneChange={setQueueLane}
-          />
-        )}
-      </Section>
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-5">
+          <Section
+            title="Right Now"
+            icon={<Users className="h-4 w-4" style={{ color: RED }} />}
+            actions={
+              <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+                <ScopeButton active={rosterScope === "helpdesk"} onClick={() => setRosterScope("helpdesk")}>
+                  Helpdesk
+                </ScopeButton>
+                <ScopeButton active={rosterScope === "all"} onClick={() => setRosterScope("all")}>
+                  All staff
+                </ScopeButton>
+              </div>
+            }
+          >
+            {loading && !board ? (
+              <BoardSkeleton />
+            ) : displayedTechs.length === 0 ? (
+              <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+                {displayedTechs.map((tech) => (
+                  <TechRow key={tech.tech} tech={tech} haloBaseUrl={board!.haloBaseUrl} />
+                ))}
+              </div>
+            )}
+          </Section>
+        </div>
 
-      {/* Capacity stays separate from the action queue: decide first, inspect second. */}
-      <Section
-        title="Right Now"
-        icon={<Users className="h-4 w-4" style={{ color: RED }} />}
-        actions={
-          <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
-            <ScopeButton active={rosterScope === "helpdesk"} onClick={() => setRosterScope("helpdesk")}>
-              Helpdesk
-            </ScopeButton>
-            <ScopeButton active={rosterScope === "all"} onClick={() => setRosterScope("all")}>
-              All staff
-            </ScopeButton>
-          </div>
-        }
-      >
-        {loading && !board ? (
-          <BoardSkeleton />
-        ) : displayedTechs.length === 0 ? (
-          <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            {displayedTechs.map((t) => (
-              <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
-            ))}
-          </div>
-        )}
-      </Section>
+        <div className="lg:col-span-7">
+          {week && week.techs.length > 0 ? (
+            <DaySchedule
+              week={week}
+              onPrev={() => setDayOffset((day) => Math.max(0, day - 1))}
+              onNext={() => setDayOffset((day) => day + 1)}
+              onToday={() => setDayOffset(0)}
+              atToday={dayOffset === 0}
+            />
+          ) : (
+            <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
+              <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
+            </Section>
+          )}
+        </div>
+      </div>
 
-      {week && week.techs.length > 0 ? (
-        <DaySchedule
-          week={week}
-          onPrev={() => setDayOffset((day) => Math.max(0, day - 1))}
-          onNext={() => setDayOffset((day) => day + 1)}
-          onToday={() => setDayOffset(0)}
-          atToday={dayOffset === 0}
-        />
-      ) : (
-        <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
-          <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
-        </Section>
-      )}
+      <Section title="Next Actions" icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}>
+        {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} />}
+      </Section>
     </div>
   );
 }
-
-const ACTION_LANE_META: Record<DispatchActionLane, { readonly label: string; readonly color: string }> = {
-  now: { label: "Now", color: "#f87171" },
-  today: { label: "Today", color: "#f59e0b" },
-  watch: { label: "Watch", color: "#38bdf8" },
-};
 
 function ScopeButton({
   active,
@@ -350,51 +378,16 @@ function ScopeButton({
   );
 }
 
-function DispatchActionQueue({
-  data,
-  lane,
-  onLaneChange,
-}: {
-  readonly data: DispatchSuggestions | null;
-  readonly lane: "all" | DispatchActionLane;
-  readonly onLaneChange: (lane: "all" | DispatchActionLane) => void;
-}) {
+function DispatchActionList({ data }: { readonly data: DispatchSuggestions | null }) {
   const actions = data?.actions ?? [];
-  const counts = data?.actionCounts ?? { now: 0, today: 0, watch: 0, total: 0 };
-  const filtered = lane === "all" ? actions : actions.filter((item) => item.lane === lane);
-  const visible = filtered.slice(0, 12);
-  const hidden = Math.max(0, (lane === "all" ? counts.total : counts[lane]) - visible.length);
-  const lanes: ReadonlyArray<"all" | DispatchActionLane> = ["all", "now", "today", "watch"];
+  const total = data?.actionCounts.total ?? actions.length;
+  const visible = actions.slice(0, 5);
+  const hidden = Math.max(0, total - visible.length);
 
   return (
     <div>
-      <div className="grid grid-cols-3 border-b" style={{ borderColor: HAIRLINE }}>
-        <QueueMetric icon={<ShieldAlert className="h-4 w-4" />} label="Act now" value={counts.now} color="#f87171" />
-        <QueueMetric icon={<Clock3 className="h-4 w-4" />} label="Act today" value={counts.today} color="#f59e0b" />
-        <QueueMetric icon={<CircleAlert className="h-4 w-4" />} label="Watch" value={counts.watch} color="#38bdf8" />
-      </div>
-
-      <div className="flex overflow-x-auto border-b px-4 py-2.5" style={{ borderColor: HAIRLINE }}>
-        <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
-          {lanes.map((key) => {
-            const count = key === "all" ? counts.total : counts[key];
-            return (
-              <button
-                key={key}
-                onClick={() => onLaneChange(key)}
-                className={`h-8 min-w-[74px] cursor-pointer rounded px-2.5 text-xs font-medium capitalize transition ${
-                  lane === key ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {key === "all" ? "All" : ACTION_LANE_META[key].label} {count}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {visible.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-zinc-400">No dispatch actions in this lane.</div>
+        <div className="px-5 py-8 text-center text-sm text-zinc-400">Nothing needs dispatch attention right now.</div>
       ) : (
         <div className="divide-y" style={{ borderColor: HAIRLINE }}>
           {visible.map((item) => (
@@ -404,30 +397,11 @@ function DispatchActionQueue({
       )}
 
       {hidden > 0 && (
-        <p className="border-t px-5 py-2.5 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          +{hidden} more {lane === "all" ? "dispatch" : ACTION_LANE_META[lane].label.toLowerCase()} actions in Halo.
-        </p>
+        <div className="flex items-center justify-between gap-3 border-t px-5 py-2.5 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          <span>Showing the top {visible.length} of {total} actions.</span>
+          <a href="/tickets" className="shrink-0 font-medium text-zinc-300 hover:text-white">Open Tickets</a>
+        </div>
       )}
-    </div>
-  );
-}
-
-function QueueMetric({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  readonly icon: React.ReactNode;
-  readonly label: string;
-  readonly value: number;
-  readonly color: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 border-r px-3 py-3 last:border-r-0 sm:px-5" style={{ borderColor: HAIRLINE }}>
-      <span className="hidden shrink-0 sm:block" style={{ color }}>{icon}</span>
-      <span className="text-lg font-bold tabular-nums" style={{ color }}>{value}</span>
-      <span className="truncate text-xs text-zinc-500">{label}</span>
     </div>
   );
 }
@@ -471,7 +445,11 @@ function actionTiming(item: DispatchAction): string {
   const deadline = deadlineText(item.deadline);
   if (deadline) return deadline;
   const age = relativeAge(item.since);
-  if (!age) return ACTION_LANE_META[item.lane].label;
+  if (!age) {
+    if (item.lane === "now") return "Needs action now";
+    if (item.lane === "today") return "Needs action today";
+    return "Keep an eye on this";
+  }
   switch (item.kind) {
     case "assign":
       return `Unassigned for ${age}`;
@@ -498,6 +476,7 @@ function DispatchActionRow({
     ? `Assign ${item.suggestions[0].tech}`
     : item.action;
   const timing = actionTiming(item);
+  const owner = item.assignedTo ?? "Unassigned";
   const body = (
     <>
       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
@@ -509,27 +488,25 @@ function DispatchActionRow({
               P{item.priority}
             </span>
           )}
-          <span className="min-w-0 truncate text-sm font-medium text-zinc-200">
+          <span className="min-w-0 break-words text-sm font-medium text-zinc-200">
             {item.client_name ?? "Unknown client"}{item.summary ? ` — ${item.summary}` : ""}
           </span>
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
-          <span style={{ color }}>{item.reason}</span>
-          <span className="text-zinc-600">·</span>
-          <span className="text-zinc-500">{item.status ?? "Open"}{item.assignedTo ? ` · ${item.assignedTo}` : ""}</span>
-        </div>
-      </div>
-      <div className="min-w-0 shrink-0 basis-full pl-[18px] sm:basis-[300px] sm:pl-0 sm:text-right">
-        <p className="text-sm font-medium text-white">{recommendation}</p>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {timing}
-          {item.kind === "assign" && item.suggestions[0]?.reasons[0] ? ` · ${item.suggestions[0].reasons[0]}` : ""}
+        <p className="mt-1.5 text-sm font-medium text-white">
+          <span className="font-normal text-zinc-500">Do: </span>{recommendation}
         </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
+          <span><span style={{ color }}>Why:</span> {item.reason}</span>
+          <span className="text-zinc-600">·</span>
+          <span><span className="text-zinc-600">Owner:</span> {owner}</span>
+          <span className="text-zinc-600">·</span>
+          <span>{timing}</span>
+        </div>
       </div>
       {href && <ArrowUpRight className="hidden h-4 w-4 shrink-0 text-zinc-600 transition group-hover:text-white sm:block" />}
     </>
   );
-  const className = "group flex min-h-16 flex-wrap items-start gap-2.5 px-4 py-3 transition hover:bg-white/[0.025] sm:flex-nowrap sm:items-center sm:px-5";
+  const className = "group flex min-h-16 items-start gap-2.5 px-4 py-3 transition hover:bg-white/[0.025] sm:px-5";
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className={className} title={`Open ticket #${item.halo_id} in Halo`}>
       {body}
