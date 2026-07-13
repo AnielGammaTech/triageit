@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Users,
   WifiOff,
+  CalendarClock,
 } from "lucide-react";
 import type { CommandCenterPayload } from "@/lib/api/command-center-data";
 
@@ -57,8 +58,29 @@ interface TvPresenceTech {
   readonly status: { readonly state: string; readonly detail: string | null };
   readonly nextCommitment: string | null;
 }
+
+interface TvScheduleEvent {
+  readonly day: string;
+  readonly type: "site_visit" | "reminder" | "pto" | "meeting";
+  readonly subject: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly allDay: boolean;
+  readonly ticketId: number | null;
+}
+
+interface TvSchedule {
+  readonly start: string;
+  readonly days: ReadonlyArray<string>;
+  readonly techs: ReadonlyArray<{
+    readonly tech: string;
+    readonly events: ReadonlyArray<TvScheduleEvent>;
+  }>;
+}
+
 type TvPayload = CommandCenterPayload & {
   readonly dispatch?: { readonly techs: ReadonlyArray<TvPresenceTech> };
+  readonly schedule?: TvSchedule;
 };
 
 const PRESENCE_COLOR: Record<string, string> = {
@@ -169,7 +191,52 @@ const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
   { title: "Tech Scoreboard — 30 days", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
+  { title: "Daily Schedule", icon: <CalendarClock className="h-[1vw] w-[1vw]" style={{ color: "#c084fc" }} /> },
 ] as const;
+
+const STANDARD_SLIDE_MS = 10_000;
+const SCHEDULE_PAGE_MS = 5_000;
+const SCHEDULE_PAGE_SIZE = 7;
+
+function carouselPosition(now: number, schedulePages: number): { readonly slide: number; readonly schedulePage: number } {
+  const dailyDuration = Math.max(STANDARD_SLIDE_MS, schedulePages * SCHEDULE_PAGE_MS);
+  const durations = [STANDARD_SLIDE_MS, STANDARD_SLIDE_MS, STANDARD_SLIDE_MS, dailyDuration];
+  let elapsed = now % durations.reduce((total, duration) => total + duration, 0);
+  for (let slide = 0; slide < durations.length; slide += 1) {
+    if (elapsed < durations[slide]) {
+      return {
+        slide,
+        schedulePage: slide === 3 ? Math.min(schedulePages - 1, Math.floor(elapsed / SCHEDULE_PAGE_MS)) : 0,
+      };
+    }
+    elapsed -= durations[slide];
+  }
+  return { slide: 0, schedulePage: 0 };
+}
+
+interface DailyScheduleRow {
+  readonly tech: string;
+  readonly event: TvScheduleEvent;
+}
+
+interface DailyScheduleData {
+  readonly day: string | null;
+  readonly rows: ReadonlyArray<DailyScheduleRow>;
+  readonly offTechs: ReadonlyArray<string>;
+}
+
+function dailyScheduleData(schedule: TvSchedule | undefined): DailyScheduleData {
+  if (!schedule) return { day: null, rows: [], offTechs: [] };
+  const day = schedule.days[0] ?? schedule.start;
+  const all = schedule.techs.flatMap((tech) =>
+    tech.events.filter((event) => event.day === day).map((event) => ({ tech: tech.tech, event })),
+  );
+  const offTechs = [...new Set(all.filter(({ event }) => event.type === "pto").map(({ tech }) => tech.split(" ")[0]))];
+  const rows = all
+    .filter(({ event }) => event.type !== "pto")
+    .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
+  return { day, rows, offTechs };
+}
 
 export default function TvPage() {
   const [tvKey, setTvKey] = useState<string | null>(null);
@@ -290,8 +357,10 @@ export default function TvPage() {
   const dateStr = clock.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" });
   const syncAgeSec = lastOkAt > 0 ? Math.floor((nowTick - lastOkAt) / 1000) : null;
   const breachAlarm = (m?.breaching ?? 0) > 0;
-  // Carousel advances every 10s, derived from the 1s clock tick — no extra timer
-  const slide = Math.floor(nowTick / 10_000) % CAROUSEL_SLIDES.length;
+  // The daily slide stays visible long enough to page through every schedule row.
+  const dailySchedule = dailyScheduleData(data?.schedule);
+  const schedulePages = Math.max(1, Math.ceil(dailySchedule.rows.length / SCHEDULE_PAGE_SIZE));
+  const { slide, schedulePage } = carouselPosition(nowTick, schedulePages);
   // Queue row budget: at-risk fills whatever breaches/unassigned don't use
   const breachCap = Math.min(data?.breaches.length ?? 0, 6);
   const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 5);
@@ -523,6 +592,7 @@ export default function TvPage() {
                   </div>
                 )}
                 {slide === 2 && <StatusDonut statusCounts={data.statusCounts} total={data.metrics.open} />}
+                {slide === 3 && <DailySchedule schedule={dailySchedule} page={schedulePage} />}
               </div>
             )}
           </Panel>
@@ -631,6 +701,86 @@ function StatusDonut({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+const SCHEDULE_STYLE: Record<TvScheduleEvent["type"], { readonly color: string; readonly label: string }> = {
+  site_visit: { color: "#4ade80", label: "Site Visit" },
+  reminder: { color: "#7dd3fc", label: "Reminder" },
+  meeting: { color: "#c084fc", label: "Teams" },
+  pto: { color: "#a1a1aa", label: "Off" },
+};
+
+function scheduleTime(event: TvScheduleEvent): string {
+  if (event.allDay) return "All day";
+  return new Date(event.startsAt).toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function scheduleDay(day: string | null): string {
+  if (!day) return "Today";
+  return new Date(`${day}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+function DailySchedule({ schedule, page }: { readonly schedule: DailyScheduleData; readonly page: number }) {
+  const pageCount = Math.max(1, Math.ceil(schedule.rows.length / SCHEDULE_PAGE_SIZE));
+  const currentPage = Math.min(pageCount - 1, Math.max(0, page));
+  const visible = schedule.rows.slice(currentPage * SCHEDULE_PAGE_SIZE, (currentPage + 1) * SCHEDULE_PAGE_SIZE);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-[0.8vw] border-b px-[1.1vw] py-[0.65vh]" style={{ borderColor: HAIRLINE, background: PANEL_2 }}>
+        <span className="shrink-0 text-[0.78vw] font-bold uppercase tracking-[0.1em] text-white">{scheduleDay(schedule.day)}</span>
+        {schedule.offTechs.length > 0 && (
+          <span className="min-w-0 flex-1 truncate text-[0.75vw] font-semibold" style={{ color: INK_DIM }}>
+            Off: {schedule.offTechs.join(", ")}
+          </span>
+        )}
+        {pageCount > 1 && (
+          <span className="ml-auto shrink-0 text-[0.72vw] font-bold" style={{ color: INK_DIM, fontFamily: "var(--font-mono-tv), monospace" }}>
+            {currentPage + 1}/{pageCount}
+          </span>
+        )}
+      </div>
+
+      {visible.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-[0.95vw] font-semibold" style={{ color: INK_DIM }}>
+          Nothing scheduled today.
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          {visible.map(({ tech, event }, index) => {
+            const style = SCHEDULE_STYLE[event.type];
+            return (
+              <div
+                key={`${event.startsAt}-${tech}-${index}`}
+                className="flex min-h-[4.6vh] items-center gap-[0.65vw] border-b px-[1.1vw] last:border-b-0"
+                style={{ borderColor: "#1f0d11" }}
+              >
+                <span className="h-[0.55vw] w-[0.55vw] shrink-0 rounded-full" style={{ background: style.color }} />
+                <span
+                  className="w-[4.2vw] shrink-0 text-[0.82vw] font-black tabular-nums"
+                  style={{ color: style.color, fontFamily: "var(--font-mono-tv), monospace" }}
+                >
+                  {scheduleTime(event)}
+                </span>
+                <span className="w-[4.8vw] shrink-0 truncate text-[0.85vw] font-bold text-white">{tech.split(" ")[0]}</span>
+                <span className="min-w-0 flex-1 truncate text-[0.82vw] font-semibold text-zinc-300" title={event.subject || style.label}>
+                  {event.subject || style.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

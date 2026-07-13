@@ -9,8 +9,8 @@ import { workerFetch } from "@/lib/api/worker";
  * Auth: x-tv-key header (preferred) or ?key= query param, checked against
  * the TV_DASHBOARD_KEY env var. Exempted from Supabase middleware.
  *
- * Also attaches a best-effort `dispatch` field (tech presence from the
- * worker's /dispatch/board) — omitted, never fatal, when the board errors.
+ * Also attaches best-effort dispatch presence and today's schedule from the
+ * worker. Either field is omitted, never fatal, when its source errors.
  */
 
 const DISPATCH_TIMEOUT_MS = 5_000;
@@ -19,6 +19,25 @@ interface TvDispatchTech {
   readonly tech: string;
   readonly status: { readonly state: string; readonly detail: string | null };
   readonly nextCommitment: string | null;
+}
+
+interface TvScheduleEvent {
+  readonly day: string;
+  readonly type: "site_visit" | "reminder" | "pto" | "meeting";
+  readonly subject: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly allDay: boolean;
+  readonly ticketId: number | null;
+}
+
+interface TvSchedule {
+  readonly start: string;
+  readonly days: ReadonlyArray<string>;
+  readonly techs: ReadonlyArray<{
+    readonly tech: string;
+    readonly events: ReadonlyArray<TvScheduleEvent>;
+  }>;
 }
 
 /** Best-effort tech presence for the TV band — null on any failure. */
@@ -34,6 +53,23 @@ async function fetchDispatchPresence(): Promise<{ readonly techs: ReadonlyArray<
     return null;
   }
 }
+
+/** Best-effort current-day dispatch schedule — null on any failure. */
+async function fetchDispatchSchedule(): Promise<TvSchedule | null> {
+  try {
+    const res = await workerFetch("/dispatch/week", { signal: AbortSignal.timeout(DISPATCH_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const schedule = (await res.json()) as Partial<TvSchedule>;
+    if (!Array.isArray(schedule.days) || !Array.isArray(schedule.techs) || typeof schedule.start !== "string") {
+      return null;
+    }
+    return schedule as TvSchedule;
+  } catch (err) {
+    console.warn("[TV-COMMAND] Dispatch schedule unavailable:", (err as Error).message);
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!tvKeyConfigured()) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
@@ -48,8 +84,16 @@ export async function GET(request: NextRequest) {
   if (rl) return rl;
 
   try {
-    const [payload, dispatch] = await Promise.all([buildCommandCenterPayload(), fetchDispatchPresence()]);
-    return NextResponse.json(dispatch ? { ...payload, dispatch } : payload);
+    const [payload, dispatch, schedule] = await Promise.all([
+      buildCommandCenterPayload(),
+      fetchDispatchPresence(),
+      fetchDispatchSchedule(),
+    ]);
+    return NextResponse.json({
+      ...payload,
+      ...(dispatch ? { dispatch } : {}),
+      ...(schedule ? { schedule } : {}),
+    });
   } catch (err) {
     console.error("[TV-COMMAND] Failed to build payload:", (err as Error).message);
     return NextResponse.json({ error: "Failed to load command center data" }, { status: 500 });
