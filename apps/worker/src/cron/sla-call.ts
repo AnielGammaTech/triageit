@@ -190,8 +190,10 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
       const liveStatus = String(liveTicket?.status_name ?? liveTicket?.statusname ?? liveTicket?.status ?? "").trim() || null;
       const { lastCommunication, customerWait } = await fetchCommunicationContext(halo, haloId, liveStatus);
       const liveUser = liveTicket?.user as { emailaddress?: unknown } | undefined;
-      const emailCandidate = liveTicket?.user_email ?? liveTicket?.user_emailaddress ?? liveUser?.emailaddress ?? ticket?.user_email;
-      const customerEmail = typeof emailCandidate === "string" && emailCandidate.includes("@") ? emailCandidate.trim() : null;
+      const emailCandidate = liveTicket?.user_email ?? liveTicket?.user_emailaddress ?? liveUser?.emailaddress ?? ticket?.user_email ?? liveTicket?.emailtolist;
+      const customerEmail = typeof emailCandidate === "string"
+        ? emailCandidate.match(/[^\s<>,;@]+@[^\s<>,;@]+\.[^\s<>,;@]+/)?.[0] ?? null
+        : null;
       registerEscalationCall(destination, {
         ticketId: (ticket?.id as string | null) ?? null,
         haloId,

@@ -29,7 +29,9 @@ function actionDateText(action: HaloAction | undefined): string | null {
 
 function isCustomerAction(action: ActionRecord): boolean {
   if (action.hiddenfromuser !== false) return false;
-  if (action.who_type === 2 || action.emaildirection?.toUpperCase() === "I") return true;
+  const direction = action.emaildirection?.toUpperCase();
+  if (direction === "O" || action.who_type === 1 || /triage\s*it/i.test(action.who ?? "")) return false;
+  if (direction === "I" || action.who_type === 2) return true;
   return Boolean(action.who) && !isInternalStaffName(action.who) && action.who_type !== 0;
 }
 

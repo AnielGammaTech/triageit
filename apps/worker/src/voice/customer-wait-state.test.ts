@@ -50,4 +50,13 @@ describe("analyzeCustomerWaitState", () => {
     expect(state.waitingForUpdate).toBe(false);
     expect(state.latestCustomerMessage).toBeNull();
   });
+
+  it("does not treat a public TriageIT action as an inbound customer reply", () => {
+    const state = analyzeCustomerWaitState([
+      action({ id: 1, who: "TriageIT", who_type: 1, note: "Customer reported a payroll outage.", datetime: "2026-07-13T10:00:00-04:00" }),
+    ], "PAST-DUE");
+
+    expect(state.waitingForUpdate).toBe(false);
+    expect(state.latestCustomerMessage).toBeNull();
+  });
 });

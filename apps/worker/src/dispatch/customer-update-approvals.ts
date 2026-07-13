@@ -50,10 +50,11 @@ function sameMessage(left: string, right: string): boolean {
 
 function requesterEmail(ticket: HaloTicket): string | null {
   const nested = ticket.user as { emailaddress?: unknown } | undefined;
-  const candidates = [ticket.user_email, ticket.user_emailaddress, nested?.emailaddress];
+  const candidates = [ticket.user_email, ticket.user_emailaddress, nested?.emailaddress, ticket.emailtolist];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate.trim())) {
-      return candidate.trim();
+    if (typeof candidate === "string") {
+      const email = candidate.match(/[^\s<>,;@]+@[^\s<>,;@]+\.[^\s<>,;@]+/)?.[0];
+      if (email) return email;
     }
   }
   return null;
