@@ -67,9 +67,14 @@ const SYSTEM_AGENT_TOKENS: ReadonlySet<string> = new Set([
   "help",
 ]);
 
+// Real people the owner doesn't want on the dispatch board (user decision
+// 2026-07-13: hide Bradd).
+const HIDDEN_FROM_DISPATCH: ReadonlyArray<string> = ["bradd konert"];
+
 function isSystemAgentName(name: string): boolean {
-  return name
-    .toLowerCase()
+  const lower = name.toLowerCase();
+  if (HIDDEN_FROM_DISPATCH.some((hidden) => namesMatch(lower, hidden))) return true;
+  return lower
     .split(/[^a-z0-9]+/)
     .some((token) => SYSTEM_AGENT_TOKENS.has(token));
 }
