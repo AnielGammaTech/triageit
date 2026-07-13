@@ -270,7 +270,7 @@ export default function DispatchPage() {
       )}
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-5">
+        <div className="lg:col-span-6">
           <Section
             title="Right Now"
             icon={<Users className="h-4 w-4" style={{ color: RED }} />}
@@ -300,7 +300,7 @@ export default function DispatchPage() {
           </Section>
         </div>
 
-        <div className="lg:col-span-7">
+        <div className="lg:col-span-6">
           {week && week.techs.length > 0 ? (
             <DaySchedule
               week={week}
