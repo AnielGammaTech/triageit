@@ -6,6 +6,7 @@ import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { extractResponseText } from "../agents/llm-text.js";
 import { parseLlmJson } from "../agents/parse-json.js";
 import { isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
+import { choosePhoneTicketMatchStrategy } from "./call-match-policy.js";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -16,11 +17,10 @@ import { isInternalStaffName, type ThreeCxConfig } from "@triageit/shared";
  * this is a pure text pipeline: new recording → external number → Halo user
  * lookup → open ticket for that user/client → LLM analysis → private note.
  *
- * Matching order: exact user phone → single-open-ticket client →
- * transcript disambiguation (the LLM picks which candidate ticket the
- * call is about, declining when unsure). Numbers Halo doesn't know get a
- * strict transcript-only pass over the whole open board. Every path still
- * requires the tech ON the call to be the tech ON the ticket.
+ * Matching order: unique contact phone → that contact's ticket; shared
+ * company line → strict transcript selection across the client's tickets.
+ * Numbers Halo doesn't know get a strict transcript-only pass over the whole
+ * open board. The LLM can decline every ambiguous path instead of guessing.
  */
 
 interface CallAnalysisResult {
@@ -385,28 +385,30 @@ export async function processRecording(
   const candidates = openTickets ?? [];
   const byUser = candidates.filter((t) => t.user_name && userNames.includes(t.user_name.toLowerCase()));
 
-  let ticket: CandidateTicket | null = byUser[0] ?? (candidates.length === 1 ? candidates[0] : null);
-  let matchedBy = byUser[0] ? "user_phone" : ticket ? "client_single_open" : null;
+  const strategy = choosePhoneTicketMatchStrategy({
+    haloUserCount: users.length,
+    exactUserTicketCount: byUser.length,
+    clientTicketCount: candidates.length,
+  });
+  let ticket: CandidateTicket | null = null;
+  let matchedBy: string | null = null;
 
-  // Several tickets for this caller/user — let the transcript decide which
-  // one the call was actually about instead of blindly taking the newest.
-  if (byUser.length > 1) {
-    const pick = await selectTicketByTranscript(transcript, byUser, techName, "user");
-    if (pick) {
-      ticket = pick;
-      matchedBy = "llm_transcript_user";
-    }
-  }
-
-  // Client matched but multiple open tickets (the old blanket
-  // "ambiguous_multiple_open" skip): the transcript usually names the
-  // issue — e.g. a "litigation hold" call maps to the Litigation Hold
-  // ticket even when the office main line matches five open tickets.
-  if (!ticket && candidates.length > 1) {
-    const pick = await selectTicketByTranscript(transcript, candidates, techName, "client");
-    if (pick) {
-      ticket = pick;
-      matchedBy = "llm_transcript";
+  if (strategy === "direct_user") {
+    ticket = byUser[0] ?? null;
+    matchedBy = ticket ? "user_phone" : null;
+  } else if (strategy === "transcript_user") {
+    ticket = await selectTicketByTranscript(transcript, byUser, techName, "user");
+    matchedBy = ticket ? "llm_transcript_user" : null;
+  } else if (strategy === "transcript_client") {
+    const sharedPhone = users.length > 1;
+    ticket = await selectTicketByTranscript(
+      transcript,
+      candidates,
+      techName,
+      sharedPhone ? "shared_phone" : "client",
+    );
+    if (ticket) {
+      matchedBy = sharedPhone ? "llm_transcript_shared_phone" : "llm_transcript";
     }
   }
 
@@ -414,7 +416,18 @@ export async function processRecording(
     await supabase
       .from("call_analyses")
       .upsert(
-        { ...base, external_number: external.number, direction, tech_name: techName, matched_by: candidates.length > 1 ? "ambiguous_multiple_open" : "no_open_ticket", note_posted: false },
+        {
+          ...base,
+          external_number: external.number,
+          direction,
+          tech_name: techName,
+          matched_by: users.length > 1
+            ? "shared_phone_no_transcript_match"
+            : candidates.length > 1
+              ? "ambiguous_multiple_open"
+              : "no_open_ticket",
+          note_posted: false,
+        },
         { onConflict: "recording_id" },
       );
     return { matched: false, posted: false };
@@ -548,7 +561,7 @@ async function selectTicketByTranscript(
   transcript: string,
   candidates: ReadonlyArray<CandidateTicket>,
   techName: string,
-  scope: "user" | "client" | "global",
+  scope: "user" | "client" | "shared_phone" | "global",
 ): Promise<CandidateTicket | null> {
   if (candidates.length === 0) return null;
   try {
@@ -568,6 +581,8 @@ async function selectTicketByTranscript(
       `CRITICAL — OWNERSHIP BEATS TITLE WORDS: techs make calls about THEIR OWN tickets. When a candidate assigned to the tech on the call plausibly fits the conversation, pick it over another tech's ticket at the same client — even if the other ticket's TITLE matches the words more literally. (A tech calling a camera vendor about his own camera-related ticket must not land on a teammate's ticket just because that one is titled "Camera Issue".)`,
       scope === "global"
         ? `The caller's number is not in the PSA, so be STRICT: only match when the transcript clearly names the company, person, or the exact issue of a listed ticket.`
+        : scope === "shared_phone"
+          ? `The phone number is a shared company line assigned to multiple contacts. Do not infer the caller or ticket from the number; match only when the transcript clearly describes a listed ticket's issue.`
         : `The caller's phone number maps to the client(s) below but matches more than one open ticket.`,
       ``,
       `OPEN TICKETS:`,
@@ -597,7 +612,9 @@ async function selectTicketByTranscript(
     // Client-scoped picks (caller's company already established via number
     // or spoken name) risk at most the wrong ticket at the RIGHT client —
     // global picks can land on a stranger's ticket, so they stay strict.
-    const minConfidence = scope === "global" ? LLM_MATCH_MIN_CONFIDENCE : 0.6;
+    const minConfidence = scope === "global" || scope === "shared_phone"
+      ? LLM_MATCH_MIN_CONFIDENCE
+      : 0.6;
     if (!pick.halo_id || (pick.confidence ?? 0) < minConfidence) {
       console.log(`[CALL-ANALYSIS] Ticket selection (${scope}) declined: halo_id=${pick.halo_id ?? "null"} confidence=${pick.confidence ?? 0} — "${(pick.evidence ?? "").slice(0, 100)}"`);
       return null;
