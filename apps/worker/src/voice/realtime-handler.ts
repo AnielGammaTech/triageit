@@ -76,6 +76,7 @@ export interface EscalationContext {
   readonly customerWaitingForUpdate?: boolean;
   readonly customerWaitingReason?: string | null;
   readonly customerLastMessage?: string | null;
+  readonly customerContactMethod?: "call" | "reply";
   readonly customerName?: string | null;
   readonly customerEmail?: string | null;
 }
@@ -96,7 +97,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   // (posting from post_note/set_resolution_target AND onCallEnd produced two
   // near-duplicate notes per call). Tool handlers buffer here instead.
   private agentCallNotes: string[] = [];
-  private agreedTarget: { reason: string; when: string } | null = null;
+  private agreedTarget: { reason: string; when: string; iso: string } | null = null;
   /** Set when the call moved the ticket off PAST-DUE after a new target. */
   private statusSetTo: string | null = null;
   private stagedCustomerUpdate: { id: string; draft: string } | null = null;
@@ -451,7 +452,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           type: "function",
           name: "stage_customer_update",
           description:
-            "Queue the exact enhanced customer update for human review in Dispatch. This NEVER sends the message. Use only after the technician has heard the complete enhanced draft read back and explicitly approved that exact wording.",
+            "Queue the exact enhanced customer update for human review in Dispatch. This NEVER sends the message. The draft must promise the requested call or written reply at the exact confirmed next-action date/time and ask whether that time works. Use only after the technician has heard the complete draft and explicitly approved that exact wording.",
           parameters: {
             type: "object",
             properties: {
@@ -541,7 +542,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           const when = target.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
           // Target updated in Halo immediately; the note documenting it is
           // folded into the single end-of-call note (no duplicate notes).
-          this.agreedTarget = { reason: String(call.args.reason ?? "").slice(0, 500), when: `${when} ET` };
+          this.agreedTarget = { reason: String(call.args.reason ?? "").slice(0, 500), when: `${when} ET`, iso: target.toISOString() };
           // A fresh next-action target means the ticket is no longer past
           // due — move it off PAST-DUE to Waiting on Tech (user decision
           // 2026-07-10). Resolved by name from the live status map, id 32
@@ -589,6 +590,10 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             output = { error: "The ticket review did not identify a customer waiting for an update" };
             break;
           }
+          if (!this.agreedTarget) {
+            output = { error: "Set and confirm the exact next-action date and time before preparing a customer update" };
+            break;
+          }
           if (call.args.technician_confirmed !== true) {
             output = { error: "Read the complete enhanced draft back and get an explicit yes before queueing it" };
             break;
@@ -606,6 +611,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             customerWaitingReason: this.escalation.customerWaitingReason,
             rawMessage,
             draftMessage,
+            contactMethod: this.escalation.customerContactMethod ?? "reply",
+            nextActionAt: this.agreedTarget.iso,
             technicianConfirmed: true,
           });
           this.stagedCustomerUpdate = { id: staged.id, draft: draftMessage };
@@ -757,13 +764,13 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           : []),
         `- The last communication on file: ${e.lastCommunication ?? e.lastTechUpdate ?? "none on record"}.`,
         e.customerWaitingForUpdate
-          ? `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""}`
+          ? `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""} Required contact method: ${e.customerContactMethod === "call" ? "CALL the customer" : "send a WRITTEN REPLY to the customer"}.`
           : `- The ticket review did not find an unanswered customer call or message. Do not offer to draft a customer update unless this flag says CUSTOMER WAITING.`,
         ``,
         `ABOUT THE "RESOLUTION TARGET" / NEXT-ACTION DATE`,
         `- At Gamma Tech, the ticket's resolution-target date does NOT mean when the ticket will be fully closed — tickets can legitimately take days. It marks when the NEXT ACTION on the ticket is expected. So you are asking for the tech's next step and WHEN it will happen, not a final close date.`,
-        `- The phone system has a five-minute limit. Finish this entire workflow within four minutes. Ask for the breach reason once, allow at most one clarification, and allow at most two attempts to obtain a firm next-action time. If the tech still will not commit, document that and move on immediately.`,
-        `- When CUSTOMER WAITING is present, reserve at least the final two minutes for the customer update. Do not spend the whole call debating the breach reason or target.`,
+        `- The call has a ten-minute safety limit and gives an audible warning with about one minute left. Finish the workflow promptly. Ask for the breach reason once, allow at most one clarification, and allow at most two attempts to obtain a firm next-action time. If the tech still will not commit, document that and move on immediately.`,
+        `- When CUSTOMER WAITING is present, reserve enough time for the complete customer draft and approval. Do not spend the whole call debating the breach reason or target.`,
         ``,
         ...(e.objective
           ? [
@@ -778,8 +785,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         `3. Ask when the NEXT ACTION will take place (not when it will be fully resolved — remind them the resolution date is our next-action marker). When they give a date/time, CONFIRM it back exactly ("so the next update is tomorrow, July tenth at two PM — correct?"), and after a clear yes use set_resolution_target. Then tell them the target is updated and the ticket has been moved to Waiting on Tech since it's no longer past due.`,
         ...(e.customerWaitingForUpdate
           ? [
-              `4. After the breach reason and next-action target are handled, say the ticket review shows the customer is waiting for a call or update. Ask: "Would you like me to prepare an update for the customer?"`,
-              `5. If yes, ask the tech what they want the customer told. Turn only those facts into a warm, concise customer update. Do not invent dates, work completed, promises, causes, or technical details.`,
+              `4. After the breach reason and next-action target are handled, say the ticket review shows the customer is waiting for ${e.customerContactMethod === "call" ? "a call" : "a written reply"}. Ask: "Would you like me to prepare an update for the customer?"`,
+              `5. If yes, ask the tech what they want the customer told. Turn only those facts into a warm, concise customer update. The draft MUST say Gamma Tech will ${e.customerContactMethod === "call" ? "call the customer" : "send the customer a written update"} on the exact calendar date and Eastern time saved by set_resolution_target. It MUST end by asking the customer whether that time works and invite them to reply if it does not. Do not use only relative wording such as "tomorrow morning." Do not invent work completed, causes, or technical details.`,
               `6. Read the COMPLETE enhanced draft back word for word, then ask if they approve that exact wording. If they request a change, revise it and read the complete new version again. Only after an explicit yes use stage_customer_update with the original request, exact approved draft, and technician_confirmed true.`,
               `7. After asking whether they approve the exact wording, STOP and wait for their answer. Do not end the call while approval is pending. After the tool succeeds, say it is queued in Dispatch for a person to review, edit if needed, and approve. Make clear it has NOT been sent yet. Never tell the tech that the customer was already contacted.`,
             ]
@@ -790,6 +797,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         ``,
         `CUSTOMER UPDATE SAFETY`,
         `- stage_customer_update can only queue a draft. It cannot and must not email the customer. A signed-in staff member in Dispatch is the only person who can approve the send.`,
+        `- The tool rejects any draft that omits the exact next-action calendar date, Eastern time, required contact method, or a direct question asking whether that time works. If rejected, revise it, read the entire corrected draft back, and obtain a fresh explicit approval.`,
         `- Explicit approval means the tech heard the complete final wording and clearly said yes. Silence, "sounds about right", or approval of only the general idea is not enough.`,
         `- Never say or write in a ticket note that TriageIt will send, has sent, or is sending the customer update unless stage_customer_update succeeded; even then, say only that the draft is queued for Dispatch approval and has not been sent.`,
         `- Do not put passwords, access codes, private internal discussion, blame, billing details, or unsupported promises in the customer draft.`,

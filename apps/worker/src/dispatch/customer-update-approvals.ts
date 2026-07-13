@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HaloConfig, HaloTicket } from "@triageit/shared";
+import type { HaloAction, HaloConfig, HaloTicket } from "@triageit/shared";
 import { isWithinBusinessHours } from "../integrations/teams/client.js";
 import { HaloClient } from "../integrations/halo/client.js";
+import { haloActionTimestamp, isInboundCustomerAction } from "../voice/customer-wait-state.js";
 
 export interface CustomerUpdateApproval {
   readonly id: string;
@@ -15,7 +16,11 @@ export interface CustomerUpdateApproval {
   readonly customer_waiting_reason: string;
   readonly raw_message: string;
   readonly draft_message: string;
-  readonly status: "pending" | "sending" | "sent" | "dismissed" | "failed";
+  readonly contact_method: "call" | "reply" | null;
+  readonly next_action_at: string | null;
+  readonly customer_reply_message: string | null;
+  readonly customer_replied_at: string | null;
+  readonly status: "pending" | "sending" | "sent" | "dismissed" | "failed" | "customer_declined";
   readonly error_message: string | null;
   readonly tech_approved_at: string;
   readonly created_at: string;
@@ -37,8 +42,13 @@ interface StageCustomerUpdateInput {
   readonly customerWaitingReason: string;
   readonly rawMessage: string;
   readonly draftMessage: string;
+  readonly contactMethod: "call" | "reply";
+  readonly nextActionAt: string;
   readonly technicianConfirmed: boolean;
 }
+
+type CustomerScheduleReply = "accepted" | "needs_follow_up" | "neutral";
+let lastReplyRefreshAt = 0;
 
 function cleanMessage(value: string, max: number): string {
   return value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, max);
@@ -46,6 +56,65 @@ function cleanMessage(value: string, max: number): string {
 
 function sameMessage(left: string, right: string): boolean {
   return cleanMessage(left, 4_000).replace(/\s+/g, " ") === cleanMessage(right, 4_000).replace(/\s+/g, " ");
+}
+
+function nextActionParts(iso: string): { datePattern: RegExp; timePattern: RegExp; label: string } {
+  const target = new Date(iso);
+  if (!Number.isFinite(target.getTime())) throw new Error("The next-action time is invalid");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(target);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const month = get("month");
+  const day = get("day");
+  const year = get("year");
+  const hour = get("hour");
+  const minute = get("minute");
+  const period = get("dayPeriod").toLowerCase().replace(".", "");
+  const monthToken = `(?:${month.toLowerCase()}|${month.slice(0, 3).toLowerCase()}\\.?)`;
+  const datePattern = new RegExp(`\\b${monthToken}\\s+${day}(?:st|nd|rd|th)?(?:,?\\s+${year})?\\b`, "i");
+  const timePattern = minute === "00"
+    ? new RegExp(`\\b${hour}(?::00)?\\s*${period[0]}\\.?m\\.?\\b`, "i")
+    : new RegExp(`\\b${hour}:${minute}\\s*${period[0]}\\.?m\\.?\\b`, "i");
+  return { datePattern, timePattern, label: `${month} ${day}, ${year} at ${hour}:${minute} ${get("dayPeriod")} Eastern` };
+}
+
+export function validateCustomerCommitmentDraft(
+  draft: string,
+  nextActionAt: string,
+  contactMethod: "call" | "reply",
+): string | null {
+  const text = cleanMessage(draft, 4_000);
+  const { datePattern, timePattern, label } = nextActionParts(nextActionAt);
+  if (!datePattern.test(text) || !timePattern.test(text) || !/\b(eastern|et)\b/i.test(text)) {
+    return `The customer draft must state the exact next-action date and time: ${label}`;
+  }
+  if (contactMethod === "call" && !/\b(call|phone)\b/i.test(text)) {
+    return "The customer asked for a call, so the draft must explicitly say Gamma Tech will call them";
+  }
+  if (contactMethod === "reply" && !/\b(written update|reply|email|update)\b/i.test(text)) {
+    return "The customer asked for a reply, so the draft must explicitly promise a written update or reply";
+  }
+  if (!/(?:does|will) (?:that|this)(?: time)? work|is (?:that|this)(?: time)? (?:okay|ok)|please let us know if (?:that|this)(?: time)? works/i.test(text)) {
+    return "The customer draft must ask whether that next-action time works for them";
+  }
+  return null;
+}
+
+export function classifyCustomerScheduleReply(message: string): CustomerScheduleReply {
+  const text = cleanMessage(message, 4_000).toLowerCase();
+  const negative = /\b(no|not|can't|cannot|won't|doesn't|does not|too late|too early|sooner|earlier|later|different time|instead|asap|immediately)\b/i.test(text)
+    || /\b(?:after|before)\s+\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\b/i.test(text)
+    || /\b(?:can|could|would)\s+you\b.{0,60}\b(?:at|after|before)\s+\d{1,2}/i.test(text);
+  if (negative) return "needs_follow_up";
+  if (/\b(yes|that works|works for me|sounds good|perfect|that is fine|that's fine|that is okay|that's okay)\b/i.test(text)) return "accepted";
+  return "neutral";
 }
 
 function requesterEmail(ticket: HaloTicket): string | null {
@@ -76,6 +145,8 @@ export async function stageCustomerUpdate(
   if (rawMessage.length < 3) throw new Error("The technician's requested update is empty");
   if (draftMessage.length < 20) throw new Error("The approved customer update is too short");
   if (!input.customerWaitingReason.trim()) throw new Error("No customer-waiting reason was recorded");
+  const draftError = validateCustomerCommitmentDraft(draftMessage, input.nextActionAt, input.contactMethod);
+  if (draftError) throw new Error(draftError);
 
   const { data: existing } = await supabase
     .from("dispatch_customer_updates")
@@ -97,6 +168,8 @@ export async function stageCustomerUpdate(
     customer_waiting_reason: input.customerWaitingReason.slice(0, 700),
     raw_message: rawMessage,
     draft_message: draftMessage,
+    contact_method: input.contactMethod,
+    next_action_at: input.nextActionAt,
     status: "pending",
     source: "sla_call",
     tech_approved_at: new Date().toISOString(),
@@ -115,8 +188,8 @@ export async function stageCustomerUpdate(
 export async function listCustomerUpdateApprovals(supabase: SupabaseClient): Promise<ReadonlyArray<CustomerUpdateApproval>> {
   const { data, error } = await supabase
     .from("dispatch_customer_updates")
-    .select("id, ticket_id, halo_id, ticket_summary, client_name, customer_name, customer_email, tech_name, customer_waiting_reason, raw_message, draft_message, status, error_message, tech_approved_at, created_at")
-    .in("status", ["pending", "failed"])
+    .select("id, ticket_id, halo_id, ticket_summary, client_name, customer_name, customer_email, tech_name, customer_waiting_reason, raw_message, draft_message, contact_method, next_action_at, customer_reply_message, customer_replied_at, status, error_message, tech_approved_at, created_at")
+    .in("status", ["pending", "failed", "customer_declined"])
     .order("created_at", { ascending: true })
     .limit(25);
   if (error) throw new Error(error.message);
@@ -149,10 +222,20 @@ export async function approveCustomerUpdate(
     })
     .eq("id", id)
     .in("status", ["pending", "failed"])
-    .select("id, halo_id, ticket_summary, tech_approved_at")
+    .select("id, halo_id, ticket_summary, tech_approved_at, contact_method, next_action_at")
     .maybeSingle();
   if (claimError) throw new Error(claimError.message);
   if (!claimed) throw new Error("This update was already handled by someone else");
+  if (!claimed.contact_method || !claimed.next_action_at) {
+    const message = "This draft predates the required next-action commitment and must be restaged from a technician call";
+    await supabase.from("dispatch_customer_updates").update({ status: "failed", error_message: message, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "sending");
+    throw new Error(message);
+  }
+  const draftError = validateCustomerCommitmentDraft(draftMessage, String(claimed.next_action_at), claimed.contact_method as "call" | "reply");
+  if (draftError) {
+    await supabase.from("dispatch_customer_updates").update({ status: "failed", error_message: draftError, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "sending");
+    throw new Error(draftError);
+  }
 
   try {
     const { data: integration, error: integrationError } = await supabase
@@ -229,9 +312,58 @@ export async function dismissCustomerUpdate(supabase: SupabaseClient, id: string
       updated_at: now,
     })
     .eq("id", id)
-    .in("status", ["pending", "failed"])
+    .in("status", ["pending", "failed", "customer_declined"])
     .select("id")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("This update was already handled by someone else");
+}
+
+export async function refreshCustomerUpdateReplies(supabase: SupabaseClient): Promise<void> {
+  const now = Date.now();
+  if (now - lastReplyRefreshAt < 60_000) return;
+  lastReplyRefreshAt = now;
+
+  const cutoff = new Date(now - 14 * 24 * 60 * 60_000).toISOString();
+  const { data: sent, error } = await supabase
+    .from("dispatch_customer_updates")
+    .select("id, halo_id, sent_at")
+    .eq("status", "sent")
+    .is("customer_replied_at", null)
+    .gte("sent_at", cutoff)
+    .order("sent_at", { ascending: false })
+    .limit(25);
+  if (error) throw new Error(error.message);
+  if (!sent?.length) return;
+
+  const { data: integration, error: integrationError } = await supabase
+    .from("integrations")
+    .select("config")
+    .eq("service", "halo")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (integrationError || !integration) throw new Error(integrationError?.message ?? "Halo is not configured");
+  const halo = new HaloClient(integration.config as HaloConfig);
+
+  for (const item of sent) {
+    const sentAt = new Date(String(item.sent_at)).getTime();
+    const actions = await halo.getTicketActions(Number(item.halo_id), false);
+    const reply = [...actions]
+      .filter((action) => isInboundCustomerAction(action) && haloActionTimestamp(action) > sentAt)
+      .sort((left, right) => haloActionTimestamp(left) - haloActionTimestamp(right))
+      .find((action) => classifyCustomerScheduleReply(action.note ?? "") === "needs_follow_up") as HaloAction | undefined;
+    if (!reply) continue;
+    const message = cleanMessage(reply.note ?? "", 4_000);
+    if (!message) continue;
+    const repliedAt = new Date(haloActionTimestamp(reply)).toISOString();
+    const update: Record<string, unknown> = {
+      customer_reply_message: message,
+      customer_replied_at: repliedAt,
+      customer_reply_action_id: reply.id,
+      updated_at: new Date().toISOString(),
+      status: "customer_declined",
+    };
+    const { error: updateError } = await supabase.from("dispatch_customer_updates").update(update).eq("id", item.id).eq("status", "sent");
+    if (updateError) throw new Error(updateError.message);
+  }
 }

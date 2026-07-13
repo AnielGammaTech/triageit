@@ -43,6 +43,7 @@ import {
   approveCustomerUpdate,
   dismissCustomerUpdate,
   listCustomerUpdateApprovals,
+  refreshCustomerUpdateReplies,
 } from "./dispatch/customer-update-approvals.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
@@ -234,7 +235,13 @@ server.get("/dispatch/suggest", async (_request, reply) => {
 // Tech-approved drafts awaiting a second human check in Dispatch.
 server.get("/dispatch/customer-updates", async (_request, reply) => {
   try {
-    const updates = await listCustomerUpdateApprovals(createSupabaseClient());
+    const supabase = createSupabaseClient();
+    try {
+      await refreshCustomerUpdateReplies(supabase);
+    } catch (error) {
+      server.log.warn({ error }, "Could not refresh customer responses for Dispatch");
+    }
+    const updates = await listCustomerUpdateApprovals(supabase);
     return { updates };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -258,7 +265,7 @@ server.post<{
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const conflict = /outside business hours|already handled/i.test(message);
-    const invalid = /too short|valid email address|never receiving emails/i.test(message);
+    const invalid = /too short|valid email address|never receiving emails|next-action|must explicitly|must ask|predates|required contact/i.test(message);
     return reply.status(conflict ? 409 : invalid ? 422 : 500).send({ error: message });
   }
 });

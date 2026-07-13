@@ -56,6 +56,7 @@ async function fetchCommunicationContext(
       lastCommunication: null,
       customerWait: {
         waitingForUpdate: false,
+        requestedContactMethod: "reply",
         reason: null,
         latestCustomerMessage: null,
         latestCustomerAt: null,
@@ -207,6 +208,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         customerWaitingForUpdate: customerWait.waitingForUpdate,
         customerWaitingReason: customerWait.reason,
         customerLastMessage: customerWait.latestCustomerMessage,
+        customerContactMethod: customerWait.requestedContactMethod,
         customerName: (liveTicket?.user_name as string | null) ?? (ticket?.user_name as string | null) ?? null,
         customerEmail,
         lastTechUpdate: ticket?.last_tech_action_at

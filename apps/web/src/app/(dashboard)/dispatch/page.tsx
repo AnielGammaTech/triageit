@@ -107,7 +107,11 @@ interface CustomerUpdateApproval {
   readonly customer_waiting_reason: string;
   readonly raw_message: string;
   readonly draft_message: string;
-  readonly status: "pending" | "failed";
+  readonly contact_method: "call" | "reply" | null;
+  readonly next_action_at: string | null;
+  readonly customer_reply_message: string | null;
+  readonly customer_replied_at: string | null;
+  readonly status: "pending" | "failed" | "customer_declined";
   readonly error_message: string | null;
   readonly tech_approved_at: string;
   readonly created_at: string;
@@ -457,6 +461,8 @@ function CustomerUpdateQueue({
             const href = haloTicketUrl(haloBaseUrl, update.halo_id);
             const busy = busyId === update.id;
             const draft = drafts[update.id] ?? update.draft_message;
+            const needsFollowUp = update.status === "customer_declined";
+            const legacyDraft = !update.contact_method || !update.next_action_at;
             const approvedAt = new Date(update.tech_approved_at).toLocaleString("en-US", {
               timeZone: "America/New_York",
               month: "short",
@@ -464,12 +470,28 @@ function CustomerUpdateQueue({
               hour: "numeric",
               minute: "2-digit",
             });
+            const nextAction = update.next_action_at
+              ? new Date(update.next_action_at).toLocaleString("en-US", {
+                  timeZone: "America/New_York",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZoneName: "short",
+                })
+              : null;
             return (
               <div key={update.id} className="px-4 py-4 sm:px-5">
                 <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                       <span className="font-mono text-xs font-bold text-white">#{update.halo_id}</span>
+                      {needsFollowUp && (
+                        <span className="inline-flex items-center gap-1 rounded border border-red-800 bg-red-950/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                          <TriangleAlert className="h-3 w-3" /> Needs follow-up
+                        </span>
+                      )}
                       <span className="text-sm font-semibold text-zinc-200">{update.client_name ?? "Unknown client"}</span>
                       <span className="min-w-0 break-words text-sm text-zinc-400">{update.ticket_summary}</span>
                     </div>
@@ -498,17 +520,33 @@ function CustomerUpdateQueue({
                 <p className="mt-3 border-l-2 pl-3 text-xs leading-5 text-amber-200/80" style={{ borderColor: "#d97706" }}>
                   {update.customer_waiting_reason}
                 </p>
+                {nextAction && update.contact_method && (
+                  <p className="mt-2 text-xs font-semibold text-sky-300">
+                    {update.contact_method === "call" ? "Customer call" : "Written customer reply"} committed for {nextAction}
+                  </p>
+                )}
+                {needsFollowUp && update.customer_reply_message && (
+                  <div className="mt-3 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-red-300">Customer response</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-zinc-200">{update.customer_reply_message}</p>
+                  </div>
+                )}
+                {legacyDraft && !needsFollowUp && (
+                  <p className="mt-2 text-xs text-red-300">This draft was created before exact next-action commitments were required. Restage it from a technician call before sending.</p>
+                )}
                 {update.status === "failed" && update.error_message && (
                   <p className="mt-2 text-xs text-red-300">Last send failed: {update.error_message}</p>
                 )}
-                <textarea
-                  value={draft}
-                  onChange={(event) => onDraftChange(update.id, event.target.value)}
-                  disabled={busy}
-                  aria-label={`Customer update for ticket ${update.halo_id}`}
-                  className="mt-3 min-h-24 w-full resize-y rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-200 outline-none transition placeholder:text-zinc-700 focus:border-red-700 disabled:opacity-60"
-                  style={{ borderColor: HAIRLINE }}
-                />
+                {!needsFollowUp && (
+                  <textarea
+                    value={draft}
+                    onChange={(event) => onDraftChange(update.id, event.target.value)}
+                    disabled={busy || legacyDraft}
+                    aria-label={`Customer update for ticket ${update.halo_id}`}
+                    className="mt-3 min-h-24 w-full resize-y rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-200 outline-none transition placeholder:text-zinc-700 focus:border-red-700 disabled:opacity-60"
+                    style={{ borderColor: HAIRLINE }}
+                  />
+                )}
                 <div className="mt-3 flex items-center justify-end gap-2">
                   <button
                     onClick={() => onDismiss(update.id)}
@@ -517,17 +555,19 @@ function CustomerUpdateQueue({
                     style={{ borderColor: HAIRLINE }}
                   >
                     <X className="h-3.5 w-3.5" />
-                    Dismiss
+                    {needsFollowUp ? "Clear" : "Dismiss"}
                   </button>
-                  <button
-                    onClick={() => onApprove(update.id)}
-                    disabled={busy || draft.trim().length < 20}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-default disabled:opacity-50"
-                    style={{ borderColor: "#dc2626", background: "#991b1b" }}
-                  >
-                    <Send className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
-                    Approve &amp; Send
-                  </button>
+                  {!needsFollowUp && (
+                    <button
+                      onClick={() => onApprove(update.id)}
+                      disabled={busy || legacyDraft || draft.trim().length < 20}
+                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-default disabled:opacity-50"
+                      style={{ borderColor: "#dc2626", background: "#991b1b" }}
+                    >
+                      <Send className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
+                      Approve &amp; Send
+                    </button>
+                  )}
                 </div>
               </div>
             );

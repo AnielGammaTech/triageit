@@ -20,7 +20,18 @@ describe("analyzeCustomerWaitState", () => {
     ], "Customer Reply");
 
     expect(state.waitingForUpdate).toBe(true);
-    expect(state.reason).toContain("asked for a call or update");
+    expect(state.requestedContactMethod).toBe("call");
+    expect(state.reason).toContain("asked for a call");
+  });
+
+  it("uses a written reply when the customer requested an update but not a call", () => {
+    const state = analyzeCustomerWaitState([
+      action({ id: 1, who: "Carlos Customer", who_type: 2, emaildirection: "I", note: "Please email me a status update.", datetime: "2026-07-13T10:00:00-04:00" }),
+    ], "Customer Reply");
+
+    expect(state.waitingForUpdate).toBe(true);
+    expect(state.requestedContactMethod).toBe("reply");
+    expect(state.reason).toContain("asked for an update");
   });
 
   it("does not mark the customer waiting after a newer public tech reply", () => {
