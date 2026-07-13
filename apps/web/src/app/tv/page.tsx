@@ -408,7 +408,7 @@ export default function TvPage() {
                     <RowList
                       items={data.unassignedTickets.slice(0, unassignedCap).map((t) => ({
                         id: t.halo_id,
-                        left: t.client_name ?? "Unknown",
+                        left: [t.client_name ?? "Unknown", t.summary].filter(Boolean).join(" — "),
                         who: "",
                         badge: `WAITING ${mins(t.ageMin)}`,
                         badgeColor: "#e4e4e7",
@@ -777,4 +777,3 @@ function Loading() {
     </div>
   );
 }
-
