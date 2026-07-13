@@ -48,14 +48,15 @@ export function MsGraphConnect({ onComplete }: MsGraphConnectProps) {
 
   const isRunning =
     session?.status === "awaiting_signin" || session?.status === "provisioning";
+  const sessionId = session?.id;
 
   useEffect(() => {
-    if (!session || !isRunning) return;
+    if (!sessionId || !isRunning) return;
 
     const timer = setInterval(async () => {
       try {
         const res = await fetch(
-          `/api/msgraph/setup/status?id=${encodeURIComponent(session.id)}`,
+          `/api/msgraph/setup/status?id=${encodeURIComponent(sessionId)}`,
         );
         if (!res.ok) return;
         const next = (await res.json()) as SetupSession;
@@ -70,7 +71,7 @@ export function MsGraphConnect({ onComplete }: MsGraphConnectProps) {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [session?.id, isRunning]);
+  }, [sessionId, isRunning, onComplete]);
 
   async function handleConnect() {
     setStarting(true);

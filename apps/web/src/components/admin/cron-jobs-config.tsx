@@ -26,6 +26,28 @@ interface NewJobForm {
   readonly endpoint: string;
 }
 
+interface WorkerRun {
+  readonly id: string;
+  readonly job_name: string;
+  readonly endpoint: string;
+  readonly source: "scheduled" | "manual" | "catch_up";
+  readonly status: "running" | "success" | "error" | "skipped";
+  readonly worker_instance: string;
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly duration_ms: number | null;
+  readonly error: string | null;
+}
+
+interface WorkerRuntime {
+  readonly active: boolean;
+  readonly heartbeat: string | null;
+  readonly queue: Readonly<Record<string, number>>;
+  readonly runningCount: number;
+  readonly failedLast24Hours: number;
+  readonly recentRuns: ReadonlyArray<WorkerRun>;
+}
+
 // ── Cron Expression Helpers ──────────────────────────────────────────
 
 const COMMON_SCHEDULES: ReadonlyArray<{
@@ -50,12 +72,15 @@ const AVAILABLE_ENDPOINTS: ReadonlyArray<{
   { value: "/sla-scan", label: "SLA Breach Scan" },
   { value: "/toby/analyze", label: "Toby Learning Analysis" },
   { value: "/ticket-sync", label: "Halo Ticket Sync" },
+  { value: "/integration-heartbeat", label: "Integration Heartbeat" },
   { value: "/workflow-scan", label: "Workflow Guardrail Scan" },
   { value: "/memory/evict", label: "Agent Memory Cleanup" },
   { value: "/error-scan", label: "Errored Ticket Scan" },
   { value: "/response-alerts", label: "Response Time Alerts" },
   { value: "/weekly-report", label: "Weekly Report" },
   { value: "/error-retry", label: "Retry Errored Tickets" },
+  { value: "/call-analysis", label: "3CX Call Analysis" },
+  { value: "/schedule-sync", label: "Halo Schedule Sync" },
 ];
 
 function describeCron(expression: string): string {
@@ -103,6 +128,13 @@ function formatTimestamp(ts: string | null): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatDuration(durationMs: number | null): string {
+  if (durationMs === null) return "Running";
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
+  return `${Math.floor(durationMs / 60_000)}m ${Math.round((durationMs % 60_000) / 1000)}s`;
 }
 
 function getNextRun(schedule: string, isActive: boolean): string {
@@ -364,6 +396,7 @@ function CreateJobForm({
 
 export function CronJobsSection() {
   const [jobs, setJobs] = useState<ReadonlyArray<CronJob>>([]);
+  const [runtime, setRuntime] = useState<WorkerRuntime | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -379,6 +412,7 @@ export function CronJobsSection() {
       const data = await response.json();
       if (data.jobs) {
         setJobs(data.jobs);
+        setRuntime(data.runtime ?? null);
       } else if (data.error) {
         setErrorMessage(data.error);
       }
@@ -391,6 +425,8 @@ export function CronJobsSection() {
 
   useEffect(() => {
     loadJobs();
+    const interval = window.setInterval(loadJobs, 15_000);
+    return () => window.clearInterval(interval);
   }, [loadJobs]);
 
   async function handleToggle(job: CronJob) {
@@ -544,7 +580,7 @@ export function CronJobsSection() {
       )}
 
       {/* Summary bar */}
-      <div className="flex items-center gap-4 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-4 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
         <span className="text-xs font-medium text-white/40">
           {jobs.length} job{jobs.length !== 1 ? "s" : ""}
         </span>
@@ -561,6 +597,20 @@ export function CronJobsSection() {
             <span className="text-white/10">|</span>
             <span className="text-xs text-red-400/70">
               {jobs.filter((j) => j.last_status === "error").length} with errors
+            </span>
+          </>
+        )}
+        {runtime && (
+          <>
+            <span className="text-white/10">|</span>
+            <span className={cn("text-xs", runtime.active ? "text-emerald-400/70" : "text-red-400/70")}>
+              Worker {runtime.active ? "online" : "offline"}
+            </span>
+            <span className="text-xs text-white/30">
+              {runtime.runningCount} running · {runtime.queue.waiting ?? 0} queued · {runtime.failedLast24Hours} failed / 24h
+            </span>
+            <span className="text-xs text-white/20">
+              heartbeat {formatTimestamp(runtime.heartbeat)}
             </span>
           </>
         )}
@@ -777,6 +827,58 @@ export function CronJobsSection() {
             );
           })}
         </div>
+      )}
+
+      {runtime && runtime.recentRuns.length > 0 && (
+        <section aria-labelledby="recent-worker-runs" className="space-y-3 pt-2">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h4 id="recent-worker-runs" className="text-sm font-semibold text-white">Recent worker runs</h4>
+              <p className="mt-1 text-xs text-white/40">Scheduled, catch-up, and manual executions refresh every 15 seconds.</p>
+            </div>
+            <span className="text-[10px] uppercase text-white/25">Latest 25</span>
+          </div>
+          <div className="overflow-x-auto border-y border-white/10">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="text-[10px] uppercase text-white/30">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Job</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Started</th>
+                  <th className="px-3 py-2 font-medium">Duration</th>
+                  <th className="px-3 py-2 font-medium">Instance / error</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {runtime.recentRuns.map((run) => (
+                  <tr key={run.id} className="text-white/55">
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium text-white/75">{run.job_name}</div>
+                      <div className="mt-0.5 font-mono text-[10px] text-white/25">{run.endpoint}</div>
+                    </td>
+                    <td className="px-3 py-2.5 capitalize">{run.source.replace("_", " ")}</td>
+                    <td className={cn(
+                      "px-3 py-2.5 font-medium capitalize",
+                      run.status === "success" && "text-emerald-400",
+                      run.status === "error" && "text-red-400",
+                      run.status === "running" && "text-sky-400",
+                      run.status === "skipped" && "text-amber-400",
+                    )}>
+                      {run.status}
+                    </td>
+                    <td className="px-3 py-2.5">{formatTimestamp(run.started_at)}</td>
+                    <td className="px-3 py-2.5 tabular-nums">{formatDuration(run.duration_ms)}</td>
+                    <td className="max-w-[280px] px-3 py-2.5">
+                      <div className="truncate text-white/35">{run.worker_instance}</div>
+                      {run.error && <div className="mt-0.5 truncate text-red-400/70" title={run.error}>{run.error}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );

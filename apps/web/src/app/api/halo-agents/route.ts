@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 /**
  * GET /api/halo-agents
@@ -22,8 +22,8 @@ interface HaloAgentRaw {
 }
 
 export async function GET() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const supabase = await createServiceClient();
 

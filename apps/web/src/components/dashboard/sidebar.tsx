@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react";
 import { PhoneCall, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import type { AppRole } from "@/lib/auth/page-role";
 
 const NAV_ITEMS = [
   { href: "/command", label: "Command" },
@@ -23,13 +24,14 @@ const DROPDOWN_BG = "#241010";
 
 interface SidebarProps {
   readonly userEmail: string;
+  readonly userRole: AppRole;
 }
 
 function getUserInitials(email: string): string {
   return email.charAt(0).toUpperCase();
 }
 
-export function Sidebar({ userEmail }: SidebarProps) {
+export function Sidebar({ userEmail, userRole }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -196,12 +198,12 @@ export function Sidebar({ userEmail }: SidebarProps) {
                           color: PRIMARY_COLOR,
                         }}
                       >
-                        Admin
+                        {userRole}
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="p-1">
+                {userRole === "admin" && <div className="p-1">
                   <Link
                     href="/adminland"
                     onClick={() => setDropdownOpen(false)}
@@ -213,7 +215,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                     </svg>
                     Adminland
                   </Link>
-                </div>
+                </div>}
                 <div className="border-t border-white/10 p-1">
                   <button
                     onClick={() => {
@@ -278,7 +280,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   </Link>
                 );
               })}
-              <Link
+              {userRole === "admin" && <Link
                 href="/adminland"
                 className={cn(
                   "flex items-center px-6 py-3 text-sm font-medium transition-colors border-t border-white/[0.06] mt-1",
@@ -289,7 +291,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                 style={pathname.startsWith("/adminland") ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
               >
                 Adminland
-              </Link>
+              </Link>}
             </div>
           </nav>
         </div>

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
 
 interface FeedbackBody {
   readonly halo_id?: number;
@@ -14,15 +16,12 @@ interface FeedbackBody {
  * embed panel. Feeds Toby's learning loop via the triage_feedback table.
  */
 export async function POST(request: Request): Promise<NextResponse> {
-  let body: FeedbackBody;
-  try {
-    body = (await request.json()) as FeedbackBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const parsed = await readJsonBody<FeedbackBody>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
 
   const embedSecret = process.env.EMBED_SECRET;
-  if (!embedSecret || body.token !== embedSecret) {
+  if (!secureTokenEqual(body.token, embedSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

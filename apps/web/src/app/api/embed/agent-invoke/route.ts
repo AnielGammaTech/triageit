@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { workerFetch } from "@/lib/api/worker";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
 
 /**
  * POST /api/embed/agent-invoke
  * Proxy to worker's /agent/invoke endpoint with embed token auth.
  */
 export async function POST(request: Request) {
-  const body = (await request.json()) as { halo_id?: number; agent_name?: string; token?: string };
+  const parsed = await readJsonBody<{ halo_id?: number; agent_name?: string; token?: string }>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const { halo_id, agent_name, token } = body;
 
   const secret = process.env.EMBED_SECRET;
-  if (!secret || token !== secret) {
+  if (!secureTokenEqual(token, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

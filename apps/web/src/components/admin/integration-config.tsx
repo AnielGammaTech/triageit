@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { INTEGRATION_DEFINITIONS } from "@triageit/shared";
 import type { IntegrationItem } from "./adminland-constants";
@@ -30,10 +30,11 @@ interface IntegrationHeartbeat {
 }
 
 export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
-  const definition = INTEGRATION_DEFINITIONS.find(
-    (d) => d.service === item.service,
+  const definition = useMemo(
+    () => INTEGRATION_DEFINITIONS.find((d) => d.service === item.service),
+    [item.service],
   );
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [status, setStatus] = useState<ConnectionStatus>("not_configured");
   const [saving, setSaving] = useState(false);
@@ -46,11 +47,17 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
   const [healthStatus, setHealthStatus] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
-  useEffect(() => {
-    loadIntegration();
-  }, [item.service]);
+  const loadMappings = useCallback(async (intId: string) => {
+    const { data } = await supabase
+      .from("integration_mappings")
+      .select("*")
+      .eq("integration_id", intId)
+      .order("external_name", { ascending: true });
 
-  async function loadIntegration() {
+    setMappings(data ?? []);
+  }, [supabase]);
+
+  const loadIntegration = useCallback(async () => {
     const { data } = await supabase
       .from("integrations")
       .select("*")
@@ -68,7 +75,7 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       setStatus(data.is_active ? "connected" : "configured");
       setHealthStatus((data.health_status as string | null) ?? null);
       setHeartbeat((config.__heartbeat as IntegrationHeartbeat | undefined) ?? null);
-      loadMappings(data.id);
+      await loadMappings(data.id);
     } else {
       const initial: Record<string, string> = {};
       for (const field of definition?.fields ?? []) {
@@ -76,17 +83,11 @@ export function IntegrationConfig({ item, onBack }: IntegrationConfigProps) {
       }
       setValues(initial);
     }
-  }
+  }, [definition, item.service, loadMappings, supabase]);
 
-  async function loadMappings(intId: string) {
-    const { data } = await supabase
-      .from("integration_mappings")
-      .select("*")
-      .eq("integration_id", intId)
-      .order("external_name", { ascending: true });
-
-    setMappings(data ?? []);
-  }
+  useEffect(() => {
+    void loadIntegration();
+  }, [loadIntegration]);
 
   function handleFieldChange(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -489,7 +490,7 @@ function CustomerMappingTab({
   const isHaloService = service === "halo";
   const serviceLabel = service.charAt(0).toUpperCase() + service.slice(1);
 
-  async function loadExternalCustomers() {
+  const loadExternalCustomers = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
     try {
@@ -508,9 +509,9 @@ function CustomerMappingTab({
       setFetchError((err as Error).message);
     }
     setLoading(false);
-  }
+  }, [service]);
 
-  async function loadHaloCustomers() {
+  const loadHaloCustomers = useCallback(async () => {
     setLoadingHalo(true);
     try {
       const response = await fetch("/api/halo/customers");
@@ -522,16 +523,16 @@ function CustomerMappingTab({
       // Halo customers are optional for non-Halo integrations
     }
     setLoadingHalo(false);
-  }
+  }, []);
 
   useEffect(() => {
     if (integrationId) {
-      loadExternalCustomers();
+      void loadExternalCustomers();
       if (!isHaloService) {
-        loadHaloCustomers();
+        void loadHaloCustomers();
       }
     }
-  }, [integrationId, service]);
+  }, [integrationId, isHaloService, loadExternalCustomers, loadHaloCustomers]);
 
   if (!integrationId) {
     return (

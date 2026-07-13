@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   TriangleAlert,
@@ -20,11 +20,10 @@ import type { CommandCenterPayload } from "@/lib/api/command-center-data";
 
 /**
  * /tv — TriageIT Command wallboard for the office 65" TV.
- * Key-gated (?key= → localStorage), self-refreshing (data 30s, clock 1s,
- * full page reload every 6h to pick up deploys), 10-foot typography.
+ * Session-gated, self-refreshing (data 30s, clock 1s, full page reload every
+ * 6h to pick up deploys), 10-foot typography.
  */
 
-const KEY_STORAGE = "triageit_tv_key";
 const REFRESH_MS = 30_000;
 const STALE_AFTER_MS = 120_000;
 const RELOAD_AFTER_MS = 6 * 3600_000;
@@ -239,42 +238,16 @@ function dailyScheduleData(schedule: TvSchedule | undefined): DailyScheduleData 
 }
 
 export default function TvPage() {
-  const [tvKey, setTvKey] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
-  const keyRef = useRef<string | null>(null);
-
-  // Resolve the key: URL param wins (and is persisted), else localStorage.
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("key");
-    if (fromUrl) {
-      try {
-        localStorage.setItem(KEY_STORAGE, fromUrl);
-      } catch {
-        /* private mode — key still usable from state */
-      }
-      setTvKey(fromUrl);
-      return;
-    }
-    try {
-      setTvKey(localStorage.getItem(KEY_STORAGE));
-    } catch {
-      setTvKey(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    keyRef.current = tvKey;
-  }, [tvKey]);
 
   const load = useCallback(async () => {
-    const key = keyRef.current;
-    if (!key) return;
     try {
-      const res = await fetch("/api/tv/command", { cache: "no-store", headers: { "x-tv-key": key } });
+      const res = await fetch("/api/tv/command", { cache: "no-store" });
       if (res.status === 401 || res.status === 503) {
         setAuthFailed(true);
         return;
@@ -288,9 +261,40 @@ export default function TvPage() {
     }
   }, []);
 
+  const establishSession = useCallback(async (body: { readonly access?: string; readonly key?: string }) => {
+    const response = await fetch("/api/tv/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      setAuthFailed(true);
+      return false;
+    }
+    setAuthFailed(false);
+    setKeyInput("");
+    return true;
+  }, []);
+
+  // Exchange the short-lived dashboard link (or one legacy ?key= bookmark)
+  // for an HttpOnly cookie, then remove the credential from browser history.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const access = params.get("access");
+    const legacyKey = params.get("key");
+    const exchange = async () => {
+      if (access || legacyKey) {
+        await establishSession(access ? { access } : { key: legacyKey ?? "" });
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      setSessionReady(true);
+    };
+    void exchange();
+  }, [establishSession]);
+
   // Data refresh + clock + daily self-reload
   useEffect(() => {
-    if (!tvKey) return;
+    if (!sessionReady) return;
     void load();
     const dataT = setInterval(() => void load(), REFRESH_MS);
     const clockT = setInterval(() => setNowTick(Date.now()), 1000);
@@ -300,9 +304,9 @@ export default function TvPage() {
       clearInterval(clockT);
       clearTimeout(reloadT);
     };
-  }, [tvKey, load]);
+  }, [sessionReady, load]);
 
-  if (!tvKey || (authFailed && !data)) {
+  if (!sessionReady || authFailed) {
     return (
       <Shell>
         <div className="flex h-full flex-col items-center justify-center gap-[2vh]">
@@ -317,15 +321,11 @@ export default function TvPage() {
             className="flex items-center gap-[0.8vw]"
             onSubmit={(e) => {
               e.preventDefault();
-              const k = keyInput.trim();
-              if (!k) return;
-              try {
-                localStorage.setItem(KEY_STORAGE, k);
-              } catch {
-                /* ignore */
-              }
-              setAuthFailed(false);
-              setTvKey(k);
+              const key = keyInput.trim();
+              if (!key) return;
+              void establishSession({ key }).then((ok) => {
+                if (ok) void load();
+              });
             }}
           >
             <input

@@ -1,23 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
+import { readJsonBody } from "@/lib/api/json-body";
 
 /**
  * POST /api/cron-jobs/trigger
  * Triggers a specific cron job to run immediately via the worker.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const rateLimited = checkRateLimit(auth.user.id);
   if (rateLimited) return rateLimited;
 
-  const body = await request.json();
-  const { job_id } = body;
+  const parsed = await readJsonBody<{ job_id?: unknown }>(request, 4096);
+  if (!parsed.ok) return parsed.response;
+  const { job_id } = parsed.data;
 
-  if (!job_id) {
+  if (typeof job_id !== "string" || !/^[0-9a-f-]{36}$/i.test(job_id)) {
     return NextResponse.json(
       { error: "job_id is required" },
       { status: 400 },

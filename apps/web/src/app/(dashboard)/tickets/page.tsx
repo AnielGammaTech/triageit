@@ -93,16 +93,24 @@ export default function TicketsPage() {
     // Supabase caps each request at 1000 rows — page in batches so no tab
     // silently truncates (Resolved was capped at exactly 1000)
     const BATCH = 1000;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    interface TicketPageFilter {
+      readonly ticketType: number;
+      readonly isOpen?: boolean;
+      readonly createdSince?: string;
+    }
     async function fetchAllRows(
-      applyFilters: (q: any) => any,
-    ): Promise<{ rows: any[]; error: { message: string } | null }> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows: any[] = [];
+      filter: TicketPageFilter,
+    ): Promise<{ rows: TicketRow[]; error: { message: string } | null }> {
+      const rows: TicketRow[] = [];
       for (let from = 0; from < 25_000; from += BATCH) {
-        const { data, error } = await applyFilters(
-          supabase.from("tickets").select(ticketFields),
-        )
+        let query = supabase
+          .from("tickets")
+          .select(ticketFields)
+          .eq("tickettype_id", filter.ticketType);
+        if (filter.isOpen !== undefined) query = query.eq("halo_is_open", filter.isOpen);
+        if (filter.createdSince) query = query.gte("created_at", filter.createdSince);
+
+        const { data, error } = await query
           .order("created_at", { ascending: false })
           // Embedded triage_results rows have no default order — without this,
           // triage_results[0] (rendered as the latest triage) could be the
@@ -110,7 +118,7 @@ export default function TicketsPage() {
           .order("created_at", { referencedTable: "triage_results", ascending: false })
           .range(from, from + BATCH - 1);
         if (error) return { rows, error };
-        rows.push(...(data ?? []));
+        rows.push(...((data ?? []) as TicketRow[]));
         if (!data || data.length < BATCH) break;
       }
       return { rows, error: null };
@@ -118,11 +126,11 @@ export default function TicketsPage() {
 
     const [openResult, closedResult, alertsResult] = await Promise.all([
       // All open Gamma Default tickets (no date limit)
-      fetchAllRows((q) => q.eq("tickettype_id", 31).eq("halo_is_open", true)),
+      fetchAllRows({ ticketType: 31, isOpen: true }),
       // Recently closed Gamma Default (last 90 days for Resolved tab)
-      fetchAllRows((q) => q.eq("tickettype_id", 31).eq("halo_is_open", false).gte("created_at", threeMonthsAgo)),
+      fetchAllRows({ ticketType: 31, isOpen: false, createdSince: threeMonthsAgo }),
       // Alert tickets (type 36) — recent, for Alerts tab
-      fetchAllRows((q) => q.eq("tickettype_id", 36).gte("created_at", threeMonthsAgo)),
+      fetchAllRows({ ticketType: 36, createdSince: threeMonthsAgo }),
     ]);
 
     const dbError = openResult.error ?? closedResult.error ?? alertsResult.error;

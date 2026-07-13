@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { fetchUnifiSiteList } from "@/lib/unifi-sites";
 import { createClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 
 /**
@@ -10,8 +10,8 @@ import { checkRateLimit } from "@/lib/api/rate-limit";
  * Returns a normalized { customers: [{ id, name, is_active }] } shape.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const rateLimited = checkRateLimit(auth.user.id);
   if (rateLimited) return rateLimited;

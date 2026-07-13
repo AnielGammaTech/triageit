@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 
@@ -72,17 +72,13 @@ export function CustomerDetail({
   customerPhone,
   customerSite,
 }: CustomerDetailProps) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [activeTab, setActiveTab] = useState<Tab>("tickets");
   const [tickets, setTickets] = useState<ReadonlyArray<TicketWithTriage>>([]);
   const [agentLogs, setAgentLogs] = useState<ReadonlyArray<AgentLogEntry>>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, [customerName]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     if (!customerName) {
       setLoading(false);
       return;
@@ -115,7 +111,11 @@ export function CustomerDetail({
     }
 
     setLoading(false);
-  }
+  }, [customerName, supabase]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   // Stats
   const totalTickets = tickets.length;

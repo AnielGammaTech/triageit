@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
-import { isValidTvKey, tvKeyConfigured } from "@/lib/api/tv-key";
+import { isValidTvSessionToken, TV_SESSION_COOKIE, tvKeyConfigured } from "@/lib/api/tv-key";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
 
 /**
  * GET /api/tv/command — key-gated Command Center data for the TV wallboard.
- * Auth: x-tv-key header (preferred) or ?key= query param, checked against
- * the TV_DASHBOARD_KEY env var. Exempted from Supabase middleware.
+ * Auth: an HttpOnly session cookie issued by /api/tv/session. Exempted from
+ * Supabase middleware because wallboard devices do not hold staff sessions.
  *
  * Also attaches best-effort dispatch presence and today's schedule from the
  * worker. Either field is omitted, never fatal, when its source errors.
@@ -75,9 +75,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
   }
 
-  const key = request.headers.get("x-tv-key") ?? request.nextUrl.searchParams.get("key");
-  if (!isValidTvKey(key)) {
-    return NextResponse.json({ error: "Invalid access key" }, { status: 401 });
+  const session = request.cookies.get(TV_SESSION_COOKIE)?.value;
+  if (!isValidTvSessionToken(session)) {
+    return NextResponse.json({ error: "Invalid or expired TV session" }, { status: 401 });
   }
 
   const rl = checkRateLimit("tv-wallboard", 30, 60_000, "tv-command");

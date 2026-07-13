@@ -5,7 +5,7 @@ import {
   isHelpdeskTechnicianName,
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 /**
  * POST /api/admin/health/force-sync
@@ -15,8 +15,8 @@ import { requireAuth } from "@/lib/api/require-auth";
  * No pagination tricks, no reconciliation — just brute force.
  */
 export async function POST() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const supabase = await createServiceClient();
 
