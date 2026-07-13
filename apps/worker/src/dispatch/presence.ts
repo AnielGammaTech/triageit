@@ -2,7 +2,11 @@ import { fmtEtDayAware } from "./time-format.js";
 
 export interface TechSignals {
   readonly onPtoToday: boolean | null;        // null = calendar source unavailable (Outlook oof / employee PTO calendar)
-  readonly onsiteAppointment: { readonly subject: string; readonly endsAt: string } | null;
+  readonly onsiteAppointment: {
+    readonly subject: string;
+    readonly endsAt: string;
+    readonly ticketId: number | null;
+  } | null;
   readonly inMeetingUntil: string | null;     // ISO end of current busy block, null = none/unknown
   readonly onCall: boolean | null;            // null = 3CX unavailable
   /** Ticket the tech has in "In Progress" — actively being worked, so not available. */
@@ -34,7 +38,13 @@ const AWAY_RE = /away|out\s*of\s*office|business\s*trip|lunch/i;
 
 export function resolveTechStatus(s: TechSignals): TechStatus {
   if (s.onPtoToday === true) return { state: "off", detail: "Off today (PTO)" };
-  if (s.onsiteAppointment) return { state: "onsite", detail: `Onsite — ${s.onsiteAppointment.subject} until ${fmtEtDayAware(s.onsiteAppointment.endsAt)}` };
+  if (s.onsiteAppointment) {
+    const ticket = s.onsiteAppointment.ticketId !== null ? ` ticket #${s.onsiteAppointment.ticketId}` : "";
+    return {
+      state: "onsite",
+      detail: `Onsite${ticket} — ${s.onsiteAppointment.subject} until ${fmtEtDayAware(s.onsiteAppointment.endsAt)}`,
+    };
+  }
   if (s.inMeetingUntil) return { state: "meeting", detail: `In a meeting until ${fmtEtDayAware(s.inMeetingUntil)}` };
   if (s.onCall === true) return { state: "on_call", detail: "On a call" };
   if (s.workingTicket) {

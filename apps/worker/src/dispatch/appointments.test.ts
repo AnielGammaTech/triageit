@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   currentCommitmentLabel,
+  effectiveOnsiteEnd,
   nextCommitmentLabel,
   parseAppointment,
   qualifiesAsOnsite,
@@ -77,6 +78,24 @@ describe("qualifiesAsOnsite", () => {
   it("rejects Reminders and untyped appointments regardless of duration", () => {
     expect(qualifiesAsOnsite(appt({ type: "Reminder" }))).toBe(false);
     expect(qualifiesAsOnsite(appt({ type: null }))).toBe(false);
+  });
+});
+
+describe("effectiveOnsiteEnd", () => {
+  it("keeps a normal Site Visit end", () => {
+    expect(effectiveOnsiteEnd(appt({}))).toBe("2026-07-13T17:00:00.000Z");
+  });
+
+  it("moves a malformed long end date onto the visit's start day", () => {
+    const bankScanner = appt({
+      startsAt: "2026-07-13T15:00:00.000Z",
+      endsAt: "2026-08-10T16:30:00.000Z",
+    });
+    expect(effectiveOnsiteEnd(bankScanner)).toBe("2026-07-13T16:30:00.000Z");
+  });
+
+  it("does not create onsite windows for reminders", () => {
+    expect(effectiveOnsiteEnd(appt({ type: "Reminder" }))).toBeNull();
   });
 });
 

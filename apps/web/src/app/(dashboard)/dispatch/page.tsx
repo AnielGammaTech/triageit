@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { isHelpdeskTechnicianName } from "@triageit/shared";
 import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
 
 interface TechStatus {
@@ -29,6 +28,7 @@ interface BoardTech {
   } | null;
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
   readonly workingTicketId: number | null;
+  readonly statusTicketId?: number | null;
   readonly nextCommitment: string | null;
   readonly aiRead: string | null;
 }
@@ -114,7 +114,7 @@ const STATE_LABEL: Record<TechStatus["state"], string> = {
   working: "Working",
   on_call: "On Call",
   meeting: "Meeting",
-  onsite: "Onsite",
+  onsite: "On Site",
   dnd: "DND",
   away: "Away",
   after_hours: "After Hours",
@@ -157,8 +157,8 @@ export default function DispatchPage() {
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
   const [week, setWeek] = useState<WeekData | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
-  const [rosterScope, setRosterScope] = useState<"helpdesk" | "all">("helpdesk");
   const [actionLane, setActionLane] = useState<"now" | "today">("now");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +199,10 @@ export default function DispatchPage() {
 
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(true), 60_000);
+    const t = setInterval(() => {
+      setNowMs(Date.now());
+      void load(true);
+    }, 60_000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -208,8 +211,7 @@ export default function DispatchPage() {
   }, [dayOffset, loadDay]);
 
   const degraded = board ? degradationMessages(board.sources) : [];
-  const displayedTechs =
-    board?.techs.filter((tech) => rosterScope === "all" || isHelpdeskTechnicianName(tech.tech)) ?? [];
+  const displayedTechs = board?.techs ?? [];
 
   return (
     <div className="space-y-6">
@@ -264,16 +266,7 @@ export default function DispatchPage() {
           <Section
             title="Right Now"
             icon={<Users className="h-4 w-4" style={{ color: RED }} />}
-            actions={
-              <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
-                <ScopeButton active={rosterScope === "helpdesk"} onClick={() => setRosterScope("helpdesk")}>
-                  Dispatch team
-                </ScopeButton>
-                <ScopeButton active={rosterScope === "all"} onClick={() => setRosterScope("all")}>
-                  All staff
-                </ScopeButton>
-              </div>
-            }
+            className="flex flex-col overflow-hidden lg:h-[476px]"
           >
             {loading && !board ? (
               <BoardSkeleton />
@@ -281,7 +274,7 @@ export default function DispatchPage() {
               <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
             ) : (
               <div
-                className="grid max-h-[340px] grid-cols-1 gap-px overflow-y-auto sm:max-h-none sm:grid-cols-2 sm:overflow-visible"
+                className="grid max-h-[408px] min-h-0 grid-cols-1 gap-px overflow-y-auto sm:grid-cols-2 lg:max-h-none lg:flex-1"
                 style={{ background: HAIRLINE }}
               >
                 {displayedTechs.map((tech) => (
@@ -300,6 +293,7 @@ export default function DispatchPage() {
               onNext={() => setDayOffset((day) => day + 1)}
               onToday={() => setDayOffset(0)}
               atToday={dayOffset === 0}
+              nowMs={nowMs}
             />
           ) : (
             <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
@@ -334,27 +328,6 @@ export default function DispatchPage() {
         {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} lane={actionLane} />}
       </Section>
     </div>
-  );
-}
-
-function ScopeButton({
-  active,
-  onClick,
-  children,
-}: {
-  readonly active: boolean;
-  readonly onClick: () => void;
-  readonly children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`h-8 min-w-[84px] cursor-pointer rounded px-2.5 text-xs font-medium transition ${
-        active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -620,12 +593,14 @@ function DaySchedule({
   onNext,
   onToday,
   atToday,
+  nowMs,
 }: {
   readonly week: WeekData;
   readonly onPrev: () => void;
   readonly onNext: () => void;
   readonly onToday: () => void;
   readonly atToday: boolean;
+  readonly nowMs: number;
 }) {
   const day = week.days[0] ?? week.start;
   const header = fmtDayHeader(day);
@@ -637,6 +612,7 @@ function DaySchedule({
     <Section
       title={header.isToday ? "Today" : header.name}
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
+      className="flex flex-col overflow-hidden lg:h-[476px]"
       actions={
         <div className="flex items-center gap-1">
           <span className="mr-1 text-xs text-zinc-400 sm:mr-2">{header.date}</span>
@@ -667,12 +643,14 @@ function DaySchedule({
         </div>
       }
     >
-      <DayAgenda week={week} day={day} techs={activeTechs} />
-      {quietTechs.length > 0 && (
-        <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          No scheduled items: {quietTechs.join(", ")}
-        </p>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DayAgenda key={day} week={week} day={day} techs={activeTechs} isToday={header.isToday} nowMs={nowMs} />
+        {quietTechs.length > 0 && (
+          <p className="shrink-0 border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+            No scheduled items: {quietTechs.join(", ")}
+          </p>
+        )}
+      </div>
     </Section>
   );
 }
@@ -682,40 +660,76 @@ interface AgendaItem {
   readonly event: WeekEvent;
 }
 
+const AGENDA_PAGE_SIZE = 7;
+
 /** One dispatcher day, ordered by time, with the assigned technician on every row. */
 function DayAgenda({
   week,
   day,
   techs,
+  isToday,
+  nowMs,
 }: {
   readonly week: WeekData;
   readonly day: string;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
+  readonly isToday: boolean;
+  readonly nowMs: number;
 }) {
+  const [page, setPage] = useState(0);
   const all = techs.flatMap((tech): ReadonlyArray<AgendaItem> =>
     tech.events.filter((event) => event.day === day).map((event) => ({ tech: tech.tech, event })),
   );
   const offTechs = [...new Set(all.filter((item) => item.event.type === "pto").map((item) => item.tech.split(" ")[0]))];
   const items = all
     .filter((item) => item.event.type !== "pto")
-    .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt));
+    .filter((item) => !isToday || !Number.isFinite(Date.parse(item.event.endsAt)) || Date.parse(item.event.endsAt) > nowMs)
+    .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
+  const pageCount = Math.max(1, Math.ceil(items.length / AGENDA_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = items.slice(safePage * AGENDA_PAGE_SIZE, (safePage + 1) * AGENDA_PAGE_SIZE);
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       {offTechs.length > 0 && (
-        <p className="px-4 pb-1 pt-3 text-xs font-medium text-zinc-500">Off: {offTechs.join(", ")}</p>
+        <p className="shrink-0 px-4 pb-1 pt-3 text-xs font-medium text-zinc-500">Off: {offTechs.join(", ")}</p>
       )}
       {items.length === 0 ? (
-        <div className="p-5 text-sm text-zinc-400">Nothing scheduled for this day.</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-5 text-sm text-zinc-400">Nothing scheduled for this day.</div>
       ) : (
-        items.map(({ tech, event: scheduledEvent }, index) => (
-          <AgendaRow
-            key={`${scheduledEvent.startsAt}-${tech}-${index}`}
-            tech={tech}
-            event={scheduledEvent}
-            haloBaseUrl={week.haloBaseUrl}
-          />
-        ))
+        <div className="min-h-0 flex-1">
+          {visible.map(({ tech, event: scheduledEvent }, index) => (
+            <AgendaRow
+              key={`${scheduledEvent.startsAt}-${tech}-${index}`}
+              tech={tech}
+              event={scheduledEvent}
+              haloBaseUrl={week.haloBaseUrl}
+            />
+          ))}
+        </div>
+      )}
+      {pageCount > 1 && (
+        <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-t px-4" style={{ borderColor: HAIRLINE }}>
+          <button
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            disabled={safePage === 0}
+            aria-label="Previous schedule page"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="min-w-12 text-center text-xs tabular-nums text-zinc-500">{safePage + 1} / {pageCount}</span>
+          <button
+            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+            disabled={safePage >= pageCount - 1}
+            aria-label="Next schedule page"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -759,9 +773,10 @@ function AgendaRow({
 function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly haloBaseUrl: string }) {
   const color = STATE_COLOR[tech.status.state] ?? "#71717a";
   const context = contextLine(tech.status);
+  const statusTicketId = tech.statusTicketId ?? (tech.status.state === "working" ? tech.workingTicketId : null);
   const contextHref =
-    tech.status.state === "working" && tech.workingTicketId !== null
-      ? haloTicketUrl(haloBaseUrl, tech.workingTicketId)
+    (tech.status.state === "working" || tech.status.state === "onsite") && statusTicketId !== null
+      ? haloTicketUrl(haloBaseUrl, statusTicketId)
       : null;
   const detail = context ?? tech.nextCommitment ?? (tech.status.state === "available" ? "Ready for assignment" : null);
   return (
@@ -816,15 +831,17 @@ function Section({
   title,
   icon,
   actions,
+  className = "",
   children,
 }: {
   readonly title: string;
   readonly icon?: React.ReactNode;
   readonly actions?: React.ReactNode;
+  readonly className?: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+    <section className={`rounded-lg border ${className}`} style={{ borderColor: HAIRLINE, background: PANEL }}>
       <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>

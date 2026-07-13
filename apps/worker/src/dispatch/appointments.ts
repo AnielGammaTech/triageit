@@ -1,5 +1,5 @@
 import { HaloClient } from "../integrations/halo/client.js";
-import { haloEtToUtcIso } from "./et-time.js";
+import { etWallToUtcIso, haloEtToUtcIso, utcIsoToEtWall } from "./et-time.js";
 import { fmtEtDayAware } from "./time-format.js";
 
 /**
@@ -90,11 +90,37 @@ export async function fetchAppointments(
 // the commitment label instead.
 
 const ONSITE_MAX_DURATION_MS = 12 * 3600_000;
+const ONSITE_FALLBACK_DURATION_MS = 2 * 3600_000;
 
 export function qualifiesAsOnsite(a: DispatchAppointment): boolean {
   if ((a.type ?? "").trim().toLowerCase() !== "site visit") return false;
   const durationMs = Date.parse(a.endsAt) - Date.parse(a.startsAt);
   return durationMs > 0 && durationMs <= ONSITE_MAX_DURATION_MS;
+}
+
+/**
+ * Presence end for a Site Visit. Halo occasionally stores the correct end
+ * time on a date weeks later; keep that wall-clock time but move it onto the
+ * visit's start day so the technician is onsite for the intended window.
+ */
+export function effectiveOnsiteEnd(a: DispatchAppointment): string | null {
+  if ((a.type ?? "").trim().toLowerCase() !== "site visit") return null;
+  const startMs = Date.parse(a.startsAt);
+  const endMs = Date.parse(a.endsAt);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+  if (endMs - startMs <= ONSITE_MAX_DURATION_MS) return a.endsAt;
+
+  const startWall = utcIsoToEtWall(a.startsAt);
+  const endWall = utcIsoToEtWall(a.endsAt);
+  if (startWall && endWall) {
+    const sameDayEnd = etWallToUtcIso(`${startWall.slice(0, 10)}T${endWall.slice(11)}`);
+    const sameDayEndMs = sameDayEnd ? Date.parse(sameDayEnd) : NaN;
+    if (Number.isFinite(sameDayEndMs) && sameDayEndMs > startMs && sameDayEndMs - startMs <= ONSITE_MAX_DURATION_MS) {
+      return sameDayEnd;
+    }
+  }
+
+  return new Date(startMs + ONSITE_FALLBACK_DURATION_MS).toISOString();
 }
 
 // ── Commitment labels ─────────────────────────────────────────────────

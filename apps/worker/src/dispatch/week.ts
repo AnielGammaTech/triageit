@@ -2,7 +2,7 @@ import { createSupabaseClient } from "../db/supabase.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { HaloClient } from "../integrations/halo/client.js";
 import type { MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
-import { fetchAppointments, type DispatchAppointment } from "./appointments.js";
+import { effectiveOnsiteEnd, fetchAppointments, type DispatchAppointment } from "./appointments.js";
 import { etWallToUtcMs } from "./et-time.js";
 import {
   fetchRoster,
@@ -83,12 +83,13 @@ function appointmentEvents(
     .filter((a) => (agent.id > 0 && a.agentId === agent.id) || namesMatch(agent.name, a.agentName))
     .flatMap((a) => {
       const type = (a.type ?? "").toLowerCase() === "site visit" ? ("site_visit" as const) : ("reminder" as const);
-      return coveredDays(a.startsAt, a.endsAt, days).map((day) => ({
+      const endsAt = type === "site_visit" ? (effectiveOnsiteEnd(a) ?? a.endsAt) : a.endsAt;
+      return coveredDays(a.startsAt, endsAt, days).map((day) => ({
         day,
         type,
         subject: a.subject.slice(0, MAX_SUBJECT),
         startsAt: a.startsAt,
-        endsAt: a.endsAt,
+        endsAt,
         allDay: false,
         ticketId: a.ticketId,
       }));

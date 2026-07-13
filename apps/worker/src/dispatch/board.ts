@@ -31,9 +31,9 @@ import {
 } from "./board-sources.js";
 import {
   currentCommitmentLabel,
+  effectiveOnsiteEnd,
   fetchAppointments,
   nextCommitmentLabel,
-  qualifiesAsOnsite,
   type DispatchAppointment,
 } from "./appointments.js";
 import { etTodayBounds } from "./et-time.js";
@@ -58,6 +58,8 @@ export interface DispatchBoardTech {
   readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
   /** Halo id of the tech's In Progress ticket — lets the UI link the status detail. */
   readonly workingTicketId: number | null;
+  /** Halo ticket represented by the active onsite/working status. */
+  readonly statusTicketId: number | null;
   readonly nextCommitment: string | null; // "Onsite — Bentley Electric 2:00 PM"
   readonly aiRead: string | null; // Haiku one-liner; null until first refresh
 }
@@ -194,15 +196,22 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
   // email — unknown (null), never "not on PTO / not in a meeting".
   const cal = ctx.calendar?.byTech.get(agent.name) ?? null;
 
-  // Only a current "Site Visit" of sane length (≤12h) counts as onsite —
-  // a month-long Site Visit or a current Reminder must not flip the status;
-  // it surfaces through the commitment label below instead.
-  const onsiteNow = current !== null && qualifiesAsOnsite(current) ? current : null;
+  // Malformed long Site Visits are normalized to their same-day wall-clock
+  // end time, so a bad end date cannot hide a real onsite window for weeks.
+  const onsiteNow =
+    mine
+      ?.map((appointment) => ({ appointment, endsAt: effectiveOnsiteEnd(appointment) }))
+      .find(
+        ({ appointment, endsAt }) =>
+          endsAt !== null && Date.parse(appointment.startsAt) <= ctx.nowMs && Date.parse(endsAt) > ctx.nowMs,
+      ) ?? null;
 
   const load = loadForTech(ctx.loads, agent.name);
   const signals: TechSignals = {
     onPtoToday: cal ? cal.onPtoToday : null,
-    onsiteAppointment: onsiteNow ? { subject: onsiteNow.subject, endsAt: onsiteNow.endsAt } : null,
+    onsiteAppointment: onsiteNow
+      ? { subject: onsiteNow.appointment.subject, endsAt: onsiteNow.endsAt!, ticketId: onsiteNow.appointment.ticketId }
+      : null,
     inMeetingUntil: cal?.inMeetingUntil ?? null,
     onCall,
     workingTicket: load.inProgressTicket,
@@ -224,13 +233,13 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
           },
     load: { open: load.open, wot: load.wot, breaching: load.breaching },
     workingTicketId: load.inProgressTicket?.haloId ?? null,
+    statusTicketId: onsiteNow?.appointment.ticketId ?? load.inProgressTicket?.haloId ?? null,
     // Labeled with the appointment type, e.g. "Site Visit: Jenn :: Laptop
-    // Setup — Mon 1:00 PM". A current commitment that didn't qualify as
-    // onsite (long Site Visit, Reminder) surfaces here as context when
-    // nothing later is scheduled.
+    // Setup — Mon 1:00 PM". A current reminder or untyped appointment
+    // surfaces here as context when nothing later is scheduled.
     nextCommitment: next
       ? nextCommitmentLabel(next, new Date(ctx.nowMs))
-      : current && !onsiteNow
+      : current && !onsiteNow && effectiveOnsiteEnd(current) === null
         ? currentCommitmentLabel(current, new Date(ctx.nowMs))
         : null,
   };
