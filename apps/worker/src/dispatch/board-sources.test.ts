@@ -10,6 +10,8 @@ const event = (over: Partial<MsGraphCalendarEvent>): MsGraphCalendarEvent => ({
   endsAt: "2026-07-11T04:00:00.000Z",
   showAs: "free",
   isAllDay: true,
+  isOnlineMeeting: false,
+  onlineMeetingProvider: null,
   categories: [],
   ...over,
 });

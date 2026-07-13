@@ -1,6 +1,7 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { HaloClient } from "../integrations/halo/client.js";
+import type { MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
 import { fetchAppointments, type DispatchAppointment } from "./appointments.js";
 import { etWallToUtcMs } from "./et-time.js";
 import {
@@ -12,10 +13,10 @@ import {
 import { fetchSharedPtoEvents, techsMatchingOffSubject } from "./pto-calendar.js";
 
 /**
- * Week view data for the dispatch page: per tech, per ET day — Halo
- * appointments (typed Site Visit / Reminder) and PTO days from the shared
- * employee calendar. Sources degrade independently; a failed source simply
- * contributes no events (the live board's source flags cover messaging).
+ * Daily schedule data for the dispatch page: per tech, per ET day — Halo
+ * appointments (typed Site Visit / Reminder), Teams meetings from personal
+ * calendars, and PTO from the shared employee calendar. Sources degrade
+ * independently; a failed source simply contributes no events.
  */
 
 export interface WeekEvent {
@@ -43,8 +44,8 @@ export interface WeekData {
 const CACHE_TTL_MS = 5 * 60_000;
 const DAY_MS = 24 * 3600_000;
 const MAX_SUBJECT = 60;
-/** Dispatcher decision (2026-07-10): the schedule view is the NEXT few days, never the past. */
-const WINDOW_DAYS = 3;
+/** One dispatcher day at a time; navigation requests the next date explicitly. */
+const WINDOW_DAYS = 1;
 
 let cache: { readonly key: string; readonly at: number; readonly data: WeekData } | null = null;
 
@@ -94,6 +95,40 @@ function appointmentEvents(
     });
 }
 
+function isTeamsMeeting(event: MsGraphCalendarEvent): boolean {
+  const provider = event.onlineMeetingProvider?.toLowerCase() ?? "";
+  return provider.includes("teams") || (event.isOnlineMeeting && (!provider || provider === "unknown"));
+}
+
+/** Convert a technician's actual Microsoft 365 Teams meetings into schedule rows. */
+export function teamsMeetingEvents(
+  events: ReadonlyArray<MsGraphCalendarEvent>,
+  days: ReadonlyArray<string>,
+): ReadonlyArray<WeekEvent> {
+  return events
+    .filter((event) => !event.isAllDay && isTeamsMeeting(event))
+    .flatMap((event) =>
+      coveredDays(event.startsAt, event.endsAt, days).map((day) => ({
+        day,
+        type: "meeting" as const,
+        subject: (event.subject ?? "Teams meeting").slice(0, MAX_SUBJECT),
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        allDay: false,
+        ticketId: null,
+      })),
+    );
+}
+
+function sameTimedSubject(a: WeekEvent, b: WeekEvent): boolean {
+  const aSubject = a.subject.trim().toLowerCase();
+  const bSubject = b.subject.trim().toLowerCase();
+  const subjectsMatch = aSubject.length >= 4 && bSubject.length >= 4 &&
+    (aSubject.includes(bSubject) || bSubject.includes(aSubject));
+  const overlaps = Date.parse(a.startsAt) < Date.parse(b.endsAt) && Date.parse(a.endsAt) > Date.parse(b.startsAt);
+  return subjectsMatch && overlaps;
+}
+
 export async function buildWeekData(startParam?: string | null): Promise<WeekData> {
   const now = new Date();
   const today = todayEt(now);
@@ -107,7 +142,8 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
 
   const startUtcMs = etWallToUtcMs(`${start}T00:00:00`);
   const startUtc = startUtcMs !== null ? new Date(startUtcMs).toISOString() : new Date().toISOString();
-  const endUtc = new Date(Date.parse(startUtc) + 7 * DAY_MS).toISOString();
+  const endUtcMs = etWallToUtcMs(`${addDays(start, WINDOW_DAYS)}T00:00:00`);
+  const endUtc = new Date(endUtcMs ?? Date.parse(startUtc) + WINDOW_DAYS * DAY_MS).toISOString();
 
   const supabase = createSupabaseClient();
   let halo: HaloClient | null = null;
@@ -129,12 +165,36 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
   ]);
   const rosterAgents = roster ?? [];
 
-  const ptoEvents = msgraph
-    ? await fetchSharedPtoEvents(msgraph.graph, rosterAgents, msgraph.ptoCalendarName, startUtc, endUtc)
-    : null;
+  let ptoEvents: ReadonlyArray<MsGraphCalendarEvent> | null = null;
+  const personalCalendars = new Map<string, ReadonlyArray<MsGraphCalendarEvent>>();
+  if (msgraph) {
+    const withEmail = rosterAgents.filter(
+      (agent): agent is RosterAgent & { email: string } => agent.email !== null,
+    );
+    const [sharedPto, personalResults] = await Promise.all([
+      fetchSharedPtoEvents(msgraph.graph, rosterAgents, msgraph.ptoCalendarName, startUtc, endUtc),
+      Promise.all(
+        withEmail.map(async (agent) => ({
+          tech: agent.name,
+          events: await msgraph.graph.getCalendarView(agent.email, startUtc, endUtc),
+        })),
+      ),
+    ]);
+    ptoEvents = sharedPto;
+    for (const result of personalResults) {
+      if (result.events !== null) personalCalendars.set(result.tech, result.events);
+    }
+  }
 
   const techs = rosterAgents.map((agent) => {
     const fromAppointments = appointments ? appointmentEvents(agent, appointments, days) : [];
+    const fromTeams = teamsMeetingEvents(personalCalendars.get(agent.name) ?? [], days);
+    // Halo reminders can also be synchronized into Outlook. When the same
+    // timed subject is a Teams meeting, keep the purple meeting row once.
+    const uniqueAppointments = fromAppointments.filter(
+      (appointment) =>
+        appointment.type === "site_visit" || !fromTeams.some((meeting) => sameTimedSubject(appointment, meeting)),
+    );
     const fromPto = (ptoEvents ?? [])
       .filter((e) => techsMatchingOffSubject(e.subject, [agent]).length > 0)
       .flatMap((e) =>
@@ -151,7 +211,7 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
     // Halo can return near-identical rows (recurrences, ticket copies) —
     // one chip per (day, subject, start) is what a human wants to see.
     const seen = new Set<string>();
-    const events = [...fromAppointments, ...fromPto]
+    const events = [...uniqueAppointments, ...fromTeams, ...fromPto]
       .filter((e) => {
         const key = `${e.day}|${e.type}|${e.subject.toLowerCase()}|${e.startsAt}`;
         if (seen.has(key)) return false;
@@ -165,7 +225,7 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
   const data: WeekData = { start, haloBaseUrl, days, techs };
   cache = { key: start, at: Date.now(), data };
   console.log(
-    `[DISPATCH] Week built ${start}: ${techs.length} techs, ${techs.reduce((n, t) => n + t.events.length, 0)} events (halo=${appointments !== null}, pto=${ptoEvents !== null})`,
+    `[DISPATCH] Day built ${start}: ${techs.length} techs, ${techs.reduce((n, t) => n + t.events.length, 0)} events (halo=${appointments !== null}, personalCalendars=${personalCalendars.size}, pto=${ptoEvents !== null})`,
   );
   return data;
 }

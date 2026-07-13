@@ -226,7 +226,7 @@ server.get("/dispatch/suggest", async (_request, reply) => {
   }
 });
 
-// Dispatch week view — per tech per day: appointments (typed) + PTO days
+// Dispatch daily schedule — per tech: appointments, Teams meetings, and PTO
 server.get<{ Querystring: { start?: string } }>("/dispatch/week", async (request, reply) => {
   try {
     const { buildWeekData } = await import("./dispatch/week.js");

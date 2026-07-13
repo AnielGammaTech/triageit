@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Phone, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { isHelpdeskTechnicianName } from "@triageit/shared";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, CircleAlert, Clock3, ListChecks, Phone, Radio, RefreshCw, ShieldAlert, TriangleAlert, Users } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -42,18 +43,38 @@ interface Suggestion {
   readonly score: number;
   readonly reasons: ReadonlyArray<string>;
 }
-interface SuggestTicket {
+type DispatchActionLane = "now" | "today" | "watch";
+type DispatchActionKind =
+  | "sla_breach"
+  | "past_due"
+  | "assign"
+  | "cover"
+  | "due_soon"
+  | "customer_reply"
+  | "waiting_on_tech"
+  | "high_priority"
+  | "stale";
+interface DispatchAction {
   readonly halo_id: number;
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly status: string | null;
-  readonly duplicates?: number;
+  readonly assignedTo: string | null;
+  readonly priority: number | null;
+  readonly kind: DispatchActionKind;
+  readonly lane: DispatchActionLane;
+  readonly rank: number;
+  readonly reason: string;
+  readonly action: string;
+  readonly since: string | null;
+  readonly deadline: string | null;
   readonly suggestions: ReadonlyArray<Suggestion>;
 }
 interface DispatchSuggestions {
   readonly haloBaseUrl: string;
-  readonly tickets: ReadonlyArray<SuggestTicket>;
-  readonly omitted?: number;
+  readonly actions: ReadonlyArray<DispatchAction>;
+  readonly actionCounts: Readonly<Record<DispatchActionLane | "total", number>>;
+  readonly actionOmitted: number;
 }
 interface WeekEvent {
   readonly day: string; // YYYY-MM-DD (ET)
@@ -79,8 +100,8 @@ const STATE_COLOR: Record<TechStatus["state"], string> = {
   available: "#22c55e",
   working: "#38bdf8",
   on_call: "#0f75b1",
-  meeting: "#f59e0b",
-  onsite: "#fe9200",
+  meeting: "#c084fc",
+  onsite: "#22c55e",
   dnd: "#e879f9",
   away: "#a1a1aa",
   after_hours: "#71717a",
@@ -144,7 +165,9 @@ export default function DispatchPage() {
   const [board, setBoard] = useState<DispatchBoard | null>(null);
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
   const [week, setWeek] = useState<WeekData | null>(null);
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [dayOffset, setDayOffset] = useState(0);
+  const [queueLane, setQueueLane] = useState<"all" | DispatchActionLane>("now");
+  const [rosterScope, setRosterScope] = useState<"helpdesk" | "all">("helpdesk");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,9 +192,9 @@ export default function DispatchPage() {
     }
   }, []);
 
-  const loadWeek = useCallback(async (offset: number) => {
+  const loadDay = useCallback(async (offset: number) => {
     try {
-      const qs = offset === 0 ? "" : `?start=${weekStartIso(offset)}`;
+      const qs = offset === 0 ? "" : `?start=${dayStartIso(offset)}`;
       const res = await fetch(`/api/dispatch/week${qs}`, { cache: "no-store" });
       if (!res.ok) {
         setWeek(null);
@@ -190,33 +213,36 @@ export default function DispatchPage() {
   }, [load]);
 
   useEffect(() => {
-    void loadWeek(weekOffset);
-  }, [loadWeek, weekOffset]);
+    void loadDay(dayOffset);
+  }, [dayOffset, loadDay]);
 
   const degraded = board ? degradationMessages(board.sources) : [];
+  const displayedTechs =
+    board?.techs.filter((tech) => rosterScope === "all" || isHelpdeskTechnicianName(tech.tech)) ?? [];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div
-            className="flex h-11 w-11 items-center justify-center rounded-xl"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
             style={{ background: `linear-gradient(135deg, ${RED}, #7f1d1d)`, boxShadow: `0 0 24px -6px ${RED}` }}
           >
             <Radio className="h-6 w-6 text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-white">Dispatch</h1>
-            <p className="text-sm text-zinc-400">Who&apos;s free right now, and who should take each unassigned ticket</p>
+            <p className="text-sm text-zinc-400">What needs action, who can take it, and what&apos;s coming next</p>
           </div>
         </div>
         <button
           onClick={() => void load(true)}
-          className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+          aria-label="Refresh dispatch data"
+          title="Refresh dispatch data"
+          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border text-zinc-300 transition hover:text-white"
           style={{ borderColor: HAIRLINE, background: PANEL }}
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
         </button>
       </div>
 
@@ -240,72 +266,273 @@ export default function DispatchPage() {
         </div>
       )}
 
-      {/* Right Now — full-width compact card grid */}
-      <Section title="Right Now" icon={<Users className="h-4 w-4" style={{ color: RED }} />}>
+      <Section title="Dispatch Queue" icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}>
+        {loading && !suggest ? (
+          <BoardSkeleton />
+        ) : (
+          <DispatchActionQueue
+            data={suggest}
+            lane={queueLane}
+            onLaneChange={setQueueLane}
+          />
+        )}
+      </Section>
+
+      {/* Capacity stays separate from the action queue: decide first, inspect second. */}
+      <Section
+        title="Right Now"
+        icon={<Users className="h-4 w-4" style={{ color: RED }} />}
+        actions={
+          <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+            <ScopeButton active={rosterScope === "helpdesk"} onClick={() => setRosterScope("helpdesk")}>
+              Helpdesk
+            </ScopeButton>
+            <ScopeButton active={rosterScope === "all"} onClick={() => setRosterScope("all")}>
+              All staff
+            </ScopeButton>
+          </div>
+        }
+      >
         {loading && !board ? (
           <BoardSkeleton />
-        ) : (board?.techs.length ?? 0) === 0 ? (
+        ) : displayedTechs.length === 0 ? (
           <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
         ) : (
           <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            {board!.techs.map((t) => (
+            {displayedTechs.map((t) => (
               <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
             ))}
           </div>
         )}
       </Section>
 
-      {/* Next 3 days schedule + assignment helper, side by side */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-7">
-          {week && week.techs.length > 0 ? (
-            <WeekGrid week={week} onPrev={() => setWeekOffset((w) => Math.max(0, w - 1))} onNext={() => setWeekOffset((w) => w + 1)} onToday={() => setWeekOffset(0)} atToday={weekOffset === 0} />
-          ) : (
-            <Section title="Next 3 Days" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
-              <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
-            </Section>
-          )}
-        </div>
-
-        <div className="lg:col-span-5">
-          <Section title="Assignment Helper" icon={<ClipboardList className="h-4 w-4" style={{ color: RED }} />}>
-            {loading && !suggest ? (
-              <BoardSkeleton />
-            ) : (suggest?.tickets.length ?? 0) === 0 ? (
-              <div className="p-5 text-sm text-zinc-400">No unassigned or New tickets — queue is clean.</div>
-            ) : (
-              <>
-                <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-                  {suggest!.tickets.map((t) => (
-                    <TicketSuggestions key={t.halo_id} ticket={t} haloBaseUrl={suggest!.haloBaseUrl} />
-                  ))}
-                </div>
-                {(suggest!.omitted ?? 0) > 0 && (
-                  <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-                    +{suggest!.omitted} more unassigned — see the Tickets queue.
-                  </p>
-                )}
-              </>
-            )}
-          </Section>
-        </div>
-      </div>
+      {week && week.techs.length > 0 ? (
+        <DaySchedule
+          week={week}
+          onPrev={() => setDayOffset((day) => Math.max(0, day - 1))}
+          onNext={() => setDayOffset((day) => day + 1)}
+          onToday={() => setDayOffset(0)}
+          atToday={dayOffset === 0}
+        />
+      ) : (
+        <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
+          <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
+        </Section>
+      )}
     </div>
   );
 }
 
-/** Today (ET) plus `offset` 3-day pages, as YYYY-MM-DD. Never in the past. */
-function weekStartIso(offset: number): string {
+const ACTION_LANE_META: Record<DispatchActionLane, { readonly label: string; readonly color: string }> = {
+  now: { label: "Now", color: "#f87171" },
+  today: { label: "Today", color: "#f59e0b" },
+  watch: { label: "Watch", color: "#38bdf8" },
+};
+
+function ScopeButton({
+  active,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`h-8 min-w-[76px] cursor-pointer rounded px-2.5 text-xs font-medium transition ${
+        active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DispatchActionQueue({
+  data,
+  lane,
+  onLaneChange,
+}: {
+  readonly data: DispatchSuggestions | null;
+  readonly lane: "all" | DispatchActionLane;
+  readonly onLaneChange: (lane: "all" | DispatchActionLane) => void;
+}) {
+  const actions = data?.actions ?? [];
+  const counts = data?.actionCounts ?? { now: 0, today: 0, watch: 0, total: 0 };
+  const filtered = lane === "all" ? actions : actions.filter((item) => item.lane === lane);
+  const visible = filtered.slice(0, 12);
+  const hidden = Math.max(0, (lane === "all" ? counts.total : counts[lane]) - visible.length);
+  const lanes: ReadonlyArray<"all" | DispatchActionLane> = ["all", "now", "today", "watch"];
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 border-b" style={{ borderColor: HAIRLINE }}>
+        <QueueMetric icon={<ShieldAlert className="h-4 w-4" />} label="Act now" value={counts.now} color="#f87171" />
+        <QueueMetric icon={<Clock3 className="h-4 w-4" />} label="Act today" value={counts.today} color="#f59e0b" />
+        <QueueMetric icon={<CircleAlert className="h-4 w-4" />} label="Watch" value={counts.watch} color="#38bdf8" />
+      </div>
+
+      <div className="flex overflow-x-auto border-b px-4 py-2.5" style={{ borderColor: HAIRLINE }}>
+        <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+          {lanes.map((key) => {
+            const count = key === "all" ? counts.total : counts[key];
+            return (
+              <button
+                key={key}
+                onClick={() => onLaneChange(key)}
+                className={`h-8 min-w-[74px] cursor-pointer rounded px-2.5 text-xs font-medium capitalize transition ${
+                  lane === key ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {key === "all" ? "All" : ACTION_LANE_META[key].label} {count}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-zinc-400">No dispatch actions in this lane.</div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+          {visible.map((item) => (
+            <DispatchActionRow key={item.halo_id} item={item} haloBaseUrl={data?.haloBaseUrl ?? ""} />
+          ))}
+        </div>
+      )}
+
+      {hidden > 0 && (
+        <p className="border-t px-5 py-2.5 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          +{hidden} more {lane === "all" ? "dispatch" : ACTION_LANE_META[lane].label.toLowerCase()} actions in Halo.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function QueueMetric({
+  icon,
+  label,
+  value,
+  color,
+}: {
+  readonly icon: React.ReactNode;
+  readonly label: string;
+  readonly value: number;
+  readonly color: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 border-r px-3 py-3 last:border-r-0 sm:px-5" style={{ borderColor: HAIRLINE }}>
+      <span className="hidden shrink-0 sm:block" style={{ color }}>{icon}</span>
+      <span className="text-lg font-bold tabular-nums" style={{ color }}>{value}</span>
+      <span className="truncate text-xs text-zinc-500">{label}</span>
+    </div>
+  );
+}
+
+const ACTION_COLOR: Record<DispatchActionKind, string> = {
+  sla_breach: "#f87171",
+  past_due: "#fb7185",
+  assign: "#38bdf8",
+  cover: "#e879f9",
+  due_soon: "#f59e0b",
+  customer_reply: "#fb923c",
+  waiting_on_tech: "#fbbf24",
+  high_priority: "#f87171",
+  stale: "#38bdf8",
+};
+
+function relativeTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const mins = Math.max(0, Math.floor(ms / 60_000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function deadlineText(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  return `Due ${date.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
+function DispatchActionRow({
+  item,
+  haloBaseUrl,
+}: {
+  readonly item: DispatchAction;
+  readonly haloBaseUrl: string;
+}) {
+  const color = ACTION_COLOR[item.kind];
+  const href = haloTicketUrl(haloBaseUrl, item.halo_id);
+  const recommendation = item.kind === "assign" && item.suggestions[0]
+    ? `Assign ${item.suggestions[0].tech}`
+    : item.action;
+  const timing = deadlineText(item.deadline) ?? relativeTime(item.since);
+  const body = (
+    <>
+      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-mono text-xs font-bold text-white">#{item.halo_id}</span>
+          {item.priority && (
+            <span className="text-[10px] font-bold" style={{ color }}>
+              P{item.priority}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-sm font-medium text-zinc-200">
+            {item.client_name ?? "Unknown client"}{item.summary ? ` — ${item.summary}` : ""}
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
+          <span style={{ color }}>{item.reason}</span>
+          <span className="text-zinc-600">·</span>
+          <span className="text-zinc-500">{item.status ?? "Open"}{item.assignedTo ? ` · ${item.assignedTo}` : ""}</span>
+        </div>
+      </div>
+      <div className="min-w-0 shrink-0 basis-full pl-[18px] sm:basis-[300px] sm:pl-0 sm:text-right">
+        <p className="text-sm font-medium text-white">{recommendation}</p>
+        <p className="mt-0.5 text-xs text-zinc-500">
+          {timing ?? ACTION_LANE_META[item.lane].label}
+          {item.kind === "assign" && item.suggestions[0]?.reasons[0] ? ` · ${item.suggestions[0].reasons[0]}` : ""}
+        </p>
+      </div>
+      {href && <ArrowUpRight className="hidden h-4 w-4 shrink-0 text-zinc-600 transition group-hover:text-white sm:block" />}
+    </>
+  );
+  const className = "group flex min-h-16 flex-wrap items-start gap-2.5 px-4 py-3 transition hover:bg-white/[0.025] sm:flex-nowrap sm:items-center sm:px-5";
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className={className} title={`Open ticket #${item.halo_id} in Halo`}>
+      {body}
+    </a>
+  ) : (
+    <div className={className}>{body}</div>
+  );
+}
+
+/** Today (ET) plus `offset` days, as YYYY-MM-DD. Never in the past. */
+function dayStartIso(offset: number): string {
   const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  et.setDate(et.getDate() + Math.max(0, offset) * 3);
+  et.setDate(et.getDate() + Math.max(0, offset));
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
 }
 
 const WEEK_EVENT_STYLE: Record<WeekEvent["type"], { bg: string; text: string; label: string }> = {
-  site_visit: { bg: "#fe920022", text: "#fdba74", label: "Site Visit" },
+  site_visit: { bg: "#22c55e22", text: "#4ade80", label: "Site Visit" },
   reminder: { bg: "#38bdf822", text: "#7dd3fc", label: "Reminder" },
   pto: { bg: "#71717a22", text: "#a1a1aa", label: "OFF" },
-  meeting: { bg: "#f59e0b22", text: "#fcd34d", label: "Meeting" },
+  meeting: { bg: "#a855f722", text: "#c084fc", label: "Teams" },
 };
 
 function fmtDayHeader(day: string): { name: string; date: string; isToday: boolean } {
@@ -325,7 +552,7 @@ function eventTime(e: WeekEvent): string {
   return new Date(e.startsAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
-function WeekGrid({
+function DaySchedule({
   week,
   onPrev,
   onNext,
@@ -338,23 +565,23 @@ function WeekGrid({
   readonly onToday: () => void;
   readonly atToday: boolean;
 }) {
-  const rangeLabel = `${fmtDayHeader(week.days[0]).date} – ${fmtDayHeader(week.days[week.days.length - 1]).date}`;
-  const days = week.days;
-  // People with nothing coming up collapse into a single footer line.
-  const activeTechs = week.techs.filter((t) => t.events.length > 0);
-  const quietTechs = week.techs.filter((t) => t.events.length === 0).map((t) => t.tech);
+  const day = week.days[0] ?? week.start;
+  const header = fmtDayHeader(day);
+  const activeTechs = week.techs.filter((tech) => tech.events.some((event) => event.day === day));
+  const quietTechs = week.techs
+    .filter((tech) => !tech.events.some((event) => event.day === day))
+    .map((tech) => tech.tech);
   return (
     <Section
-      title="Next 3 Days"
+      title={header.isToday ? "Today" : header.name}
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
       actions={
         <div className="flex items-center gap-1">
-          {/* Agenda day headers carry the dates on mobile; hide the range to keep the ≥40px nav buttons from overflowing at 390px. */}
-          <span className="mr-2 hidden text-xs text-zinc-400 sm:inline">{rangeLabel}</span>
+          <span className="mr-1 text-xs text-zinc-400 sm:mr-2">{header.date}</span>
           <button
             onClick={onPrev}
             disabled={atToday}
-            aria-label="Previous days"
+            aria-label="Previous day"
             className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white disabled:cursor-default disabled:opacity-30"
             style={{ borderColor: HAIRLINE }}
           >
@@ -369,7 +596,7 @@ function WeekGrid({
           </button>
           <button
             onClick={onNext}
-            aria-label="Next days"
+            aria-label="Next day"
             className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
@@ -378,12 +605,10 @@ function WeekGrid({
         </div>
       }
     >
-      {/* Day-by-day agenda at every size — a 3-day column grid in a half-width
-          panel produced unreadable 10px chips (user report 2026-07-13). */}
-      <WeekAgenda week={week} days={days} techs={activeTechs} />
+      <DayAgenda week={week} day={day} techs={activeTechs} />
       {quietTechs.length > 0 && (
         <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          Nothing coming up: {quietTechs.join(", ")}
+          No scheduled items: {quietTechs.join(", ")}
         </p>
       )}
     </Section>
@@ -395,63 +620,41 @@ interface AgendaItem {
   readonly event: WeekEvent;
 }
 
-/** Mobile week view — one section per day, one ≥44px row per event, full subjects. */
-function WeekAgenda({
+/** One dispatcher day, ordered by time, with the assigned technician on every row. */
+function DayAgenda({
   week,
-  days,
+  day,
   techs,
 }: {
   readonly week: WeekData;
-  readonly days: ReadonlyArray<string>;
+  readonly day: string;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }) {
-  const byDay = days
-    .map((day) => {
-      const all = techs.flatMap((t): ReadonlyArray<AgendaItem> =>
-        t.events.filter((e) => e.day === day).map((event) => ({ tech: t.tech, event })),
-      );
-      return {
-        day,
-        // One quiet "Off" line per day instead of a row per person.
-        offTechs: [...new Set(all.filter((i) => i.event.type === "pto").map((i) => i.tech.split(" ")[0]))],
-        items: all
-          .filter((i) => i.event.type !== "pto")
-          .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt)),
-      };
-    })
-    .filter((d) => d.items.length > 0 || d.offTechs.length > 0);
-
-  if (byDay.length === 0) {
-    return <div className="p-5 text-sm text-zinc-400">Nothing scheduled in the next few days.</div>;
-  }
+  const all = techs.flatMap((tech): ReadonlyArray<AgendaItem> =>
+    tech.events.filter((event) => event.day === day).map((event) => ({ tech: tech.tech, event })),
+  );
+  const offTechs = [...new Set(all.filter((item) => item.event.type === "pto").map((item) => item.tech.split(" ")[0]))];
+  const items = all
+    .filter((item) => item.event.type !== "pto")
+    .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt));
 
   return (
     <div>
-      {byDay.map(({ day, items, offTechs }) => {
-        const h = fmtDayHeader(day);
-        return (
-          <div key={day} className="border-t first:border-t-0" style={{ borderColor: HAIRLINE }}>
-            <div className="flex items-baseline gap-3 px-4 pb-1 pt-3 text-xs font-medium">
-              <span
-                className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"}
-                style={h.isToday ? { background: RED } : undefined}
-              >
-                {h.name} {h.date}
-              </span>
-              {offTechs.length > 0 && (
-                <span className="text-zinc-500">Off: {offTechs.join(", ")}</span>
-              )}
-            </div>
-            {items.length === 0 ? (
-              <p className="px-4 pb-3 text-xs text-zinc-600">No visits or reminders.</p>
-            ) : (
-              items.map(({ tech, event: e }, i) => (
-                <AgendaRow key={`${e.startsAt}-${tech}-${i}`} tech={tech} event={e} haloBaseUrl={week.haloBaseUrl} />
-              ))
-            )}
-          </div>
-        );
-      })}
+      {offTechs.length > 0 && (
+        <p className="px-4 pb-1 pt-3 text-xs font-medium text-zinc-500">Off: {offTechs.join(", ")}</p>
+      )}
+      {items.length === 0 ? (
+        <div className="p-5 text-sm text-zinc-400">Nothing scheduled for this day.</div>
+      ) : (
+        items.map(({ tech, event: scheduledEvent }, index) => (
+          <AgendaRow
+            key={`${scheduledEvent.startsAt}-${tech}-${index}`}
+            tech={tech}
+            event={scheduledEvent}
+            haloBaseUrl={week.haloBaseUrl}
+          />
+        ))
+      )}
     </div>
   );
 }
@@ -562,62 +765,6 @@ function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly hal
   );
 }
 
-function TicketSuggestions({
-  ticket,
-  haloBaseUrl,
-}: {
-  readonly ticket: SuggestTicket;
-  readonly haloBaseUrl: string;
-}) {
-  const href = haloTicketUrl(haloBaseUrl, ticket.halo_id);
-  return (
-    <div className="px-5 py-3">
-      <div className="flex items-baseline gap-2">
-        {href ? (
-          <a href={href} target="_blank" rel="noreferrer" className="font-mono text-sm font-bold text-white hover:underline">
-            #{ticket.halo_id}
-          </a>
-        ) : (
-          <span className="font-mono text-sm font-bold text-white">#{ticket.halo_id}</span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
-          {ticket.client_name ?? "Unknown client"}
-          {ticket.summary ? ` — ${ticket.summary}` : ""}
-        </span>
-        {(ticket.duplicates ?? 0) > 0 && (
-          <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] text-zinc-400" style={{ borderColor: HAIRLINE }}>
-            ×{(ticket.duplicates ?? 0) + 1}
-          </span>
-        )}
-      </div>
-      {ticket.suggestions.length === 0 ? (
-        <p className="mt-1.5 text-xs text-zinc-500">No suggestions available.</p>
-      ) : (
-        <div className="mt-1.5">
-          {/* One clear recommendation; the runners-up are a single muted line. */}
-          <div className="flex items-baseline gap-2">
-            <span
-              className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide"
-              style={{ background: `${RED}22`, color: "#fca5a5" }}
-            >
-              Assign
-            </span>
-            <span className="text-sm font-semibold text-white">{ticket.suggestions[0].tech}</span>
-            <span className="min-w-0 truncate text-xs text-zinc-500">
-              {ticket.suggestions[0].reasons.slice(0, 2).join(" · ")}
-            </span>
-          </div>
-          {ticket.suggestions.length > 1 && (
-            <p className="mt-0.5 truncate text-xs text-zinc-600">
-              Also: {ticket.suggestions.slice(1).map((s) => s.tech.split(" ")[0]).join(", ")}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function BoardSkeleton() {
   return (
     <div className="space-y-3 p-5">
@@ -640,7 +787,7 @@ function Section({
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+    <section className="rounded-lg border" style={{ borderColor: HAIRLINE, background: PANEL }}>
       <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>

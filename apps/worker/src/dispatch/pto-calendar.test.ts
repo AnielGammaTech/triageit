@@ -20,6 +20,8 @@ const event = (subject: string | null): MsGraphCalendarEvent => ({
   endsAt: "2026-07-11T04:00:00.000Z",
   showAs: "free", // shared PTO calendar events are all-day "free" (verified live)
   isAllDay: true,
+  isOnlineMeeting: false,
+  onlineMeetingProvider: null,
   categories: [],
 });
 

@@ -19,6 +19,8 @@ export interface MsGraphCalendarEvent {
   readonly endsAt: string;
   readonly showAs: string; // free | tentative | busy | oof | workingElsewhere | unknown
   readonly isAllDay: boolean;
+  readonly isOnlineMeeting: boolean;
+  readonly onlineMeetingProvider: string | null;
   /** Outlook categories — TriageIT-created events carry "TriageIT". */
   readonly categories: ReadonlyArray<string>;
 }
@@ -42,6 +44,8 @@ interface RawGraphEvent {
   readonly end?: GraphDateTime;
   readonly showAs?: string;
   readonly isAllDay?: boolean;
+  readonly isOnlineMeeting?: boolean;
+  readonly onlineMeetingProvider?: string;
   readonly categories?: unknown;
 }
 
@@ -114,6 +118,9 @@ function normalizeEvent(raw: RawGraphEvent): MsGraphCalendarEvent | null {
     endsAt,
     showAs: typeof raw.showAs === "string" ? raw.showAs : "unknown",
     isAllDay: raw.isAllDay === true,
+    isOnlineMeeting: raw.isOnlineMeeting === true,
+    onlineMeetingProvider:
+      typeof raw.onlineMeetingProvider === "string" ? raw.onlineMeetingProvider : null,
     categories: Array.isArray(raw.categories)
       ? raw.categories.filter((c): c is string => typeof c === "string")
       : [],
@@ -259,7 +266,7 @@ export class MsGraphClient {
       const params = new URLSearchParams({
         startDateTime: startIso,
         endDateTime: endIso,
-        $select: "subject,start,end,showAs,isAllDay,categories",
+        $select: "subject,start,end,showAs,isAllDay,isOnlineMeeting,onlineMeetingProvider,categories",
         $top: "50",
       });
       const response = await this.fetchFn(`${GRAPH_BASE_URL}${path}?${params.toString()}`, {
