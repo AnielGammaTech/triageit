@@ -247,11 +247,9 @@ export default function DispatchPage() {
         ) : (board?.techs.length ?? 0) === 0 ? (
           <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
         ) : (
-          <div className="grid grid-cols-1 gap-px sm:grid-cols-2 xl:grid-cols-3" style={{ background: HAIRLINE }}>
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
             {board!.techs.map((t) => (
-              <div key={t.tech} style={{ background: PANEL }}>
-                <TechRow tech={t} haloBaseUrl={board!.haloBaseUrl} />
-              </div>
+              <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
             ))}
           </div>
         )}
@@ -327,8 +325,6 @@ function eventTime(e: WeekEvent): string {
   return new Date(e.startsAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
-const MAX_CHIPS_PER_DAY = 3;
-
 function WeekGrid({
   week,
   onPrev,
@@ -382,89 +378,9 @@ function WeekGrid({
         </div>
       }
     >
-      {/* Mobile: per-day agenda list (the 8-column grid is unreadable under ~760px) */}
-      <div className="md:hidden">
-        <WeekAgenda week={week} days={days} techs={activeTechs} />
-      </div>
-
-      {/* Desktop: tech × day grid */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[760px] table-fixed border-collapse text-left">
-          <thead>
-            <tr>
-              <th className="w-32 px-4 py-2 text-xs font-medium text-zinc-400" />
-              {days.map((day) => {
-                const h = fmtDayHeader(day);
-                return (
-                  <th key={day} className="border-l px-2 py-2 text-xs font-medium" style={{ borderColor: HAIRLINE }}>
-                    <span className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"} style={h.isToday ? { background: RED } : undefined}>
-                      {h.name} {h.date}
-                    </span>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {activeTechs.map((row) => (
-              <tr key={row.tech} className="border-t align-top" style={{ borderColor: HAIRLINE }}>
-                <td className="truncate px-4 py-2 text-sm font-medium text-white">{row.tech}</td>
-                {days.map((day) => {
-                  const events = row.events.filter((e) => e.day === day);
-                  const shown = events.slice(0, MAX_CHIPS_PER_DAY);
-                  const hidden = events.length - shown.length;
-                  return (
-                    <td key={day} className="border-l px-1.5 py-1.5" style={{ borderColor: HAIRLINE }}>
-                      <div className="space-y-1">
-                        {shown.map((e, i) => {
-                          const style = WEEK_EVENT_STYLE[e.type];
-                          const href = e.ticketId !== null ? haloTicketUrl(week.haloBaseUrl, e.ticketId) : null;
-                          const body = (
-                            <>
-                              <span className="font-semibold">{e.type === "pto" ? "OFF" : eventTime(e)}</span>{" "}
-                              {e.type === "pto" ? "" : e.subject}
-                            </>
-                          );
-                          return href ? (
-                            <a
-                              key={`${e.startsAt}-${i}`}
-                              href={href}
-                              target="_blank"
-                              rel="noreferrer"
-                              title={`${style.label}: ${e.subject}`}
-                              className="block truncate rounded px-1.5 py-1 text-[10px] leading-tight hover:underline"
-                              style={{ background: style.bg, color: style.text }}
-                            >
-                              {body}
-                            </a>
-                          ) : (
-                            <div
-                              key={`${e.startsAt}-${i}`}
-                              title={`${style.label}: ${e.subject}`}
-                              className="truncate rounded px-1.5 py-1 text-[10px] leading-tight"
-                              style={{ background: style.bg, color: style.text }}
-                            >
-                              {body}
-                            </div>
-                          );
-                        })}
-                        {hidden > 0 && (
-                          <div
-                            className="rounded px-1.5 py-0.5 text-[10px] text-zinc-500"
-                            title={events.slice(MAX_CHIPS_PER_DAY).map((e) => `${eventTime(e)} ${e.subject}`).join("\n")}
-                          >
-                            +{hidden} more
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Day-by-day agenda at every size — a 3-day column grid in a half-width
+          panel produced unreadable 10px chips (user report 2026-07-13). */}
+      <WeekAgenda week={week} days={days} techs={activeTechs} />
       {quietTechs.length > 0 && (
         <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
           Nothing coming up: {quietTechs.join(", ")}
@@ -490,35 +406,49 @@ function WeekAgenda({
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }) {
   const byDay = days
-    .map((day) => ({
-      day,
-      items: techs
-        .flatMap((t): ReadonlyArray<AgendaItem> => t.events.filter((e) => e.day === day).map((event) => ({ tech: t.tech, event })))
-        .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt)),
-    }))
-    .filter((d) => d.items.length > 0);
+    .map((day) => {
+      const all = techs.flatMap((t): ReadonlyArray<AgendaItem> =>
+        t.events.filter((e) => e.day === day).map((event) => ({ tech: t.tech, event })),
+      );
+      return {
+        day,
+        // One quiet "Off" line per day instead of a row per person.
+        offTechs: [...new Set(all.filter((i) => i.event.type === "pto").map((i) => i.tech.split(" ")[0]))],
+        items: all
+          .filter((i) => i.event.type !== "pto")
+          .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt)),
+      };
+    })
+    .filter((d) => d.items.length > 0 || d.offTechs.length > 0);
 
   if (byDay.length === 0) {
-    return <div className="p-5 text-sm text-zinc-400">Nothing scheduled this week.</div>;
+    return <div className="p-5 text-sm text-zinc-400">Nothing scheduled in the next few days.</div>;
   }
 
   return (
     <div>
-      {byDay.map(({ day, items }) => {
+      {byDay.map(({ day, items, offTechs }) => {
         const h = fmtDayHeader(day);
         return (
           <div key={day} className="border-t first:border-t-0" style={{ borderColor: HAIRLINE }}>
-            <div className="px-4 pb-1 pt-3 text-xs font-medium">
+            <div className="flex items-baseline gap-3 px-4 pb-1 pt-3 text-xs font-medium">
               <span
                 className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"}
                 style={h.isToday ? { background: RED } : undefined}
               >
                 {h.name} {h.date}
               </span>
+              {offTechs.length > 0 && (
+                <span className="text-zinc-500">Off: {offTechs.join(", ")}</span>
+              )}
             </div>
-            {items.map(({ tech, event: e }, i) => (
-              <AgendaRow key={`${e.startsAt}-${tech}-${i}`} tech={tech} event={e} haloBaseUrl={week.haloBaseUrl} />
-            ))}
+            {items.length === 0 ? (
+              <p className="px-4 pb-3 text-xs text-zinc-600">No visits or reminders.</p>
+            ) : (
+              items.map(({ tech, event: e }, i) => (
+                <AgendaRow key={`${e.startsAt}-${tech}-${i}`} tech={tech} event={e} haloBaseUrl={week.haloBaseUrl} />
+              ))
+            )}
           </div>
         );
       })}
@@ -541,17 +471,17 @@ function AgendaRow({
   const firstName = tech.split(" ")[0];
   const body = (
     <>
-      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: style.text }} />
-      <span className="w-16 shrink-0 text-xs font-semibold leading-5" style={{ color: style.text }}>
+      <span className="mt-[7px] h-2 w-2 shrink-0 rounded-full" style={{ background: style.text }} />
+      <span className="w-[72px] shrink-0 text-[13px] font-semibold leading-[22px] tabular-nums" style={{ color: style.text }}>
         {time}
       </span>
-      <span className="w-16 shrink-0 truncate text-xs font-medium leading-5 text-white">{firstName}</span>
-      <span className={`min-w-0 flex-1 text-xs leading-5 text-zinc-300 ${href ? "underline-offset-2 group-hover:underline" : ""}`}>
+      <span className="w-[76px] shrink-0 truncate text-[13px] font-semibold leading-[22px] text-white">{firstName}</span>
+      <span className={`min-w-0 flex-1 text-[13px] leading-[22px] text-zinc-300 ${href ? "underline-offset-2 group-hover:underline" : ""}`}>
         {e.subject || style.label}
       </span>
     </>
   );
-  const rowClass = "flex min-h-11 items-start gap-2.5 px-4 py-2.5";
+  const rowClass = "flex min-h-11 items-start gap-2.5 px-4 py-2";
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className={`group ${rowClass}`}>
       {body}
@@ -568,53 +498,66 @@ function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly hal
     tech.status.state === "working" && tech.workingTicketId !== null
       ? haloTicketUrl(haloBaseUrl, tech.workingTicketId)
       : null;
+  const phone = phoneLabel(tech.phone);
   return (
-    <div className="flex items-start gap-3 px-5 py-3.5">
-      <span
-        className="mt-0.5 inline-flex w-24 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-        style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}
-      >
-        <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-        {STATE_LABEL[tech.status.state] ?? tech.status.state}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span className="font-semibold text-white">{tech.tech}</span>
-          <span className="text-xs text-zinc-400">
-            {tech.load.open} open · {tech.load.wot} waiting on tech
-            {tech.load.breaching > 0 && (
-              <span className="font-semibold" style={{ color: RED }}>
-                {" "}· {tech.load.breaching} breaching SLA
-              </span>
-            )}
+    <div className="flex h-full flex-col gap-1.5 rounded-lg border p-4" style={{ borderColor: HAIRLINE, background: PANEL }}>
+      {/* Row 1: status chip left, phone right — always the same two anchors */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+          style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+          {STATE_LABEL[tech.status.state] ?? tech.status.state}
+        </span>
+        {phone && (
+          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-zinc-500">
+            <Phone className="h-3 w-3 shrink-0" />
+            <span className="truncate">{phone}</span>
           </span>
-          {phoneLabel(tech.phone) && (
-            <span className="ml-auto inline-flex min-w-0 max-w-full items-center gap-1 text-[11px] text-zinc-500">
-              <Phone className="h-3 w-3 shrink-0" />
-              <span className="truncate">{phoneLabel(tech.phone)}</span>
-            </span>
-          )}
-        </div>
-        {context &&
-          (contextHref ? (
-            <a
-              href={contextHref}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-0.5 block text-xs text-zinc-300 hover:underline"
-            >
-              {context}
-            </a>
-          ) : (
-            <div className="mt-0.5 text-xs text-zinc-300">{context}</div>
-          ))}
-        {tech.nextCommitment && (
-          <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
-            <CalendarClock className="h-3 w-3 shrink-0" />
-            Next: {tech.nextCommitment}
-          </div>
         )}
       </div>
+
+      {/* Row 2: name + load, one line each, fixed positions */}
+      <div className="min-w-0">
+        <p className="truncate text-[15px] font-semibold leading-6 text-white">{tech.tech}</p>
+        <p className="text-xs text-zinc-400">
+          {tech.load.open} open · {tech.load.wot} waiting
+          {tech.load.breaching > 0 && (
+            <span className="font-semibold" style={{ color: RED }}>
+              {" "}· {tech.load.breaching} breaching
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* Row 3: what they're doing + what's next (each one line, truncated) */}
+      {(context || tech.nextCommitment) && (
+        <div className="min-w-0 space-y-0.5">
+          {context &&
+            (contextHref ? (
+              <a
+                href={contextHref}
+                target="_blank"
+                rel="noreferrer"
+                className="block truncate text-xs text-zinc-300 hover:underline"
+                title={context}
+              >
+                {context}
+              </a>
+            ) : (
+              <p className="truncate text-xs text-zinc-300" title={context}>
+                {context}
+              </p>
+            ))}
+          {tech.nextCommitment && (
+            <p className="flex items-center gap-1 truncate text-xs text-zinc-500" title={tech.nextCommitment}>
+              <CalendarClock className="h-3 w-3 shrink-0" />
+              <span className="truncate">Next: {tech.nextCommitment}</span>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
