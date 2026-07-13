@@ -188,7 +188,6 @@ export default function DispatchPage() {
   const [customerUpdateError, setCustomerUpdateError] = useState<string | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
   const [actionLane, setActionLane] = useState<"now" | "today">("now");
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,7 +268,6 @@ export default function DispatchPage() {
     void load();
     void loadDay(dayOffset);
     const t = setInterval(() => {
-      setNowMs(Date.now());
       void load(true);
       void loadDay(dayOffset);
     }, DISPATCH_REFRESH_MS);
@@ -297,7 +295,6 @@ export default function DispatchPage() {
         <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => {
-              setNowMs(Date.now());
               void load(true);
               void loadDay(dayOffset);
             }}
@@ -370,7 +367,6 @@ export default function DispatchPage() {
               onNext={() => setDayOffset((day) => day + 1)}
               onToday={() => setDayOffset(0)}
               atToday={dayOffset === 0}
-              nowMs={nowMs}
             />
           ) : (
             <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
@@ -840,14 +836,12 @@ function DaySchedule({
   onNext,
   onToday,
   atToday,
-  nowMs,
 }: {
   readonly week: WeekData;
   readonly onPrev: () => void;
   readonly onNext: () => void;
   readonly onToday: () => void;
   readonly atToday: boolean;
-  readonly nowMs: number;
 }) {
   const day = week.days[0] ?? week.start;
   const header = fmtDayHeader(day);
@@ -891,7 +885,7 @@ function DaySchedule({
       }
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <DayAgenda key={day} week={week} day={day} techs={activeTechs} isToday={header.isToday} nowMs={nowMs} />
+        <DayAgenda key={day} week={week} day={day} techs={activeTechs} />
         {quietTechs.length > 0 && (
           <p className="shrink-0 border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
             No scheduled items: {quietTechs.join(", ")}
@@ -914,14 +908,10 @@ function DayAgenda({
   week,
   day,
   techs,
-  isToday,
-  nowMs,
 }: {
   readonly week: WeekData;
   readonly day: string;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
-  readonly isToday: boolean;
-  readonly nowMs: number;
 }) {
   const [page, setPage] = useState(0);
   const all = techs.flatMap((tech): ReadonlyArray<AgendaItem> =>
@@ -930,7 +920,6 @@ function DayAgenda({
   const offTechs = [...new Set(all.filter((item) => item.event.type === "pto").map((item) => item.tech.split(" ")[0]))];
   const items = all
     .filter((item) => item.event.type !== "pto")
-    .filter((item) => !isToday || !Number.isFinite(Date.parse(item.event.endsAt)) || Date.parse(item.event.endsAt) > nowMs)
     .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
   const pageCount = Math.max(1, Math.ceil(items.length / AGENDA_PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
