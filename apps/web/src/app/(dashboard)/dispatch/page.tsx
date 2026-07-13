@@ -158,6 +158,7 @@ export default function DispatchPage() {
   const [week, setWeek] = useState<WeekData | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
   const [rosterScope, setRosterScope] = useState<"helpdesk" | "all">("helpdesk");
+  const [actionLane, setActionLane] = useState<"now" | "today">("now");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -308,8 +309,29 @@ export default function DispatchPage() {
         </div>
       </div>
 
-      <Section title="Next Actions" icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}>
-        {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} />}
+      <Section
+        title="Next Actions"
+        icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}
+        actions={
+          <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+            <ActionLaneButton
+              active={actionLane === "now"}
+              count={suggest?.actionCounts.now ?? 0}
+              onClick={() => setActionLane("now")}
+            >
+              Now
+            </ActionLaneButton>
+            <ActionLaneButton
+              active={actionLane === "today"}
+              count={suggest?.actionCounts.today ?? 0}
+              onClick={() => setActionLane("today")}
+            >
+              Today
+            </ActionLaneButton>
+          </div>
+        }
+      >
+        {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} lane={actionLane} />}
       </Section>
     </div>
   );
@@ -336,16 +358,49 @@ function ScopeButton({
   );
 }
 
-function DispatchActionList({ data }: { readonly data: DispatchSuggestions | null }) {
-  const actions = data?.actions ?? [];
-  const total = data?.actionCounts.total ?? actions.length;
+function ActionLaneButton({
+  active,
+  count,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly count: number;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex h-8 min-w-[68px] cursor-pointer items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition ${
+        active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {children}
+      <span className={active ? "text-zinc-300" : "text-zinc-600"}>{count}</span>
+    </button>
+  );
+}
+
+function DispatchActionList({
+  data,
+  lane,
+}: {
+  readonly data: DispatchSuggestions | null;
+  readonly lane: "now" | "today";
+}) {
+  const actions = (data?.actions ?? []).filter((item) => item.lane === lane);
+  const total = data?.actionCounts[lane] ?? actions.length;
   const visible = actions.slice(0, 5);
   const hidden = Math.max(0, total - visible.length);
 
   return (
     <div>
       {visible.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-zinc-400">Nothing needs dispatch attention right now.</div>
+        <div className="px-5 py-8 text-center text-sm text-zinc-400">
+          Nothing needs dispatch attention {lane === "now" ? "right now" : "today"}.
+        </div>
       ) : (
         <div className="divide-y divide-[#3a1f24]">
           {visible.map((item) => (
@@ -356,7 +411,7 @@ function DispatchActionList({ data }: { readonly data: DispatchSuggestions | nul
 
       {hidden > 0 && (
         <div className="flex items-center justify-between gap-3 border-t px-5 py-2.5 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          <span>Showing the top {visible.length} of {total} actions.</span>
+          <span>Showing the top {visible.length} of {total} {lane} actions.</span>
           <a href="/tickets" className="shrink-0 font-medium text-zinc-300 hover:text-white">Open Tickets</a>
         </div>
       )}
@@ -376,7 +431,7 @@ const ACTION_COLOR: Record<DispatchActionKind, string> = {
   stale: "#38bdf8",
 };
 
-const ACTION_STATUS: Record<DispatchActionKind, string> = {
+const ACTION_FALLBACK_STATUS: Record<DispatchActionKind, string> = {
   sla_breach: "SLA Breach",
   past_due: "Past Due",
   assign: "Unassigned",
@@ -387,6 +442,18 @@ const ACTION_STATUS: Record<DispatchActionKind, string> = {
   high_priority: "High Priority",
   stale: "Stale",
 };
+
+function ticketStatusColor(status: string | null, fallback: string): string {
+  const normalized = status?.trim().toLowerCase() ?? "";
+  if (normalized.includes("past-due") || normalized.includes("past due")) return "#fb7185";
+  if (normalized.includes("in progress")) return "#38bdf8";
+  if (normalized.includes("customer reply")) return "#e879f9";
+  if (normalized.includes("waiting on tech")) return "#fbbf24";
+  if (normalized.includes("waiting on customer")) return "#c084fc";
+  if (normalized === "new") return "#a3e635";
+  if (normalized.includes("scheduled")) return "#4ade80";
+  return fallback;
+}
 
 function relativeAge(iso: string | null): string | null {
   if (!iso) return null;
@@ -468,7 +535,8 @@ function DispatchActionRow({
 }) {
   const color = ACTION_COLOR[item.kind];
   const href = haloTicketUrl(haloBaseUrl, item.halo_id);
-  const status = ACTION_STATUS[item.kind];
+  const status = item.status?.trim() || ACTION_FALLBACK_STATUS[item.kind];
+  const statusColor = ticketStatusColor(item.status, color);
   const recommendation = actionLabel(item);
   const timing = actionTiming(item);
   const owner = item.assignedTo ?? "Unassigned";
@@ -490,7 +558,7 @@ function DispatchActionRow({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
           <span
             className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase"
-            style={{ color, borderColor: `${color}55`, background: `${color}14` }}
+            style={{ color: statusColor, borderColor: `${statusColor}55`, background: `${statusColor}14` }}
           >
             {status}
           </span>
