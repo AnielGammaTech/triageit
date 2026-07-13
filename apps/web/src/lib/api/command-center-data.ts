@@ -114,6 +114,7 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
+const HALO_UNASSIGNED_AGENT_ID = 1;
 const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
 
 interface HaloIntegrationConfig {
@@ -200,10 +201,18 @@ async function fetchHaloClosedToday(config: HaloIntegrationConfig, now: Date): P
     });
     if (!response.ok) throw new Error(`Halo tickets failed (${response.status})`);
     const payload = (await response.json()) as {
-      tickets?: ReadonlyArray<{ readonly status_id?: number; readonly dateclosed?: string | null }>;
+      tickets?: ReadonlyArray<{
+        readonly status_id?: number;
+        readonly agent_id?: number | null;
+        readonly dateclosed?: string | null;
+      }>;
     };
     const count = (payload.tickets ?? []).filter(
-      (ticket) => ticket.status_id === HALO_RESOLVED_STATUS_ID && ticket.dateclosed?.startsWith(day),
+      (ticket) =>
+        ticket.status_id === HALO_RESOLVED_STATUS_ID &&
+        ticket.agent_id != null &&
+        ticket.agent_id !== HALO_UNASSIGNED_AGENT_ID &&
+        ticket.dateclosed?.startsWith(day),
     ).length;
     haloCloseCountCache = { day, count, fetchedAt: Date.now() };
     return count;

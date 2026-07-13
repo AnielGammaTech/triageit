@@ -427,7 +427,7 @@ export default function TvPage() {
               </div>
               <div>
                 <span className="text-[2.2vw] font-black leading-none" style={{ color: "#4ade80" }}>{m?.resolvedToday ?? "—"}</span>
-                <span className="ml-[0.3vw] text-[0.75vw]" style={{ color: INK_DIM }}>team closed</span>
+                <span className="ml-[0.3vw] text-[0.75vw]" style={{ color: INK_DIM }}>closed</span>
               </div>
             </div>
           </div>
