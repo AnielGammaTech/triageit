@@ -55,7 +55,12 @@ export interface DispatchBoardTech {
     readonly registered: boolean | null;
     readonly onCall: boolean;
   } | null;
-  readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  readonly load: {
+    readonly open: number;
+    readonly wot: number;
+    readonly customerReply: number;
+    readonly breaching: number;
+  };
   /** Halo id of the tech's In Progress ticket — lets the UI link the status detail. */
   readonly workingTicketId: number | null;
   /** Halo ticket represented by the active onsite/working status. */
@@ -234,7 +239,12 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
             registered: extensionRegistered,
             onCall: onCall === true,
           },
-    load: { open: load.open, wot: load.wot, breaching: load.breaching },
+    load: {
+      open: load.open,
+      wot: load.wot,
+      customerReply: load.customerReply,
+      breaching: load.breaching,
+    },
     workingTicketId: load.inProgressTicket?.haloId ?? null,
     statusTicketId: onsiteNow?.appointment.ticketId ?? load.inProgressTicket?.haloId ?? null,
     // Labeled with the appointment type, e.g. "Site Visit: Jenn :: Laptop

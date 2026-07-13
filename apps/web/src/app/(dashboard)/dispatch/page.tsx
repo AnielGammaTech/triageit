@@ -26,7 +26,12 @@ interface BoardTech {
     readonly registered: boolean | null;
     readonly onCall: boolean;
   } | null;
-  readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  readonly load: {
+    readonly open: number;
+    readonly wot: number;
+    readonly customerReply?: number;
+    readonly breaching: number;
+  };
   readonly workingTicketId: number | null;
   readonly statusTicketId?: number | null;
   readonly nextCommitment: string | null;
@@ -95,6 +100,7 @@ interface WeekData {
 const RED = "#dc2626";
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
+const DISPATCH_REFRESH_MS = 15_000;
 
 const STATE_COLOR: Record<TechStatus["state"], string> = {
   available: "#22c55e",
@@ -199,16 +205,14 @@ export default function DispatchPage() {
 
   useEffect(() => {
     void load();
+    void loadDay(dayOffset);
     const t = setInterval(() => {
       setNowMs(Date.now());
       void load(true);
-    }, 60_000);
+      void loadDay(dayOffset);
+    }, DISPATCH_REFRESH_MS);
     return () => clearInterval(t);
-  }, [load]);
-
-  useEffect(() => {
-    void loadDay(dayOffset);
-  }, [dayOffset, loadDay]);
+  }, [dayOffset, load, loadDay]);
 
   const degraded = board ? degradationMessages(board.sources) : [];
   const displayedTechs = board?.techs ?? [];
@@ -230,7 +234,11 @@ export default function DispatchPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={() => void load(true)}
+            onClick={() => {
+              setNowMs(Date.now());
+              void load(true);
+              void loadDay(dayOffset);
+            }}
             aria-label="Refresh dispatch data"
             title="Refresh dispatch data"
             className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border text-zinc-300 transition hover:text-white"
@@ -267,6 +275,13 @@ export default function DispatchPage() {
             title="Right Now"
             icon={<Users className="h-4 w-4" style={{ color: RED }} />}
             className="flex flex-col overflow-hidden lg:h-[476px]"
+            actions={
+              <p className="max-w-[180px] text-right text-[9px] leading-3 text-zinc-500 sm:max-w-none sm:text-[10px] sm:leading-normal">
+                <span className="font-semibold text-zinc-300">WOT</span> = Waiting On Tech
+                <span className="px-1.5 text-zinc-700">·</span>
+                <span className="font-semibold text-zinc-300">CR</span> = Customer Reply
+              </p>
+            }
           >
             {loading && !board ? (
               <BoardSkeleton />
@@ -808,9 +823,14 @@ function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly hal
           ))}
       </div>
       <div className="shrink-0 text-right text-[11px] leading-4 text-zinc-500">
-        <p><span className="font-semibold text-zinc-300">{tech.load.open}</span> open</p>
-        <p className={tech.load.breaching > 0 ? "font-semibold text-red-400" : ""}>
-          {tech.load.breaching > 0 ? `${tech.load.breaching} breach` : `${tech.load.wot} waiting`}
+        <p>
+          <span className="font-semibold text-zinc-300">{tech.load.open}</span> open
+          {tech.load.breaching > 0 && <span className="font-semibold text-red-400"> · {tech.load.breaching} SLA</span>}
+        </p>
+        <p className="whitespace-nowrap text-[10px]">
+          <span className="font-semibold text-zinc-300">{tech.load.wot}</span> WOT
+          <span className="text-zinc-700"> · </span>
+          <span className="font-semibold text-zinc-300">{tech.load.customerReply ?? 0}</span> CR
         </p>
       </div>
     </div>

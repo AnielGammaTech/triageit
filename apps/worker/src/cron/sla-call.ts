@@ -3,6 +3,7 @@ import { HaloClient } from "../integrations/halo/client.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { CallControlClient } from "../voice/call-control.js";
 import { ThreeCxClient } from "../integrations/threecx/client.js";
+import { isWithinBusinessHours } from "../integrations/teams/client.js";
 import { registerEscalationCall } from "../voice/listener.js";
 import { buildEscalationCallNote } from "../voice/escalation-note.js";
 import type { ThreeCxConfig } from "@triageit/shared";
@@ -67,6 +68,11 @@ async function fetchLastCommunication(halo: HaloClient, haloId: number): Promise
 }
 
 export async function runSlaCallRequests(): Promise<{ processed: number; called: number }> {
+  if (!isWithinBusinessHours()) {
+    console.log("[SLA-CALL] Outbound calls suppressed — outside business hours (8am–5:15pm ET, Mon–Fri)");
+    return { processed: 0, called: 0 };
+  }
+
   const supabase = createSupabaseClient();
 
   const { data: requests } = await supabase

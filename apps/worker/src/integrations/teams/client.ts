@@ -61,9 +61,8 @@ function ordinal(n: number): string {
 /**
  * Business hours for real-time alerts: 8:00am–5:15pm ET, Monday–Friday (the
  * 15-min grace past 5 covers normal staying-a-bit-late). Every reactive Teams
- * alert (SLA breach, triage summary, response/update-request, onsite, etc.) is
- * suppressed outside this window — no more 11pm pings. Scheduled digests
- * (daily/weekly/Toby) bypass this via sendCard's allowAnytime.
+ * message is suppressed outside this window. This is the final delivery gate
+ * for alerts and scheduled digests alike, including deploy catch-up runs.
  */
 const BH_START_MIN = 8 * 60; // 8:00am
 const BH_END_MIN = 17 * 60 + 15; // 5:15pm
@@ -92,10 +91,8 @@ export class TeamsClient {
    * channel "sla" = SLA breach alerts ONLY (sla_webhook_url when
    * configured, else falls back to the ops webhook so nothing is lost).
    */
-  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops", allowAnytime = false): Promise<void> {
-    // Suppress reactive alerts outside 8am–5pm ET, Mon–Fri. Scheduled digests
-    // pass allowAnytime=true so they still fire at their set times.
-    if (!allowAnytime && !isWithinBusinessHours()) {
+  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops"): Promise<void> {
+    if (!isWithinBusinessHours()) {
       console.log(`[TEAMS] Suppressed ${channel} alert — outside business hours (8am–5pm ET, Mon–Fri)`);
       return;
     }
@@ -239,7 +236,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendTriageSummary(triage: {
@@ -370,7 +367,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendTechPerformanceSummary(reviews: ReadonlyArray<{
@@ -803,7 +800,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendPermanentFailureAlert(tickets: ReadonlyArray<{

@@ -18,7 +18,12 @@ const MAX_READ_WORDS = 14;
 export interface AiReadInput {
   readonly tech: string;
   readonly status: TechStatus;
-  readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  readonly load: {
+    readonly open: number;
+    readonly wot: number;
+    readonly customerReply: number;
+    readonly breaching: number;
+  };
   readonly nextCommitment: string | null;
 }
 
@@ -27,7 +32,15 @@ const readCache = new Map<string, { readonly hash: string; readonly read: string
 let refreshInFlight = false;
 
 const hashOf = (t: AiReadInput): string =>
-  JSON.stringify([t.status.state, t.status.detail, t.load.open, t.load.wot, t.load.breaching, t.nextCommitment]);
+  JSON.stringify([
+    t.status.state,
+    t.status.detail,
+    t.load.open,
+    t.load.wot,
+    t.load.customerReply,
+    t.load.breaching,
+    t.nextCommitment,
+  ]);
 
 /**
  * Attach cached aiRead lines (new array — inputs are never mutated) and
@@ -57,6 +70,7 @@ async function refreshAiReads(changed: ReadonlyArray<AiReadInput>): Promise<void
           detail: t.status.detail,
           openTickets: t.load.open,
           waitingOnTech: t.load.wot,
+          customerReplies: t.load.customerReply,
           breaching: t.load.breaching,
           nextCommitment: t.nextCommitment,
         }),
