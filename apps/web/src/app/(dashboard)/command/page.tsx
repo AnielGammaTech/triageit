@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import {
   LayoutDashboard,
   TriangleAlert,
@@ -190,36 +189,39 @@ export default function CommandPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <div
             className="flex h-11 w-11 items-center justify-center rounded-xl"
             style={{ background: `linear-gradient(135deg, ${RED}, #7f1d1d)`, boxShadow: `0 0 24px -6px ${RED}` }}
           >
             <LayoutDashboard className="h-6 w-6 text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-white">Command Center</h1>
-            <p className="text-sm text-zinc-400">Tickets, tech stats, live SLA breaches, and the wall of shame</p>
+            <p className="hidden text-sm text-zinc-400 sm:block">Tickets, tech stats, live SLA breaches, and the wall of shame</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => void openTvMode()}
-            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+            aria-label="Open TV Mode"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center gap-2 rounded-lg border text-sm text-zinc-300 transition hover:text-white sm:w-auto sm:px-3"
             style={{ borderColor: HAIRLINE, background: PANEL }}
             title="Open the key-gated TV wallboard link"
           >
             <Tv className="h-4 w-4" />
-            TV Mode
+            <span className="hidden sm:inline">TV Mode</span>
           </button>
           <button
             onClick={() => void load(true)}
-            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+            aria-label="Refresh Command Center"
+            title="Refresh Command Center"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center gap-2 rounded-lg border text-sm text-zinc-300 transition hover:text-white sm:w-auto sm:px-3"
             style={{ borderColor: HAIRLINE, background: PANEL }}
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </div>
@@ -239,8 +241,7 @@ export default function CommandPage() {
         <Tile label="Unassigned" value={m?.unassigned ?? 0} icon={<UserX className="h-5 w-5" />} accent="#f87171" />
       </div>
 
-      {/* Team presence strip */}
-      <TeamStrip />
+      <TeamAvailability />
 
       {/* Status breakdown */}
       <Section title="Tickets by Status">
@@ -368,11 +369,11 @@ export default function CommandPage() {
 }
 
 /**
- * "Team Right Now" — one wrapping row of tech presence pills fed by the
- * worker's dispatch board. Best-effort: renders nothing until the board
- * loads, keeps the last good snapshot on refresh errors. Click → /dispatch.
+ * Compact team presence roster fed by the worker dispatch board. Best-effort:
+ * renders nothing until the board loads and keeps the last good snapshot on
+ * refresh errors.
  */
-function TeamStrip() {
+function TeamAvailability() {
   const [techs, setTechs] = useState<ReadonlyArray<PresenceTech> | null>(null);
 
   const load = useCallback(async () => {
@@ -394,40 +395,52 @@ function TeamStrip() {
 
   if (!techs || techs.length === 0) return null;
 
+  const available = techs.filter((tech) => tech.status.state === "available").length;
+  const unavailableStates = new Set(["off", "after_hours", "away", "unreachable", "unknown"]);
+  const unavailable = techs.filter((tech) => unavailableStates.has(tech.status.state)).length;
+  const active = techs.length - available - unavailable;
+
   return (
-    <Link
-      href="/dispatch"
-      className="block rounded-xl border px-4 py-2.5 transition hover:bg-white/[0.02]"
-      style={{ borderColor: HAIRLINE, background: PANEL }}
-      title="Open the Dispatch board"
+    <Section
+      title="Team Availability"
+      icon={<Users className="h-4 w-4" style={{ color: "#f59e0b" }} />}
+      actions={
+        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+          <span><strong className="text-emerald-400">{available}</strong> available</span>
+          <span className="text-zinc-700">·</span>
+          <span><strong className="text-sky-400">{active}</strong> active</span>
+          <span className="hidden text-zinc-700 sm:inline">·</span>
+          <span className="hidden sm:inline"><strong className="text-zinc-400">{unavailable}</strong> off</span>
+        </div>
+      }
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-          <Users className="h-3.5 w-3.5" />
-          Team Right Now
-        </span>
+      <div className="grid grid-cols-1 gap-px overflow-hidden md:grid-cols-2" style={{ background: HAIRLINE }}>
         {techs.map((t) => {
           const color = presenceColor(t.status.state);
           const until = t.status.state === "onsite" || t.status.state === "meeting" ? untilTime(t.status.detail) : null;
           const hint = commitmentHint(t.nextCommitment);
+          const detail = (until ? `Until ${until}` : null) ?? t.status.detail ?? hint ?? (t.status.state === "available" ? "Ready for assignment" : null);
           return (
-            <span
+            <div
               key={t.tech}
-              className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
-              style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}
+              className="flex min-h-14 items-center gap-2.5 px-4 py-2.5"
+              style={{ background: PANEL }}
             >
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
-              <span className="font-semibold text-white/90">{t.tech.split(" ")[0]}</span>
-              <span className="font-medium" style={{ color }}>
-                {presenceLabel(t.status.state)}
-              </span>
-              {until && <span className="text-zinc-500">til {until}</span>}
-              {hint && <span className="max-w-[160px] truncate text-zinc-500">{hint}</span>}
-            </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <span className="truncate text-sm font-semibold text-white/90">{t.tech}</span>
+                  <span className="shrink-0 text-[10px] font-bold uppercase" style={{ color }}>
+                    {presenceLabel(t.status.state)}
+                  </span>
+                </div>
+                {detail && <p className="mt-0.5 truncate text-xs text-zinc-500" title={detail}>{detail}</p>}
+              </div>
+            </div>
           );
         })}
       </div>
-    </Link>
+    </Section>
   );
 }
 
@@ -464,12 +477,23 @@ function Tile({
   );
 }
 
-function Section({ title, icon, children }: { readonly title: string; readonly icon?: React.ReactNode; readonly children: React.ReactNode }) {
+function Section({
+  title,
+  icon,
+  actions,
+  children,
+}: {
+  readonly title: string;
+  readonly icon?: React.ReactNode;
+  readonly actions?: React.ReactNode;
+  readonly children: React.ReactNode;
+}) {
   return (
     <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
       <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>
+        {actions && <div className="ml-auto">{actions}</div>}
       </div>
       {children}
     </section>

@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isHelpdeskTechnicianName } from "@triageit/shared";
-import Link from "next/link";
-import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, LayoutDashboard, ListChecks, Phone, Radio, RefreshCw, TriangleAlert, Tv, Users } from "lucide-react";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -129,15 +128,6 @@ function haloTicketUrl(base: string | undefined, id: number): string | null {
   return base ? `${base}/tickets?id=${id}` : null;
 }
 
-/** Compact "what the phone says" label for the right edge of a row. */
-function phoneLabel(phone: BoardTech["phone"]): string | null {
-  if (!phone) return null;
-  if (phone.onCall) return "On a call";
-  if (phone.registered === false) return "Not registered";
-  if (phone.profile) return phone.profile;
-  return phone.registered === true ? "Registered" : null;
-}
-
 /** A dispatcher-readable context line — only when the chip alone isn't enough. */
 function contextLine(status: TechStatus): string | null {
   if (status.detail) return status.detail;
@@ -160,21 +150,6 @@ function degradationMessages(sources: DispatchBoard["sources"]): ReadonlyArray<s
       "Outlook calendars not connected — PTO and meetings won't show. Connect Microsoft 365 under Adminland → Integrations.",
     );
   return messages;
-}
-
-async function openTvMode(): Promise<void> {
-  try {
-    const response = await fetch("/api/tv/link", { cache: "no-store" });
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      window.alert(body?.error ?? "TV Mode is unavailable right now.");
-      return;
-    }
-    const { url } = (await response.json()) as { url: string };
-    window.open(url, "_blank", "noopener");
-  } catch {
-    window.alert("Could not open TV Mode.");
-  }
 }
 
 export default function DispatchPage() {
@@ -251,26 +226,6 @@ export default function DispatchPage() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/command"
-            aria-label="Open Command Center"
-            title="Open Command Center"
-            className="flex h-10 items-center justify-center gap-2 rounded-lg border px-3 text-sm text-zinc-300 transition hover:text-white"
-            style={{ borderColor: HAIRLINE, background: PANEL }}
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            <span className="hidden lg:inline">Command Center</span>
-          </Link>
-          <button
-            onClick={() => void openTvMode()}
-            aria-label="Open TV Mode"
-            title="Open TV Mode"
-            className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 text-sm text-zinc-300 transition hover:text-white"
-            style={{ borderColor: HAIRLINE, background: PANEL }}
-          >
-            <Tv className="h-4 w-4" />
-            <span className="hidden lg:inline">TV Mode</span>
-          </button>
           <button
             onClick={() => void load(true)}
             aria-label="Refresh dispatch data"
@@ -311,7 +266,7 @@ export default function DispatchPage() {
             actions={
               <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
                 <ScopeButton active={rosterScope === "helpdesk"} onClick={() => setRosterScope("helpdesk")}>
-                  Helpdesk
+                  Dispatch team
                 </ScopeButton>
                 <ScopeButton active={rosterScope === "all"} onClick={() => setRosterScope("all")}>
                   All staff
@@ -324,7 +279,10 @@ export default function DispatchPage() {
             ) : displayedTechs.length === 0 ? (
               <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+              <div
+                className="grid max-h-[340px] grid-cols-1 gap-px overflow-y-auto sm:max-h-none sm:grid-cols-2 sm:overflow-visible"
+                style={{ background: HAIRLINE }}
+              >
                 {displayedTechs.map((tech) => (
                   <TechRow key={tech.tech} tech={tech} haloBaseUrl={board!.haloBaseUrl} />
                 ))}
@@ -369,7 +327,7 @@ function ScopeButton({
   return (
     <button
       onClick={onClick}
-      className={`h-8 min-w-[76px] cursor-pointer rounded px-2.5 text-xs font-medium transition ${
+      className={`h-8 min-w-[84px] cursor-pointer rounded px-2.5 text-xs font-medium transition ${
         active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
       }`}
     >
@@ -389,7 +347,7 @@ function DispatchActionList({ data }: { readonly data: DispatchSuggestions | nul
       {visible.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-zinc-400">Nothing needs dispatch attention right now.</div>
       ) : (
-        <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+        <div className="divide-y divide-[#3a1f24]">
           {visible.map((item) => (
             <DispatchActionRow key={item.halo_id} item={item} haloBaseUrl={data?.haloBaseUrl ?? ""} />
           ))}
@@ -416,6 +374,18 @@ const ACTION_COLOR: Record<DispatchActionKind, string> = {
   waiting_on_tech: "#fbbf24",
   high_priority: "#f87171",
   stale: "#38bdf8",
+};
+
+const ACTION_STATUS: Record<DispatchActionKind, string> = {
+  sla_breach: "SLA Breach",
+  past_due: "Past Due",
+  assign: "Unassigned",
+  cover: "Needs Coverage",
+  due_soon: "Due Soon",
+  customer_reply: "Customer Reply",
+  waiting_on_tech: "Waiting on Tech",
+  high_priority: "High Priority",
+  stale: "Stale",
 };
 
 function relativeAge(iso: string | null): string | null {
@@ -452,14 +422,40 @@ function actionTiming(item: DispatchAction): string {
   }
   switch (item.kind) {
     case "assign":
-      return `Unassigned for ${age}`;
+      return `${age} unassigned`;
     case "customer_reply":
-      return `Customer replied ${age} ago`;
+      return `${age} since reply`;
     case "waiting_on_tech":
     case "stale":
-      return `Last tech activity ${age} ago`;
+      return `${age} idle`;
     default:
-      return `Last activity ${age} ago`;
+      return `${age} since activity`;
+  }
+}
+
+function actionLabel(item: DispatchAction): string {
+  if (item.kind === "assign" && item.suggestions[0]) {
+    return `Assign ${item.suggestions[0].tech}`;
+  }
+  switch (item.kind) {
+    case "sla_breach":
+      return "Escalate now";
+    case "past_due":
+      return item.assignedTo ? "Get recovery plan" : "Assign & recover";
+    case "assign":
+      return "Assign owner";
+    case "cover":
+      return "Find coverage";
+    case "due_soon":
+      return "Confirm deadline";
+    case "customer_reply":
+      return "Respond";
+    case "waiting_on_tech":
+      return "Check progress";
+    case "high_priority":
+      return "Confirm next step";
+    case "stale":
+      return "Review ticket";
   }
 }
 
@@ -472,14 +468,13 @@ function DispatchActionRow({
 }) {
   const color = ACTION_COLOR[item.kind];
   const href = haloTicketUrl(haloBaseUrl, item.halo_id);
-  const recommendation = item.kind === "assign" && item.suggestions[0]
-    ? `Assign ${item.suggestions[0].tech}`
-    : item.action;
+  const status = ACTION_STATUS[item.kind];
+  const recommendation = actionLabel(item);
   const timing = actionTiming(item);
   const owner = item.assignedTo ?? "Unassigned";
   const body = (
     <>
-      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="font-mono text-xs font-bold text-white">#{item.halo_id}</span>
@@ -492,21 +487,25 @@ function DispatchActionRow({
             {item.client_name ?? "Unknown client"}{item.summary ? ` — ${item.summary}` : ""}
           </span>
         </div>
-        <p className="mt-1.5 text-sm font-medium text-white">
-          <span className="font-normal text-zinc-500">Do: </span>{recommendation}
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zinc-500">
-          <span><span style={{ color }}>Why:</span> {item.reason}</span>
-          <span className="text-zinc-600">·</span>
-          <span><span className="text-zinc-600">Owner:</span> {owner}</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <span
+            className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase"
+            style={{ color, borderColor: `${color}55`, background: `${color}14` }}
+          >
+            {status}
+          </span>
+          <span><span className="text-zinc-600">Owner:</span> <span className="text-zinc-300">{owner}</span></span>
           <span className="text-zinc-600">·</span>
           <span>{timing}</span>
         </div>
       </div>
+      <span className="basis-full pl-[18px] text-xs font-semibold text-zinc-300 sm:basis-auto sm:pl-0 sm:text-right">
+        {recommendation}
+      </span>
       {href && <ArrowUpRight className="hidden h-4 w-4 shrink-0 text-zinc-600 transition group-hover:text-white sm:block" />}
     </>
   );
-  const className = "group flex min-h-16 items-start gap-2.5 px-4 py-3 transition hover:bg-white/[0.025] sm:px-5";
+  const className = "group flex min-h-14 flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-2.5 transition hover:bg-white/[0.025] sm:flex-nowrap sm:px-5";
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className={className} title={`Open ticket #${item.halo_id} in Halo`}>
       {body}
@@ -696,66 +695,41 @@ function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly hal
     tech.status.state === "working" && tech.workingTicketId !== null
       ? haloTicketUrl(haloBaseUrl, tech.workingTicketId)
       : null;
-  const phone = phoneLabel(tech.phone);
+  const detail = context ?? tech.nextCommitment ?? (tech.status.state === "available" ? "Ready for assignment" : null);
   return (
-    <div className="flex h-full flex-col gap-1.5 rounded-lg border p-4" style={{ borderColor: HAIRLINE, background: PANEL }}>
-      {/* Row 1: status chip left, phone right — always the same two anchors */}
-      <div className="flex items-center justify-between gap-2">
-        <span
-          className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-          style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}
-        >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-          {STATE_LABEL[tech.status.state] ?? tech.status.state}
-        </span>
-        {phone && (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-zinc-500">
-            <Phone className="h-3 w-3 shrink-0" />
-            <span className="truncate">{phone}</span>
+    <div className="flex min-h-[68px] items-center gap-2.5 px-4 py-2.5" style={{ background: PANEL }}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <p className="truncate text-sm font-semibold text-white" title={tech.tech}>
+            <span className="sm:hidden">{tech.tech}</span>
+            <span className="hidden sm:inline">{tech.tech.split(" ")[0]}</span>
+          </p>
+          <span className="shrink-0 text-[10px] font-bold uppercase" style={{ color }}>
+            {STATE_LABEL[tech.status.state] ?? tech.status.state}
           </span>
-        )}
+        </div>
+        {detail &&
+          (contextHref && context ? (
+            <a
+              href={contextHref}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-0.5 block truncate text-xs text-zinc-500 hover:text-zinc-300"
+              title={detail}
+            >
+              {detail}
+            </a>
+          ) : (
+            <p className="mt-0.5 truncate text-xs text-zinc-500" title={detail}>{detail}</p>
+          ))}
       </div>
-
-      {/* Row 2: name + load, one line each, fixed positions */}
-      <div className="min-w-0">
-        <p className="truncate text-[15px] font-semibold leading-6 text-white">{tech.tech}</p>
-        <p className="text-xs text-zinc-400">
-          {tech.load.open} open · {tech.load.wot} waiting
-          {tech.load.breaching > 0 && (
-            <span className="font-semibold" style={{ color: RED }}>
-              {" "}· {tech.load.breaching} breaching
-            </span>
-          )}
+      <div className="shrink-0 text-right text-[11px] leading-4 text-zinc-500">
+        <p><span className="font-semibold text-zinc-300">{tech.load.open}</span> open</p>
+        <p className={tech.load.breaching > 0 ? "font-semibold text-red-400" : ""}>
+          {tech.load.breaching > 0 ? `${tech.load.breaching} breach` : `${tech.load.wot} waiting`}
         </p>
       </div>
-
-      {/* Row 3: what they're doing + what's next (each one line, truncated) */}
-      {(context || tech.nextCommitment) && (
-        <div className="min-w-0 space-y-0.5">
-          {context &&
-            (contextHref ? (
-              <a
-                href={contextHref}
-                target="_blank"
-                rel="noreferrer"
-                className="block truncate text-xs text-zinc-300 hover:underline"
-                title={context}
-              >
-                {context}
-              </a>
-            ) : (
-              <p className="truncate text-xs text-zinc-300" title={context}>
-                {context}
-              </p>
-            ))}
-          {tech.nextCommitment && (
-            <p className="flex items-center gap-1 truncate text-xs text-zinc-500" title={tech.nextCommitment}>
-              <CalendarClock className="h-3 w-3 shrink-0" />
-              <span className="truncate">Next: {tech.nextCommitment}</span>
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
