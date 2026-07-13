@@ -145,7 +145,7 @@ async function handleEvent(state: ListenerState, event: CallControlEvent): Promi
       break;
     }
     case EVENT_REMOVE:
-      await endSession(state, participantId);
+      await endSession(state, participantId, "3CX removed the participant");
       break;
   }
 }
@@ -233,7 +233,7 @@ async function startSession(state: ListenerState, participantId: number, callerN
         console.warn(`[VOICE] Caller audio stream ended abnormally (participant ${participantId}):`, error instanceof Error ? error.message : error);
       }
     }
-    await endSession(state, participantId);
+    await endSession(state, participantId, "3CX caller-audio stream closed");
   })();
 
   await handler.onCallStart({
@@ -246,7 +246,7 @@ async function startSession(state: ListenerState, participantId: number, callerN
   });
 }
 
-async function endSession(state: ListenerState, participantId: number): Promise<void> {
+async function endSession(state: ListenerState, participantId: number, reason: string): Promise<void> {
   state.answering.delete(participantId);
   const session = state.sessions.get(participantId);
   if (!session || session.ended) return;
@@ -266,5 +266,5 @@ async function endSession(state: ListenerState, participantId: number): Promise<
   } catch (error) {
     console.error(`[VOICE] onCallEnd failed (participant ${participantId}):`, error instanceof Error ? error.message : error);
   }
-  console.log(`[VOICE] Call ended (participant ${participantId})`);
+  console.log(`[VOICE] Call ended (participant ${participantId}; ${reason})`);
 }
