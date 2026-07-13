@@ -1,4 +1,4 @@
-import { HELPDESK_TECHNICIANS } from "@triageit/shared";
+import { DISPATCHER, HELPDESK_TECHNICIANS } from "@triageit/shared";
 import { createSupabaseClient } from "../db/supabase.js";
 import { getCachedHaloConfig } from "../integrations/get-config.js";
 import { HaloClient } from "../integrations/halo/client.js";
@@ -125,10 +125,13 @@ export async function buildDispatchBoard(): Promise<DispatchBoard> {
   if (roster === null) {
     console.warn("[DISPATCH] Halo roster unavailable — using static helpdesk roster");
   }
-  const rosterAgents: ReadonlyArray<RosterAgent> =
+  const resolvedRoster: ReadonlyArray<RosterAgent> =
     roster !== null && roster.length > 0
       ? roster
       : HELPDESK_TECHNICIANS.map((name) => ({ id: -1, name, email: null }));
+  // The dispatcher coordinates the board but is not a technician presence
+  // or assignment candidate.
+  const rosterAgents = resolvedRoster.filter((agent) => !namesMatch(agent.name, DISPATCHER));
 
   // Needs the resolved roster (tech emails), so it runs after the first batch.
   const calendar = await fetchCalendarSignals(supabase, rosterAgents, start, end);
