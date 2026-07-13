@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isHelpdeskTechnicianName } from "@triageit/shared";
+import { isAlertTicket } from "../agents/workers/erin-hannon.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import {
   deriveDispatchAction,
@@ -17,7 +18,7 @@ import {
 
 /**
  * Dispatch operating queue plus deterministic top-3 tech ranking for every
- * unassigned or New open Gamma Default ticket. Suggest-only: no Halo writes.
+ * truly unassigned open Gamma Default ticket. Suggest-only: no Halo writes.
  * No LLM participates in ordering or ranking.
  */
 
@@ -115,19 +116,28 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
     sla_on_hold: t.sla_on_hold === true,
   }));
 
-  const typeByTicketId = await fetchLatestTypes(supabase, openTickets.map((t) => t.id));
+  const classificationByTicketId = await fetchLatestClassifications(
+    supabase,
+    openTickets.map((t) => t.id),
+  );
 
   // Alerts are handled by triage, not dispatch. Apply this once so the
   // assignment list and the operating queue can never disagree.
   const dispatchable = openTickets.filter((t) => {
     if (t.client_name && ALERT_CLIENT_RE.test(t.client_name.trim())) return false;
-    const type = typeByTicketId.get(t.id);
-    if (type && ALERT_TYPE_RE.test(type)) return false;
+    const classification = classificationByTicketId.get(t.id);
+    if (classification?.type && ALERT_TYPE_RE.test(classification.type)) return false;
+    if (
+      isAlertTicket(
+        t.summary ?? "",
+        null,
+        classification?.type ?? "",
+        classification?.subtype ?? "",
+      )
+    ) return false;
     return true;
   });
-  const targets = dispatchable.filter(
-    (t) => isUnassigned(t.halo_agent) || normalize(t.halo_status) === "new",
-  );
+  const targets = dispatchable.filter((t) => isUnassigned(t.halo_agent));
 
   const clients = [...new Set(targets.map((t) => t.client_name).filter((c): c is string => !!c))];
   const [profiles, recentSimilar] = targets.length > 0
@@ -142,7 +152,7 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       halo_id: t.halo_id,
       summary: t.summary,
       client_name: t.client_name,
-      ticketType: typeByTicketId.get(t.id) ?? null,
+      ticketType: classificationByTicketId.get(t.id)?.type ?? null,
     };
     return candidates
       .map((bt) => {
@@ -209,9 +219,9 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
     summary: t.summary,
     client_name: t.client_name,
     status: t.halo_status,
-    assignedTo: t.halo_agent,
+    assignedTo: isUnassigned(t.halo_agent) ? null : t.halo_agent,
     priority: t.original_priority,
-    suggestions: isUnassigned(t.halo_agent) || normalize(t.halo_status) === "new" ? suggestionsFor(t) : [],
+    suggestions: isUnassigned(t.halo_agent) ? suggestionsFor(t) : [],
   }));
   const actionOmitted = Math.max(0, decisions.length - returnedDecisions.length);
 
@@ -256,12 +266,17 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
 
 // ── Batched lookups (each degrades independently — never blocks ranking) ──
 
-/** Latest triage classification type per ticket, one `in` query. */
-async function fetchLatestTypes(
+/** Latest triage classification per ticket, one `in` query. */
+interface TicketClassification {
+  readonly type: string | null;
+  readonly subtype: string | null;
+}
+
+async function fetchLatestClassifications(
   supabase: SupabaseClient,
   ticketIds: ReadonlyArray<string>,
-): Promise<ReadonlyMap<string, string | null>> {
-  const map = new Map<string, string | null>();
+): Promise<ReadonlyMap<string, TicketClassification>> {
+  const map = new Map<string, TicketClassification>();
   if (ticketIds.length === 0) return map;
   try {
     const { data, error } = await supabase
@@ -273,8 +288,11 @@ async function fetchLatestTypes(
     for (const row of data ?? []) {
       const id = row.ticket_id as string;
       if (map.has(id)) continue; // ordered desc — first row per ticket is latest
-      const cls = row.classification as { type?: unknown } | null;
-      map.set(id, typeof cls?.type === "string" ? cls.type : null);
+      const cls = row.classification as { type?: unknown; subtype?: unknown } | null;
+      map.set(id, {
+        type: typeof cls?.type === "string" ? cls.type : null,
+        subtype: typeof cls?.subtype === "string" ? cls.subtype : null,
+      });
     }
   } catch (err) {
     console.warn(

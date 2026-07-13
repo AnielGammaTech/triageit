@@ -88,7 +88,7 @@ export function deriveDispatchAction(
 ): DispatchActionDecision | null {
   const status = normalize(ticket.status);
   const assigned = normalize(ticket.assignedTo);
-  const unassigned = !assigned || assigned === "unassigned" || status === "new";
+  const unassigned = !assigned || assigned === "unassigned";
   const isCustomerReply = status.includes("customer reply");
   const isWaitingOnTech = status.includes("waiting on tech");
   const isPastDue = status.includes("past-due") || status.includes("past due");
@@ -211,4 +211,3 @@ export function deriveDispatchAction(
 
   return null;
 }
-

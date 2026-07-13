@@ -39,6 +39,12 @@ describe("deriveDispatchAction", () => {
     expect(action).toMatchObject({ kind: "assign", lane: "now" });
   });
 
+  it("never calls an assigned New ticket unowned", () => {
+    const action = deriveDispatchAction(ticket({ status: "New", assignedTo: "Raul Tapanes" }), NOW);
+    expect(action?.kind).not.toBe("assign");
+    expect(action?.reason).not.toBe("No helpdesk technician owns this");
+  });
+
   it("asks for coverage when an active ticket owner is off", () => {
     const action = deriveDispatchAction(
       ticket({ status: "Customer Reply", ownerState: "off" }),

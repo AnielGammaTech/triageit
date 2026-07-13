@@ -444,15 +444,15 @@ const ACTION_COLOR: Record<DispatchActionKind, string> = {
   stale: "#38bdf8",
 };
 
-function relativeTime(iso: string | null): string | null {
+function relativeAge(iso: string | null): string | null {
   if (!iso) return null;
   const ms = Date.now() - Date.parse(iso);
   if (!Number.isFinite(ms)) return null;
   const mins = Math.max(0, Math.floor(ms / 60_000));
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 function deadlineText(iso: string | null): string | null {
@@ -467,6 +467,24 @@ function deadlineText(iso: string | null): string | null {
   })}`;
 }
 
+function actionTiming(item: DispatchAction): string {
+  const deadline = deadlineText(item.deadline);
+  if (deadline) return deadline;
+  const age = relativeAge(item.since);
+  if (!age) return ACTION_LANE_META[item.lane].label;
+  switch (item.kind) {
+    case "assign":
+      return `Unassigned for ${age}`;
+    case "customer_reply":
+      return `Customer replied ${age} ago`;
+    case "waiting_on_tech":
+    case "stale":
+      return `Last tech activity ${age} ago`;
+    default:
+      return `Last activity ${age} ago`;
+  }
+}
+
 function DispatchActionRow({
   item,
   haloBaseUrl,
@@ -479,7 +497,7 @@ function DispatchActionRow({
   const recommendation = item.kind === "assign" && item.suggestions[0]
     ? `Assign ${item.suggestions[0].tech}`
     : item.action;
-  const timing = deadlineText(item.deadline) ?? relativeTime(item.since);
+  const timing = actionTiming(item);
   const body = (
     <>
       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
@@ -504,7 +522,7 @@ function DispatchActionRow({
       <div className="min-w-0 shrink-0 basis-full pl-[18px] sm:basis-[300px] sm:pl-0 sm:text-right">
         <p className="text-sm font-medium text-white">{recommendation}</p>
         <p className="mt-0.5 text-xs text-zinc-500">
-          {timing ?? ACTION_LANE_META[item.lane].label}
+          {timing}
           {item.kind === "assign" && item.suggestions[0]?.reasons[0] ? ` · ${item.suggestions[0].reasons[0]}` : ""}
         </p>
       </div>
