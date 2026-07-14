@@ -132,14 +132,14 @@ server.post("/api/teams/messages", async (request, reply) => {
 
     const token = authHeader.slice(7);
     const { verifyBotToken, handleBotMessage } = await import("./integrations/teams/bot.js");
+    const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string }; recipient?: { id?: string } };
 
-    const valid = await verifyBotToken(token);
+    const valid = await verifyBotToken(token, activity.recipient?.id);
     if (!valid) {
       console.warn("[TEAMS-BOT] Invalid token — rejecting");
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string } };
     // Fire and forget — respond 200 immediately, process async
     handleBotMessage(activity).catch((err) => {
       console.error("[TEAMS-BOT] Async error:", err);

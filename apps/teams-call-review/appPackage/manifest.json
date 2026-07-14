@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.23/MicrosoftTeams.schema.json",
   "manifestVersion": "1.23",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "id": "ad44c616-04a1-4b84-a583-6686618a6a92",
   "developer": {
     "name": "Gamma Tech Services",
@@ -24,7 +24,7 @@
   "accentColor": "#B91C1C",
   "bots": [
     {
-      "botId": "0e794ae8-fb54-49b6-9f2f-a5e2664cd436",
+      "botId": "c5164f1d-d52b-4883-8456-fd7a38ed699a",
       "scopes": [
         "personal"
       ],

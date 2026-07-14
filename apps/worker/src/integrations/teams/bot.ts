@@ -22,10 +22,38 @@ function workerHeaders(init: Record<string, string> = {}): Record<string, string
 }
 
 /**
- * Lightweight Teams bot — no botbuilder SDK dependency.
+ * Lightweight Teams bots — no botbuilder SDK dependency.
  * Handles Bot Framework messages directly via HTTP.
- * Azure Bot Service sends Activity objects; we respond inline.
+ * Prison Mike and TriageIT Call Review have separate Azure identities and
+ * capabilities even though Azure Bot Service sends both to this endpoint.
  */
+
+interface BotCredentials {
+  readonly appId: string;
+  readonly appSecret: string;
+  readonly tenantId: string;
+}
+
+function prisonMikeCredentials(): BotCredentials {
+  return {
+    appId: process.env.TEAMS_BOT_APP_ID ?? "",
+    appSecret: process.env.TEAMS_BOT_APP_SECRET ?? "",
+    tenantId: process.env.TEAMS_BOT_TENANT_ID ?? "",
+  };
+}
+
+function callReviewCredentials(): BotCredentials {
+  return {
+    appId: process.env.TEAMS_CALL_BOT_APP_ID ?? "",
+    appSecret: process.env.TEAMS_CALL_BOT_APP_SECRET ?? "",
+    tenantId: process.env.TEAMS_CALL_BOT_TENANT_ID ?? "",
+  };
+}
+
+export function botIdMatchesApp(botId: string | undefined, appId: string): boolean {
+  if (!botId || !appId) return false;
+  return botId.replace(/^28:/i, "").toLowerCase() === appId.toLowerCase();
+}
 
 // ── Inbound auth — verify tokens FROM Azure Bot Service ────────────────
 
@@ -52,9 +80,9 @@ async function getOpenIdKeys(): Promise<Array<{ kid: string; x5c?: string[]; n?:
  * Verify that an incoming request is from Azure Bot Service.
  * Decodes the JWT header to check issuer and audience without a full JWT library.
  */
-export async function verifyBotToken(token: string): Promise<boolean> {
-  const appId = process.env.TEAMS_BOT_APP_ID ?? "";
-  if (!appId) return false;
+export async function verifyBotToken(token: string, recipientId?: string): Promise<boolean> {
+  const credentials = [prisonMikeCredentials(), callReviewCredentials()].filter((bot) => bot.appId);
+  if (credentials.length === 0) return false;
 
   try {
     // Decode JWT payload (base64url)
@@ -71,9 +99,14 @@ export async function verifyBotToken(token: string): Promise<boolean> {
       return false;
     }
 
-    // Check audience matches our app ID
-    if (payload.aud !== appId) {
-      console.warn(`[TEAMS-BOT] Token audience mismatch: ${payload.aud} !== ${appId}`);
+    // Each bot has a distinct audience. Accept only one of the two configured
+    // app IDs; the activity router applies the matching capability boundary.
+    if (!credentials.some((bot) => payload.aud === bot.appId)) {
+      console.warn(`[TEAMS-BOT] Token audience does not match a configured bot: ${payload.aud}`);
+      return false;
+    }
+    if (recipientId && !botIdMatchesApp(recipientId, payload.aud ?? "")) {
+      console.warn("[TEAMS-BOT] Token audience does not match the activity recipient");
       return false;
     }
 
@@ -82,7 +115,7 @@ export async function verifyBotToken(token: string): Promise<boolean> {
       "https://api.botframework.com",
       "https://sts.windows.net/d6d49420-f39b-4df7-a1dc-d59a935871db/",
       "https://sts.windows.net/f8cdef31-a31e-4b4a-93e4-5f571e91255a/",
-      `https://login.microsoftonline.com/${process.env.TEAMS_BOT_TENANT_ID ?? ""}/v2.0`,
+      ...credentials.map((bot) => `https://login.microsoftonline.com/${bot.tenantId}/v2.0`),
     ];
     if (payload.iss && !validIssuers.some((iss) => payload.iss!.startsWith(iss.split("/v2.0")[0]))) {
       console.warn(`[TEAMS-BOT] Token issuer not recognized: ${payload.iss}`);
@@ -154,36 +187,42 @@ function jwkToPublicKey(
 
 // ── Outbound auth — get tokens TO send messages back ───────────────────
 
-let cachedToken: { token: string; expires: number } | null = null;
+const cachedTokens = new Map<string, { token: string; expires: number }>();
 
-async function getBotToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expires) return cachedToken.token;
+async function getBotToken(credentials: BotCredentials): Promise<string> {
+  if (!credentials.appId || !credentials.appSecret || !credentials.tenantId) {
+    throw new Error("Bot credentials are incomplete");
+  }
+  const cached = cachedTokens.get(credentials.appId);
+  if (cached && Date.now() < cached.expires) return cached.token;
 
-  const appId = process.env.TEAMS_BOT_APP_ID ?? "";
-  const appSecret = process.env.TEAMS_BOT_APP_SECRET ?? "";
-  const tenantId = process.env.TEAMS_BOT_TENANT_ID ?? "";
-
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+  const res = await fetch(`https://login.microsoftonline.com/${credentials.tenantId}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "client_credentials",
-      client_id: appId,
-      client_secret: appSecret,
+      client_id: credentials.appId,
+      client_secret: credentials.appSecret,
       scope: "https://api.botframework.com/.default",
     }),
   });
 
   if (!res.ok) throw new Error(`Bot auth failed: ${res.status}`);
   const data = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = { token: data.access_token, expires: Date.now() + (data.expires_in - 60) * 1000 };
+  cachedTokens.set(credentials.appId, { token: data.access_token, expires: Date.now() + (data.expires_in - 60) * 1000 });
   return data.access_token;
 }
 
 // ── Send reply to Teams ─────────────────────────────────────────────────
 
-async function sendTeamsReply(serviceUrl: string, conversationId: string, activityId: string, text: string): Promise<void> {
-  const token = await getBotToken();
+async function sendTeamsReply(
+  serviceUrl: string,
+  conversationId: string,
+  activityId: string,
+  text: string,
+  credentials: BotCredentials,
+): Promise<void> {
+  const token = await getBotToken(credentials);
   const url = `${serviceUrl}v3/conversations/${conversationId}/activities/${activityId}`;
 
   await fetch(url, {
@@ -215,7 +254,11 @@ export async function sendProactiveTeamsCard(
   reference: TeamsConversationReference,
   card: Record<string, unknown>,
 ): Promise<string | null> {
-  const token = await getBotToken();
+  const credentials = callReviewCredentials();
+  if (!botIdMatchesApp(reference.bot_id, credentials.appId)) {
+    throw new Error("Refusing to send a call-review card through a non-call-review bot conversation");
+  }
+  const token = await getBotToken(credentials);
   const serviceUrl = reference.service_url.endsWith("/") ? reference.service_url : `${reference.service_url}/`;
   const response = await fetch(`${serviceUrl}v3/conversations/${encodeURIComponent(reference.conversation_id)}/activities`, {
     method: "POST",
@@ -236,8 +279,8 @@ export async function sendProactiveTeamsCard(
   return result.id ?? null;
 }
 
-async function sendTypingIndicator(serviceUrl: string, conversationId: string): Promise<void> {
-  const token = await getBotToken();
+async function sendTypingIndicator(serviceUrl: string, conversationId: string, credentials: BotCredentials): Promise<void> {
+  const token = await getBotToken(credentials);
   const url = `${serviceUrl}v3/conversations/${conversationId}/activities`;
 
   await fetch(url, {
@@ -516,11 +559,6 @@ async function chat(agent: "michael" | "toby", message: string, convKey: string)
   return "Ran out of thinking steps. Try a simpler question.";
 }
 
-// These legacy helpers are intentionally not connected to the Teams message router.
-// Keep the references explicit until the shared agent code is moved out of this module.
-void sendTypingIndicator;
-void chat;
-
 // ── Handle incoming Bot Framework activity ──────────────────────────────
 
 interface BotActivity {
@@ -557,8 +595,71 @@ async function rememberConversationReference(activity: BotActivity): Promise<boo
   return !error;
 }
 
+async function handlePrisonMikeMessage(activity: BotActivity, credentials: BotCredentials): Promise<void> {
+  if (!activity.text) return;
+  const text = activity.text.replace(/<at>[^<]*<\/at>/g, "").trim();
+  const lower = text.toLowerCase();
+  const convId = activity.conversation.id;
+
+  if (lower === "/help" || lower === "help" || lower === "/commands") {
+    const helpText = [
+      "**Prison Mike & Toby — TriageIT Bot**",
+      "",
+      "**Agents:**",
+      "- Just type your question → **Prison Mike** (operations)",
+      "- Start with `toby` → **Toby** (analytics)",
+      "",
+      "**What I can do:**",
+      "| Command | Example |",
+      "|---------|---------|",
+      "| Look up a ticket | *what's the status on #34875?* |",
+      "| Search tickets | *show me open tickets for NABOR* |",
+      "| Retriage a ticket | *retriage #34875* |",
+      "| Post a note | *post a note on #34885 saying check the phone system* |",
+      "| Tech performance | *how is Matthew doing this week?* |",
+      "| Team overview | *show me the team workload* |",
+      "| Client history | *what tickets does Potter Homes have?* |",
+      "| Sync tickets | *sync tickets from Halo* |",
+      "| Run analytics | *toby run a fresh analysis* |",
+    ].join("\n");
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, helpText, credentials);
+    return;
+  }
+
+  let agent: "michael" | "toby" = "michael";
+  let cleanMessage = text;
+  if (lower.startsWith("toby ") || lower.startsWith("toby,") || lower === "toby") {
+    agent = "toby";
+    cleanMessage = text.replace(/^toby\s*,?\s*/i, "") || "What should I look at?";
+  }
+  if (!cleanMessage) {
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "What do you need? Type `/help` for commands.", credentials);
+    return;
+  }
+
+  await sendTypingIndicator(activity.serviceUrl, convId, credentials);
+  try {
+    const response = await chat(agent, cleanMessage, `${convId}:${agent}`);
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, response, credentials);
+  } catch (error) {
+    console.error("[TEAMS-BOT] Prison Mike error:", error);
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "Something went wrong. Try again.", credentials);
+  }
+}
+
 export async function handleBotMessage(activity: BotActivity): Promise<void> {
   if (activity.type !== "message") return;
+  const callCredentials = callReviewCredentials();
+  if (!botIdMatchesApp(activity.recipient?.id, callCredentials.appId)) {
+    const legacyCredentials = prisonMikeCredentials();
+    if (botIdMatchesApp(activity.recipient?.id, legacyCredentials.appId)) {
+      await handlePrisonMikeMessage(activity, legacyCredentials);
+    }
+    return;
+  }
+
+  // Only the dedicated call-review bot may create proactive conversation
+  // references or execute call-review card actions.
   const registered = await rememberConversationReference(activity);
 
   if (activity.value?.triageit_action) {
@@ -568,10 +669,10 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
         value: activity.value,
         actorName: activity.from?.name ?? null,
       });
-      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, response);
+      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, response, callCredentials);
     } catch (error) {
       console.error("[TEAMS-BOT] Call review action failed:", error instanceof Error ? error.message : error);
-      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, "TriageIT could not complete that call review. Nothing was changed in Halo; please try again or use the Calls page.");
+      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, "TriageIT could not complete that call review. Nothing was changed in Halo; please try again or use the Calls page.", callCredentials);
     }
     return;
   }
@@ -590,6 +691,7 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
       registered
         ? "Registered. TriageIT can now send you unmatched-call review cards during business hours."
         : "Open a private chat with the TriageIT bot and send `register` there. Call-review cards are never sent to a team channel.",
+      callCredentials,
     );
     return;
   }
@@ -605,7 +707,7 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
       "- Use **Separate call** when the call was not related to a ticket.",
       "- Call-review cards are only sent during business hours.",
     ].join("\n");
-    await sendTeamsReply(activity.serviceUrl, convId, activity.id, helpText);
+    await sendTeamsReply(activity.serviceUrl, convId, activity.id, helpText, callCredentials);
     return;
   }
 
@@ -614,5 +716,6 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
     convId,
     activity.id,
     "This Teams bot only handles unmatched-call reviews. Send `register` to enable the cards, or use the buttons on a call-review card.",
+    callCredentials,
   );
 }

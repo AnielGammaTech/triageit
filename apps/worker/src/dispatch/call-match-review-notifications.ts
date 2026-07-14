@@ -89,6 +89,8 @@ export function buildCallMatchReviewCard(call: PendingCallReview): Record<string
 
 export async function sendPendingCallMatchReviews(supabase: SupabaseClient): Promise<number> {
   if (!isWithinBusinessHours()) return 0;
+  const callReviewBotAppId = process.env.TEAMS_CALL_BOT_APP_ID?.toLowerCase();
+  if (!callReviewBotAppId) return 0;
 
   const cutoff = new Date(Date.now() - 48 * 3600_000).toISOString();
   const [{ data: calls, error: callError }, { data: references, error: referenceError }] = await Promise.all([
@@ -112,7 +114,8 @@ export async function sendPendingCallMatchReviews(supabase: SupabaseClient): Pro
   for (const call of (calls ?? []) as PendingCallReview[]) {
     if (!isSupportCallStaffName(call.tech_name)) continue;
     const reference = ((references ?? []) as ConversationReference[])
-      .find((candidate) => peopleNamesOverlap(candidate.user_name, call.tech_name));
+      .find((candidate) => candidate.bot_id.toLowerCase().includes(callReviewBotAppId)
+        && peopleNamesOverlap(candidate.user_name, call.tech_name));
     if (!reference) continue;
 
     try {
