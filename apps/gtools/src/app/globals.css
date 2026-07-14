@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
-@theme {
+/*
+ * `static` forces Tailwind to always emit every variable below as a real
+ * CSS custom property, even when no statically-scannable utility class
+ * references it. The per-tool accent colors are consumed dynamically via
+ * accentVar(slug) -> `var(--color-<slug>)` in inline styles (BrowserFrame,
+ * MockStat, MockBar, MockPanel, etc.), which Tailwind's class scanner can't
+ * see — without `static` those variables are silently tree-shaken out of
+ * the compiled CSS and every accent color renders as nothing.
+ */
+@theme static {
   --color-ink: #08080d;        /* page ground */
   --color-panel: #101018;      /* raised surfaces, mockup chrome */
   --color-panel-2: #16161f;    /* nested surfaces inside mockups */
