@@ -12,7 +12,7 @@ interface SyncRun {
 const RUNS: readonly SyncRun[] = [
   { connector: "HaloPSA", status: "Success", tone: "ok", duration: "2m 14s" },
   { connector: "Twilio Lookup", status: "Success", tone: "ok", duration: "41s" },
-  { connector: "Datto RMM", status: "Queued", tone: "neutral", duration: "—" },
+  { connector: "Datto RMM", status: "Planned", tone: "neutral", duration: "—" },
 ];
 
 export function ConnectitMockup() {
