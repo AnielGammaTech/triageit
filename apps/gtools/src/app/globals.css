@@ -18,15 +18,15 @@
   --color-snow: #f2f2f5;       /* primary text */
   --color-brand: #6e7bff;      /* GTools brand accent */
 
-  /* per-tool accents (used for section glows, mockup chrome, feature ticks) */
-  --color-triageit: #f59e0b;
-  --color-secureit: #f43f5e;
-  --color-projectit: #8b5cf6;
-  --color-portalit: #10b981;
-  --color-quoteit: #0ea5e9;
-  --color-connectit: #22d3ee;
-  --color-runit: #ef4444;
-  --color-phoneit: #a3e635;
+  /* per-tool accents — REAL brand colors, matched to each product's actual UI */
+  --color-triageit: #b91c1c;
+  --color-secureit: #94a3b8; /* SecureIT brand is monochrome ink; slate stands in so glows/dots stay visible on the dark site */
+  --color-projectit: #0069af;
+  --color-portalit: #5b21b6;
+  --color-quoteit: #f96302;
+  --color-connectit: #2f80ed;
+  --color-runit: #dc2626;
+  --color-phoneit: #1f6feb;
 
   --font-display: var(--font-space-grotesk), sans-serif;
   --font-body: var(--font-inter), sans-serif;
@@ -40,4 +40,21 @@ body {
   background: var(--color-ink);
   color: var(--color-snow);
   font-family: var(--font-body);
+}
+
+/*
+ * Mock primitives (mock-ui.tsx) read colors from these scoped custom
+ * properties instead of the site's dark tokens, so mockups can miniature
+ * the REAL product's theme (light or dark) inside the BrowserFrame. Every
+ * mockup root sets its own explicit values inline for full fidelity; these
+ * are just a sane dark fallback if one is ever omitted.
+ */
+.mock-root {
+  --mock-bg: #0b0b12;
+  --mock-chrome: #16161f;
+  --mock-panel: #16161f;
+  --mock-panel-2: #1c1c28;
+  --mock-border: #23232e;
+  --mock-text: #f2f2f5;
+  --mock-muted: #9b9ba8;
 }
