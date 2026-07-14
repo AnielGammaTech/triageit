@@ -5,9 +5,11 @@ import { accentVar } from "@/components/browser-frame";
 const PLATFORMS = ["Halo PSA", "Microsoft 365", "Datto", "JumpCloud"] as const;
 const BUILT_ON_SLUGS = ["quoteit", "portalit", "projectit"] as const;
 
-const BUILT_ON_TOOLS = BUILT_ON_SLUGS.map(
-  (slug) => TOOLS.find((tool) => tool.slug === slug)!,
-);
+const BUILT_ON_TOOLS = BUILT_ON_SLUGS.map((slug) => {
+  const tool = TOOLS.find((t) => t.slug === slug);
+  if (!tool) throw new Error(`better-together: unknown tool slug "${slug}"`);
+  return tool;
+});
 
 // Shared grid template so the chip rows and their connector fans line up
 // on the same column boundaries. Kept as full literal class strings so
@@ -31,10 +33,9 @@ export function BetterTogether() {
         </p>
       </div>
 
-      <div className="relative mx-auto mt-16 max-w-2xl">
+      <div className="relative mx-auto mt-16 max-w-2xl" aria-hidden="true">
         {/* blueprint dot-grid backdrop */}
         <div
-          aria-hidden
           className="pointer-events-none absolute inset-0 -z-10 opacity-[0.12]"
           style={{
             backgroundImage:
@@ -99,7 +100,7 @@ function ConnectorFan({
   const count = cols === 3 ? 3 : 4;
 
   return (
-    <div aria-hidden className="relative hidden h-8 md:block">
+    <div className="relative hidden h-8 md:block">
       {/* single continuous bus, sits at the edge farthest from the chips */}
       <div
         className={`absolute inset-x-0 h-px bg-line ${stemsAtTop ? "bottom-0" : "top-0"}`}
@@ -119,7 +120,7 @@ function ConnectorFan({
 function Junction() {
   const accent = accentVar("connectit");
   return (
-    <div aria-hidden className="hidden justify-center md:flex">
+    <div className="hidden justify-center md:flex">
       <span
         className="size-1.5 rounded-full"
         style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
@@ -133,7 +134,6 @@ function ConnectItNode() {
   return (
     <div className="relative isolate">
       <div
-        aria-hidden
         className="pointer-events-none absolute -inset-10 -z-10 rounded-full opacity-60 blur-2xl"
         style={{
           background: `radial-gradient(circle, ${accent}, transparent 70%)`,
@@ -172,7 +172,6 @@ function CornerBracket({
 }) {
   return (
     <span
-      aria-hidden
       className={`absolute size-3 ${className}`}
       style={{ borderColor: accent }}
     />
@@ -183,7 +182,6 @@ function ProductChip({ name, accent }: { name: string; accent: string }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-full border border-line bg-panel-2/80 px-4 py-2 text-sm font-medium text-snow">
       <span
-        aria-hidden
         className="size-2 rounded-full"
         style={{
           background: accentVar(accent),
