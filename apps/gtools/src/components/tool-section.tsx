@@ -1,6 +1,7 @@
 import { BrowserFrame, accentVar } from "@/components/browser-frame";
 import { MOCKUPS } from "@/components/mockups";
 import { Reveal } from "@/components/fx/reveal";
+import { Tilt } from "@/components/fx/tilt";
 import type { Tool } from "@/content/types";
 
 export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
@@ -78,13 +79,15 @@ export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
 
           <Reveal variant={flip ? "left" : "right"}>
             <div className={flip ? "lg:order-1" : undefined}>
-              <BrowserFrame
-                accent={accent}
-                url={`${tool.slug}.gtools.io`}
-                screenshotSrc={tool.screenshotSrc}
-              >
-                <Mockup />
-              </BrowserFrame>
+              <Tilt>
+                <BrowserFrame
+                  accent={accent}
+                  url={`${tool.slug}.gtools.io`}
+                  screenshotSrc={tool.screenshotSrc}
+                >
+                  <Mockup />
+                </BrowserFrame>
+              </Tilt>
             </div>
           </Reveal>
         </div>

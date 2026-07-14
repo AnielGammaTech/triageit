@@ -30,6 +30,13 @@ interface RevealProps {
   delayMs?: number;
   /** IntersectionObserver threshold before the reveal fires. */
   threshold?: number;
+  /**
+   * Optional external ref merged alongside Reveal's own internal one — lets
+   * a caller (e.g. the magnetic-pull hook) get a handle on the exact same
+   * DOM node Reveal is animating, without either wrapper clobbering the
+   * other's ref.
+   */
+  innerRef?: React.Ref<HTMLElement>;
 }
 
 const isBrowser = typeof window !== "undefined";
@@ -64,6 +71,7 @@ export function Reveal({
   variant = "up",
   delayMs = 0,
   threshold = 0.2,
+  innerRef,
 }: RevealProps) {
   const ref = useRef<Element | null>(null);
   const [state, setState] = useState<"idle" | "hidden" | "visible" | "done">(
@@ -144,6 +152,17 @@ export function Reveal({
     .filter(Boolean)
     .join(" ");
 
+  // Merges Reveal's own ref with an optional caller-supplied `innerRef` so
+  // two independent wrappers (this + e.g. the magnetic-pull hook) can both
+  // get a handle on the same underlying node instead of one clobbering the
+  // other's `ref` prop.
+  const setRefs = (node: Element | null) => {
+    ref.current = node;
+    if (!innerRef) return;
+    if (typeof innerRef === "function") innerRef(node as HTMLElement | null);
+    else (innerRef as React.MutableRefObject<HTMLElement | null>).current = node as HTMLElement | null;
+  };
+
   // `cloneElement`'s generics can't express "arbitrary host element accepting
   // a ref + data attribute" for a polymorphic single-child prop — every call
   // site here passes a plain DOM element (a, div, li, section), which all
@@ -152,7 +171,7 @@ export function Reveal({
   // during render" warning is a false positive for this exact pattern.
   /* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/refs */
   return cloneElement(children, {
-    ref,
+    ref: setRefs,
     className,
     style,
     "data-reveal-state": state === "idle" ? undefined : state,

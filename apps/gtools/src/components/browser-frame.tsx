@@ -31,6 +31,10 @@ export function BrowserFrame({
         {/* periodic scan-line sweep */}
         <div aria-hidden className="fx-scan-sweep z-10 rounded-xl" />
 
+        {/* cursor-tracked glare highlight — position driven by fx/tilt.tsx
+            via --glare-x/--glare-y on the ancestor .fx-tilt wrapper */}
+        <div aria-hidden className="fx-glare z-10 rounded-xl" />
+
         {/* toolbar */}
         <div className="flex items-center gap-2 border-b border-line bg-panel-2 px-3 py-2">
           <div className="flex items-center gap-1.5">

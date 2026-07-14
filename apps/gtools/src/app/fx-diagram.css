@@ -26,15 +26,23 @@
   }
 }
 
+/* Base rule reads --tilt-x/--tilt-y/--tilt-scale so both the no-JS CSS-only
+ * hover fallback and fx/tilt.tsx's cursor-tracked JS values drive the exact
+ * same `transform` — whichever last set the vars wins, nothing fights over
+ * the property itself. Without JS, `:hover` below still supplies a static
+ * scale bump; with Tilt mounted, its inline --tilt-x/--tilt-y (see
+ * fx-interactive.css for the .fx-tilt-active snappier-follow override)
+ * take over rotation while `:hover` continues to provide the scale. */
 .fx-frame-tilt {
-  transform: perspective(1000px) rotateX(0) rotateY(0) scale(1);
+  transform: perspective(1000px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg))
+    scale(var(--tilt-scale, 1));
 }
 @media (prefers-reduced-motion: no-preference) {
   .fx-frame-tilt {
     transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .fx-frame-tilt:hover {
-    transform: perspective(1000px) rotateX(2deg) rotateY(-3deg) scale(1.015);
+    --tilt-scale: 1.015;
   }
 }
 

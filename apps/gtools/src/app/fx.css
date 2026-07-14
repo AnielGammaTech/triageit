@@ -1,4 +1,5 @@
 @import "./fx-diagram.css";
+@import "./fx-interactive.css";
 
 /* ==========================================================================
  * Command Center — Motion Design FX
@@ -12,9 +13,11 @@
  * its resting, fully-visible state — nothing here ever depends on an
  * animation "finishing" to become visible.
  *
- * Split across two files to stay under the file-size limit: this file
- * (reveal, hero, marquee, backdrop) and fx-diagram.css (BrowserFrame FX,
- * ConnectIT diagram, nav-on-scroll).
+ * Split across three files to stay under the file-size limit: this file
+ * (reveal, hero, marquee, backdrop), fx-diagram.css (BrowserFrame FX,
+ * ConnectIT diagram, nav-on-scroll), and fx-interactive.css (Round 2's
+ * pointer-driven spotlight, tilt/glare, magnetic pull, reticle cursor, and
+ * the Office easter egg).
  * ========================================================================== */
 
 /* --- Reveal (fx/reveal.tsx) ----------------------------------------------

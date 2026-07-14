@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TOOLS } from "@/content/tools";
+import { useMagnetic } from "@/components/fx/magnetic";
 
 // The only bit of Nav that needs the client: a tiny scroll listener that
 // flips `data-scrolled` for the glow/tighten effect in globals.css
@@ -13,6 +14,7 @@ import { TOOLS } from "@/content/tools";
 // worse than this ~10-line, universally-reliable listener.
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
+  const contactRef = useMagnetic<HTMLAnchorElement>();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -29,6 +31,7 @@ export function Nav() {
       <div className="fx-nav-row mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <Link
           href="/"
+          data-egg-trigger
           className="font-display text-lg font-semibold tracking-tight text-snow"
         >
           <span className="text-brand">G</span>TOOLS
@@ -47,6 +50,7 @@ export function Nav() {
         </nav>
 
         <a
+          ref={contactRef}
           href="mailto:help@gamma.tech"
           className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-ink transition-opacity hover:opacity-90"
         >
