@@ -16,8 +16,9 @@ export interface CustomerWaitState {
 }
 
 const TRIAGEIT_NOTE_RE = /triage\s*it|call summary|tech review|escalation call|phone message|ai triage/i;
-const CALL_REQUEST_RE = /\b(call|callback|call back|phone|ring me)\b/i;
+const CALL_REQUEST_RE = /\b(?:call\s+(?:me|us|him|her|them|back)|call\s+back|callback|give\s+(?:me|us|him|her|them)\s+a\s+call|phone\s+(?:me|us|him|her|them)|ring\s+(?:me|us|him|her|them)|(?:please|can you|could you|would you)\s+call)\b/i;
 const UPDATE_REQUEST_RE = /\b(update|follow(?:ing)? up|hear back|let me know|status|reply|email)\b/i;
+const CUSTOMER_UPDATE_CADENCE_MS = 4 * 60 * 60 * 1000;
 
 export function haloActionTimestamp(action: HaloAction): number {
   const raw = action.actiondatecreated ?? action.datetime ?? action.datecreated;
@@ -45,6 +46,7 @@ function isOutboundStaffAction(action: ActionRecord): boolean {
 export function analyzeCustomerWaitState(
   actions: ReadonlyArray<ActionRecord>,
   statusName: string | null | undefined,
+  nowMs = Date.now(),
 ): CustomerWaitState {
   const meaningful = [...actions]
     .filter((action) => {
@@ -62,9 +64,15 @@ export function analyzeCustomerWaitState(
   const requestedContactMethod = latestCustomerMessage && CALL_REQUEST_RE.test(latestCustomerMessage) ? "call" : "reply";
   const explicitRequest = latestCustomerMessage ? CALL_REQUEST_RE.test(latestCustomerMessage) || UPDATE_REQUEST_RE.test(latestCustomerMessage) : false;
   const newerThanOutbound = Boolean(latestCustomer) && (latestOutboundMs === 0 || latestCustomerMs > latestOutboundMs);
-  // Activity order is authoritative. Halo status can lag behind an outbound
-  // reply, so a stale Customer Reply status must not create a false alert.
-  const waitingForUpdate = Boolean(latestCustomer) && newerThanOutbound;
+  const waitingOnCustomer = /waiting on customer/i.test(statusName ?? "");
+  const outboundUpdateOverdue = Boolean(latestCustomer)
+    && latestOutboundMs > 0
+    && nowMs - latestOutboundMs >= CUSTOMER_UPDATE_CADENCE_MS
+    && !waitingOnCustomer;
+  // A newer reply clears the immediate customer-response signal, but not
+  // forever. On an open SLA call, an update older than Gamma's four-hour
+  // communication cadence still requires the tech to consider a fresh update.
+  const waitingForUpdate = Boolean(latestCustomer) && (newerThanOutbound || outboundUpdateOverdue);
 
   let reason: string | null = null;
   if (waitingForUpdate) {
@@ -75,6 +83,8 @@ export function analyzeCustomerWaitState(
         : `${who} asked for an update and no newer customer-facing reply is on the ticket.`;
     } else if (customerReplyStatus) {
       reason = `${who} replied and the ticket is still in ${statusName ?? "Customer Reply"}.`;
+    } else if (outboundUpdateOverdue) {
+      reason = `Gamma Tech's last customer-facing update is more than four hours old and no newer update has been sent.`;
     } else {
       reason = `${who} sent the latest customer-facing message and no newer reply from Gamma Tech is on the ticket.`;
     }

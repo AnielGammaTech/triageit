@@ -516,6 +516,11 @@ async function chat(agent: "michael" | "toby", message: string, convKey: string)
   return "Ran out of thinking steps. Try a simpler question.";
 }
 
+// These legacy helpers are intentionally not connected to the Teams message router.
+// Keep the references explicit until the shared agent code is moved out of this module.
+void sendTypingIndicator;
+void chat;
+
 // ── Handle incoming Bot Framework activity ──────────────────────────────
 
 interface BotActivity {
@@ -589,58 +594,25 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
     return;
   }
 
-  // Handle /help command
   if (lower === "/help" || lower === "help" || lower === "/commands") {
     const helpText = [
-      "**Prison Mike & Toby — TriageIT Bot**",
+      "**TriageIT Call Review Bot**",
       "",
-      "**Agents:**",
-      "- Just type your question → **Prison Mike** (operations)",
-      "- Start with `toby` → **Toby** (analytics)",
+      "This Teams bot only handles unmatched 3CX call reviews.",
       "",
-      "**What I can do:**",
-      "| Command | Example |",
-      "|---------|---------|",
-      "| Look up a ticket | *what's the status on #34875?* |",
-      "| Search tickets | *show me open tickets for NABOR* |",
-      "| Retriage a ticket | *retriage #34875* |",
-      "| Post a note | *post a note on #34885 saying check the phone system* |",
-      "| Tech performance | *how is Matthew doing this week?* |",
-      "| Team overview | *show me the team workload* |",
-      "| Client history | *what tickets does Potter Homes have?* |",
-      "| Sync tickets | *sync tickets from Halo* |",
-      "| Register call reviews | *register* (private bot chat only) |",
-      "| Run analytics | *toby run a fresh analysis* |",
-      "",
-      "**Tips:**",
-      "- Use `#` + ticket number to reference tickets",
-      "- Say `toby` before your question for analytics/performance data",
-      "- I can take actions — retriage, post notes, sync, not just read data",
+      "- Send `register` once in a private chat.",
+      "- Use **Match and post** on a call card to attach it to a Halo ticket.",
+      "- Use **Separate call** when the call was not related to a ticket.",
+      "- Call-review cards are only sent during business hours.",
     ].join("\n");
     await sendTeamsReply(activity.serviceUrl, convId, activity.id, helpText);
     return;
   }
 
-  let agent: "michael" | "toby" = "michael";
-  let cleanMsg = text;
-
-  if (lower.startsWith("toby ") || lower.startsWith("toby,") || lower === "toby") {
-    agent = "toby";
-    cleanMsg = text.replace(/^toby\s*,?\s*/i, "") || "What should I look at?";
-  }
-
-  if (!cleanMsg) {
-    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "What do you need? Start with `toby` for analytics, or just ask me anything. Type `/help` for commands.");
-    return;
-  }
-
-  await sendTypingIndicator(activity.serviceUrl, convId);
-
-  try {
-    const response = await chat(agent, cleanMsg, `${convId}:${agent}`);
-    await sendTeamsReply(activity.serviceUrl, convId, activity.id, response);
-  } catch (err) {
-    console.error("[TEAMS-BOT] Error:", err);
-    await sendTeamsReply(activity.serviceUrl, convId, activity.id, "Something went wrong. Try again.");
-  }
+  await sendTeamsReply(
+    activity.serviceUrl,
+    convId,
+    activity.id,
+    "This Teams bot only handles unmatched-call reviews. Send `register` to enable the cards, or use the buttons on a call-review card.",
+  );
 }
