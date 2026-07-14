@@ -70,6 +70,28 @@ export function MockRow({
   );
 }
 
+export function MockRowShell({
+  children,
+  bordered = true,
+  className = "",
+}: {
+  children: React.ReactNode;
+  bordered?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 py-1.5 text-[10px] ${
+        bordered ? "border-t border-line/60" : ""
+      } ${className}`
+        .replace(/\s+/g, " ")
+        .trim()}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function MockBar({ pct, accent }: { pct: number; accent: string }) {
   const clamped = Math.min(100, Math.max(0, pct));
   return (

@@ -1,5 +1,5 @@
 import { accentVar } from "@/components/browser-frame";
-import { MockStat } from "@/components/mock-ui";
+import { MockRow, MockRowShell, MockStat } from "@/components/mock-ui";
 
 interface ReconRow {
   readonly client: string;
@@ -26,24 +26,16 @@ export function PortalitMockup() {
       </div>
 
       <div className="rounded-lg border border-line bg-panel-2 p-2.5">
-        <div className="flex items-center gap-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-fog">
-          <span className="flex-1">Client</span>
-          <span className="flex-1">Invoiced</span>
-          <span className="flex-1">Actual</span>
-          <span className="flex-1">Delta</span>
-        </div>
-        {ROWS.map((row) => (
-          <div
-            key={row.client}
-            className="flex items-center gap-3 border-t border-line/60 py-1.5 text-[10px]"
-          >
+        <MockRow cells={["Client", "Invoiced", "Actual", "Delta"]} />
+        {ROWS.map((row, index) => (
+          <MockRowShell key={row.client} bordered={index > 0}>
             <span className="flex-1 truncate text-snow">{row.client}</span>
             <span className="flex-1 truncate text-fog">{row.invoiced}</span>
             <span className="flex-1 truncate text-fog">{row.actual}</span>
             <span className={`flex-1 truncate font-medium ${row.bad ? "text-rose-400" : "text-emerald-400"}`}>
               {row.delta}
             </span>
-          </div>
+          </MockRowShell>
         ))}
       </div>
     </div>

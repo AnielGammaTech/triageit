@@ -1,5 +1,5 @@
 import { accentVar } from "@/components/browser-frame";
-import { MockPanel, MockPill } from "@/components/mock-ui";
+import { MockPanel, MockPill, MockRowShell } from "@/components/mock-ui";
 import type { MockTone } from "@/components/mock-ui";
 
 interface Tile {
@@ -38,10 +38,10 @@ export function RunitMockup() {
 
       <MockPanel title="Recent runs" accent={accent}>
         {RECENT_RUNS.map((run) => (
-          <div key={run} className="flex items-center justify-between gap-3 text-[10px]">
-            <span className="truncate text-fog">{run}</span>
+          <MockRowShell key={run} className="first:border-t-0">
+            <span className="flex-1 truncate text-fog">{run}</span>
             <MockPill tone="ok">Success</MockPill>
-          </div>
+          </MockRowShell>
         ))}
       </MockPanel>
     </div>

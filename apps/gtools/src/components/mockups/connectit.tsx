@@ -1,5 +1,5 @@
 import { accentVar } from "@/components/browser-frame";
-import { MockPill, MockStat } from "@/components/mock-ui";
+import { MockPill, MockRowShell, MockStat } from "@/components/mock-ui";
 import type { MockTone } from "@/components/mock-ui";
 
 interface SyncRun {
@@ -30,14 +30,11 @@ export function ConnectitMockup() {
           Recent runs
         </span>
         {RUNS.map((run) => (
-          <div
-            key={run.connector}
-            className="flex items-center gap-3 border-t border-line/60 py-1.5 text-[10px] first:border-t-0"
-          >
+          <MockRowShell key={run.connector} className="first:border-t-0">
             <span className="flex-1 truncate text-snow">{run.connector}</span>
             <MockPill tone={run.tone}>{run.status}</MockPill>
             <span className="w-12 shrink-0 text-right text-fog">{run.duration}</span>
-          </div>
+          </MockRowShell>
         ))}
       </div>
     </div>
