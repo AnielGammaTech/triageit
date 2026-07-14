@@ -64,11 +64,10 @@ describe("Halo dispatch status matching", () => {
     expect(isCustomerReplyStatus(32, "Waiting on Tech")).toBe(false);
   });
 
-  it("counts Waiting On Tech and Past-Due as technician-owned WOT work", () => {
+  it("counts only Halo's Waiting On Tech status as WOT", () => {
     expect(isWaitingOnTechStatus(32, null)).toBe(true);
-    expect(isWaitingOnTechStatus(31, null)).toBe(true);
     expect(isWaitingOnTechStatus(null, "Waiting on Tech")).toBe(true);
-    expect(isWaitingOnTechStatus(null, "PAST-DUE")).toBe(true);
+    expect(isWaitingOnTechStatus(31, "PAST-DUE")).toBe(false);
     expect(isWaitingOnTechStatus(30, "Customer Reply")).toBe(false);
   });
 });

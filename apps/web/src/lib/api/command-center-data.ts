@@ -115,7 +115,6 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
-const HALO_PAST_DUE_STATUS_ID = 31;
 const HALO_WAITING_ON_TECH_STATUS_ID = 32;
 const HALO_UNASSIGNED_AGENT_ID = 1;
 const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
@@ -141,11 +140,10 @@ function etDateKey(now: Date): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-/** PAST-DUE is still tech-owned WOT work; it is a breach flag, not a new queue owner. */
+/** Match Halo's Waiting on Tech queue exactly; PAST-DUE is a separate status. */
 export function isWaitingOnTechQueue(statusId: number | null, statusName: string | null): boolean {
   return statusId === HALO_WAITING_ON_TECH_STATUS_ID
-    || statusId === HALO_PAST_DUE_STATUS_ID
-    || /waiting on tech|past[ -]?due/i.test(statusName ?? "");
+    || /waiting on tech/i.test(statusName ?? "");
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
