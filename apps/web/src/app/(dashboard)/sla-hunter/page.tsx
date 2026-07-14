@@ -13,6 +13,8 @@ import {
   User,
   MessageSquare,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   Moon,
 } from "lucide-react";
 
@@ -75,6 +77,7 @@ const RED = "#dc2626";
 const RED_DIM = "#7f1d1d";
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
+const AT_RISK_PAGE_SIZE = 6;
 
 function durationSince(iso: string | null): string {
   if (!iso) return "—";
@@ -115,6 +118,7 @@ export default function SlaHunterPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [atRiskFilter, setAtRiskFilter] = useState<AtRiskFilter>("all");
+  const [atRiskPage, setAtRiskPage] = useState(0);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -144,6 +148,16 @@ export default function SlaHunterPage() {
   const atRiskWeekend = atRiskAll.filter((t) => t.weekend);
   const atRiskShown =
     atRiskFilter === "afterhours" ? atRiskAfterHours : atRiskFilter === "weekend" ? atRiskWeekend : atRiskAll;
+  const atRiskPageCount = Math.max(1, Math.ceil(atRiskShown.length / AT_RISK_PAGE_SIZE));
+  const safeAtRiskPage = Math.min(atRiskPage, atRiskPageCount - 1);
+  const atRiskPageRows = atRiskShown.slice(
+    safeAtRiskPage * AT_RISK_PAGE_SIZE,
+    (safeAtRiskPage + 1) * AT_RISK_PAGE_SIZE,
+  );
+  const selectAtRiskFilter = (filter: AtRiskFilter) => {
+    setAtRiskFilter(filter);
+    setAtRiskPage(0);
+  };
 
   return (
     <div className="space-y-6">
@@ -296,9 +310,9 @@ export default function SlaHunterPage() {
           </span>
           <span className="hidden text-xs text-zinc-500 sm:inline">next 96h — clear the after-hours ones before you leave</span>
           <div className="ml-auto flex items-center gap-1">
-            <FilterChip label="All" count={atRiskAll.length} active={atRiskFilter === "all"} onClick={() => setAtRiskFilter("all")} />
-            <FilterChip label="After Hours" count={atRiskAfterHours.length} active={atRiskFilter === "afterhours"} onClick={() => setAtRiskFilter("afterhours")} icon={<Moon className="h-3 w-3" />} />
-            <FilterChip label="Weekend" count={atRiskWeekend.length} active={atRiskFilter === "weekend"} onClick={() => setAtRiskFilter("weekend")} icon={<CalendarClock className="h-3 w-3" />} />
+            <FilterChip label="All" count={atRiskAll.length} active={atRiskFilter === "all"} onClick={() => selectAtRiskFilter("all")} />
+            <FilterChip label="After Hours" count={atRiskAfterHours.length} active={atRiskFilter === "afterhours"} onClick={() => selectAtRiskFilter("afterhours")} icon={<Moon className="h-3 w-3" />} />
+            <FilterChip label="Weekend" count={atRiskWeekend.length} active={atRiskFilter === "weekend"} onClick={() => selectAtRiskFilter("weekend")} icon={<CalendarClock className="h-3 w-3" />} />
           </div>
         </div>
 
@@ -315,8 +329,8 @@ export default function SlaHunterPage() {
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-            {atRiskShown.map((t) => (
-              <div key={t.halo_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
+            {atRiskPageRows.map((t) => (
+              <div key={t.halo_id} className="flex min-h-[80px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <a
@@ -362,6 +376,38 @@ export default function SlaHunterPage() {
                 </div>
               </div>
             ))}
+            {atRiskPageCount > 1 && (
+              <div className="flex h-11 items-center justify-between gap-3 px-5" style={{ borderColor: HAIRLINE }}>
+                <span className="text-xs text-zinc-500">
+                  Showing {safeAtRiskPage * AT_RISK_PAGE_SIZE + 1}–{Math.min((safeAtRiskPage + 1) * AT_RISK_PAGE_SIZE, atRiskShown.length)} of {atRiskShown.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setAtRiskPage(Math.max(0, safeAtRiskPage - 1))}
+                    disabled={safeAtRiskPage === 0}
+                    aria-label="Previous at-risk tickets page"
+                    title="Previous page"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 transition hover:text-white disabled:cursor-default disabled:opacity-30"
+                    style={{ borderColor: HAIRLINE }}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="min-w-14 text-center text-xs tabular-nums text-zinc-400">
+                    {safeAtRiskPage + 1} / {atRiskPageCount}
+                  </span>
+                  <button
+                    onClick={() => setAtRiskPage(Math.min(atRiskPageCount - 1, safeAtRiskPage + 1))}
+                    disabled={safeAtRiskPage >= atRiskPageCount - 1}
+                    aria-label="Next at-risk tickets page"
+                    title="Next page"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 transition hover:text-white disabled:cursor-default disabled:opacity-30"
+                    style={{ borderColor: HAIRLINE }}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>
