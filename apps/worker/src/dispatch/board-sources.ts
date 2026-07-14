@@ -46,6 +46,7 @@ export interface ThreeCxSnapshot {
 }
 
 const HALO_CUSTOMER_REPLY_STATUS_ID = 30;
+const HALO_PAST_DUE_STATUS_ID = 31;
 const HALO_WAITING_ON_TECH_STATUS_ID = 32;
 
 export function isCustomerReplyStatus(statusId: number | null, statusName: string | null): boolean {
@@ -53,7 +54,9 @@ export function isCustomerReplyStatus(statusId: number | null, statusName: strin
 }
 
 export function isWaitingOnTechStatus(statusId: number | null, statusName: string | null): boolean {
-  return statusId === HALO_WAITING_ON_TECH_STATUS_ID || /waiting on tech/i.test(statusName ?? "");
+  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
+    || statusId === HALO_PAST_DUE_STATUS_ID
+    || /waiting on tech|past[ -]?due/i.test(statusName ?? "");
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────

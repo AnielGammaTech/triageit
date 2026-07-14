@@ -64,9 +64,11 @@ describe("Halo dispatch status matching", () => {
     expect(isCustomerReplyStatus(32, "Waiting on Tech")).toBe(false);
   });
 
-  it("uses Halo's canonical Waiting On Tech status ID even when the label is absent", () => {
+  it("counts Waiting On Tech and Past-Due as technician-owned WOT work", () => {
     expect(isWaitingOnTechStatus(32, null)).toBe(true);
+    expect(isWaitingOnTechStatus(31, null)).toBe(true);
     expect(isWaitingOnTechStatus(null, "Waiting on Tech")).toBe(true);
+    expect(isWaitingOnTechStatus(null, "PAST-DUE")).toBe(true);
     expect(isWaitingOnTechStatus(30, "Customer Reply")).toBe(false);
   });
 });

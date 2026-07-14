@@ -16,6 +16,7 @@ interface TicketRow {
   readonly client_name: string | null;
   readonly halo_agent: string | null;
   readonly halo_status: string | null;
+  readonly halo_status_id: number | null;
   readonly sla_currently_breached: boolean | null;
   readonly sla_breach_alert_count: number | null;
   readonly sla_fix_by: string | null;
@@ -114,6 +115,8 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
+const HALO_PAST_DUE_STATUS_ID = 31;
+const HALO_WAITING_ON_TECH_STATUS_ID = 32;
 const HALO_UNASSIGNED_AGENT_ID = 1;
 const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
 
@@ -136,6 +139,13 @@ function etDateKey(now: Date): string {
   }).formatToParts(now);
   const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** PAST-DUE is still tech-owned WOT work; it is a breach flag, not a new queue owner. */
+export function isWaitingOnTechQueue(statusId: number | null, statusName: string | null): boolean {
+  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
+    || statusId === HALO_PAST_DUE_STATUS_ID
+    || /waiting on tech|past[ -]?due/i.test(statusName ?? "");
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -250,7 +260,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     supabase
       .from("tickets")
       .select(
-        "halo_id, summary, client_name, halo_agent, halo_status, sla_currently_breached, sla_breach_alert_count, sla_fix_by, sla_on_hold, last_tech_action_at, last_customer_reply_at, created_at",
+        "halo_id, summary, client_name, halo_agent, halo_status, halo_status_id, sla_currently_breached, sla_breach_alert_count, sla_fix_by, sla_on_hold, last_tech_action_at, last_customer_reply_at, created_at",
       )
       .eq("halo_is_open", true)
       .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID),
@@ -337,7 +347,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   // ── Oldest Waiting-on-Tech tickets — the tech owes the next move, oldest first ──
   const oldestTickets: CommandUnassigned[] = tickets
-    .filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech"))
+    .filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status))
     .map((t) => ({
       halo_id: t.halo_id,
       summary: t.summary,
@@ -377,7 +387,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     agg.openTickets++;
     if (t.sla_currently_breached) agg.breaching++;
     const status = (t.halo_status ?? "").toLowerCase();
-    if (status.includes("waiting on tech")) agg.waitingOnTech++;
+    if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
     if (status.includes("customer reply")) {
       const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
       const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
@@ -444,7 +454,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     breaching: breaches.length,
     atRisk: atRisk.length,
     unassigned: unassignedTickets.length,
-    waitingOnTech: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech")).length,
+    waitingOnTech: tickets.filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status)).length,
     customerReply: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("customer reply")).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
     openedToday: openedTodayRes.count ?? 0,
