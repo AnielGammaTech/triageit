@@ -1,0 +1,542 @@
+# Instincts generated from https://github.com/AnielGammaTech/triageit
+# Generated: 2026-07-14T15:35:12.934Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: triageit-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, fix, docs, refactor, chore
+
+## Evidence
+
+- 15 commits analyzed
+- Detected conventional commit pattern
+- Examples: docs: add gtools.io promotional site design spec, feat: scaffold gtools promotional site app
+
+---
+id: triageit-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Commit Length
+
+## Action
+
+Write moderate-length commit messages (~51 characters)
+
+## Evidence
+
+- Average commit message length: 51 chars
+- Based on 15 commits
+
+---
+id: triageit-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: triageit-import-alias
+trigger: "when importing modules"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Import Alias
+
+## Action
+
+Use path aliases (@/, ~/) instead of relative imports
+
+## Evidence
+
+- Import analysis shows alias pattern
+- Example: import { x } from '@/lib/x'
+
+---
+id: triageit-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: triageit-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: 
+
+---
+id: triageit-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~22x per month
+- Files: apps/gtools/*, apps/gtools/src/app/*, apps/gtools/src/__tests__/*
+
+---
+id: triageit-workflow-add-or-update-component-with-associated-page
+trigger: "when doing add or update component with associated page"
+confidence: 0.65
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Or Update Component With Associated Page
+
+## Action
+
+Follow the add-or-update-component-with-associated-page workflow:
+1. Create or modify a component file in src/components/
+2. Update the relevant page file in src/app/ (e.g., page.tsx) to use the new or updated component
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~3x per month
+- Files: apps/gtools/src/components/*.tsx, apps/gtools/src/app/page.tsx
+
+---
+id: triageit-workflow-add-or-update-mockup-components
+trigger: "when doing add or update mockup components"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Or Update Mockup Components
+
+## Action
+
+Follow the add-or-update-mockup-components workflow:
+1. Create or update files in src/components/mockups/
+2. Optionally update or add test files in src/__tests__/
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: apps/gtools/src/components/mockups/*.tsx, apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-workflow-add-or-update-content-models-and-types
+trigger: "when doing add or update content models and types"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Or Update Content Models And Types
+
+## Action
+
+Follow the add-or-update-content-models-and-types workflow:
+1. Create or update content model file in src/content/
+2. Update or add type definitions in src/content/types.ts
+3. Optionally update or add test files in src/__tests__/
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: apps/gtools/src/content/*.ts, apps/gtools/src/content/types.ts, apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-workflow-add-or-update-design-or-implementation-docs
+trigger: "when doing add or update design or implementation docs"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Or Update Design Or Implementation Docs
+
+## Action
+
+Follow the add-or-update-design-or-implementation-docs workflow:
+1. Create or update a markdown file in docs/superpowers/specs/ or docs/superpowers/plans/
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: docs/superpowers/specs/*.md, docs/superpowers/plans/*.md
+
+---
+id: triageit-coding-naming-files
+trigger: "When creating or renaming a file"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Naming Files
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- apps/gtools/src/components/mockups/*.tsx
+
+---
+id: triageit-coding-naming-functions
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Naming Functions
+
+## Action
+
+Use camelCase for function names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+
+---
+id: triageit-coding-naming-classes
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Naming Classes
+
+## Action
+
+Use PascalCase for class names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+
+---
+id: triageit-coding-naming-constants
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Naming Constants
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: triageit-coding-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Import Style
+
+## Action
+
+Use alias import style
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: triageit-coding-export-style
+trigger: "When exporting modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Coding Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: triageit-testing-location
+trigger: "When adding or updating tests"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Testing Location
+
+## Action
+
+Place test files in src/__tests__/ or alongside source files with .test.ts(x) extension
+
+## Evidence
+
+- Pattern in architecture.folderStructure.testLocation
+- apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-testing-for-features
+trigger: "When implementing a new feature"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Testing For Features
+
+## Action
+
+Add corresponding test files for the feature
+
+## Evidence
+
+- feature-development workflow: 'Add tests for feature'
+- apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-git-commit-format
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Git Commit Format
+
+## Action
+
+Use conventional commit format: <type>: <description>
+
+## Evidence
+
+- Pattern in commits.type
+- Examples: 'feat: ...', 'fix: ...', 'docs: ...'
+
+---
+id: triageit-git-commit-types
+trigger: "When choosing a commit type"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Git Commit Types
+
+## Action
+
+Use one of: feat, fix, docs, refactor, chore as the prefix
+
+## Evidence
+
+- Pattern in commits.prefixes
+- Examples: 'feat: ...', 'fix: ...'
+
+---
+id: triageit-git-commit-length
+trigger: "When writing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Git Commit Length
+
+## Action
+
+Keep commit messages concise, around 50 characters
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: triageit-workflow-add-component-to-page
+trigger: "When introducing or updating a UI feature/section on a page"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Component To Page
+
+## Action
+
+Create or modify a component in src/components/ and update the relevant page file in src/app/
+
+## Evidence
+
+- Workflow: add-or-update-component-with-associated-page
+- apps/gtools/src/components/*.tsx
+- apps/gtools/src/app/page.tsx
+
+---
+id: triageit-workflow-add-mockup-components
+trigger: "When visually representing new tools or updating tool mockups"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Workflow Add Mockup Components
+
+## Action
+
+Create or update files in src/components/mockups/ and optionally update/add test files in src/__tests__/
+
+## Evidence
+
+- Workflow: add-or-update-mockup-components
+- apps/gtools/src/components/mockups/*.tsx
+- apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-workflow-update-content-models
+trigger: "When defining or changing structured content or its types"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Workflow Update Content Models
+
+## Action
+
+Create or update content model files in src/content/, update/add types in src/content/types.ts, and optionally update/add test files in src/__tests__/
+
+## Evidence
+
+- Workflow: add-or-update-content-models-and-types
+- apps/gtools/src/content/*.ts
+- apps/gtools/src/content/types.ts
+- apps/gtools/src/__tests__/*.test.ts
+
+---
+id: triageit-workflow-update-docs
+trigger: "When documenting a new feature, site, or plan"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: AnielGammaTech/triageit
+---
+
+# Triageit Workflow Update Docs
+
+## Action
+
+Create or update a markdown file in docs/superpowers/specs/ or docs/superpowers/plans/
+
+## Evidence
+
+- Workflow: add-or-update-design-or-implementation-docs
+- docs/superpowers/specs/*.md
+- docs/superpowers/plans/*.md
+
