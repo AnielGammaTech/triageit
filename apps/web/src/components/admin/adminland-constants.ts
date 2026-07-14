@@ -96,6 +96,13 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconColor: "text-emerald-400",
       },
       {
+        id: "tv-access",
+        label: "TV Access",
+        desc: "Issue one-time links for the command wallboard",
+        iconBg: "bg-indigo-500/10",
+        iconColor: "text-indigo-400",
+      },
+      {
         id: "cron-jobs",
         label: "Cron Jobs",
         desc: "Scheduled tasks, SLA scans, and retriage cycles",

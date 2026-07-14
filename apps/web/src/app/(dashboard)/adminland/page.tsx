@@ -15,6 +15,7 @@ import {
   Database,
   FileKey2,
   FileText,
+  KeyRound,
   Link2,
   ListChecks,
   MessageSquare,
@@ -50,6 +51,7 @@ import { UsersSecuritySection } from "@/components/admin/users-security";
 import { CronJobsSection } from "@/components/admin/cron-jobs-config";
 import { DiagnosticsSection } from "@/components/admin/diagnostics-section";
 import { HealthSection } from "@/components/admin/health-section";
+import { TvAccessSection } from "@/components/admin/tv-access-section";
 import { BrandingSettings } from "@/components/settings/branding-settings";
 
 type ActiveView =
@@ -73,6 +75,7 @@ const ADMIN_ICONS: Record<string, LucideIcon> = {
   users: UsersRound,
   branding: Palette,
   integrations: PlugZap,
+  "tv-access": KeyRound,
   "triage-rules": ListChecks,
   "agent-config": Settings2,
   workers: Cpu,
@@ -651,6 +654,8 @@ export default function AdminlandPage() {
           <DiagnosticsSection />
         ) : activeView.id === "health" ? (
           <HealthSection />
+        ) : activeView.id === "tv-access" ? (
+          <TvAccessSection />
         ) : activeView.id === "branding" ? (
           <BrandingSettings />
         ) : (

@@ -141,10 +141,10 @@ function commitmentHint(nextCommitment: string | null): string | null {
   return hint.length > 28 ? `${hint.slice(0, 27)}…` : hint;
 }
 
-/** Fetch the key-gated wallboard URL and open it in a new tab. */
+/** Create a one-time wallboard link and open it in a new tab. */
 async function openTvMode(): Promise<void> {
   try {
-    const res = await fetch("/api/tv/link", { cache: "no-store" });
+    const res = await fetch("/api/tv/link", { method: "POST", cache: "no-store" });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       window.alert(body?.error ?? "TV link unavailable — is TV_DASHBOARD_KEY set on the web service?");
@@ -208,7 +208,7 @@ export default function CommandPage() {
             aria-label="Open TV Mode"
             className="flex h-10 w-10 cursor-pointer items-center justify-center gap-2 rounded-lg border text-sm text-zinc-300 transition hover:text-white sm:w-auto sm:px-3"
             style={{ borderColor: HAIRLINE, background: PANEL }}
-            title="Open the key-gated TV wallboard link"
+            title="Create and open a one-time TV wallboard link"
           >
             <Tv className="h-4 w-4" />
             <span className="hidden sm:inline">TV Mode</span>

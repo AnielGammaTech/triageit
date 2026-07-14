@@ -1,22 +1,20 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { secureTokenEqual } from "./secure-token";
 
 export const TV_SESSION_COOKIE = "triageit_tv_session";
 export const TV_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
-const TV_LINK_MAX_AGE_SECONDS = 15 * 60;
+export const TV_LINK_MAX_AGE_SECONDS = 15 * 60;
 
 /**
- * Shared-key auth for the TV wallboard. The key lives in TV_DASHBOARD_KEY on
- * the web service — no Supabase session needed, so a TV browser can hold a
- * bookmarked URL forever. Fails closed when the env var is unset.
+ * TV_DASHBOARD_KEY signs short-lived access links and device sessions. The
+ * secret stays server-side and is never accepted directly from a browser.
  */
-export function isValidTvKey(candidate: string | null | undefined): boolean {
-  const expected = process.env.TV_DASHBOARD_KEY;
-  return secureTokenEqual(candidate, expected);
-}
-
 export function tvKeyConfigured(): boolean {
   return Boolean(process.env.TV_DASHBOARD_KEY);
+}
+
+export function hashTvLinkToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 type TvTokenKind = "link" | "session";

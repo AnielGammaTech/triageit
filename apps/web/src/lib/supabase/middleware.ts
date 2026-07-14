@@ -26,7 +26,7 @@ export async function updateSession(request: NextRequest) {
   const isHealthCheck = pathname === "/api/health";
   const isEmbed = pathname.startsWith("/embed");
   const isEmbedApi = pathname.startsWith("/api/embed/");
-  // TV wallboard: key-gated (TV_DASHBOARD_KEY) inside the route/page, not Supabase
+  // TV wallboard: one-time access link and device session, not a Supabase user.
   const isTv = pathname === "/tv" || pathname.startsWith("/api/tv/");
 
   if (isWebhook || isPublicApi || isHealthCheck || isEmbedApi || isTv) {

@@ -5,7 +5,7 @@ import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
 
 /**
- * GET /api/tv/command — key-gated Command Center data for the TV wallboard.
+ * GET /api/tv/command - device-session-gated Command Center data for the TV wallboard.
  * Auth: an HttpOnly session cookie issued by /api/tv/session. Exempted from
  * Supabase middleware because wallboard devices do not hold staff sessions.
  *

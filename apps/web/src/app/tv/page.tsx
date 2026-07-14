@@ -238,7 +238,6 @@ function dailyScheduleData(schedule: TvSchedule | undefined): DailyScheduleData 
 }
 
 export default function TvPage() {
-  const [keyInput, setKeyInput] = useState("");
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
@@ -261,31 +260,30 @@ export default function TvPage() {
     }
   }, []);
 
-  const establishSession = useCallback(async (body: { readonly access?: string; readonly key?: string }) => {
+  const establishSession = useCallback(async (access: string) => {
     const response = await fetch("/api/tv/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ access }),
     });
     if (!response.ok) {
       setAuthFailed(true);
       return false;
     }
     setAuthFailed(false);
-    setKeyInput("");
     return true;
   }, []);
 
-  // Exchange the short-lived dashboard link (or one legacy ?key= bookmark)
-  // for an HttpOnly cookie, then remove the credential from browser history.
+  // Exchange the single-use link for an HttpOnly cookie. New links use the URL
+  // fragment so the credential is never sent in the initial page request.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const access = params.get("access");
-    const legacyKey = params.get("key");
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const query = new URLSearchParams(window.location.search);
+    const access = fragment.get("access") ?? query.get("access");
+    window.history.replaceState({}, "", window.location.pathname);
     const exchange = async () => {
-      if (access || legacyKey) {
-        await establishSession(access ? { access } : { key: legacyKey ?? "" });
-        window.history.replaceState({}, "", window.location.pathname);
+      if (access) {
+        await establishSession(access);
       }
       setSessionReady(true);
     };
@@ -315,36 +313,13 @@ export default function TvPage() {
             TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
           </h1>
           <p className="text-[1.1vw]" style={{ color: INK_DIM }}>
-            {authFailed ? "That access key was rejected — enter the current one." : "Enter the access key to bring the board online."}
+            {authFailed
+              ? "This link is invalid, expired, or has already been used."
+              : "This TV session is not authorized."}
           </p>
-          <form
-            className="flex items-center gap-[0.8vw]"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const key = keyInput.trim();
-              if (!key) return;
-              void establishSession({ key }).then((ok) => {
-                if (ok) void load();
-              });
-            }}
-          >
-            <input
-              type="password"
-              autoFocus
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              placeholder="Access key"
-              className="w-[24vw] rounded-[0.6vw] border px-[1vw] py-[0.7vw] text-[1.2vw] text-white outline-none"
-              style={{ background: PANEL, borderColor: HAIRLINE, fontFamily: "var(--font-mono-tv), monospace" }}
-            />
-            <button
-              type="submit"
-              className="cursor-pointer rounded-[0.6vw] px-[1.4vw] py-[0.7vw] text-[1.2vw] font-bold text-white transition-opacity hover:opacity-85"
-              style={{ background: RED }}
-            >
-              Unlock
-            </button>
-          </form>
+          <p className="text-[0.9vw]" style={{ color: "#71717a" }}>
+            Generate a new one-time link in Adminland &gt; Platform Operations &gt; TV Access.
+          </p>
         </div>
       </Shell>
     );
