@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, Clock3, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
+import { formatEtTime, isActiveOrUpcomingEvent } from "@/lib/dispatch/schedule-visibility";
 
 interface TechStatus {
   readonly state:
@@ -984,9 +985,14 @@ function DaySchedule({
 }) {
   const day = week.days[0] ?? week.start;
   const header = fmtDayHeader(day);
-  const activeTechs = week.techs.filter((tech) => tech.events.some((event) => event.day === day));
+  const nowMs = Date.now();
+  const relevantTechs = week.techs.map((tech) => ({
+    ...tech,
+    events: tech.events.filter((event) => event.day === day && isActiveOrUpcomingEvent(event, nowMs)),
+  }));
+  const activeTechs = relevantTechs.filter((tech) => tech.events.length > 0);
   const quietTechs = week.techs
-    .filter((tech) => !tech.events.some((event) => event.day === day))
+    .filter((tech) => !relevantTechs.some((candidate) => candidate.tech === tech.tech && candidate.events.length > 0))
     .map((tech) => tech.tech);
   return (
     <Section
@@ -1024,10 +1030,14 @@ function DaySchedule({
       }
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <DayAgenda key={day} week={week} day={day} techs={activeTechs} />
+        <DayAgenda key={day} week={week} day={day} techs={activeTechs} isToday={header.isToday} nowMs={nowMs} />
         {quietTechs.length > 0 && (
-          <p className="shrink-0 border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-            No scheduled items: {quietTechs.join(", ")}
+          <p
+            className="flex h-9 shrink-0 items-center truncate border-t px-5 text-xs text-zinc-500"
+            style={{ borderColor: HAIRLINE }}
+            title={`${header.isToday ? "No remaining items" : "No scheduled items"}: ${quietTechs.join(", ")}`}
+          >
+            {header.isToday ? "No remaining items" : "No scheduled items"}: {quietTechs.join(", ")}
           </p>
         )}
       </div>
@@ -1047,10 +1057,14 @@ function DayAgenda({
   week,
   day,
   techs,
+  isToday,
+  nowMs,
 }: {
   readonly week: WeekData;
   readonly day: string;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
+  readonly isToday: boolean;
+  readonly nowMs: number;
 }) {
   const [page, setPage] = useState(0);
   const all = techs.flatMap((tech): ReadonlyArray<AgendaItem> =>
@@ -1060,17 +1074,27 @@ function DayAgenda({
   const items = all
     .filter((item) => item.event.type !== "pto")
     .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
-  const pageCount = Math.max(1, Math.ceil(items.length / AGENDA_PAGE_SIZE));
+  const pageSize = isToday ? AGENDA_PAGE_SIZE - 1 : AGENDA_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visible = items.slice(safePage * AGENDA_PAGE_SIZE, (safePage + 1) * AGENDA_PAGE_SIZE);
+  const visible = items.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {offTechs.length > 0 && (
         <p className="shrink-0 px-4 pb-1 pt-3 text-xs font-medium text-zinc-500">Off: {offTechs.join(", ")}</p>
       )}
+      {isToday && items.length > 0 && (
+        <div className="flex h-7 shrink-0 items-center gap-2 px-4" aria-label={`Current time ${formatEtTime(nowMs)}`}>
+          <span className="text-[10px] font-semibold uppercase text-red-400">Now</span>
+          <span className="h-px flex-1 bg-red-500/40" />
+          <span className="text-[10px] tabular-nums text-zinc-500">{formatEtTime(nowMs)}</span>
+        </div>
+      )}
       {items.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center p-5 text-sm text-zinc-400">Nothing scheduled for this day.</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center p-5 text-sm text-zinc-400">
+          {isToday ? "Nothing else scheduled today." : "Nothing scheduled for this day."}
+        </div>
       ) : (
         <div className="min-h-0 flex-1">
           {visible.map(({ tech, event: scheduledEvent }, index) => (

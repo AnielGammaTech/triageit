@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatEtTime, isActiveOrUpcomingEvent, isCurrentEtDay } from "@/lib/dispatch/schedule-visibility";
 import {
   Activity,
   TriangleAlert,
@@ -222,19 +223,20 @@ interface DailyScheduleData {
   readonly day: string | null;
   readonly rows: ReadonlyArray<DailyScheduleRow>;
   readonly offTechs: ReadonlyArray<string>;
+  readonly isToday: boolean;
 }
 
-function dailyScheduleData(schedule: TvSchedule | undefined): DailyScheduleData {
-  if (!schedule) return { day: null, rows: [], offTechs: [] };
+function dailyScheduleData(schedule: TvSchedule | undefined, nowMs: number): DailyScheduleData {
+  if (!schedule) return { day: null, rows: [], offTechs: [], isToday: false };
   const day = schedule.days[0] ?? schedule.start;
   const all = schedule.techs.flatMap((tech) =>
     tech.events.filter((event) => event.day === day).map((event) => ({ tech: tech.tech, event })),
   );
   const offTechs = [...new Set(all.filter(({ event }) => event.type === "pto").map(({ tech }) => tech.split(" ")[0]))];
   const rows = all
-    .filter(({ event }) => event.type !== "pto")
+    .filter(({ event }) => event.type !== "pto" && isActiveOrUpcomingEvent(event, nowMs))
     .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
-  return { day, rows, offTechs };
+  return { day, rows, offTechs, isToday: isCurrentEtDay(day, nowMs) };
 }
 
 export default function TvPage() {
@@ -364,7 +366,7 @@ export default function TvPage() {
   const syncAgeSec = lastOkAt > 0 ? Math.floor((nowTick - lastOkAt) / 1000) : null;
   const breachAlarm = (m?.breaching ?? 0) > 0;
   // The daily slide stays visible long enough to page through every schedule row.
-  const dailySchedule = dailyScheduleData(data?.schedule);
+  const dailySchedule = dailyScheduleData(data?.schedule, nowTick);
   const schedulePages = Math.max(1, Math.ceil(dailySchedule.rows.length / SCHEDULE_PAGE_SIZE));
   const { slide, schedulePage } = carouselPosition(nowTick, schedulePages);
   // Queue row budget: at-risk fills whatever breaches/unassigned don't use
@@ -598,7 +600,7 @@ export default function TvPage() {
                   </div>
                 )}
                 {slide === 2 && <StatusDonut statusCounts={data.statusCounts} total={data.metrics.open} />}
-                {slide === 3 && <DailySchedule schedule={dailySchedule} page={schedulePage} />}
+                {slide === 3 && <DailySchedule schedule={dailySchedule} page={schedulePage} nowMs={nowTick} />}
               </div>
             )}
           </Panel>
@@ -736,7 +738,7 @@ function scheduleDay(day: string | null): string {
   });
 }
 
-function DailySchedule({ schedule, page }: { readonly schedule: DailyScheduleData; readonly page: number }) {
+function DailySchedule({ schedule, page, nowMs }: { readonly schedule: DailyScheduleData; readonly page: number; readonly nowMs: number }) {
   const pageCount = Math.max(1, Math.ceil(schedule.rows.length / SCHEDULE_PAGE_SIZE));
   const currentPage = Math.min(pageCount - 1, Math.max(0, page));
   const visible = schedule.rows.slice(currentPage * SCHEDULE_PAGE_SIZE, (currentPage + 1) * SCHEDULE_PAGE_SIZE);
@@ -750,8 +752,13 @@ function DailySchedule({ schedule, page }: { readonly schedule: DailyScheduleDat
             Off: {schedule.offTechs.join(", ")}
           </span>
         )}
+        {schedule.isToday && (
+          <span className="ml-auto shrink-0 text-[0.72vw] font-bold" style={{ color: "#f87171", fontFamily: "var(--font-mono-tv), monospace" }}>
+            NOW {formatEtTime(nowMs)}
+          </span>
+        )}
         {pageCount > 1 && (
-          <span className="ml-auto shrink-0 text-[0.72vw] font-bold" style={{ color: INK_DIM, fontFamily: "var(--font-mono-tv), monospace" }}>
+          <span className="shrink-0 text-[0.72vw] font-bold" style={{ color: INK_DIM, fontFamily: "var(--font-mono-tv), monospace" }}>
             {currentPage + 1}/{pageCount}
           </span>
         )}
@@ -759,7 +766,7 @@ function DailySchedule({ schedule, page }: { readonly schedule: DailyScheduleDat
 
       {visible.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-[0.95vw] font-semibold" style={{ color: INK_DIM }}>
-          Nothing scheduled today.
+          {schedule.isToday ? "Nothing else scheduled today." : "Nothing scheduled for this day."}
         </div>
       ) : (
         <div className="min-h-0 flex-1">
