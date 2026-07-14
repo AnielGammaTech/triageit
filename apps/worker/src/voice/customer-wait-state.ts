@@ -43,6 +43,12 @@ function isOutboundStaffAction(action: ActionRecord): boolean {
   return action.who_type === 1 || action.emaildirection?.toUpperCase() === "O" || isInternalStaffName(action.who);
 }
 
+/** Customer-visible outbound email. Internal notes and non-email actions do not satisfy response SLAs. */
+export function isOutboundCustomerEmail(action: ActionRecord): boolean {
+  if (action.hiddenfromuser !== false) return false;
+  return action.emaildirection?.toUpperCase() === "O" || /\bemail\b/i.test(action.outcome ?? "");
+}
+
 export function analyzeCustomerWaitState(
   actions: ReadonlyArray<ActionRecord>,
   statusName: string | null | undefined,

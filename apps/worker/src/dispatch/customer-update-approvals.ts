@@ -22,6 +22,8 @@ export interface CustomerUpdateApproval {
   readonly customer_replied_at: string | null;
   readonly status: "pending" | "sending" | "sent" | "dismissed" | "failed" | "customer_declined";
   readonly error_message: string | null;
+  readonly source: "sla_call" | "initial_acknowledgment";
+  readonly approval_reason: string | null;
   readonly tech_approved_at: string;
   readonly created_at: string;
 }
@@ -45,6 +47,19 @@ interface StageCustomerUpdateInput {
   readonly contactMethod: "call" | "reply";
   readonly nextActionAt: string;
   readonly technicianConfirmed: boolean;
+}
+
+export interface StageInitialAcknowledgmentInput {
+  readonly ticketId: string;
+  readonly haloId: number;
+  readonly ticketSummary: string;
+  readonly clientName: string | null;
+  readonly customerName: string | null;
+  readonly customerEmail: string | null;
+  readonly techName: string | null;
+  readonly draftMessage: string;
+  readonly nextActionAt: string | null;
+  readonly dispatcherOutcome: "missed" | "pto_exempt" | "pto_unknown";
 }
 
 type CustomerScheduleReply = "accepted" | "needs_follow_up" | "neutral";
@@ -104,6 +119,21 @@ export function validateCustomerCommitmentDraft(
   if (!/(?:does|will) (?:that|this)(?: time)? work|is (?:that|this)(?: time)? (?:okay|ok)|please let us know if (?:that|this)(?: time)? works/i.test(text)) {
     return "The customer draft must ask whether that next-action time works for them";
   }
+  return null;
+}
+
+export function validateInitialAcknowledgmentDraft(
+  draft: string,
+  nextActionAt: string | null,
+): string | null {
+  const text = cleanMessage(draft, 4_000);
+  if (!/\b(thank|thanks)\b/i.test(text) || !/\b(received|acknowledge|reviewing)\b/i.test(text)) {
+    return "The initial message must thank the customer and confirm that Gamma Tech received the request";
+  }
+  if (!/\b(reply|contact|update|follow up|follow-up)\b/i.test(text)) {
+    return "The initial message must explain how the customer will receive the next update";
+  }
+  if (nextActionAt) return validateCustomerCommitmentDraft(text, nextActionAt, "reply");
   return null;
 }
 
@@ -185,10 +215,65 @@ export async function stageCustomerUpdate(
   return { id: String(data.id), replacedExisting: Boolean(existing) };
 }
 
+export async function stageInitialAcknowledgment(
+  supabase: SupabaseClient,
+  input: StageInitialAcknowledgmentInput,
+): Promise<{ id: string; replacedExisting: boolean }> {
+  const draftMessage = cleanMessage(input.draftMessage, 4_000);
+  const draftError = validateInitialAcknowledgmentDraft(draftMessage, input.nextActionAt);
+  if (draftError) throw new Error(draftError);
+
+  const { data: existing } = await supabase
+    .from("dispatch_customer_updates")
+    .select("id")
+    .eq("halo_id", input.haloId)
+    .eq("source", "initial_acknowledgment")
+    .in("status", ["pending", "failed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const pto = input.dispatcherOutcome === "pto_exempt";
+  const unknown = input.dispatcherOutcome === "pto_unknown";
+  const reason = pto
+    ? "Bryanna is marked PTO. The 30-business-minute dispatcher metric is exempt, but the customer still needs coverage."
+    : unknown
+      ? "No customer acknowledgment was posted within 30 business minutes. Bryanna's PTO status could not be verified, so the miss is pending review."
+      : "No customer acknowledgment was posted within 30 business minutes. This is recorded as a missed dispatcher acknowledgment.";
+  const now = new Date().toISOString();
+  const payload = {
+    ticket_id: input.ticketId,
+    halo_id: input.haloId,
+    ticket_summary: input.ticketSummary.slice(0, 300),
+    client_name: input.clientName,
+    customer_name: input.customerName,
+    customer_email: input.customerEmail,
+    tech_name: input.techName,
+    customer_waiting_reason: reason,
+    approval_reason: reason,
+    raw_message: "TriageIT generated an initial acknowledgment after the 30-business-minute response clock expired.",
+    draft_message: draftMessage,
+    contact_method: input.nextActionAt ? "reply" : null,
+    next_action_at: input.nextActionAt,
+    status: "pending",
+    source: "initial_acknowledgment",
+    tech_approved_at: now,
+    error_message: null,
+    updated_at: now,
+  };
+
+  const query = existing
+    ? supabase.from("dispatch_customer_updates").update(payload).eq("id", existing.id)
+    : supabase.from("dispatch_customer_updates").insert(payload);
+  const { data, error } = await query.select("id").single();
+  if (error || !data) throw new Error(error?.message ?? "Could not queue the initial customer acknowledgment");
+  return { id: String(data.id), replacedExisting: Boolean(existing) };
+}
+
 export async function listCustomerUpdateApprovals(supabase: SupabaseClient): Promise<ReadonlyArray<CustomerUpdateApproval>> {
   const { data, error } = await supabase
     .from("dispatch_customer_updates")
-    .select("id, ticket_id, halo_id, ticket_summary, client_name, customer_name, customer_email, tech_name, customer_waiting_reason, raw_message, draft_message, contact_method, next_action_at, customer_reply_message, customer_replied_at, status, error_message, tech_approved_at, created_at")
+    .select("id, ticket_id, halo_id, ticket_summary, client_name, customer_name, customer_email, tech_name, customer_waiting_reason, raw_message, draft_message, contact_method, next_action_at, customer_reply_message, customer_replied_at, status, error_message, source, approval_reason, tech_approved_at, created_at")
     .in("status", ["pending", "failed", "customer_declined"])
     .order("created_at", { ascending: true })
     .limit(25);
@@ -222,16 +307,19 @@ export async function approveCustomerUpdate(
     })
     .eq("id", id)
     .in("status", ["pending", "failed"])
-    .select("id, halo_id, ticket_summary, tech_approved_at, contact_method, next_action_at")
+    .select("id, halo_id, ticket_summary, tech_approved_at, contact_method, next_action_at, source")
     .maybeSingle();
   if (claimError) throw new Error(claimError.message);
   if (!claimed) throw new Error("This update was already handled by someone else");
-  if (!claimed.contact_method || !claimed.next_action_at) {
+  const initialAcknowledgment = claimed.source === "initial_acknowledgment";
+  if (!initialAcknowledgment && (!claimed.contact_method || !claimed.next_action_at)) {
     const message = "This draft predates the required next-action commitment and must be restaged from a technician call";
     await supabase.from("dispatch_customer_updates").update({ status: "failed", error_message: message, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "sending");
     throw new Error(message);
   }
-  const draftError = validateCustomerCommitmentDraft(draftMessage, String(claimed.next_action_at), claimed.contact_method as "call" | "reply");
+  const draftError = initialAcknowledgment
+    ? validateInitialAcknowledgmentDraft(draftMessage, claimed.next_action_at ? String(claimed.next_action_at) : null)
+    : validateCustomerCommitmentDraft(draftMessage, String(claimed.next_action_at), claimed.contact_method as "call" | "reply");
   if (draftError) {
     await supabase.from("dispatch_customer_updates").update({ status: "failed", error_message: draftError, updated_at: new Date().toISOString() }).eq("id", id).eq("status", "sending");
     throw new Error(draftError);
@@ -273,6 +361,9 @@ export async function approveCustomerUpdate(
         .eq("id", id)
         .eq("status", "sending");
       if (reconcileError) throw new Error(`Existing Halo email found, but the approval audit could not be completed: ${reconcileError.message}`);
+      if (initialAcknowledgment) {
+        await recordApprovedInitialAcknowledgment(supabase, Number(claimed.halo_id), alreadySent.id, reconciledAt, actor);
+      }
       return { haloActionId: alreadySent.id, recipient };
     }
     const haloActionId = await halo.sendCustomerEmail({
@@ -288,6 +379,9 @@ export async function approveCustomerUpdate(
       .eq("id", id)
       .eq("status", "sending");
     if (finishError) throw new Error(`Email sent, but the approval audit could not be completed: ${finishError.message}`);
+    if (initialAcknowledgment) {
+      await recordApprovedInitialAcknowledgment(supabase, Number(claimed.halo_id), haloActionId, sentAt, actor);
+    }
     return { haloActionId, recipient };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -298,6 +392,33 @@ export async function approveCustomerUpdate(
       .eq("status", "sending");
     throw error;
   }
+}
+
+async function recordApprovedInitialAcknowledgment(
+  supabase: SupabaseClient,
+  haloId: number,
+  actionId: number,
+  sentAt: string,
+  actor: ApprovalActor,
+): Promise<void> {
+  const { data: compliance } = await supabase
+    .from("ticket_response_compliance")
+    .select("acknowledgment_due_at")
+    .eq("halo_id", haloId)
+    .maybeSingle();
+  const dueAt = compliance?.acknowledgment_due_at ? Date.parse(String(compliance.acknowledgment_due_at)) : NaN;
+  const { error } = await supabase
+    .from("ticket_response_compliance")
+    .update({
+      acknowledgment_at: sentAt,
+      acknowledgment_by: actor.email ?? "Dispatch approver",
+      acknowledgment_action_id: actionId || null,
+      acknowledgment_met: Number.isFinite(dueAt) ? Date.parse(sentAt) <= dueAt : false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("halo_id", haloId)
+    .is("acknowledgment_at", null);
+  if (error) console.warn(`[RESPONSE-COMPLIANCE] Email sent but compliance audit update failed for #${haloId}: ${error.message}`);
 }
 
 export async function dismissCustomerUpdate(supabase: SupabaseClient, id: string, actor: ApprovalActor): Promise<void> {

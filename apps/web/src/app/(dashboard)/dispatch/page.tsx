@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, Clock3, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
 
 interface TechStatus {
   readonly state:
@@ -113,8 +113,42 @@ interface CustomerUpdateApproval {
   readonly customer_replied_at: string | null;
   readonly status: "pending" | "failed" | "customer_declined";
   readonly error_message: string | null;
+  readonly source: "sla_call" | "initial_acknowledgment";
+  readonly approval_reason: string | null;
   readonly tech_approved_at: string;
   readonly created_at: string;
+}
+interface ResponseCompliance {
+  readonly generatedAt: string;
+  readonly summary: {
+    readonly acknowledgment: {
+      readonly onTime: number;
+      readonly missed: number;
+      readonly ptoExempt: number;
+      readonly ptoUnknown: number;
+      readonly pending: number;
+      readonly approvalNeeded: number;
+    };
+    readonly technician: {
+      readonly onTime: number;
+      readonly missed: number;
+      readonly pending: number;
+    };
+  };
+  readonly active: ReadonlyArray<{
+    readonly halo_id: number;
+    readonly ticket_summary: string;
+    readonly client_name: string | null;
+    readonly acknowledgment_due_at: string;
+    readonly acknowledgment_at: string | null;
+    readonly acknowledgment_overdue: boolean;
+    readonly dispatcher_outcome: "pending" | "met" | "missed" | "pto_exempt" | "pto_unknown";
+    readonly approval_id: string | null;
+    readonly assigned_tech: string | null;
+    readonly technician_response_due_at: string | null;
+    readonly technician_response_at: string | null;
+    readonly technician_overdue: boolean;
+  }>;
 }
 
 const RED = "#dc2626";
@@ -186,6 +220,7 @@ export default function DispatchPage() {
   const [customerDrafts, setCustomerDrafts] = useState<Record<string, string>>({});
   const [customerUpdateBusy, setCustomerUpdateBusy] = useState<string | null>(null);
   const [customerUpdateError, setCustomerUpdateError] = useState<string | null>(null);
+  const [responseCompliance, setResponseCompliance] = useState<ResponseCompliance | null>(null);
   const [dayOffset, setDayOffset] = useState(0);
   const [actionLane, setActionLane] = useState<"now" | "today">("now");
   const [loading, setLoading] = useState(true);
@@ -195,10 +230,11 @@ export default function DispatchPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const [boardRes, suggestRes, customerUpdatesRes] = await Promise.all([
+      const [boardRes, suggestRes, customerUpdatesRes, responseComplianceRes] = await Promise.all([
         fetch("/api/dispatch/board", { cache: "no-store" }),
         fetch("/api/dispatch/suggest", { cache: "no-store" }),
         fetch("/api/dispatch/customer-updates", { cache: "no-store" }),
+        fetch("/api/dispatch/response-compliance", { cache: "no-store" }),
       ]);
       if (!boardRes.ok) throw new Error(`HTTP ${boardRes.status}`);
       if (!suggestRes.ok) throw new Error(`HTTP ${suggestRes.status}`);
@@ -216,6 +252,9 @@ export default function DispatchPage() {
         setCustomerUpdateError(null);
       } else {
         setCustomerUpdateError("Customer update approvals are unavailable right now.");
+      }
+      if (responseComplianceRes.ok) {
+        setResponseCompliance((await responseComplianceRes.json()) as ResponseCompliance);
       }
       setError(null);
     } catch (err) {
@@ -376,16 +415,20 @@ export default function DispatchPage() {
         </div>
       </div>
 
-      <CustomerUpdateQueue
-        updates={customerUpdates}
-        drafts={customerDrafts}
-        busyId={customerUpdateBusy}
-        error={customerUpdateError}
-        haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""}
-        onDraftChange={(id, value) => setCustomerDrafts((current) => ({ ...current, [id]: value }))}
-        onApprove={(id) => void actOnCustomerUpdate(id, "approve")}
-        onDismiss={(id) => void actOnCustomerUpdate(id, "dismiss")}
-      />
+      <ResponseCompliancePanel data={responseCompliance} haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""} />
+
+      <div id="customer-email-approvals" className="scroll-mt-5">
+        <CustomerUpdateQueue
+          updates={customerUpdates}
+          drafts={customerDrafts}
+          busyId={customerUpdateBusy}
+          error={customerUpdateError}
+          haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""}
+          onDraftChange={(id, value) => setCustomerDrafts((current) => ({ ...current, [id]: value }))}
+          onApprove={(id) => void actOnCustomerUpdate(id, "approve")}
+          onDismiss={(id) => void actOnCustomerUpdate(id, "dismiss")}
+        />
+      </div>
 
       <Section
         title="Next Actions"
@@ -412,6 +455,94 @@ export default function DispatchPage() {
         {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} lane={actionLane} />}
       </Section>
     </div>
+  );
+}
+
+function ResponseCompliancePanel({ data, haloBaseUrl }: { readonly data: ResponseCompliance | null; readonly haloBaseUrl: string }) {
+  if (!data) return null;
+  const ack = data.summary.acknowledgment;
+  const tech = data.summary.technician;
+  return (
+    <Section
+      title="First Response"
+      icon={<Clock3 className="h-4 w-4 text-sky-400" />}
+      actions={<span className="text-[10px] text-zinc-500">30m acknowledgment · 1h assigned tech email · business time</span>}
+    >
+      <div className="grid grid-cols-2 border-b sm:grid-cols-3 lg:grid-cols-6" style={{ borderColor: HAIRLINE }}>
+        <ResponseMetric label="Ack on time" value={ack.onTime} tone="#4ade80" />
+        <ResponseMetric label="Bryanna missed" value={ack.missed} tone="#f87171" />
+        <ResponseMetric label="PTO exempt" value={ack.ptoExempt} tone="#a1a1aa" />
+        <ResponseMetric label="Needs approval" value={ack.approvalNeeded} tone="#fbbf24" />
+        <ResponseMetric label="Tech on time" value={tech.onTime} tone="#7dd3fc" />
+        <ResponseMetric label="Tech missed" value={tech.missed} tone="#fb7185" />
+      </div>
+      {data.active.length === 0 ? (
+        <div className="px-5 py-4 text-sm text-zinc-500">No active first-response clocks.</div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+          {data.active.map((item) => {
+            const href = haloTicketUrl(haloBaseUrl, item.halo_id);
+            return (
+              <div key={item.halo_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:flex-nowrap sm:px-5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-zinc-300">
+                    <span className="mr-2 font-mono text-xs font-bold text-white">#{item.halo_id}</span>
+                    <span className="font-semibold">{item.client_name ?? "Unknown client"}</span>
+                    <span className="text-zinc-500"> · {item.ticket_summary}</span>
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">Assigned: <span className="text-zinc-300">{item.assigned_tech ?? "Unassigned"}</span></p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 text-[11px]">
+                  {!item.acknowledgment_at && (
+                    <DeadlineChip label="Ack" iso={item.acknowledgment_due_at} overdue={item.acknowledgment_overdue} />
+                  )}
+                  {item.technician_response_due_at && !item.technician_response_at && (
+                    <DeadlineChip label="Tech" iso={item.technician_response_due_at} overdue={item.technician_overdue} />
+                  )}
+                  {item.approval_id && !item.acknowledgment_at && (
+                    <span className="rounded border border-amber-800 bg-amber-950/30 px-2 py-1 font-semibold text-amber-300">Approval ready</span>
+                  )}
+                </div>
+                {href && (
+                  <a href={href} target="_blank" rel="noreferrer" title={`Open ticket #${item.halo_id}`} className="text-zinc-600 hover:text-white">
+                    <ArrowUpRight className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {(ack.ptoUnknown > 0 || ack.pending > 0 || tech.pending > 0) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-5 py-2 text-[11px] text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          <span>{ack.pending} acknowledgment clock{ack.pending === 1 ? "" : "s"} running</span>
+          <span>{tech.pending} technician clock{tech.pending === 1 ? "" : "s"} running</span>
+          {ack.ptoUnknown > 0 && <span className="text-amber-400">{ack.ptoUnknown} PTO status awaiting verification</span>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function ResponseMetric({ label, value, tone }: { readonly label: string; readonly value: number; readonly tone: string }) {
+  return (
+    <div className="min-w-0 border-r px-4 py-3 last:border-r-0" style={{ borderColor: HAIRLINE }}>
+      <p className="truncate text-[10px] font-semibold uppercase text-zinc-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: tone }}>{value}</p>
+    </div>
+  );
+}
+
+function DeadlineChip({ label, iso, overdue }: { readonly label: string; readonly iso: string; readonly overdue: boolean }) {
+  const time = new Date(iso).toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return (
+    <span className={`rounded border px-2 py-1 font-semibold ${overdue ? "border-red-900 bg-red-950/40 text-red-300" : "border-zinc-700 bg-black/20 text-zinc-300"}`}>
+      {label} {overdue ? "overdue" : `by ${time}`}
+    </span>
   );
 }
 
@@ -458,7 +589,8 @@ function CustomerUpdateQueue({
             const busy = busyId === update.id;
             const draft = drafts[update.id] ?? update.draft_message;
             const needsFollowUp = update.status === "customer_declined";
-            const legacyDraft = !update.contact_method || !update.next_action_at;
+            const initialAcknowledgment = update.source === "initial_acknowledgment";
+            const legacyDraft = !initialAcknowledgment && (!update.contact_method || !update.next_action_at);
             const approvedAt = new Date(update.tech_approved_at).toLocaleString("en-US", {
               timeZone: "America/New_York",
               month: "short",
@@ -486,6 +618,11 @@ function CustomerUpdateQueue({
                       {needsFollowUp && (
                         <span className="inline-flex items-center gap-1 rounded border border-red-800 bg-red-950/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-300">
                           <TriangleAlert className="h-3 w-3" /> Needs follow-up
+                        </span>
+                      )}
+                      {initialAcknowledgment && (
+                        <span className="inline-flex items-center rounded border border-sky-900 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">
+                          Initial acknowledgment
                         </span>
                       )}
                       <span className="text-sm font-semibold text-zinc-200">{update.client_name ?? "Unknown client"}</span>
@@ -518,7 +655,9 @@ function CustomerUpdateQueue({
                 </p>
                 {nextAction && update.contact_method && (
                   <p className="mt-2 text-xs font-semibold text-sky-300">
-                    Email now · {update.contact_method === "call" ? "Customer call" : "Next email update"} committed for {nextAction}
+                    {initialAcknowledgment
+                      ? `Assigned technician email due by ${nextAction}`
+                      : `Email now · ${update.contact_method === "call" ? "Customer call" : "Next email update"} committed for ${nextAction}`}
                   </p>
                 )}
                 {needsFollowUp && update.customer_reply_message && (

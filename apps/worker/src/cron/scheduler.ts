@@ -15,6 +15,7 @@ import { retryErroredTickets } from "./error-retry.js";
 import { runCallAnalysis } from "./call-analysis.js";
 import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
 import { runScheduleSync } from "../dispatch/schedule-sync.js";
+import { scanTicketResponseCompliance } from "./ticket-response-compliance.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -83,6 +84,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     description: "Syncs open tickets from Halo every minute so new customer work enters triage quickly.",
     schedule: "* * * * *",
     endpoint: "/ticket-sync",
+  },
+  {
+    name: "Ticket Response Compliance",
+    description: "Tracks the 30-minute customer acknowledgment and one-business-hour assigned-tech email clocks.",
+    schedule: "* * * * *",
+    endpoint: "/ticket-response-compliance",
   },
   {
     name: "SLA Breach Scan",
@@ -237,6 +244,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   },
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/ticket-response-compliance": runTicketResponseCompliance,
   "/integration-heartbeat": runIntegrationHeartbeatCron,
   "/workflow-scan": runWorkflowScan,
   "/memory/evict": runMemoryEviction,
@@ -400,6 +408,13 @@ async function runTicketSync(): Promise<void> {
   const result = await syncTicketsFromHalo();
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
+  );
+}
+
+async function runTicketResponseCompliance(): Promise<void> {
+  const result = await scanTicketResponseCompliance();
+  console.log(
+    `[CRON] Response compliance: ${result.tracked} tracked, ${result.dispatcherMisses} dispatcher misses, ${result.ptoExemptions} PTO exemptions, ${result.technicianMisses} technician misses, ${result.approvalsStaged} approvals staged`,
   );
 }
 
@@ -838,6 +853,7 @@ export async function startCronScheduler(): Promise<void> {
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
+    { endpoint: "/ticket-response-compliance", name: "Ticket Response Compliance", schedule: "* * * * *" },
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)

@@ -39,6 +39,8 @@ import {
 import { HaloClient } from "./integrations/halo/client.js";
 import { ThreeCxClient } from "./integrations/threecx/client.js";
 import { buildDispatchBoard } from "./dispatch/board.js";
+import { buildResponseComplianceDashboard } from "./response-compliance/dashboard.js";
+import { scanTicketResponseCompliance } from "./cron/ticket-response-compliance.js";
 import { buildSuggestions } from "./dispatch/suggest.js";
 import { buildCallTranscriptionPayload, invalidateCallTranscriptionCache } from "./dispatch/call-transcriptions.js";
 import { manuallyMatchRecording } from "./cron/call-analysis.js";
@@ -220,6 +222,24 @@ server.post<{ Body: Record<string, never> }>(
 server.get("/dispatch/board", async (_request, reply) => {
   try {
     return await buildDispatchBoard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.get("/dispatch/response-compliance", async (_request, reply) => {
+  try {
+    return await buildResponseComplianceDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post("/ticket-response-compliance", async (_request, reply) => {
+  try {
+    return { status: "completed", ...(await scanTicketResponseCompliance()) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return reply.status(500).send({ error: message });
