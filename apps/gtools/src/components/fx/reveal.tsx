@@ -47,8 +47,17 @@ const isBrowser = typeof window !== "undefined";
  * this component skips the hidden state outright when the media query
  * matches, AND every visual effect the `data-reveal-state` attribute drives
  * lives inside a `@media (prefers-reduced-motion: no-preference)` block in
- * globals.css — so even a stray class name can never hide content for a
+ * fx.css — so even a stray class name can never hide content for a
  * reduced-motion user.
+ *
+ * `will-change` is only cheap while an element is actually animating, so
+ * fx.css scopes it to the "hidden"/"visible" states. Once the reveal
+ * transition finishes (`transitionend`, with a timeout fallback in case that
+ * event never fires — e.g. the element was already off-screen and the
+ * property never actually changed value), this component advances to a
+ * final "done" state that carries no `will-change` and no transition side
+ * effects, so long-lived revealed content doesn't keep a permanent
+ * compositor hint.
  */
 export function Reveal({
   children,
@@ -57,7 +66,9 @@ export function Reveal({
   threshold = 0.2,
 }: RevealProps) {
   const ref = useRef<Element | null>(null);
-  const [state, setState] = useState<"idle" | "hidden" | "visible">("idle");
+  const [state, setState] = useState<"idle" | "hidden" | "visible" | "done">(
+    "idle",
+  );
 
   useLayoutEffect(() => {
     if (!isBrowser) return;
@@ -86,6 +97,39 @@ export function Reveal({
     observer.observe(node);
     return () => observer.disconnect();
   }, [state, threshold]);
+
+  useEffect(() => {
+    if (state !== "visible") return;
+    // Cast to HTMLElement: every call site passes a plain DOM element (a,
+    // div, li, section), and `transitionend` only lives on HTMLElementEventMap
+    // — the base `Element` type this ref is declared with doesn't carry it.
+    const node = ref.current as HTMLElement | null;
+    if (!node) return;
+
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      setState("done");
+    };
+
+    const handleTransitionEnd = (event: TransitionEvent) => {
+      if (event.target !== node) return;
+      settle();
+    };
+
+    node.addEventListener("transitionend", handleTransitionEnd);
+    // Fallback: if the transition never fires an end event (property didn't
+    // actually change, reduced-motion toggled mid-flight, etc.) still drop
+    // will-change after a bound comfortably longer than the 0.7s transition
+    // plus the largest stagger delay in use on this site.
+    const timeout = window.setTimeout(settle, 1500);
+
+    return () => {
+      node.removeEventListener("transitionend", handleTransitionEnd);
+      window.clearTimeout(timeout);
+    };
+  }, [state]);
 
   const style: CSSProperties = {
     ...children.props.style,

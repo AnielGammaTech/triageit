@@ -20,7 +20,10 @@ export function Hero() {
           <span className="block">The software we built</span>
         </Reveal>
         <Reveal variant="up" delayMs={140}>
-          <span className="fx-shimmer-text block">to run our MSP.</span>
+          <span className="fx-shimmer-text block">
+            to run our MSP.
+            <span aria-hidden className="fx-shimmer-sweep pointer-events-none" />
+          </span>
         </Reveal>
       </h1>
 

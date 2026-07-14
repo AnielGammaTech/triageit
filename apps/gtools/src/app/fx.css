@@ -1,0 +1,255 @@
+@import "./fx-diagram.css";
+
+/* ==========================================================================
+ * Command Center — Motion Design FX
+ *
+ * Everything animated below is transform/opacity only (the only exceptions —
+ * the nav's scroll-linked border/shadow/height and the ConnectIT radar
+ * rings' border-color — are static state changes, not loops, and are called
+ * out where they appear). Every loop and every reveal transition lives
+ * inside `@media (prefers-reduced-motion: no-preference)`, so a
+ * reduced-motion user gets a fully static page with all content already at
+ * its resting, fully-visible state — nothing here ever depends on an
+ * animation "finishing" to become visible.
+ *
+ * Split across two files to stay under the file-size limit: this file
+ * (reveal, hero, marquee, backdrop) and fx-diagram.css (BrowserFrame FX,
+ * ConnectIT diagram, nav-on-scroll).
+ * ========================================================================== */
+
+/* --- Reveal (fx/reveal.tsx) ----------------------------------------------
+ * `data-reveal-state` is only ever set client-side after mount (see
+ * reveal.tsx) — server HTML has no such attribute, so with JS disabled
+ * nothing here applies and content renders exactly as if Reveal didn't
+ * exist. `will-change` is scoped to the "hidden" and "visible" states —
+ * the brief window while the element is actually animating — and dropped
+ * again once reveal.tsx advances the element to its final "done" state on
+ * `transitionend` (with a timeout fallback), so settled content never
+ * carries a permanent compositor hint. */
+@media (prefers-reduced-motion: no-preference) {
+  .fx-reveal {
+    transition:
+      opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  .fx-reveal[data-reveal-state="hidden"],
+  .fx-reveal[data-reveal-state="visible"] {
+    will-change: opacity, transform;
+  }
+
+  .fx-reveal[data-reveal-state="hidden"] {
+    opacity: 0;
+  }
+  .fx-reveal[data-reveal-state="hidden"].fx-reveal-up {
+    transform: translateY(30px);
+  }
+  .fx-reveal[data-reveal-state="hidden"].fx-reveal-left {
+    transform: translate3d(-44px, 0, 0) rotate(-3deg);
+  }
+  .fx-reveal[data-reveal-state="hidden"].fx-reveal-right {
+    transform: translate3d(44px, 0, 0) rotate(3deg);
+  }
+  .fx-reveal[data-reveal-state="hidden"].fx-reveal-scale {
+    transform: scale(0.94);
+  }
+
+  .fx-reveal[data-reveal-state="visible"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .fx-reveal[data-reveal-state="done"] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Hero entrance --------------------------------------------------------
+ * Headline shine sweep + breathing brand glow. Both loop continuously once
+ * revealed. The shine is a separate `aria-hidden` overlay span translated
+ * across the headline (transform only, clipped by the text's own
+ * `overflow: hidden`) instead of animating `background-position` on the
+ * text itself. */
+.fx-shimmer-text {
+  position: relative;
+  overflow: hidden;
+  color: var(--color-snow);
+}
+.fx-shimmer-sweep {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, var(--color-brand) 65%, white 35%) 50%,
+    transparent 70%
+  );
+  mix-blend-mode: overlay;
+  transform: translateX(-120%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-shimmer-sweep {
+    animation: fx-shimmer-sweep 5s linear infinite;
+  }
+}
+@keyframes fx-shimmer-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-glow-breathe {
+    animation: fx-glow-breathe 6s ease-in-out infinite;
+  }
+}
+@keyframes fx-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.08);
+  }
+}
+
+/* --- Marquee (fx/marquee.tsx) --------------------------------------------
+ * Track is duplicated in the component; translateX(-50%) is exactly one
+ * copy's width, so the loop point is seamless. */
+@media (prefers-reduced-motion: no-preference) {
+  .fx-marquee-track {
+    animation: fx-marquee-scroll 32s linear infinite;
+  }
+  .fx-marquee:hover .fx-marquee-track {
+    animation-play-state: paused;
+  }
+}
+@keyframes fx-marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.fx-marquee-fade {
+  background: linear-gradient(to right, var(--color-ink), transparent);
+}
+.fx-marquee-fade-right {
+  background: linear-gradient(to left, var(--color-ink), transparent);
+}
+
+/* --- Backdrop (fx/backdrop.tsx) -------------------------------------------
+ * Fixed, full-viewport, behind all content. `contain: paint` scopes repaints
+ * from the animated orbs/specks to this layer instead of the whole page. */
+.fx-backdrop {
+  contain: paint;
+}
+
+.fx-grid-floor {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  bottom: 0;
+  height: 52vh;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--color-brand) 55%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-brand) 55%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 64px 64px;
+  transform: perspective(600px) rotateX(62deg);
+  transform-origin: bottom center;
+  mask-image: linear-gradient(to top, black 0%, transparent 82%);
+  -webkit-mask-image: linear-gradient(to top, black 0%, transparent 82%);
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-grid-floor {
+    animation: fx-grid-breathe 10s ease-in-out infinite;
+  }
+}
+@keyframes fx-grid-breathe {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.fx-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(50px);
+  opacity: 0.46;
+  transform: translateZ(0);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-orb {
+    animation-name: fx-orb-drift;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+  }
+}
+@keyframes fx-orb-drift {
+  0% {
+    transform: translate3d(-4%, -3%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(4%, 5%, 0) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-3%, 4%, 0) scale(0.96);
+  }
+}
+
+.fx-speck {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: var(--color-snow);
+  opacity: 0.12;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-speck {
+    animation-name: fx-twinkle;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+  }
+}
+@keyframes fx-twinkle {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.7);
+  }
+}
+
+.fx-noise {
+  position: absolute;
+  inset: -10%;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
