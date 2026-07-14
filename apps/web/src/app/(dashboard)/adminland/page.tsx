@@ -9,18 +9,28 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleOff,
+  Clock3,
   Cloud,
+  Cpu,
   Database,
   FileKey2,
   FileText,
   Link2,
+  ListChecks,
   MessageSquare,
   Network,
+  Palette,
   PhoneCall,
+  PlugZap,
   RefreshCw,
   Search,
+  Settings2,
   ShieldCheck,
+  SlidersHorizontal,
+  Stethoscope,
+  UsersRound,
   WandSparkles,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -59,66 +69,19 @@ interface IntegrationHealth {
 type IntegrationFilter = "all" | "connected" | "attention" | "not_configured";
 type IntegrationState = "healthy" | "attention" | "pending" | "not_configured";
 
-// ── Icons ─────────────────────────────────────────────────────────────
-
-const ICONS: Record<string, React.ReactNode> = {
-  users: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  ),
-  branding: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="13.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="10.5" r="2.5" /><circle cx="8.5" cy="7.5" r="2.5" />
-      <circle cx="6.5" cy="12.5" r="2.5" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2Z" />
-    </svg>
-  ),
-  integrations: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22v-5" /><path d="M9 8V2" /><path d="M15 8V2" />
-      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
-    </svg>
-  ),
-  workers: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" />
-      <path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
-    </svg>
-  ),
-  "triage-rules": (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" /><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z" />
-    </svg>
-  ),
-  "agent-config": (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 8V4H8" /><rect width="16" height="12" x="4" y="8" rx="2" />
-      <path d="M2 14h2" /><path d="M20 14h2" /><path d="M15 13v2" /><path d="M9 13v2" />
-    </svg>
-  ),
-  "cron-jobs": (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
-    </svg>
-  ),
-  diagnostics: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  ),
-  health: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-    </svg>
-  ),
+const ADMIN_ICONS: Record<string, LucideIcon> = {
+  users: UsersRound,
+  branding: Palette,
+  integrations: PlugZap,
+  "triage-rules": ListChecks,
+  "agent-config": Settings2,
+  workers: Cpu,
+  "halo-agents": UsersRound,
+  "halo-statuses": SlidersHorizontal,
+  "cron-jobs": Clock3,
+  diagnostics: Stethoscope,
+  health: Wrench,
 };
-
-const CHEVRON_RIGHT = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m9 18 6-6-6-6" />
-  </svg>
-);
 
 const SERVICE_ICONS: Record<string, LucideIcon> = {
   halo: Database,
@@ -182,6 +145,7 @@ export default function AdminlandPage() {
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationFilter, setIntegrationFilter] = useState<IntegrationFilter>("all");
+  const [adminQuery, setAdminQuery] = useState("");
 
   useEffect(() => {
     const section = searchParams.get("section");
@@ -334,22 +298,19 @@ export default function AdminlandPage() {
 
   if (activeView.type === "integration") {
     return (
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-center gap-2 text-sm text-white/50">
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-5 flex items-center gap-1.5 text-sm text-white/45">
           <button onClick={() => navigateTo({ type: "menu" })} className="hover:text-white transition-colors">
             Adminland
           </button>
-          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-white/25" aria-hidden="true" />
           <button onClick={() => navigateTo({ type: "integrations" })} className="hover:text-white transition-colors">
             Integrations
           </button>
-          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-white/25" aria-hidden="true" />
           <span className="text-white font-medium">{activeView.item.label}</span>
         </div>
-        <div
-          className="rounded-xl border border-white/10 p-6"
-          style={{ backgroundColor: "#241010" }}
-        >
+        <div className="rounded-lg border border-white/10 bg-white/[0.015] p-4 sm:p-6">
           <IntegrationConfig
             item={activeView.item}
             onBack={() => navigateTo({ type: "integrations" })}
@@ -386,16 +347,13 @@ export default function AdminlandPage() {
           || (integrationFilter === "attention" && row.state === "attention")
           || (integrationFilter === "not_configured" && row.state === "not_configured");
         return matchesQuery && matchesFilter;
-      })
-      .sort((left, right) => {
-        const priority: Record<IntegrationState, number> = {
-          attention: 0,
-          healthy: 1,
-          pending: 2,
-          not_configured: 3,
-        };
-        return priority[left.state] - priority[right.state] || left.label.localeCompare(right.label);
       });
+    const filteredGroups = INTEGRATION_CATEGORIES
+      .map((group) => ({
+        category: group.category,
+        rows: filteredRows.filter((row) => row.category === group.category),
+      }))
+      .filter((group) => group.rows.length > 0);
     const filters: ReadonlyArray<{ key: IntegrationFilter; label: string; count: number }> = [
       { key: "all", label: "All", count: integrationRows.length },
       { key: "connected", label: "Connected", count: configuredCount },
@@ -472,7 +430,7 @@ export default function AdminlandPage() {
                   <p className="text-xs font-medium text-white/45">{metric.label}</p>
                   <div className="mt-0.5 flex items-baseline gap-2">
                     <span className="text-xl font-semibold text-white">{integrationLoading ? "..." : metric.value}</span>
-                    <span className="truncate text-xs text-white/30">{metric.detail}</span>
+                    <span className="hidden truncate text-xs text-white/30 sm:inline">{metric.detail}</span>
                   </div>
                 </div>
               </div>
@@ -509,95 +467,121 @@ export default function AdminlandPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.015]">
-          <div className="hidden min-h-10 grid-cols-[minmax(260px,1.5fr)_minmax(145px,0.65fr)_minmax(150px,0.7fr)_110px_minmax(180px,0.9fr)_20px] items-center gap-4 border-b border-white/10 bg-white/[0.025] px-4 text-[11px] font-semibold text-white/35 lg:grid">
-            <span>Integration</span>
-            <span>Category</span>
-            <span>Status</span>
-            <span>Customers</span>
-            <span>Last check</span>
-            <span />
+        {integrationLoading ? (
+          <div className="flex min-h-52 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.015] text-sm text-white/40">
+            <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Loading integrations
           </div>
-
-          {integrationLoading ? (
-            <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-white/40">
-              <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading integrations
+        ) : filteredRows.length === 0 ? (
+          <div className="flex min-h-52 flex-col items-center justify-center rounded-lg border border-white/10 bg-white/[0.015] px-6 text-center">
+            <Search className="mb-3 h-5 w-5 text-white/25" aria-hidden="true" />
+            <p className="text-sm font-medium text-white/70">No integrations found</p>
+            <p className="mt-1 text-xs text-white/35">Adjust the search or status filter.</p>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-2 hidden grid-cols-[minmax(280px,1.5fr)_minmax(155px,0.7fr)_120px_minmax(190px,0.85fr)_20px] items-center gap-4 px-4 text-[11px] font-semibold text-white/30 lg:grid">
+              <span>Integration</span>
+              <span>Status</span>
+              <span>Customers</span>
+              <span>Last check</span>
+              <span />
             </div>
-          ) : filteredRows.length === 0 ? (
-            <div className="flex min-h-52 flex-col items-center justify-center px-6 text-center">
-              <Search className="mb-3 h-5 w-5 text-white/25" aria-hidden="true" />
-              <p className="text-sm font-medium text-white/70">No integrations found</p>
-              <p className="mt-1 text-xs text-white/35">Adjust the search or status filter.</p>
-            </div>
-          ) : (
-            filteredRows.map((integration, index) => {
-              const ServiceIcon = SERVICE_ICONS[integration.service] ?? Link2;
-              const stateMeta = INTEGRATION_STATE_META[integration.state];
-              const StateIcon = stateMeta.icon;
-              const lastCheck = formatLastCheck(integration.service);
-              const healthMessage = integrationHealth[integration.service]?.message;
-              const mapCount = mappingCounts[integration.service] ?? 0;
-              const mappingLabel = NO_MAPPING_SERVICES.has(integration.service)
-                ? "Not required"
-                : integration.state === "not_configured"
-                  ? "-"
-                  : `${mapCount} mapped`;
+            <div className="space-y-3">
+              {filteredGroups.map((group) => {
+                const groupAttention = group.rows.filter((row) => row.state === "attention").length;
+                const groupConfigured = group.rows.filter((row) => row.state !== "not_configured").length;
 
-              return (
-                <button
-                  key={integration.id}
-                  onClick={() => navigateTo({ type: "integration", item: integration })}
-                  className={cn(
-                    "group grid min-h-20 w-full grid-cols-[minmax(0,1fr)_20px] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.04] focus-visible:outline-none",
-                    "lg:grid-cols-[minmax(260px,1.5fr)_minmax(145px,0.65fr)_minmax(150px,0.7fr)_110px_minmax(180px,0.9fr)_20px]",
-                    index > 0 && "border-t border-white/[0.07]",
-                  )}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", integration.iconBg)}>
-                      <ServiceIcon className={cn("h-4 w-4", integration.iconColor)} aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-white/90">{integration.label}</p>
-                      <p className="mt-0.5 truncate text-xs text-white/40">{integration.desc}</p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
-                        <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold", stateMeta.className)}>
-                          <StateIcon className="h-3 w-3" aria-hidden="true" />
-                          {stateMeta.label}
-                        </span>
-                        <span className="text-[11px] text-white/35">{integration.category}</span>
-                        {!NO_MAPPING_SERVICES.has(integration.service) && integration.state !== "not_configured" && (
-                          <span className="text-[11px] text-white/35">{mappingLabel}</span>
-                        )}
+                return (
+                  <section key={group.category} className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.015]">
+                    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-white/[0.08] bg-white/[0.025] px-4 py-2">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <h2 className="truncate text-xs font-semibold text-white/70">{group.category}</h2>
+                        <span className="text-[11px] text-white/30">{group.rows.length}</span>
                       </div>
+                      {groupAttention > 0 ? (
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-amber-300">
+                          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                          {groupAttention} needs attention
+                        </span>
+                      ) : groupConfigured > 0 ? (
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-emerald-300/75">
+                          <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                          {groupConfigured} connected
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-white/30">Not configured</span>
+                      )}
                     </div>
-                  </div>
 
-                  <span className="hidden truncate text-xs text-white/45 lg:block">{integration.category}</span>
-                  <span className={cn("hidden w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold lg:inline-flex", stateMeta.className)}>
-                    <StateIcon className="h-3 w-3" aria-hidden="true" />
-                    {stateMeta.label}
-                  </span>
-                  <span className="hidden text-xs text-white/50 lg:block">{mappingLabel}</span>
-                  <div className="hidden min-w-0 lg:block">
-                    <p className="truncate text-xs text-white/50">
-                      {integration.state === "not_configured" ? "Never" : (lastCheck ?? "Pending")}
-                    </p>
-                    {integration.state === "attention" && healthMessage && (
-                      <p className="mt-0.5 truncate text-[11px] text-amber-300/60" title={healthMessage}>{healthMessage}</p>
-                    )}
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-white/20 transition-colors group-hover:text-white/55" aria-hidden="true" />
-                </button>
-              );
-            })
-          )}
-        </div>
+                    {group.rows.map((integration, index) => {
+                      const ServiceIcon = SERVICE_ICONS[integration.service] ?? Link2;
+                      const stateMeta = INTEGRATION_STATE_META[integration.state];
+                      const StateIcon = stateMeta.icon;
+                      const lastCheck = formatLastCheck(integration.service);
+                      const healthMessage = integrationHealth[integration.service]?.message;
+                      const mapCount = mappingCounts[integration.service] ?? 0;
+                      const mappingLabel = NO_MAPPING_SERVICES.has(integration.service)
+                        ? "Not required"
+                        : integration.state === "not_configured"
+                          ? "-"
+                          : `${mapCount} mapped`;
+
+                      return (
+                        <button
+                          key={integration.id}
+                          onClick={() => navigateTo({ type: "integration", item: integration })}
+                          className={cn(
+                            "group grid min-h-18 w-full grid-cols-[minmax(0,1fr)_20px] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.04] focus-visible:outline-none",
+                            "lg:grid-cols-[minmax(280px,1.5fr)_minmax(155px,0.7fr)_120px_minmax(190px,0.85fr)_20px]",
+                            index > 0 && "border-t border-white/[0.07]",
+                          )}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", integration.iconBg)}>
+                              <ServiceIcon className={cn("h-4 w-4", integration.iconColor)} aria-hidden="true" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-white/90">{integration.label}</p>
+                              <p className="mt-0.5 truncate text-xs text-white/40">{integration.desc}</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+                                <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold", stateMeta.className)}>
+                                  <StateIcon className="h-3 w-3" aria-hidden="true" />
+                                  {stateMeta.label}
+                                </span>
+                                {!NO_MAPPING_SERVICES.has(integration.service) && integration.state !== "not_configured" && (
+                                  <span className="text-[11px] text-white/35">{mappingLabel}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <span className={cn("hidden w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold lg:inline-flex", stateMeta.className)}>
+                            <StateIcon className="h-3 w-3" aria-hidden="true" />
+                            {stateMeta.label}
+                          </span>
+                          <span className="hidden text-xs text-white/50 lg:block">{mappingLabel}</span>
+                          <div className="hidden min-w-0 lg:block">
+                            <p className="truncate text-xs text-white/50">
+                              {integration.state === "not_configured" ? "Never" : (lastCheck ?? "Pending")}
+                            </p>
+                            {integration.state === "attention" && healthMessage && (
+                              <p className="mt-0.5 truncate text-[11px] text-amber-300/60" title={healthMessage}>{healthMessage}</p>
+                            )}
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-white/20 transition-colors group-hover:text-white/55" aria-hidden="true" />
+                        </button>
+                      );
+                    })}
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {!integrationLoading && filteredRows.length > 0 && (
           <p className="mt-3 text-xs text-white/30">
-            Showing {filteredRows.length} of {integrationRows.length} integrations. Attention items appear first.
+            Showing {filteredRows.length} of {integrationRows.length} integrations across {filteredGroups.length} categories.
           </p>
         )}
       </div>
@@ -606,22 +590,19 @@ export default function AdminlandPage() {
 
   if (activeView.type === "automapper") {
     return (
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-6 flex items-center gap-2 text-sm text-white/50">
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-5 flex items-center gap-1.5 text-sm text-white/45">
           <button onClick={() => navigateTo({ type: "menu" })} className="hover:text-white transition-colors">
             Adminland
           </button>
-          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-white/25" aria-hidden="true" />
           <button onClick={() => navigateTo({ type: "integrations" })} className="hover:text-white transition-colors">
             Integrations
           </button>
-          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-white/25" aria-hidden="true" />
           <span className="text-white font-medium">AutoMapper</span>
         </div>
-        <div
-          className="rounded-xl border border-white/10 p-6"
-          style={{ backgroundColor: "#241010" }}
-        >
+        <div className="rounded-lg border border-white/10 bg-white/[0.015] p-4 sm:p-6">
           <AutoMapperConfig
             item={{
               id: "automapper",
@@ -646,12 +627,12 @@ export default function AdminlandPage() {
       .find((i) => i.id === activeView.id)?.label ?? activeView.id;
 
     return (
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-6 flex items-center gap-2 text-sm text-white/50">
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="mb-5 flex items-center gap-1.5 text-sm text-white/45">
           <button onClick={() => navigateTo({ type: "menu" })} className="hover:text-white transition-colors">
             Adminland
           </button>
-          <span className="text-white/30">{CHEVRON_RIGHT}</span>
+          <ChevronRight className="h-3.5 w-3.5 text-white/25" aria-hidden="true" />
           <span className="text-white font-medium">{sectionLabel}</span>
         </div>
         {activeView.id === "users" ? (
@@ -673,10 +654,7 @@ export default function AdminlandPage() {
         ) : activeView.id === "branding" ? (
           <BrandingSettings />
         ) : (
-          <div
-            className="rounded-xl border border-white/10 p-8 text-center"
-            style={{ backgroundColor: "#241010" }}
-          >
+          <div className="rounded-lg border border-white/10 bg-white/[0.015] p-8 text-center">
             <p className="text-sm text-white/50">
               This section is coming soon.
             </p>
@@ -688,64 +666,158 @@ export default function AdminlandPage() {
 
   // ── Main menu ──────────────────────────────────────────────────────
 
+  const adminItems = MENU_GROUPS.flatMap((group) => group.items);
+  const normalizedAdminQuery = adminQuery.trim().toLowerCase();
+  const filteredMenuGroups = MENU_GROUPS
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => (
+        !normalizedAdminQuery
+        || item.label.toLowerCase().includes(normalizedAdminQuery)
+        || item.desc.toLowerCase().includes(normalizedAdminQuery)
+        || group.title.toLowerCase().includes(normalizedAdminQuery)
+      )),
+    }))
+    .filter((group) => group.items.length > 0);
+  const integrationStates = INTEGRATION_CATEGORIES.flatMap((group) => group.items)
+    .map((item) => getIntegrationState(item.service));
+  const configuredIntegrations = integrationStates.filter((state) => state !== "not_configured").length;
+  const healthyIntegrations = integrationStates.filter((state) => state === "healthy").length;
+  const attentionIntegrations = integrationStates.filter((state) => state === "attention").length;
+
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#b91c1c] text-white">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-            </svg>
+    <div className="mx-auto w-full max-w-7xl">
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-red-700 text-white shadow-[0_0_24px_rgba(185,28,28,0.2)]">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-white">Adminland</h2>
-            <p className="text-sm text-white/50">
-              Manage integrations, settings, and system configuration.
-            </p>
+            <h1 className="text-2xl font-semibold text-white">Adminland</h1>
+            <p className="mt-0.5 text-sm text-white/45">System configuration, access, and operations.</p>
           </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => navigateTo({ type: "integrations" })}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.025] px-3 text-sm font-medium text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+          >
+            <PlugZap className="h-4 w-4" aria-hidden="true" />
+            Integrations
+          </button>
+          <button
+            onClick={() => navigateTo({ type: "section", id: "diagnostics" })}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-700 px-3 text-sm font-semibold text-white transition-colors hover:bg-red-600"
+          >
+            <Stethoscope className="h-4 w-4" aria-hidden="true" />
+            Run diagnostics
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {MENU_GROUPS.map((group) => (
-          <div
-            key={group.title}
-            className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]"
-          >
-            <div className="border-b border-white/10 px-5 py-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/40">
-                {group.title}
-              </h3>
-            </div>
-            <div className="divide-y divide-white/5">
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() =>
-                    item.id === "integrations"
-                      ? navigateTo({ type: "integrations" })
-                      : navigateTo({ type: "section", id: item.id })
-                  }
-                  className="group flex w-full items-center gap-3.5 px-5 py-4 text-left transition-colors hover:bg-white/[0.04]"
-                >
-                  <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", item.iconBg)}>
-                    <span className={item.iconColor}>
-                      {ICONS[item.id] ?? ICONS.integrations}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white">{item.label}</p>
-                    <p className="mt-0.5 text-xs text-white/40">{item.desc}</p>
-                  </div>
-                  <span className="shrink-0 text-white/20 transition-colors group-hover:text-white/40">
-                    {CHEVRON_RIGHT}
+      <div className="mb-6 grid grid-cols-2 overflow-hidden rounded-lg border border-white/10 bg-white/[0.02] lg:grid-cols-4">
+        {[
+          { label: "Configuration areas", value: adminItems.length, detail: "admin controls", icon: Settings2, color: "text-violet-300" },
+          { label: "Connected", value: configuredIntegrations, detail: `of ${integrationStates.length} services`, icon: Link2, color: "text-sky-300" },
+          { label: "Healthy", value: healthyIntegrations, detail: "integrations", icon: CheckCircle2, color: "text-emerald-300" },
+          { label: "Needs attention", value: attentionIntegrations, detail: attentionIntegrations === 1 ? "integration" : "integrations", icon: AlertTriangle, color: attentionIntegrations > 0 ? "text-amber-300" : "text-white/35" },
+        ].map((metric, index) => {
+          const MetricIcon = metric.icon;
+          return (
+            <div
+              key={metric.label}
+              className={cn(
+                "flex min-h-24 items-center gap-3 px-4 py-4",
+                index % 2 === 1 && "border-l border-white/10",
+                index >= 2 && "border-t border-white/10 lg:border-t-0",
+                index === 2 && "lg:border-l lg:border-white/10",
+              )}
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.04]">
+                <MetricIcon className={cn("h-4 w-4", metric.color)} aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-white/45">{metric.label}</p>
+                <div className="mt-0.5 flex items-baseline gap-2">
+                  <span className="text-xl font-semibold text-white">
+                    {integrationLoading && index > 0 ? "..." : metric.value}
                   </span>
-                </button>
-              ))}
+                  <span className="hidden truncate text-xs text-white/30 sm:inline">{metric.detail}</span>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {integrationError && (
+        <div className="mb-5 flex items-center gap-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-200" role="alert">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1">Integration health is temporarily unavailable.</span>
+          <button onClick={() => loadIntegrationData()} className="font-semibold text-amber-100 hover:text-white">Retry</button>
+        </div>
+      )}
+
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-white/90">Configuration</h2>
+          <p className="mt-0.5 text-xs text-white/35">{adminItems.length} controls across {MENU_GROUPS.length} operational areas</p>
+        </div>
+        <label className="relative block w-full sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" aria-hidden="true" />
+          <input
+            value={adminQuery}
+            onChange={(event) => setAdminQuery(event.target.value)}
+            placeholder="Search settings"
+            aria-label="Search Adminland settings"
+            className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.025] pl-9 pr-3 text-sm text-white outline-none transition-colors placeholder:text-white/25 focus:border-white/25 focus:bg-white/[0.04]"
+          />
+        </label>
+      </div>
+
+      {filteredMenuGroups.length === 0 ? (
+        <div className="flex min-h-52 flex-col items-center justify-center rounded-lg border border-white/10 bg-white/[0.015] px-6 text-center">
+          <Search className="mb-3 h-5 w-5 text-white/25" aria-hidden="true" />
+          <p className="text-sm font-medium text-white/70">No settings found</p>
+          <p className="mt-1 text-xs text-white/35">Try a different search.</p>
+        </div>
+      ) : (
+        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {filteredMenuGroups.map((group) => (
+            <section key={group.title} className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.015]">
+              <div className="flex min-h-11 items-center justify-between border-b border-white/[0.08] bg-white/[0.025] px-4 py-2">
+                <h3 className="text-xs font-semibold text-white/65">{group.title}</h3>
+                <span className="text-[11px] text-white/30">{group.items.length}</span>
+              </div>
+              <div className="divide-y divide-white/[0.07]">
+                {group.items.map((item) => {
+                  const AdminIcon = ADMIN_ICONS[item.id] ?? Settings2;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => (
+                        item.id === "integrations"
+                          ? navigateTo({ type: "integrations" })
+                          : navigateTo({ type: "section", id: item.id })
+                      )}
+                      className="group flex min-h-18 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.04] focus-visible:bg-white/[0.04] focus-visible:outline-none"
+                    >
+                      <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", item.iconBg)}>
+                        <AdminIcon className={cn("h-4 w-4", item.iconColor)} aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white/85">{item.label}</p>
+                        <p className="mt-0.5 line-clamp-2 text-xs leading-4 text-white/35">{item.desc}</p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-white/20 transition-colors group-hover:text-white/55" aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
