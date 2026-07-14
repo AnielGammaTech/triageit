@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #08080d;        /* page ground */
+  --color-panel: #101018;      /* raised surfaces, mockup chrome */
+  --color-panel-2: #16161f;    /* nested surfaces inside mockups */
+  --color-line: #23232e;       /* hairline borders */
+  --color-fog: #9b9ba8;        /* secondary text */
+  --color-snow: #f2f2f5;       /* primary text */
+  --color-brand: #6e7bff;      /* GTools brand accent */
+
+  /* per-tool accents (used for section glows, mockup chrome, feature ticks) */
+  --color-triageit: #f59e0b;
+  --color-secureit: #f43f5e;
+  --color-projectit: #8b5cf6;
+  --color-portalit: #10b981;
+  --color-quoteit: #0ea5e9;
+  --color-connectit: #22d3ee;
+  --color-runit: #ef4444;
+  --color-phoneit: #a3e635;
+
+  --font-display: var(--font-space-grotesk), sans-serif;
+  --font-body: var(--font-inter), sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-snow);
+  font-family: var(--font-body);
+}
