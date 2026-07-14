@@ -1,3 +1,4 @@
+import { BetterTogether } from "@/components/better-together";
 import { Footer } from "@/components/footer";
 import { Hero } from "@/components/hero";
 import { Nav } from "@/components/nav";
@@ -10,6 +11,7 @@ export default function Home() {
       <main>
         <Hero />
         <SuiteGrid />
+        <BetterTogether />
       </main>
       <Footer />
     </>
