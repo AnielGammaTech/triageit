@@ -150,8 +150,8 @@ async function openTvMode(): Promise<void> {
       window.alert(body?.error ?? "TV link unavailable — is TV_DASHBOARD_KEY set on the web service?");
       return;
     }
-    const { url } = (await res.json()) as { url: string };
-    window.open(url, "_blank", "noopener");
+    const { setupUrl } = (await res.json()) as { setupUrl: string };
+    window.open(setupUrl, "_blank", "noopener");
   } catch {
     window.alert("Couldn't fetch the TV link.");
   }

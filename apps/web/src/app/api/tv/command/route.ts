@@ -1,7 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
-import { isValidTvSessionToken, TV_SESSION_COOKIE, tvKeyConfigured } from "@/lib/api/tv-key";
+import {
+  createTvSessionToken,
+  isValidTvSessionToken,
+  TV_SESSION_COOKIE,
+  TV_SESSION_MAX_AGE_SECONDS,
+  tvKeyConfigured,
+} from "@/lib/api/tv-key";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { getClientIp } from "@/lib/api/request-context";
+import { createServiceClient } from "@/lib/supabase/server";
 import { workerFetch } from "@/lib/api/worker";
 
 /**
@@ -70,6 +78,22 @@ async function fetchDispatchSchedule(): Promise<TvSchedule | null> {
   }
 }
 
+async function isTrustedTvIp(clientIp: string | null): Promise<boolean> {
+  if (!clientIp) return false;
+  try {
+    const serviceClient = await createServiceClient();
+    const { data, error } = await serviceClient.rpc("is_tv_ip_trusted", { p_ip: clientIp });
+    if (error) {
+      console.warn("[TV-COMMAND] Trusted-IP check failed:", error.code);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.warn("[TV-COMMAND] Trusted-IP check unavailable:", (error as Error).message);
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!tvKeyConfigured()) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
@@ -80,20 +104,33 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid or expired TV session" }, { status: 401 });
   }
 
-  const rl = checkRateLimit("tv-wallboard", 30, 60_000, "tv-command");
+  const clientIp = getClientIp(request);
+  const rl = checkRateLimit(clientIp || "tv-wallboard", 30, 60_000, "tv-command");
   if (rl) return rl;
 
   try {
-    const [payload, dispatch, schedule] = await Promise.all([
+    const [payload, dispatch, schedule, trustedIp] = await Promise.all([
       buildCommandCenterPayload(),
       fetchDispatchPresence(),
       fetchDispatchSchedule(),
+      isTrustedTvIp(clientIp),
     ]);
-    return NextResponse.json({
+    const response = NextResponse.json({
       ...payload,
       ...(dispatch ? { dispatch } : {}),
       ...(schedule ? { schedule } : {}),
     });
+    if (trustedIp) {
+      response.cookies.set(TV_SESSION_COOKIE, createTvSessionToken(), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/api/tv",
+        maxAge: TV_SESSION_MAX_AGE_SECONDS,
+      });
+      response.headers.set("X-TV-Session-Renewed", "trusted-ip");
+    }
+    return response;
   } catch (err) {
     console.error("[TV-COMMAND] Failed to build payload:", (err as Error).message);
     return NextResponse.json({ error: "Failed to load command center data" }, { status: 500 });

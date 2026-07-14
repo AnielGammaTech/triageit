@@ -3,16 +3,17 @@ import { checkRateLimit } from "@/lib/api/rate-limit";
 import { readJsonBody } from "@/lib/api/json-body";
 import {
   createTvSessionToken,
-  hashTvLinkToken,
-  isValidTvLinkToken,
+  hashTvAccessCode,
+  isValidTvAccessCode,
   TV_SESSION_COOKIE,
   TV_SESSION_MAX_AGE_SECONDS,
   tvKeyConfigured,
 } from "@/lib/api/tv-key";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getClientIp } from "@/lib/api/request-context";
 
 interface TvSessionBody {
-  readonly access?: string;
+  readonly code?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -20,21 +21,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
   }
 
-  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const limited = checkRateLimit(forwardedFor || "unknown-tv-client", 10, 15 * 60_000, "tv-session");
+  const clientIp = getClientIp(request);
+  const limited = checkRateLimit(clientIp || "unknown-tv-client", 10, 15 * 60_000, "tv-session");
   if (limited) return limited;
 
   const parsed = await readJsonBody<TvSessionBody>(request, 4096);
   if (!parsed.ok) return parsed.response;
   const body = parsed.data;
-  const access = body?.access;
-  if (!access || !isValidTvLinkToken(access)) {
+  const code = body?.code;
+  if (!isValidTvAccessCode(code)) {
     return NextResponse.json({ error: "Invalid, expired, or already used TV access" }, { status: 401 });
   }
 
   const serviceClient = await createServiceClient();
   const { data: consumed, error } = await serviceClient.rpc("consume_tv_access_token", {
-    p_token_hash: hashTvLinkToken(access),
+    p_token_hash: hashTvAccessCode(code),
   });
 
   if (error) {

@@ -238,6 +238,7 @@ function dailyScheduleData(schedule: TvSchedule | undefined): DailyScheduleData 
 }
 
 export default function TvPage() {
+  const [codeInput, setCodeInput] = useState("");
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
@@ -260,17 +261,18 @@ export default function TvPage() {
     }
   }, []);
 
-  const establishSession = useCallback(async (access: string) => {
+  const establishSession = useCallback(async (code: string) => {
     const response = await fetch("/api/tv/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access }),
+      body: JSON.stringify({ code }),
     });
     if (!response.ok) {
       setAuthFailed(true);
       return false;
     }
     setAuthFailed(false);
+    setCodeInput("");
     return true;
   }, []);
 
@@ -278,12 +280,11 @@ export default function TvPage() {
   // fragment so the credential is never sent in the initial page request.
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const query = new URLSearchParams(window.location.search);
-    const access = fragment.get("access") ?? query.get("access");
+    const code = fragment.get("code");
     window.history.replaceState({}, "", window.location.pathname);
     const exchange = async () => {
-      if (access) {
-        await establishSession(access);
+      if (code) {
+        await establishSession(code);
       }
       setSessionReady(true);
     };
@@ -314,11 +315,41 @@ export default function TvPage() {
           </h1>
           <p className="text-[1.1vw]" style={{ color: INK_DIM }}>
             {authFailed
-              ? "This link is invalid, expired, or has already been used."
+              ? "That access code is invalid, expired, revoked, or already used."
               : "This TV session is not authorized."}
           </p>
+          <form
+            className="flex items-center gap-[0.8vw]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const code = codeInput.trim();
+              if (!code) return;
+              void establishSession(code).then((ok) => {
+                if (ok) void load();
+              });
+            }}
+          >
+            <input
+              value={codeInput}
+              onChange={(event) => setCodeInput(event.target.value.toUpperCase())}
+              placeholder="XXXX-XXXX"
+              autoComplete="one-time-code"
+              spellCheck={false}
+              maxLength={9}
+              aria-label="One-time TV access code"
+              className="w-[16vw] rounded-[0.6vw] border px-[1vw] py-[0.7vw] text-center text-[1.2vw] tracking-widest text-white outline-none"
+              style={{ background: PANEL, borderColor: HAIRLINE, fontFamily: "var(--font-mono-tv), monospace" }}
+            />
+            <button
+              type="submit"
+              className="cursor-pointer rounded-[0.6vw] px-[1.4vw] py-[0.7vw] text-[1.2vw] font-bold text-white transition-opacity hover:opacity-85"
+              style={{ background: RED }}
+            >
+              Authorize
+            </button>
+          </form>
           <p className="text-[0.9vw]" style={{ color: "#71717a" }}>
-            Generate a new one-time link in Adminland &gt; Platform Operations &gt; TV Access.
+            Get a one-time code from Adminland &gt; Platform Operations &gt; TV Access.
           </p>
         </div>
       </Shell>
