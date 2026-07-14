@@ -452,7 +452,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           type: "function",
           name: "stage_customer_update",
           description:
-            "Queue the exact enhanced customer update for human review in Dispatch. This NEVER sends the message. The draft must promise the requested call or written reply at the exact confirmed next-action date/time and ask whether that time works. Use only after the technician has heard the complete draft and explicitly approved that exact wording.",
+            "Queue the exact enhanced customer email for human review in Dispatch. This NEVER sends the email. The draft must promise the requested call or emailed update at the exact confirmed next-action date/time and ask whether that time works. Use only after the technician has heard the complete draft and explicitly approved that exact wording.",
           parameters: {
             type: "object",
             properties: {
@@ -764,7 +764,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           : []),
         `- The last communication on file: ${e.lastCommunication ?? e.lastTechUpdate ?? "none on record"}.`,
         e.customerWaitingForUpdate
-          ? `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""} Required contact method: ${e.customerContactMethod === "call" ? "CALL the customer" : "send a WRITTEN REPLY to the customer"}.`
+          ? `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""} Prepare an EMAIL update now. The promised next contact in that email must be: ${e.customerContactMethod === "call" ? "CALL the customer" : "EMAIL the customer another update"}.`
           : `- The ticket review did not find an unanswered customer call or message. Do not offer to draft a customer update unless this flag says CUSTOMER WAITING.`,
         ``,
         `ABOUT THE "RESOLUTION TARGET" / NEXT-ACTION DATE`,
@@ -785,10 +785,10 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         `3. Ask when the NEXT ACTION will take place (not when it will be fully resolved — remind them the resolution date is our next-action marker). When they give a date/time, CONFIRM it back exactly ("so the next update is tomorrow, July tenth at two PM — correct?"), and after a clear yes use set_resolution_target. Then tell them the target is updated and the ticket has been moved to Waiting on Tech since it's no longer past due.`,
         ...(e.customerWaitingForUpdate
           ? [
-              `4. After the breach reason and next-action target are handled, say the ticket review shows the customer is waiting for ${e.customerContactMethod === "call" ? "a call" : "a written reply"}. Ask: "Would you like me to prepare an update for the customer?"`,
-              `5. If yes, ask the tech what they want the customer told. Turn only those facts into a warm, concise customer update. The draft MUST say Gamma Tech will ${e.customerContactMethod === "call" ? "call the customer" : "send the customer a written update"} on the exact calendar date and Eastern time saved by set_resolution_target. It MUST end by asking the customer whether that time works and invite them to reply if it does not. Do not use only relative wording such as "tomorrow morning." Do not invent work completed, causes, or technical details.`,
+              `4. After the breach reason and next-action target are handled, say the ticket review shows the customer needs an update. Ask: "Would you like me to prepare an email update to the customer for Dispatch to approve and send?"`,
+              `5. If yes, ask the tech what they want included in the email. Turn only those facts into a warm, concise customer email. The email MUST say Gamma Tech will ${e.customerContactMethod === "call" ? "call the customer" : "email the customer another update"} on the exact calendar date and Eastern time saved by set_resolution_target. It MUST end by asking the customer whether that time works and invite them to reply if it does not. Do not use only relative wording such as "tomorrow morning." Do not invent work completed, causes, or technical details.`,
               `6. Read the COMPLETE enhanced draft back word for word, then ask if they approve that exact wording. If they request a change, revise it and read the complete new version again. Only after an explicit yes use stage_customer_update with the original request, exact approved draft, and technician_confirmed true.`,
-              `7. After asking whether they approve the exact wording, STOP and wait for their answer. Do not end the call while approval is pending. After the tool succeeds, say it is queued in Dispatch for a person to review, edit if needed, and approve. Make clear it has NOT been sent yet. Never tell the tech that the customer was already contacted.`,
+              `7. After asking whether they approve the exact wording, STOP and wait for their answer. Do not end the call while approval is pending. After the tool succeeds, say the email is queued in Dispatch for a person to review, edit if needed, and approve. Make clear the email has NOT been sent yet. Never tell the tech that the customer was already contacted.`,
             ]
           : []),
         `${e.customerWaitingForUpdate ? "8" : "4"}. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
@@ -796,7 +796,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             ]),
         ``,
         `CUSTOMER UPDATE SAFETY`,
-        `- stage_customer_update can only queue a draft. It cannot and must not email the customer. A signed-in staff member in Dispatch is the only person who can approve the send.`,
+        `- stage_customer_update can only queue an email draft. It cannot and must not email the customer. A signed-in staff member in Dispatch is the only person who can approve and send it.`,
         `- The tool rejects any draft that omits the exact next-action calendar date, Eastern time, required contact method, or a direct question asking whether that time works. If rejected, revise it, read the entire corrected draft back, and obtain a fresh explicit approval.`,
         `- Explicit approval means the tech heard the complete final wording and clearly said yes. Silence, "sounds about right", or approval of only the general idea is not enough.`,
         `- Never say or write in a ticket note that TriageIt will send, has sent, or is sending the customer update unless stage_customer_update succeeded; even then, say only that the draft is queued for Dispatch approval and has not been sent.`,

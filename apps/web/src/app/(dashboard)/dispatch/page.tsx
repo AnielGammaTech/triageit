@@ -436,7 +436,7 @@ function CustomerUpdateQueue({
 }) {
   return (
     <Section
-      title="Customer Updates"
+      title="Customer Email Approvals"
       icon={<MailCheck className="h-4 w-4 text-amber-400" />}
       actions={
         <span className="inline-flex min-w-7 items-center justify-center rounded border px-2 py-1 text-xs font-bold tabular-nums text-amber-300" style={{ borderColor: "#92400e", background: "#1c1206" }}>
@@ -450,7 +450,7 @@ function CustomerUpdateQueue({
         </div>
       )}
       {updates.length === 0 ? (
-        <div className="px-5 py-5 text-sm text-zinc-500">No customer updates awaiting approval.</div>
+        <div className="px-5 py-5 text-sm text-zinc-500">No customer emails awaiting approval.</div>
       ) : (
         <div className="divide-y" style={{ borderColor: HAIRLINE }}>
           {updates.map((update) => {
@@ -518,7 +518,7 @@ function CustomerUpdateQueue({
                 </p>
                 {nextAction && update.contact_method && (
                   <p className="mt-2 text-xs font-semibold text-sky-300">
-                    {update.contact_method === "call" ? "Customer call" : "Written customer reply"} committed for {nextAction}
+                    Email now · {update.contact_method === "call" ? "Customer call" : "Next email update"} committed for {nextAction}
                   </p>
                 )}
                 {needsFollowUp && update.customer_reply_message && (
@@ -538,7 +538,7 @@ function CustomerUpdateQueue({
                     value={draft}
                     onChange={(event) => onDraftChange(update.id, event.target.value)}
                     disabled={busy || legacyDraft}
-                    aria-label={`Customer update for ticket ${update.halo_id}`}
+                    aria-label={`Customer email for ticket ${update.halo_id}`}
                     className="mt-3 min-h-24 w-full resize-y rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-200 outline-none transition placeholder:text-zinc-700 focus:border-red-700 disabled:opacity-60"
                     style={{ borderColor: HAIRLINE }}
                   />
@@ -561,7 +561,7 @@ function CustomerUpdateQueue({
                       style={{ borderColor: "#dc2626", background: "#991b1b" }}
                     >
                       <Send className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
-                      Approve &amp; Send
+                      Approve &amp; Email
                     </button>
                   )}
                 </div>
