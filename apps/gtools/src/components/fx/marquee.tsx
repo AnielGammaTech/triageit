@@ -1,0 +1,37 @@
+import { TOOLS } from "@/content/tools";
+import { accentVar } from "@/components/browser-frame";
+
+// Server component: CSS-only infinite marquee of the 8 tool wordmarks in
+// their real accent colors. The track is duplicated once so translateX(-50%)
+// loops seamlessly; hovering pauses it (see .fx-marquee-track in
+// globals.css). Purely decorative, so the whole band is aria-hidden.
+export function Marquee() {
+  return (
+    <div
+      aria-hidden
+      className="fx-marquee relative overflow-hidden border-y border-line/60 py-5"
+    >
+      <div className="fx-marquee-fade fx-marquee-fade-left pointer-events-none absolute inset-y-0 left-0 z-10 w-16 md:w-32" />
+      <div className="fx-marquee-fade fx-marquee-fade-right pointer-events-none absolute inset-y-0 right-0 z-10 w-16 md:w-32" />
+
+      <div className="fx-marquee-track flex w-max items-center gap-14">
+        {[0, 1].map((rep) => (
+          <div key={rep} className="flex items-center gap-14">
+            {TOOLS.map((tool) => (
+              <span
+                key={`${rep}-${tool.slug}`}
+                className="fx-marquee-item shrink-0 whitespace-nowrap font-display text-2xl font-semibold tracking-tight md:text-3xl"
+                style={{
+                  color: accentVar(tool.accent),
+                  textShadow: `0 0 20px ${accentVar(tool.accent)}`,
+                }}
+              >
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

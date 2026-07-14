@@ -14,19 +14,22 @@ export function BrowserFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative isolate">
-      {/* outer accent glow */}
+    <div className="fx-frame-float relative isolate">
+      {/* outer accent glow — breathes continuously */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -inset-16 -z-10 opacity-50 blur-3xl"
+        className="fx-glow-pulse pointer-events-none absolute -inset-16 -z-10 opacity-50 blur-3xl"
         style={{
           background: `radial-gradient(ellipse at 50% 0%, ${accent}, transparent 65%)`,
         }}
       />
 
-      <div className="relative overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/50">
+      <div className="fx-frame-tilt relative overflow-hidden rounded-xl border border-line bg-panel shadow-2xl shadow-black/50">
         {/* inner glass highlight */}
         <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/[0.04]" />
+
+        {/* periodic scan-line sweep */}
+        <div aria-hidden className="fx-scan-sweep z-10 rounded-xl" />
 
         {/* toolbar */}
         <div className="flex items-center gap-2 border-b border-line bg-panel-2 px-3 py-2">

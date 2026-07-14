@@ -4,14 +4,18 @@ import { SuiteGrid } from "@/components/suite-grid";
 import { BetterTogether } from "@/components/better-together";
 import { ToolSection } from "@/components/tool-section";
 import { Footer } from "@/components/footer";
+import { Backdrop } from "@/components/fx/backdrop";
+import { Marquee } from "@/components/fx/marquee";
 import { TOOLS } from "@/content/tools";
 
 export default function Home() {
   return (
     <>
+      <Backdrop />
       <Nav />
       <main>
         <Hero />
+        <Marquee />
         <SuiteGrid />
         <BetterTogether />
         {TOOLS.map((tool, i) => (
