@@ -22,6 +22,9 @@ interface CallAnalysisRow {
   readonly from_number: string | null;
   readonly to_name: string | null;
   readonly to_number: string | null;
+  readonly identified_customer_name: string | null;
+  readonly identified_client_name: string | null;
+  readonly match_evidence: string | null;
 }
 
 interface TicketLookup {
@@ -48,6 +51,9 @@ export interface CallTranscriptionItem {
   readonly matchLabel: string;
   readonly notePosted: boolean;
   readonly analysisAttempts: number;
+  readonly identifiedCustomerName: string | null;
+  readonly identifiedClientName: string | null;
+  readonly matchEvidence: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
   readonly to: { readonly name: string | null; readonly number: string | null };
@@ -131,6 +137,7 @@ export function callMatchLabel(method: string | null): string {
     transcript_too_short: "Transcript unavailable or too short",
     no_external_number: "No external caller number",
     no_halo_user: "Caller not found and transcript had no safe match",
+    identified_customer_no_ticket_match: "Customer identified; no related ticket found",
     shared_phone_no_transcript_match: "Shared number with no clear ticket match",
     ambiguous_multiple_open: "Several possible open tickets",
     no_open_ticket: "No open ticket for this caller",
@@ -199,7 +206,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
 
   const { data, error } = await supabase
     .from("call_analyses")
-    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number")
+    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number, identified_customer_name, identified_client_name, match_evidence")
     .neq("matched_by", "cursor_seed")
     .order("recording_id", { ascending: false })
     .limit(RECENT_CALL_LIMIT * 3);
@@ -232,7 +239,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     const attention = !internal && hasMatch && !row.note_posted;
     const fromName = (row.from_name ?? recording?.FromDisplayName?.trim()) || null;
     const toName = (row.to_name ?? recording?.ToDisplayName?.trim()) || null;
-    const customerName = internal ? null : ticketLookup?.user_name ?? null;
+    const customerName = internal ? null : ticketLookup?.user_name ?? row.identified_customer_name ?? null;
     return {
       recordingId: Number(row.recording_id),
       startedAt: row.started_at ?? recording?.StartTime ?? null,
@@ -248,6 +255,9 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       matchLabel: callMatchLabel(effectiveMatchMethod),
       notePosted: row.note_posted,
       analysisAttempts: row.analysis_attempts ?? 0,
+      identifiedCustomerName: row.identified_customer_name,
+      identifiedClientName: row.identified_client_name,
+      matchEvidence: row.match_evidence,
       callType: row.call_type ?? recording?.CallType ?? null,
       from: {
         name: itemPartyName("from", directionOf(row.direction), fromName, customerName),

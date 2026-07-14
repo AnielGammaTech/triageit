@@ -46,6 +46,14 @@ interface CallInsights {
   readonly suggested_customer_email: string | null;
 }
 
+interface TranscriptCallerIdentity {
+  readonly person_name: string | null;
+  readonly company_name: string | null;
+  readonly issue_summary: string;
+  readonly confidence: number;
+  readonly evidence: string;
+}
+
 const MIN_TRANSCRIPT_CHARS = 150;
 const MAX_RECORDINGS_PER_RUN = 40;
 const MAX_TRANSCRIPT_FOR_LLM = 24_000;
@@ -56,6 +64,7 @@ const MAX_GLOBAL_CANDIDATES = 120;
 const MAX_ANALYSIS_ATTEMPTS = 5;
 const MAX_TRANSCRIPT_POLL_ATTEMPTS = 20;
 const MAX_UNMATCHED_REMATCH_ATTEMPTS = 2;
+const RECENT_CLOSED_MATCH_DAYS = 21;
 
 // The cron fires every minute but a run with new recordings can take several
 // minutes (1-3 Sonnet calls per recording). Without this guard, BullMQ's
@@ -408,8 +417,19 @@ export async function processRecording(
   // company's open tickets. Fallback: LLM over the whole open board.
   // The assigned-tech guard below still applies on every path.
   if (users.length === 0) {
+    // Caller ID such as "NAPLES FL" is weak data. Read the conversation
+    // before falling back to the whole board: callers often answer
+    // "Elizabeth with Allen Concrete" without saying "this is...".
+    const inferredIdentity = await identifyCallerFromTranscript(transcript, techName, externalParty);
+    let identifiedCustomerName: string | null = null;
+    let identifiedClientName: string | null = null;
+    let identityEvidence: string | null = null;
+
     // Name-directed: spoken name → Halo user → their client's open tickets
-    const spokenNames = extractSpokenNames(transcript);
+    const spokenNames = [
+      ...(inferredIdentity?.person_name ? [inferredIdentity.person_name] : []),
+      ...extractSpokenNames(transcript),
+    ].filter((name, index, names) => names.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index);
     if (spokenNames.length > 0) {
       console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken names ${spokenNames.join(", ")} — trying name-directed match`);
     }
@@ -421,17 +441,31 @@ export async function processRecording(
         console.warn(`[CALL-ANALYSIS] Name lookup "${name}" failed:`, error instanceof Error ? error.message : error);
         continue;
       }
-      const namedClients = [...new Set(namedUsers.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
+      const identityCompany = name === inferredIdentity?.person_name ? inferredIdentity.company_name : null;
+      const companyMatchedUsers = identityCompany
+        ? namedUsers.filter((user) => clientNamesOverlap(user.client_name, identityCompany))
+        : namedUsers;
+      const usableUsers = companyMatchedUsers.length > 0 ? companyMatchedUsers : namedUsers;
+      const namedClients = [...new Set(usableUsers.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
       console.log(`[CALL-ANALYSIS] Name "${name}" → ${namedUsers.length} Halo user(s), clients: ${namedClients.join(", ") || "none"}`);
       if (namedClients.length === 0 || namedClients.length > 3) continue;
+
+      if (name === inferredIdentity?.person_name && inferredIdentity.confidence >= 0.75) {
+        const exactUser = usableUsers.find((user) => namesOverlap(user.name, name)) ?? usableUsers[0];
+        identifiedCustomerName = exactUser?.name ?? name;
+        identifiedClientName = exactUser?.client_name ?? identityCompany;
+        identityEvidence = inferredIdentity.evidence;
+      }
+
+      const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
       const { data: clientTickets } = await supabase
         .from("tickets")
-        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent")
+        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
         .eq("tickettype_id", 31)
-        .eq("halo_is_open", true)
         .in("client_name", namedClients)
+        .or(`halo_is_open.eq.true,created_at.gte.${recentClosedCutoff}`)
         .order("created_at", { ascending: false })
-        .limit(25);
+        .limit(50);
       const candidates = (clientTickets ?? []) as CandidateTicket[];
 
       // The calling tech being the ASSIGNED tech of exactly one open ticket
@@ -439,7 +473,7 @@ export async function processRecording(
       // calling Nicole at the Dunes IS his Dunes ticket, even when the
       // voicemail wording ("your email… calendar issue") doesn't echo the
       // ticket title. Vague voicemails killed the topical LLM match here.
-      const assignedToCaller = candidates.filter((t) => namesOverlap(techName, t.halo_agent));
+      const assignedToCaller = candidates.filter((t) => t.halo_is_open !== false && namesOverlap(techName, t.halo_agent));
       if (assignedToCaller.length === 1) {
         console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken name "${name}" → ${namedClients.join("/")} + caller is assigned tech of #${assignedToCaller[0].halo_id} — direct match`);
         return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, assignedToCaller[0], "spoken_name_assigned_tech", transcript);
@@ -466,7 +500,18 @@ export async function processRecording(
     if (!globalPick) {
       await supabase
         .from("call_analyses")
-        .upsert({ ...base, external_number: external.number, direction, tech_name: techName, matched_by: "no_halo_user", note_posted: false }, { onConflict: "recording_id" });
+        .upsert({
+          ...base,
+          external_number: external.number,
+          direction,
+          tech_name: techName,
+          matched_by: identifiedCustomerName ? "identified_customer_no_ticket_match" : "no_halo_user",
+          summary: identifiedCustomerName ? inferredIdentity?.issue_summary ?? null : null,
+          identified_customer_name: identifiedCustomerName,
+          identified_client_name: identifiedClientName,
+          match_evidence: identityEvidence,
+          note_posted: false,
+        }, { onConflict: "recording_id" });
       return { matched: false, posted: false };
     }
     return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, globalPick, "llm_transcript_global", transcript);
@@ -589,6 +634,64 @@ interface CandidateTicket {
   readonly created_at?: string | null;
 }
 
+function clientNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) return false;
+  const ignored = new Set(["and", "the", "inc", "llc", "corp", "corporation", "company"]);
+  const tokens = (value: string) => value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !ignored.has(token));
+  const leftTokens = new Set(tokens(left));
+  const rightTokens = tokens(right);
+  return rightTokens.length > 0
+    && rightTokens.filter((token) => leftTokens.has(token)).length >= Math.min(2, rightTokens.length);
+}
+
+async function identifyCallerFromTranscript(
+  transcript: string,
+  techName: string,
+  externalParty: { readonly name: string | null; readonly number: string },
+): Promise<TranscriptCallerIdentity | null> {
+  try {
+    const anthropic = new Anthropic();
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 600,
+      messages: [{
+        role: "user",
+        content: [
+          `Identify the CUSTOMER in this MSP support-call transcript. Read the whole conversation; do not rely only on caller ID.`,
+          `The internal Gamma Tech employee is ${techName}. Never return that employee as the customer, even if 3CX misspells their name.`,
+          `3CX caller ID: ${externalParty.name ?? "unavailable"} | ${externalParty.number}`,
+          `Use direct conversational evidence such as an answer to "who is this?", "<name> with <company>", or a company greeting. Do not guess from the issue alone.`,
+          `Summarize the support work without reproducing any password, security code, or credential.`,
+          ``,
+          `TRANSCRIPT:`,
+          transcript.slice(0, MAX_TRANSCRIPT_FOR_LLM),
+          ``,
+          `Respond with ONLY valid JSON:`,
+          `{`,
+          `  "person_name": "<customer full or first name, or null>",`,
+          `  "company_name": "<customer company, or null>",`,
+          `  "issue_summary": "<one sentence describing the call, with credentials redacted>",`,
+          `  "confidence": <0.0-1.0>,`,
+          `  "evidence": "<short identifying phrase from the transcript>"`,
+          `}`,
+        ].join("\n"),
+      }],
+    });
+    const text = extractResponseText(response);
+    if (!text) return null;
+    const identity = parseLlmJson<TranscriptCallerIdentity>(text);
+    if ((identity.confidence ?? 0) < 0.75 || (!identity.person_name && !identity.company_name)) return null;
+    if (identity.person_name && (isInternalStaffName(identity.person_name) || namesOverlap(identity.person_name, techName))) return null;
+    return identity;
+  } catch (error) {
+    console.warn("[CALL-ANALYSIS] Transcript caller identification failed:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 interface RecordingBase {
   readonly recording_id: number;
   readonly started_at: string | null;
@@ -678,6 +781,9 @@ async function finishMatchedRecording(
         tech_name: techName,
         matched_by: `${matchedBy}_note_failed`,
         summary: insights.summary,
+        identified_customer_name: ticket.user_name,
+        identified_client_name: ticket.client_name,
+        match_evidence: null,
         note_posted: false,
       },
       { onConflict: "recording_id" },
@@ -695,6 +801,9 @@ async function finishMatchedRecording(
       tech_name: techName,
       matched_by: otherStaff ? `${matchedBy}_other_staff` : matchedBy,
       summary: insights.summary,
+      identified_customer_name: ticket.user_name,
+      identified_client_name: ticket.client_name,
+      match_evidence: null,
       note_posted: true,
     },
     { onConflict: "recording_id" },

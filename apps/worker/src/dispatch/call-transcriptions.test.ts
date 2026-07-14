@@ -43,6 +43,7 @@ describe("callMatchLabel", () => {
   it("gives readable unmatched reasons", () => {
     expect(callMatchLabel("ambiguous_multiple_open")).toBe("Several possible open tickets");
     expect(callMatchLabel("shared_phone_no_transcript_match")).toBe("Shared number with no clear ticket match");
+    expect(callMatchLabel("identified_customer_no_ticket_match")).toBe("Customer identified; no related ticket found");
   });
 });
 

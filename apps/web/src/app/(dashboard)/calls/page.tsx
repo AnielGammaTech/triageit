@@ -32,6 +32,9 @@ interface CallItem {
   readonly matchLabel: string;
   readonly notePosted: boolean;
   readonly analysisAttempts: number;
+  readonly identifiedCustomerName: string | null;
+  readonly identifiedClientName: string | null;
+  readonly matchEvidence: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
   readonly to: { readonly name: string | null; readonly number: string | null };
@@ -311,7 +314,11 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
           ) : (
             <div className="min-w-0">
               <p className="text-sm font-semibold text-amber-300">No ticket matched</p>
-              <p className="mt-0.5 truncate text-xs text-zinc-500">{item.matchLabel}</p>
+              <p className="mt-0.5 truncate text-xs text-zinc-500">
+                {item.identifiedCustomerName
+                  ? [item.identifiedCustomerName, item.identifiedClientName].filter(Boolean).join(" · ")
+                  : item.matchLabel}
+              </p>
             </div>
           )}
         </div>
@@ -324,6 +331,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold text-zinc-300">{item.matchLabel}</p>
+            {item.matchEvidence && <p className="mt-1 text-xs text-zinc-400">Identity evidence: {item.matchEvidence}</p>}
             <p className="mt-1 text-xs text-zinc-600">
               {internal ? "Internal staff call; no ticket match expected" : item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
               {item.analysisAttempts > 0 ? ` · ${item.analysisAttempts} retry attempt${item.analysisAttempts === 1 ? "" : "s"}` : ""}
