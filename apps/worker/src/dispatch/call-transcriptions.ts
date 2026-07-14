@@ -46,7 +46,7 @@ export interface CallTranscriptionItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention" | "internal";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
@@ -72,7 +72,7 @@ export interface CallTranscriptionPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallTranscriptionItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly attention: number };
 }
 
 let cache: { readonly at: number; readonly payload: CallTranscriptionPayload } | null = null;
@@ -138,6 +138,7 @@ export function callMatchLabel(method: string | null): string {
     no_external_number: "No external caller number",
     no_halo_user: "Caller not found and transcript had no safe match",
     identified_customer_no_ticket_match: "Customer identified; no related ticket found",
+    confirmed_separate_call: "Confirmed by tech as a separate call",
     shared_phone_no_transcript_match: "Shared number with no clear ticket match",
     ambiguous_multiple_open: "Several possible open tickets",
     no_open_ticket: "No open ticket for this caller",
@@ -235,6 +236,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     const ticketLookup = row.ticket_id ? ticketById.get(row.ticket_id) : null;
     const hasMatch = row.halo_id != null;
     const internal = row.matched_by === "internal_call" || /local/i.test(row.call_type ?? recording?.CallType ?? "");
+    const separate = row.matched_by === "confirmed_separate_call";
     const effectiveMatchMethod = internal ? "internal_call" : row.matched_by ?? "unknown";
     const attention = !internal && hasMatch && !row.note_posted;
     const fromName = (row.from_name ?? recording?.FromDisplayName?.trim()) || null;
@@ -250,7 +252,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       transcript: row.transcript ?? recording?.Transcription?.trim() ?? null,
       transcriptChars: row.transcript_chars ?? recording?.Transcription?.length ?? 0,
       callSummary: row.summary,
-      matchState: internal ? "internal" : hasMatch ? (attention ? "attention" : "matched") : "unmatched",
+      matchState: internal ? "internal" : separate ? "separate" : hasMatch ? (attention ? "attention" : "matched") : "unmatched",
       matchMethod: effectiveMatchMethod,
       matchLabel: callMatchLabel(effectiveMatchMethod),
       notePosted: row.note_posted,
@@ -289,6 +291,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       matched: items.filter((item) => item.ticket !== null).length,
       unmatched: items.filter((item) => item.matchState === "unmatched").length,
       internal: items.filter((item) => item.matchState === "internal").length,
+      separate: items.filter((item) => item.matchState === "separate").length,
       attention: items.filter((item) => item.matchState === "attention").length,
     },
   };

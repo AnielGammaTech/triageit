@@ -200,6 +200,42 @@ async function sendTeamsReply(serviceUrl: string, conversationId: string, activi
   });
 }
 
+export interface TeamsConversationReference {
+  readonly user_aad_id: string;
+  readonly user_teams_id: string;
+  readonly user_name: string;
+  readonly conversation_id: string;
+  readonly service_url: string;
+  readonly bot_id: string;
+  readonly tenant_id: string | null;
+}
+
+/** Send a bot-authenticated proactive card into a registered 1:1 conversation. */
+export async function sendProactiveTeamsCard(
+  reference: TeamsConversationReference,
+  card: Record<string, unknown>,
+): Promise<string | null> {
+  const token = await getBotToken();
+  const serviceUrl = reference.service_url.endsWith("/") ? reference.service_url : `${reference.service_url}/`;
+  const response = await fetch(`${serviceUrl}v3/conversations/${encodeURIComponent(reference.conversation_id)}/activities`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...card,
+      from: { id: reference.bot_id },
+      recipient: { id: reference.user_teams_id, name: reference.user_name },
+      conversation: { id: reference.conversation_id },
+      ...(reference.tenant_id ? { channelData: { tenant: { id: reference.tenant_id } } } : {}),
+    }),
+  });
+  if (!response.ok) throw new Error(`Bot proactive message failed (${response.status}): ${await response.text()}`);
+  const result = await response.json().catch(() => ({})) as { id?: string };
+  return result.id ?? null;
+}
+
 async function sendTypingIndicator(serviceUrl: string, conversationId: string): Promise<void> {
   const token = await getBotToken();
   const url = `${serviceUrl}v3/conversations/${conversationId}/activities`;
@@ -485,18 +521,73 @@ async function chat(agent: "michael" | "toby", message: string, convKey: string)
 interface BotActivity {
   readonly type: string;
   readonly text?: string;
+  readonly value?: Record<string, unknown>;
   readonly serviceUrl: string;
-  readonly conversation: { readonly id: string };
+  readonly conversation: { readonly id: string; readonly conversationType?: string };
   readonly id: string;
-  readonly from?: { readonly name?: string };
+  readonly from?: { readonly id?: string; readonly aadObjectId?: string; readonly name?: string };
+  readonly recipient?: { readonly id?: string };
+  readonly channelData?: { readonly tenant?: { readonly id?: string } };
+}
+
+async function rememberConversationReference(activity: BotActivity): Promise<boolean> {
+  if (activity.conversation.conversationType && activity.conversation.conversationType !== "personal") return false;
+  const teamsId = activity.from?.id;
+  const botId = activity.recipient?.id;
+  const userName = activity.from?.name?.trim();
+  if (!teamsId || !botId || !userName || !activity.conversation.id || !activity.serviceUrl) return false;
+
+  const supabase = createSupabaseClient();
+  const { error } = await supabase.from("teams_conversation_references").upsert({
+    user_aad_id: activity.from?.aadObjectId ?? teamsId,
+    user_teams_id: teamsId,
+    user_name: userName,
+    conversation_id: activity.conversation.id,
+    service_url: activity.serviceUrl,
+    bot_id: botId,
+    tenant_id: activity.channelData?.tenant?.id ?? null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_aad_id" });
+  if (error) console.error("[TEAMS-BOT] Could not remember conversation reference:", error.message);
+  return !error;
 }
 
 export async function handleBotMessage(activity: BotActivity): Promise<void> {
-  if (activity.type !== "message" || !activity.text) return;
+  if (activity.type !== "message") return;
+  const registered = await rememberConversationReference(activity);
+
+  if (activity.value?.triageit_action) {
+    try {
+      const { resolveCallMatchReviewAction } = await import("../../dispatch/call-match-review-resolution.js");
+      const response = await resolveCallMatchReviewAction({
+        value: activity.value,
+        actorName: activity.from?.name ?? null,
+      });
+      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, response);
+    } catch (error) {
+      console.error("[TEAMS-BOT] Call review action failed:", error instanceof Error ? error.message : error);
+      await sendTeamsReply(activity.serviceUrl, activity.conversation.id, activity.id, "TriageIT could not complete that call review. Nothing was changed in Halo; please try again or use the Calls page.");
+    }
+    return;
+  }
+
+  if (!activity.text) return;
 
   const text = activity.text.replace(/<at>[^<]*<\/at>/g, "").trim();
   const lower = text.toLowerCase();
   const convId = activity.conversation.id;
+
+  if (lower === "register" || lower === "/register") {
+    await sendTeamsReply(
+      activity.serviceUrl,
+      convId,
+      activity.id,
+      registered
+        ? "Registered. TriageIT can now send you unmatched-call review cards during business hours."
+        : "Open a private chat with the TriageIT bot and send `register` there. Call-review cards are never sent to a team channel.",
+    );
+    return;
+  }
 
   // Handle /help command
   if (lower === "/help" || lower === "help" || lower === "/commands") {
@@ -518,6 +609,7 @@ export async function handleBotMessage(activity: BotActivity): Promise<void> {
       "| Team overview | *show me the team workload* |",
       "| Client history | *what tickets does Potter Homes have?* |",
       "| Sync tickets | *sync tickets from Halo* |",
+      "| Register call reviews | *register* (private bot chat only) |",
       "| Run analytics | *toby run a fresh analysis* |",
       "",
       "**Tips:**",

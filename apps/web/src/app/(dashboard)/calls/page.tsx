@@ -27,7 +27,7 @@ interface CallItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention" | "internal";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
@@ -52,10 +52,10 @@ interface CallPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly attention: number };
 }
 
-type View = "all" | "matched" | "unmatched" | "internal";
+type View = "all" | "matched" | "unmatched" | "internal" | "separate";
 const PAGE_SIZE = 15;
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
@@ -142,6 +142,7 @@ export default function CallsPage() {
       if (view === "matched" && !item.ticket) return false;
       if (view === "unmatched" && item.matchState !== "unmatched") return false;
       if (view === "internal" && item.matchState !== "internal") return false;
+      if (view === "separate" && item.matchState !== "separate") return false;
       if (!needle) return true;
       return [
         item.techName,
@@ -202,6 +203,7 @@ export default function CallsPage() {
             <ViewButton active={view === "matched"} onClick={() => setView("matched")} label="Matched" count={data?.counts.matched ?? 0} />
             <ViewButton active={view === "unmatched"} onClick={() => setView("unmatched")} label="Unmatched" count={data?.counts.unmatched ?? 0} />
             <ViewButton active={view === "internal"} onClick={() => setView("internal")} label="Internal" count={data?.counts.internal ?? 0} />
+            <ViewButton active={view === "separate"} onClick={() => setView("separate")} label="Separate" count={data?.counts.separate ?? 0} />
           </div>
           <label className="relative ml-auto min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-600" />
@@ -282,8 +284,9 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
   const elapsed = duration(item.startedAt, item.endedAt);
   const DirectionIcon = item.direction === "inbound" ? PhoneIncoming : item.direction === "outbound" ? PhoneOutgoing : PhoneCall;
   const internal = item.matchState === "internal";
-  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : "#fbbf24";
-  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : "Unmatched";
+  const separate = item.matchState === "separate";
+  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : separate ? "#a1a1aa" : "#fbbf24";
+  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : "Unmatched";
   return (
     <details className="group">
       <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3.5 transition hover:bg-white/[0.02] sm:grid-cols-[150px_minmax(160px,0.8fr)_minmax(240px,1.4fr)_auto] sm:items-center">

@@ -12,6 +12,7 @@ import {
   transcriptTicketMatchMinConfidence,
   type TranscriptTicketMatchScope,
 } from "./call-match-policy.js";
+import { sendPendingCallMatchReviews } from "../dispatch/call-match-review-notifications.js";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -206,6 +207,13 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
         .from("call_analyses")
         .upsert({ recording_id: rec.Id, matched_by: "error", note_posted: false }, { onConflict: "recording_id" });
     }
+  }
+
+  try {
+    const reviewsSent = await sendPendingCallMatchReviews(supabase);
+    if (reviewsSent > 0) console.log(`[CALL-ANALYSIS] Sent ${reviewsSent} unmatched-call review card(s) to Teams`);
+  } catch (error) {
+    console.error("[CALL-ANALYSIS] Teams call-review delivery failed:", error instanceof Error ? error.message : error);
   }
 
   console.log(`[CALL-ANALYSIS] Complete: ${recordings.length} new recordings, ${matched} matched to tickets, ${notesPosted} notes posted`);
@@ -510,6 +518,7 @@ export async function processRecording(
           identified_customer_name: identifiedCustomerName,
           identified_client_name: identifiedClientName,
           match_evidence: identityEvidence,
+          teams_review_status: "pending",
           note_posted: false,
         }, { onConflict: "recording_id" });
       return { matched: false, posted: false };
@@ -576,6 +585,7 @@ export async function processRecording(
             : candidates.length > 1
               ? "ambiguous_multiple_open"
               : "no_open_ticket",
+          teams_review_status: "pending",
           note_posted: false,
         },
         { onConflict: "recording_id" },
@@ -784,6 +794,8 @@ async function finishMatchedRecording(
         identified_customer_name: ticket.user_name,
         identified_client_name: ticket.client_name,
         match_evidence: null,
+        teams_review_status: "matched",
+        teams_review_ticket_id: ticket.halo_id,
         note_posted: false,
       },
       { onConflict: "recording_id" },
@@ -804,6 +816,8 @@ async function finishMatchedRecording(
       identified_customer_name: ticket.user_name,
       identified_client_name: ticket.client_name,
       match_evidence: null,
+      teams_review_status: "matched",
+      teams_review_ticket_id: ticket.halo_id,
       note_posted: true,
     },
     { onConflict: "recording_id" },
