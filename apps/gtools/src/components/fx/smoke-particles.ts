@@ -1,5 +1,5 @@
 const MAX_PARTICLES = 64;
-const MAX_RIPPLES = 6;
+const MAX_RIPPLES = 8; // headroom for an ambient ring or two plus an occasional click on top
 const PARTICLE_LIFE_MIN_MS = 650;
 const PARTICLE_LIFE_MAX_MS = 1150;
 const START_SIZE_PX = 5;
@@ -8,8 +8,12 @@ const BUOYANCY_PX_PER_MS2 = 0.00003; // gentle upward drift, like rising smoke
 const DRAG = 0.985; // per-frame velocity damping so the initial cursor "throw" settles into a drift
 const WOBBLE_MIN = 0.002;
 const WOBBLE_MAX = 0.005;
+// Click ripple defaults — the "stronger ring" every `spawnRipple` call falls
+// back to unless the caller (the ambient idle rhythm in smoke-trail.tsx)
+// passes its own softer strength/life/radius.
 const RIPPLE_LIFE_MS = 650;
 const RIPPLE_MAX_RADIUS_PX = 46;
+const RIPPLE_STRENGTH = 1;
 
 interface Particle {
   active: boolean;
@@ -30,6 +34,8 @@ interface Ripple {
   y: number;
   age: number;
   life: number;
+  maxRadius: number;
+  strength: number; // 0-1, scales opacity + line weight — click rings vs. the softer ambient rhythm
   color: string;
 }
 
@@ -61,6 +67,8 @@ export function createSmokeEngine() {
     y: 0,
     age: 0,
     life: 0,
+    maxRadius: RIPPLE_MAX_RADIUS_PX,
+    strength: RIPPLE_STRENGTH,
     color: "",
   }));
   let particleCursor = 0;
@@ -81,14 +89,29 @@ export function createSmokeEngine() {
     p.sprite = sprite;
   }
 
-  function spawnRipple(x: number, y: number, color: string) {
+  // `strength`/`life`/`maxRadius` default to the click-ripple values, so
+  // every existing call site (the click handler) is untouched and still
+  // produces the "stronger ring." The continuous ambient rhythm
+  // (smoke-trail.tsx) passes a lower strength, a longer life, and a smaller
+  // radius for a softer, slower-breathing ring that layers under the smoke
+  // instead of competing with a real click.
+  function spawnRipple(
+    x: number,
+    y: number,
+    color: string,
+    strength: number = RIPPLE_STRENGTH,
+    life: number = RIPPLE_LIFE_MS,
+    maxRadius: number = RIPPLE_MAX_RADIUS_PX,
+  ) {
     const r = ripples[rippleCursor % ripples.length];
     rippleCursor += 1;
     r.active = true;
     r.x = x;
     r.y = y;
     r.age = 0;
-    r.life = RIPPLE_LIFE_MS;
+    r.life = life;
+    r.maxRadius = maxRadius;
+    r.strength = strength;
     r.color = color;
   }
 
@@ -132,11 +155,15 @@ export function createSmokeEngine() {
     for (const r of ripples) {
       if (!r.active) continue;
       const t = r.age / r.life;
-      ctx.globalAlpha = Math.max(0, 1 - t);
+      // `ctx.arc()` throws on any negative radius, even float noise just
+      // under 0 — clamp defensively so a mistimed frame delta upstream can
+      // never crash the draw loop.
+      const radius = Math.max(0, r.maxRadius * t);
+      ctx.globalAlpha = Math.max(0, 1 - t) * r.strength;
       ctx.strokeStyle = r.color;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 1 + r.strength * 0.8;
       ctx.beginPath();
-      ctx.arc(r.x, r.y, RIPPLE_MAX_RADIUS_PX * t, 0, Math.PI * 2);
+      ctx.arc(r.x, r.y, radius, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;

@@ -6,7 +6,6 @@ import { StatsStrip } from "@/components/stats-strip";
 import { ToolSection } from "@/components/tool-section";
 import { Footer } from "@/components/footer";
 import { Backdrop } from "@/components/fx/backdrop";
-import { Marquee } from "@/components/fx/marquee";
 import { Spotlight } from "@/components/fx/spotlight";
 import { ReticleCursor } from "@/components/fx/cursor";
 import { SmokeTrail } from "@/components/fx/smoke-trail";
@@ -23,7 +22,6 @@ export default function Home() {
       <Nav />
       <main>
         <Hero />
-        <Marquee />
         <SuiteGrid />
         <BetterTogether />
         <StatsStrip />

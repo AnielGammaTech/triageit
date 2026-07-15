@@ -128,15 +128,6 @@ html[data-fx-scroll="active"] .fx-boot-cursor {
   }
 }
 
-/* --- Marquee velocity boost (effect 3) -------------------------------------
- * A second element wrapping the CSS-looped track: the loop itself (fx.css)
- * never stops or reverses, this wrapper only ever adds a small *forward*
- * nudge on top, clamped and eased back to 0 by the orchestrator. */
-.fx-marquee-boost {
-  display: block;
-  width: max-content;
-}
-
 /* --- Cursor-depth background shift (effect 5) ------------------------------
  * Wraps the backdrop's grid-floor and orb group separately so each can carry
  * its own depth multiplier; GSAP writes x/y here, the existing drift/breathe

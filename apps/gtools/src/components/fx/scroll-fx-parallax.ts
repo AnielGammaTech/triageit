@@ -9,9 +9,7 @@ const MOCKUP_RANGE_PX = 30;
 
 // Effect 3 (parts 1 + 2) — backdrop depth drift tied to whole-document
 // scroll, and a per-section ghost-numeral / mockup-vs-copy differential tied
-// to that section's own scroll progress. Marquee velocity boost lives in its
-// own module (scroll-fx-marquee.ts) since it reads Lenis velocity every
-// frame rather than scrubbing against a ScrollTrigger.
+// to that section's own scroll progress.
 export function registerParallax({ gsap }: ScrollFxContext): ScrollFxCleanup {
   const triggers: ScrollTrigger[] = [];
 

@@ -16,7 +16,7 @@
  * animation "finishing" to become visible.
  *
  * Split across three files to stay under the file-size limit: this file
- * (reveal, hero, marquee, backdrop), fx-diagram.css (BrowserFrame FX,
+ * (reveal, hero, backdrop), fx-diagram.css (BrowserFrame FX,
  * ConnectIT diagram, nav-on-scroll), and fx-interactive.css (Round 2's
  * pointer-driven spotlight, tilt/glare, magnetic pull, reticle cursor, and
  * the Office easter egg).
@@ -125,32 +125,6 @@
   }
 }
 
-/* --- Marquee (fx/marquee.tsx) --------------------------------------------
- * Track is duplicated in the component; translateX(-50%) is exactly one
- * copy's width, so the loop point is seamless. */
-@media (prefers-reduced-motion: no-preference) {
-  .fx-marquee-track {
-    animation: fx-marquee-scroll 32s linear infinite;
-  }
-  .fx-marquee:hover .fx-marquee-track {
-    animation-play-state: paused;
-  }
-}
-@keyframes fx-marquee-scroll {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-.fx-marquee-fade {
-  background: linear-gradient(to right, var(--color-ink), transparent);
-}
-.fx-marquee-fade-right {
-  background: linear-gradient(to left, var(--color-ink), transparent);
-}
-
 /* --- Backdrop (fx/backdrop.tsx) -------------------------------------------
  * Fixed, full-viewport, behind all content. `contain: paint` scopes repaints
  * from the animated orbs/specks to this layer instead of the whole page. */
@@ -220,33 +194,6 @@
   }
   100% {
     transform: translate3d(-3%, 4%, 0) scale(0.96);
-  }
-}
-
-.fx-speck {
-  position: absolute;
-  width: 2px;
-  height: 2px;
-  border-radius: 9999px;
-  background: var(--color-snow);
-  opacity: 0.12;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .fx-speck {
-    animation-name: fx-twinkle;
-    animation-timing-function: ease-in-out;
-    animation-iteration-count: infinite;
-  }
-}
-@keyframes fx-twinkle {
-  0%,
-  100% {
-    opacity: 0.1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(1.7);
   }
 }
 

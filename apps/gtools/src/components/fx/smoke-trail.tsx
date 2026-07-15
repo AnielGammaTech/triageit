@@ -5,25 +5,36 @@ import { prefersFinePointer, prefersReducedMotion, subscribePointer } from "./po
 import { buildSmokeSprites } from "./smoke-sprites";
 import { createSmokeEngine } from "./smoke-particles";
 
-const IDLE_PAUSE_MS = 2000;
 const MAX_EMIT_PER_TICK = 4;
 const EMIT_SPACING_PX = 14;
-const MIN_EMIT_DIST_PX = 1.5; // skip emission on sub-pixel jitter from a near-stationary cursor
+const MIN_EMIT_DIST_PX = 1.5; // skip movement-emission on sub-pixel jitter from a near-stationary cursor
 const MAX_FRAME_DELTA_MS = 48; // clamps the physics step after a tab-switch/idle gap
+const IDLE_SMOKE_INTERVAL_MS = 140; // gentle baseline plume cadence while the pointer sits still
+const IDLE_RIPPLE_INTERVAL_MS = 850; // rhythm for the ambient water-ripple rings
+const IDLE_RIPPLE_STRENGTH = 0.4; // softer than a click ring, layers under the smoke
+const IDLE_RIPPLE_LIFE_MS = 1700;
+const IDLE_RIPPLE_RADIUS_PX = 34;
 
 // Fluid smoke/water cursor trail — a fixed full-viewport canvas (own layer,
 // separate from the reticle in cursor.tsx) that emits soft, additively
-// blended plumes as the pointer moves, tinted toward whichever tool
-// section is nearest the viewport center (brand indigo default elsewhere),
-// plus a ripple ring on click. Particle simulation lives in
-// smoke-particles.ts (a fixed-size mutable pool, not reallocated per
-// frame); sprite pre-rendering lives in smoke-sprites.ts. This component
-// only owns: the canvas element + DPR-aware sizing, translating pointer/
-// click events into engine calls, the section-accent tracker, and the
-// rAF loop itself (paused whenever the pointer has been idle for
-// `IDLE_PAUSE_MS` and no particles are still alive, resumed on the next
-// move or click). Fine-pointer + no-reduced-motion gated, same contract as
-// the reticle; fully torn down on unmount.
+// blended plumes continuously at the cursor position — a gentle idle plume
+// plus a rhythmic ambient ripple ring keep the layer alive even while the
+// pointer sits still, both tinted toward whichever tool section is nearest
+// the viewport center (brand indigo default elsewhere). Movement adds a
+// denser trail on top of the idle plume (naturally reading as "stronger
+// with velocity" since it stacks additional spawns rather than needing its
+// own separate curve), and a click still fires a markedly stronger ripple
+// than the ambient rhythm. Particle simulation lives in smoke-particles.ts
+// (a fixed-size mutable pool, not reallocated per frame); sprite
+// pre-rendering lives in smoke-sprites.ts. This component only owns: the
+// canvas element + DPR-aware sizing, translating pointer/click events into
+// engine calls, the idle-cadence timers, the section-accent tracker, and
+// the rAF loop itself — which now runs continuously for as long as the
+// pointer is known to be on the page, and only stops once the pointer has
+// left the browser viewport (or the tab is hidden) *and* every live
+// particle/ripple has finished fading, so the trail always exits
+// gracefully instead of snapping off. Fine-pointer + no-reduced-motion
+// gated, same contract as the reticle; fully torn down on unmount.
 export function SmokeTrail() {
   const [enabled, setEnabled] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,8 +89,11 @@ export function SmokeTrail() {
 
     let lastX = window.innerWidth / 2;
     let lastY = window.innerHeight / 2;
-    let lastMoveAt = performance.now();
+    let hasPosition = false; // don't spawn the idle plume/ripple at a guessed center before the first real pointer position
+    let pointerOnPage = !document.hidden;
     let lastFrameAt = performance.now();
+    let lastIdleSmokeAt = performance.now();
+    let lastIdleRippleAt = performance.now();
     let running = false;
     let rafId = 0;
 
@@ -93,13 +107,39 @@ export function SmokeTrail() {
     }
 
     function loop(now: number) {
-      const dt = Math.min(MAX_FRAME_DELTA_MS, now - lastFrameAt);
+      // Clamped to >= 0: a rAF callback's own timestamp isn't guaranteed to
+      // be >= a `performance.now()` captured synchronously moments earlier
+      // (e.g. right when `ensureLoop`/`handleVisibility` stamped
+      // `lastFrameAt`), so `now - lastFrameAt` can occasionally go slightly
+      // negative. Feeding a negative `dt` into the engine would age a
+      // freshly spawned ripple backwards into negative progress, and
+      // `ctx.arc()` throws outright on a negative radius.
+      const dt = Math.max(0, Math.min(MAX_FRAME_DELTA_MS, now - lastFrameAt));
       lastFrameAt = now;
+
+      if (hasPosition && pointerOnPage) {
+        if (now - lastIdleSmokeAt >= IDLE_SMOKE_INTERVAL_MS) {
+          lastIdleSmokeAt = now;
+          engine.spawnSmoke(lastX, lastY, 0, 0, currentSprite);
+        }
+        if (now - lastIdleRippleAt >= IDLE_RIPPLE_INTERVAL_MS) {
+          lastIdleRippleAt = now;
+          engine.spawnRipple(
+            lastX,
+            lastY,
+            currentStroke,
+            IDLE_RIPPLE_STRENGTH,
+            IDLE_RIPPLE_LIFE_MS,
+            IDLE_RIPPLE_RADIUS_PX,
+          );
+        }
+      }
+
       engine.update(dt);
       ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
       engine.draw(ctx!);
 
-      if (now - lastMoveAt > IDLE_PAUSE_MS && !engine.hasActive()) {
+      if (!pointerOnPage && !engine.hasActive()) {
         running = false;
         return;
       }
@@ -114,7 +154,8 @@ export function SmokeTrail() {
     }
 
     const unsubscribePointer = subscribePointer((x, y) => {
-      lastMoveAt = performance.now();
+      hasPosition = true;
+      pointerOnPage = true;
       const dist = Math.hypot(x - lastX, y - lastY);
       if (dist > MIN_EMIT_DIST_PX) emit(x, y, x - lastX, y - lastY);
       lastX = x;
@@ -128,11 +169,46 @@ export function SmokeTrail() {
     }
     document.addEventListener("click", handleClick, { passive: true });
 
+    // "Pointer left the window" — `mouseleave` (unlike `mouseout`) doesn't
+    // bubble, so listening directly on `document` is exactly the trick that
+    // makes it fire only once the pointer has actually left the whole
+    // viewport (through the browser chrome), not just moved between page
+    // elements. The idle plume/ripple stop on this signal; any particles
+    // already in flight keep fading out via the `hasActive()` check above.
+    function handlePointerLeave() {
+      pointerOnPage = false;
+    }
+    function handlePointerEnter() {
+      pointerOnPage = true;
+      ensureLoop();
+    }
+    document.addEventListener("mouseleave", handlePointerLeave);
+    document.addEventListener("mouseenter", handlePointerEnter);
+
+    // Background tabs never get real rAF ticks anyway, but explicitly
+    // parking the loop on `visibilitychange` avoids a burst of clamped,
+    // catch-up idle spawns firing the instant the tab regains focus.
+    function handleVisibility() {
+      if (document.hidden) {
+        pointerOnPage = false;
+      } else if (hasPosition) {
+        pointerOnPage = true;
+        lastFrameAt = performance.now();
+        lastIdleSmokeAt = performance.now();
+        lastIdleRippleAt = performance.now();
+        ensureLoop();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
       cancelAnimationFrame(rafId);
       unsubscribePointer();
       window.removeEventListener("resize", resize);
       document.removeEventListener("click", handleClick);
+      document.removeEventListener("mouseleave", handlePointerLeave);
+      document.removeEventListener("mouseenter", handlePointerEnter);
+      document.removeEventListener("visibilitychange", handleVisibility);
       sectionObserver.disconnect();
     };
   }, [enabled]);

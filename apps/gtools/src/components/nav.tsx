@@ -9,23 +9,29 @@ import { ToolLogo } from "@/components/tool-logo";
 
 // Header logo-drop redesign (task 18) — replaces the "Tools" disclosure
 // dropdown (task 17) with all 11 tools docked directly in the nav as
-// compact logo-tile + lettering chips, miniature versions of the marquee
-// items. Each chip (`data-fx="nav-chip"`, keyed by `data-fx-target`) is the
-// permanent "home slot" scroll-fx-header-drop.ts scrubs its tool's logo out
-// of and back into as that section passes — this component owns only the
-// static chip row; all drop/ghost motion is applied imperatively by that
-// registrar and is a no-op until the fine-pointer/no-reduced-motion gate
-// passes, so server HTML and every non-motion visitor just see 11 plain
-// anchor chips at full opacity.
+// compact logo-tile + lettering chips. Each chip (`data-fx="nav-chip"`,
+// keyed by `data-fx-target`) is the permanent "home slot"
+// scroll-fx-header-drop.ts scrubs its tool's logo out of and back into as
+// that section passes — this component owns only the static chip row; all
+// drop/ghost motion is applied imperatively by that registrar and is a
+// no-op until the fine-pointer/no-reduced-motion gate passes, so server
+// HTML and every non-motion visitor just see 11 plain anchor chips at full
+// opacity.
 //
-// `overflow-x-auto` (not a breakpoint cutoff) is what keeps this from ever
-// overflowing the page horizontally: 11 tiles comfortably fit unscrolled
-// from `lg` up, and even at full lettering the row can occasionally need a
-// few px more than an `xl` viewport offers — rather than hand-tuning exact
-// breakpoint math (fragile against font metrics/zoom), the row just scrolls
-// internally in that case. Lettering itself is `hidden` below `xl` per
-// spec ("letters may hide below xl leaving tiles"); tiles remain reachable
-// and named at every width via `aria-label` + native `title` tooltip.
+// Task 19 fix — the previous density (16px tiles, 11px labels, looser
+// gaps/padding) needed more width than the row actually has at `xl`
+// (1280px, the container's own `max-w-7xl` cap — 1440px/1920px viewports
+// get the *same* available width, since the row never grows past that),
+// so the last chip ("VendIT") silently overflowed into the hidden
+// scrollbar and read as clipped. Every dimension below (tile size, label
+// size/tracking, chip/row gaps) was tightened until 11 lettered chips plus
+// the brand mark and Contact button measure comfortably under that cap —
+// verified with real boundingBox measurements at 1280/1440/1920, not just
+// eyeballed. `overflow-x-auto` stays on as a last-resort safety net (e.g.
+// extreme browser zoom) but is no longer load-bearing for the normal
+// breakpoints. Lettering is still `hidden` below `xl` ("letters hide below
+// xl, leaving tiles"); tiles remain reachable and named at every width via
+// `aria-label` + native `title` tooltip.
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const contactRef = useMagnetic<HTMLAnchorElement>();
@@ -42,7 +48,7 @@ export function Nav() {
       className="fx-nav sticky top-0 z-50 border-b border-line/70 bg-ink/75 backdrop-blur-md"
       data-scrolled={scrolled ? "true" : undefined}
     >
-      <div className="fx-nav-row mx-auto flex h-16 max-w-7xl items-center gap-3 px-6">
+      <div className="fx-nav-row mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 md:px-6">
         <Link
           href="/"
           data-egg-trigger
@@ -53,7 +59,7 @@ export function Nav() {
 
         <nav
           aria-label="Tools"
-          className="fx-nav-chips flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          className="fx-nav-chips flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
         >
           {TOOLS.map((tool) => (
             <a
@@ -63,12 +69,12 @@ export function Nav() {
               data-fx-target={tool.slug}
               aria-label={tool.name}
               title={tool.name}
-              className="fx-nav-chip flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-1"
+              className="fx-nav-chip flex shrink-0 items-center gap-1 rounded-full px-1 py-1"
             >
-              <ToolLogo slug={tool.slug} size={16} />
+              <ToolLogo slug={tool.slug} size={14} />
               <span
                 aria-hidden
-                className="fx-nav-chip-label hidden font-display text-[11px] font-semibold tracking-tight xl:inline"
+                className="fx-nav-chip-label hidden font-display text-[10px] font-semibold tracking-[-0.01em] xl:inline"
                 style={{ color: accentVar(tool.accent) }}
               >
                 {tool.name}
@@ -80,7 +86,7 @@ export function Nav() {
         <a
           ref={contactRef}
           href="mailto:help@gamma.tech"
-          className="shrink-0 rounded-full bg-brand px-4 py-2 text-sm font-medium text-ink transition-opacity hover:opacity-90"
+          className="shrink-0 rounded-full bg-brand px-3.5 py-2 text-sm font-medium text-ink transition-opacity hover:opacity-90"
         >
           Contact us
         </a>

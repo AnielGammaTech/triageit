@@ -9,11 +9,19 @@ const BOOT_LINE = `gtools os — ${TOOLS.length} systems online`;
 // scroll-fx-header-drop.ts; keeping the hero clean (headline, subhead, boot
 // line only) is what makes that first "drop" read clearly instead of
 // competing with a duplicate logo display up here.
+//
+// Task 19 rebalance — the marquee band that used to sit directly under this
+// section (duplicating the header's own logo row) is gone. `min-h-[80vh]`
+// dropped to `72vh` so the hero doesn't hold open more empty air than its
+// own content needs, and the hairline `border-b` below replaces the visual
+// "close" the marquee's own `border-y` used to provide — a full-bleed seam
+// at zero extra height, so hero -> suite-grid reads as one clean handoff
+// instead of a hard cut or a dead gap.
 export function Hero() {
   return (
     <section
       data-fx="hero-section"
-      className="relative flex min-h-[80vh] flex-col items-center justify-center overflow-hidden px-6 py-16 text-center"
+      className="relative flex min-h-[72vh] flex-col items-center justify-center overflow-hidden border-b border-line/40 px-6 py-16 text-center"
     >
       {/* brand glow — breathes continuously once on screen */}
       <div

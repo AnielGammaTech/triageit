@@ -9,7 +9,6 @@ import type { ScrollFxCleanup, ScrollFxContext } from "./scroll-fx-context";
 import { registerGridLogoDeal } from "./scroll-fx-grid";
 import { registerHeaderDrop } from "./scroll-fx-header-drop";
 import { registerParallax } from "./scroll-fx-parallax";
-import { registerMarqueeBoost } from "./scroll-fx-marquee";
 import { registerCursorDepth } from "./scroll-fx-cursor-depth";
 import { registerConnectItDiagram } from "./scroll-fx-diagram";
 import { registerProgressAndNav } from "./scroll-fx-nav";
@@ -25,7 +24,9 @@ import { setActiveLenis } from "./scroll-fx-lenis-ref";
 // down into its section and back, registerHeaderDrop in
 // scroll-fx-header-drop.ts — and the suite-grid card logo "deal-in" from
 // task 17 that choreography's phase 2 left untouched, scroll-fx-grid.ts).
-// Two-phase mount, same pattern as
+// The marquee band (and its velocity-boost registrar) was removed in
+// task 19 — it duplicated the header's own logo row — so this list no
+// longer includes it. Two-phase mount, same pattern as
 // Spotlight/ReticleCursor: phase 1 just resolves the feature gate (fine
 // pointer + `prefers-reduced-motion: no-preference`); phase 2 — gated on
 // that result, so it only ever runs once this component's own DOM (the
@@ -71,7 +72,6 @@ export function ScrollFx() {
         registerGridLogoDeal(ctx),
         registerHeaderDrop(ctx),
         registerParallax(ctx),
-        registerMarqueeBoost(ctx),
         registerCursorDepth(ctx),
         registerConnectItDiagram(ctx),
         registerProgressAndNav(ctx),

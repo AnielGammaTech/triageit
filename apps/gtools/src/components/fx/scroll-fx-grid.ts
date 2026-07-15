@@ -2,10 +2,10 @@ import type { ScrollFxContext, ScrollFxCleanup } from "./scroll-fx-context";
 
 const CARD_STAGGER_S = 0.05;
 
-// THE LOGO JOURNEY, phase 2 (task 17) — between the marquee and the suite
-// grid, each card's logo pops in with a staggered scrub as the grid section
-// scrolls into view, reading as the carousel "dealing" each card its logo.
-// One timeline driven by the grid section's own scroll progress (not
+// THE LOGO JOURNEY, phase 2 (task 17) — as the suite grid scrolls into
+// view, each card's logo pops in with a staggered scrub, reading as the
+// grid "dealing" each card its logo. One timeline driven by the grid
+// section's own scroll progress (not
 // per-card triggers) so the stagger reads as a single continuous deal
 // rather than 11 independent reveals; scrub-based, so scrolling back up
 // un-deals them exactly.
