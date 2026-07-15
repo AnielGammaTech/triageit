@@ -11,12 +11,12 @@ const spaceGrotesk = Space_Grotesk({
 export const metadata: Metadata = {
   title: "GTools — The software we built to run our MSP",
   description:
-    "Eight products engineered by Gamma Tech Services to triage tickets, stop attacks, reconcile billing, and keep clients informed.",
+    "Eleven products engineered by Gamma Tech Services to triage tickets, stop attacks, reconcile billing, and keep clients informed.",
   metadataBase: new URL("https://gtools.io"),
   openGraph: {
     title: "GTools — The software we built to run our MSP",
     description:
-      "Eight products engineered by Gamma Tech Services to triage tickets, stop attacks, reconcile billing, and keep clients informed.",
+      "Eleven products engineered by Gamma Tech Services to triage tickets, stop attacks, reconcile billing, and keep clients informed.",
     url: "https://gtools.io",
     siteName: "GTools",
     type: "website",

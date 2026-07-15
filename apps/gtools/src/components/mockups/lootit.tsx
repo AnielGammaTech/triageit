@@ -47,7 +47,7 @@ export function LootitMockup() {
           <span className="hidden text-[7px] font-medium text-white/60 sm:inline">Dashboard · KB · Settings</span>
           <span className="hidden text-[7px] text-white/35 sm:inline">↗ PortalIT</span>
         </div>
-        <span className="hidden text-[6.5px] text-white/45 sm:inline">bryanna@gamma.tech</span>
+        <span className="hidden text-[6.5px] text-white/45 sm:inline">ops@gamma.tech</span>
       </div>
 
       <div className="flex flex-col gap-1.5 p-2 text-[color:var(--mock-text)]">
