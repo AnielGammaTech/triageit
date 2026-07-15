@@ -2,6 +2,7 @@
 @import "./fx-interactive.css";
 @import "./fx-scroll.css";
 @import "./fx-journey.css";
+@import "./fx-game.css";
 
 /* ==========================================================================
  * Command Center — Motion Design FX
@@ -204,4 +205,47 @@
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
+}
+
+/* --- Suite grid "many more" ghost card (suite-grid.tsx) --------------------
+ * Presentational only — no href, no `data-fx="grid-card-logo"` (skips the
+ * GSAP deal-in choreography, since it has no logo to deal). The dashed
+ * hairline border deliberately echoes the nav's own "vacancy" ghost-chip
+ * state (`.fx-nav-chip[data-dropped="true"]` in fx-journey.css) so both
+ * reads as the same visual vocabulary for "something intentionally
+ * incomplete here." The shimmer sweep reuses the exact `fx-shimmer-sweep`
+ * keyframe already defined above for the hero headline, just re-triggered
+ * on hover instead of looping — one keyframe, two call sites. */
+.fx-ghost-card {
+  transition:
+    border-color 0.3s ease,
+    background-color 0.3s ease;
+}
+.fx-ghost-card:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 45%, var(--color-line));
+  background-color: color-mix(in srgb, var(--color-panel) 92%, var(--color-brand) 8%);
+}
+.fx-ghost-shimmer-text {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+.fx-ghost-shimmer-sweep {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, var(--color-brand) 65%, white 35%) 50%,
+    transparent 70%
+  );
+  mix-blend-mode: overlay;
+  transform: translateX(-120%);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-ghost-card:hover .fx-ghost-shimmer-sweep {
+    opacity: 1;
+    animation: fx-shimmer-sweep 1.1s ease-out 1;
+  }
 }

@@ -1,13 +1,31 @@
 const MAX_PARTICLES = 64;
 const MAX_RIPPLES = 8; // headroom for an ambient ring or two plus an occasional click on top
-const PARTICLE_LIFE_MIN_MS = 650;
-const PARTICLE_LIFE_MAX_MS = 1150;
-const START_SIZE_PX = 5;
-const END_SIZE_PX = 34;
+// Longer-lived than the old bubble puffs (owner: "should be longer too") —
+// long enough for a fast cursor throw to read as a lingering comet tail
+// instead of a quick pop.
+const PARTICLE_LIFE_MIN_MS = 1400;
+const PARTICLE_LIFE_MAX_MS = 2600;
 const BUOYANCY_PX_PER_MS2 = 0.00003; // gentle upward drift, like rising smoke
 const DRAG = 0.985; // per-frame velocity damping so the initial cursor "throw" settles into a drift
 const WOBBLE_MIN = 0.002;
 const WOBBLE_MAX = 0.005;
+const CURL_RAD = 0.5; // wobble-driven rotational curl, so the wisp bends like ink in water instead of staying ruler-straight
+// Wisp draw geometry — a thin cross-section stretched along the live
+// velocity vector (see `draw()`), not a circle. WIDTH is the short axis;
+// LEN is the long axis, biased up by speed so a fast throw reads as a long
+// comet streak while a stationary idle plume stays a thin rising column.
+const WIDTH_START_PX = 4;
+const WIDTH_END_PX = 13;
+const LEN_BASE_PX = 30; // floor length even at zero velocity (the idle "thin rising wisp")
+const LEN_SPEED_PX = 5.5; // added length per px/frame-step of speed
+const LEN_MAX_BONUS_PX = 170;
+// Below this, orient the wisp straight up instead of trusting a near-zero
+// vector's angle — deliberately above the typical magnitude of per-particle
+// spawn jitter alone (so idle jitter noise doesn't flicker the orientation)
+// but well below both real cursor-movement speed and the idle plume's own
+// buoyancy-driven terminal upward velocity, so both settle to their intended
+// look within the first few frames.
+const MIN_DIRECTIONAL_SPEED = 0.15;
 // Click ripple defaults — the "stronger ring" every `spawnRipple` call falls
 // back to unless the caller (the ambient idle rhythm in smoke-trail.tsx)
 // passes its own softer strength/life/radius.
@@ -147,10 +165,45 @@ export function createSmokeEngine() {
     for (const p of particles) {
       if (!p.active || !p.sprite) continue;
       const t = p.age / p.life;
-      const size = START_SIZE_PX + (END_SIZE_PX - START_SIZE_PX) * t;
-      const alpha = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+      // Fast fade-in (12% of life), then an eased power fade-out over the
+      // rest — reads as "materializes, then tapers away" rather than the
+      // old linear ramp-down, matching a wisp thinning out instead of a
+      // bubble popping.
+      const alpha =
+        t < 0.12 ? t / 0.12 : Math.pow(Math.max(0, 1 - (t - 0.12) / 0.88), 1.3);
+      if (alpha <= 0) continue;
+
+      // Orientation + length are derived from the particle's *live* velocity
+      // every frame (not fixed at spawn), so idle particles — vx/vy start at
+      // 0, then pick up a little upward speed as buoyancy accumulates —
+      // naturally resolve to a thin vertical wisp, while movement-spawned
+      // particles (real cursor velocity baked in at spawnSmoke) immediately
+      // read as long comet streaks pointed the way the cursor is moving.
+      const speed = Math.hypot(p.vx, p.vy);
+      const dirAngle =
+        speed > MIN_DIRECTIONAL_SPEED ? Math.atan2(p.vy, p.vx) : -Math.PI / 2;
+      // Wobble already perturbs position (below, in `update`); reusing the
+      // same phase as a small rotational offset here is what makes the
+      // wisp's *bend* correlate with its own drift instead of the two
+      // fighting each other — "ink curling in water," not a straight rod
+      // that happens to wiggle sideways.
+      const curl = Math.sin(p.wobblePhase) * CURL_RAD;
+      const growth = 0.6 + 0.4 * t;
+      const length =
+        (LEN_BASE_PX + Math.min(LEN_MAX_BONUS_PX, speed * LEN_SPEED_PX)) * growth;
+      const width = WIDTH_START_PX + (WIDTH_END_PX - WIDTH_START_PX) * t;
+
       ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-      ctx.drawImage(p.sprite, p.x - size, p.y - size, size * 2, size * 2);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(dirAngle + curl);
+      // The sprite's bright "head" sits at its own right edge (see
+      // smoke-sprites.ts's paintWisp) — anchoring the draw rect's right
+      // edge at the local origin puts that head exactly on the particle's
+      // live position, tail trailing behind along -x (i.e. opposite the
+      // direction of travel, once rotated into place above).
+      ctx.drawImage(p.sprite, -length, -width / 2, length, width);
+      ctx.restore();
     }
     for (const r of ripples) {
       if (!r.active) continue;
