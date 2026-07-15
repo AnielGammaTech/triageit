@@ -1,5 +1,5 @@
 import { TOOLS } from "@/content/tools";
-import { accentVar } from "@/components/browser-frame";
+import { ToolLogo } from "@/components/tool-logo";
 import { Reveal } from "@/components/fx/reveal";
 
 export function Hero() {
@@ -15,7 +15,7 @@ export function Hero() {
         }}
       />
 
-      <h1 className="max-w-4xl text-balance font-display text-5xl font-semibold tracking-tight text-snow md:text-7xl">
+      <h1 className="max-w-3xl text-balance font-display text-4xl font-semibold tracking-tight text-snow md:max-w-4xl md:text-6xl">
         <Reveal variant="up">
           <span className="block">The software we built</span>
         </Reveal>
@@ -43,14 +43,7 @@ export function Hero() {
               href={`#${tool.slug}`}
               className="inline-flex items-center gap-2 rounded-full border border-line bg-panel-2/80 px-3.5 py-1.5 text-xs font-medium text-fog transition-colors hover:border-white/20 hover:text-snow"
             >
-              <span
-                aria-hidden
-                className="size-1.5 rounded-full"
-                style={{
-                  background: accentVar(tool.accent),
-                  boxShadow: `0 0 6px ${accentVar(tool.accent)}`,
-                }}
-              />
+              <ToolLogo slug={tool.slug} size={16} />
               {tool.name}
             </a>
           </Reveal>

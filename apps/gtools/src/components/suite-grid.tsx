@@ -3,6 +3,7 @@
 import type { Tool } from "@/content/types";
 import { TOOLS } from "@/content/tools";
 import { accentVar } from "@/components/browser-frame";
+import { ToolLogo } from "@/components/tool-logo";
 import { Reveal } from "@/components/fx/reveal";
 import { useMagnetic } from "@/components/fx/magnetic";
 
@@ -27,14 +28,7 @@ function SuiteCard({ tool, delayMs }: { tool: Tool; delayMs: number }) {
           style={{ borderColor: accentVar(tool.accent) }}
         />
 
-        <span
-          aria-hidden
-          className="size-2.5 rounded-full"
-          style={{
-            background: accentVar(tool.accent),
-            boxShadow: `0 0 10px ${accentVar(tool.accent)}`,
-          }}
-        />
+        <ToolLogo slug={tool.slug} size={26} />
 
         <h3 className="font-display text-lg font-semibold text-snow">
           {tool.name}

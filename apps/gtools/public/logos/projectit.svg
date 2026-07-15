@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F2F44"/>
+      <stop offset="100%" stop-color="#163D57"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <!-- Subtle corner glow -->
+  <circle cx="26" cy="6" r="8" fill="#74C7FF" opacity="0.08"/>
+  <!-- P letter -->
+  <text x="14.5" y="20"
+    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="19"
+    fill="#FFFFFF"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="-0.5">P</text>
+  <!-- Blue accent dot (the "i" dot) -->
+  <circle cx="22.5" cy="11" r="2.2" fill="#74C7FF"/>
+</svg>

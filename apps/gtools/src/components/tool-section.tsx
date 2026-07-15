@@ -1,5 +1,6 @@
 import { BrowserFrame, accentVar } from "@/components/browser-frame";
 import { MOCKUPS } from "@/components/mockups";
+import { ToolLogo } from "@/components/tool-logo";
 import { Reveal } from "@/components/fx/reveal";
 import { Tilt } from "@/components/fx/tilt";
 import type { Tool } from "@/content/types";
@@ -28,12 +29,15 @@ export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <Reveal variant="up">
             <div className={flip ? "lg:order-2" : undefined}>
-              <p
-                className="text-xs font-semibold uppercase tracking-[0.25em]"
-                style={{ color: accent }}
-              >
-                {tool.name}
-              </p>
+              <div className="flex items-center gap-2.5">
+                <ToolLogo slug={tool.slug} size={30} />
+                <p
+                  className="text-xs font-semibold uppercase tracking-[0.25em]"
+                  style={{ color: accent }}
+                >
+                  {tool.name}
+                </p>
+              </div>
 
               <h2 className="mt-3 font-display text-3xl font-semibold tracking-tight text-snow md:text-4xl">
                 {tool.tagline}
