@@ -860,6 +860,32 @@ interface RecordingBase {
   readonly to_number: string | null;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function callInsightsMisattributeTechnician(
+  insights: CallInsights,
+  techName: string,
+): boolean {
+  const techTokens = techName
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((token) => token.length >= 4);
+  const content = [
+    insights.summary,
+    ...insights.customer_reported,
+    ...insights.key_findings,
+    ...insights.actions_taken,
+    ...insights.commitments,
+    ...insights.next_steps,
+  ].join(" ");
+  return techTokens.some((token) => new RegExp(
+    `\\b(?:customer|caller|client|external (?:person|party|user)|end user)(?:\\s+(?:contact|named))?\\s+${escapeRegExp(token)}\\b`,
+    "i",
+  ).test(content));
+}
+
 /** Tech guard → transcript analysis → Call Summary note. Shared tail for every match path. */
 async function finishMatchedRecording(
   supabase: ReturnType<typeof createSupabaseClient>,
@@ -886,10 +912,31 @@ async function finishMatchedRecording(
 
   // Analyze the transcript against the ticket (one retry — a matched call
   // must not lose its note to a single transient LLM failure)
-  let insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
-  if (!insights) {
+  let insights = await analyzeCall(
+    rec,
+    transcript,
+    techName,
+    direction,
+    ticket.summary,
+    ticket.user_name ?? null,
+    ticket.client_name ?? null,
+  );
+  if (!insights || callInsightsMisattributeTechnician(insights, techName)) {
+    if (insights) console.warn(`[CALL-ANALYSIS] Recording ${rec.Id}: rejected summary that reversed technician/customer roles`);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    insights = await analyzeCall(rec, transcript, techName, direction, ticket.summary);
+    insights = await analyzeCall(
+      rec,
+      transcript,
+      techName,
+      direction,
+      ticket.summary,
+      ticket.user_name ?? null,
+      ticket.client_name ?? null,
+    );
+    if (insights && callInsightsMisattributeTechnician(insights, techName)) {
+      console.error(`[CALL-ANALYSIS] Recording ${rec.Id}: second summary still reversed technician/customer roles`);
+      insights = null;
+    }
   }
 
   // "If it's part of the ticket, it doesn't matter who works on it — post
@@ -1081,17 +1128,38 @@ export function buildCallAnalysisPrompt(
   techName: string,
   direction: string,
   ticketSummary: string,
+  ticketCustomerName: string | null = null,
+  ticketClientName: string | null = null,
 ): string {
   const durationMin =
     rec.StartTime && rec.EndTime
       ? ((new Date(rec.EndTime).getTime() - new Date(rec.StartTime).getTime()) / 60_000).toFixed(1)
       : "?";
 
+  const naturalTechName = techName.includes(",")
+    ? techName.split(",").map((part) => part.trim()).reverse().join(" ")
+    : techName.trim();
+  const externalDisplayName = direction === "outbound" ? rec.ToDisplayName : rec.FromDisplayName;
+  const externalNumber = direction === "outbound" ? rec.ToCallerNumber : rec.FromCallerNumber;
+
   return [
     `You are analyzing a recorded support call at an MSP so it can be documented completely on the ticket. Facts only: every claim must come from the transcript. No praise padding and no hedging.`,
     ``,
     `Ticket: "${ticketSummary}"`,
-    `Call: ${direction}, tech ${techName}, ${durationMin} min.`,
+    ...(ticketCustomerName || ticketClientName
+      ? [`Halo ticket context: customer/contact ${ticketCustomerName ?? "unknown"}; client ${ticketClientName ?? "unknown"}. The person who answers may be a coworker or shared-line user, so do not force the ticket contact's name onto the speaker.`]
+      : []),
+    `Call: ${direction}, tech ${naturalTechName}, ${durationMin} min.`,
+    `External 3CX party: ${externalDisplayName?.trim() || "name unavailable"} | ${externalNumber?.trim() || "number unavailable"}.`,
+    ``,
+    `SPEAKER ROLE LOCK:`,
+    `- The Gamma Tech technician is ${naturalTechName}. ${naturalTechName} is never the customer, caller contact, or external user in this transcript.`,
+    direction === "outbound"
+      ? `- This is OUTBOUND: ${naturalTechName} initiated the call from Gamma Tech. The other speaker is the external customer/contact who answered.`
+      : `- This is INBOUND: the external customer/contact initiated the call and ${naturalTechName} answered for Gamma Tech.`,
+    `- 3CX may transcribe ${naturalTechName.split(/\s+/)[0]} phonetically or with a minor spelling variation. That does not create a different customer.`,
+    `- When the external speaker introduces themselves and the tech immediately addresses that name, assign that name to the external speaker. Never transfer it to the technician.`,
+    `- Do not claim the technician is "referred to as" another speaker. If a name conflicts with the locked technician identity, it belongs to the external side unless the transcript clearly says otherwise.`,
     ``,
     `COMPLETENESS RULES:`,
     `- Read the full transcript from beginning to end. Calls may contain hold time, office background audio, or unrelated conversations and then return to IT support later. Continue scanning after those sections.`,
@@ -1152,10 +1220,20 @@ export async function analyzeCall(
   techName: string,
   direction: string,
   ticketSummary: string,
+  ticketCustomerName: string | null = null,
+  ticketClientName: string | null = null,
 ): Promise<CallInsights | null> {
   try {
     const anthropic = new Anthropic();
-    const prompt = buildCallAnalysisPrompt(rec, transcript, techName, direction, ticketSummary);
+    const prompt = buildCallAnalysisPrompt(
+      rec,
+      transcript,
+      techName,
+      direction,
+      ticketSummary,
+      ticketCustomerName,
+      ticketClientName,
+    );
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-5",

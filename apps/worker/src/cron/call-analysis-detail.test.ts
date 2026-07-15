@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCallAnalysisPrompt, buildCallSummaryNote, type CallInsights } from "./call-analysis.js";
+import {
+  buildCallAnalysisPrompt,
+  buildCallSummaryNote,
+  callInsightsMisattributeTechnician,
+  type CallInsights,
+} from "./call-analysis.js";
 
 const recording = {
   Id: 1,
@@ -20,6 +25,49 @@ describe("call analysis completeness", () => {
     expect(prompt).toContain("Do not target or enforce a sentence count");
     expect(prompt).not.toContain("4-7 sentence chronological support narrative");
     expect(prompt).toContain("Does that plan work for you?");
+  });
+
+  it("locks the known 3CX technician and outbound caller roles", () => {
+    const prompt = buildCallAnalysisPrompt(
+      {
+        ...recording,
+        FromDisplayName: "Carlson, Jarid",
+        FromCallerNumber: "106",
+        ToDisplayName: "12392938135",
+        ToCallerNumber: "12392938135",
+      },
+      "Hello, this is Doug. Doug, it's Jared.",
+      "Carlson, Jarid",
+      "outbound",
+      "Scans go to junk",
+      "Mark Neumeier",
+      "PRO-TEC PLUMBING & AIR",
+    );
+
+    expect(prompt).toContain("The Gamma Tech technician is Jarid Carlson");
+    expect(prompt).toContain("Jarid Carlson initiated the call from Gamma Tech");
+    expect(prompt).toContain("Jarid Carlson is never the customer");
+    expect(prompt).toContain("The person who answers may be a coworker or shared-line user");
+  });
+
+  it("rejects a summary that labels the technician as the customer", () => {
+    const badInsights: CallInsights = {
+      relevant_to_ticket: true,
+      summary: "Tech Carlson contacted customer Jarid to schedule printer work.",
+      customer_reported: [],
+      key_findings: [],
+      actions_taken: [],
+      commitments: [],
+      next_steps: [],
+      suggestions: [],
+      customer_sentiment: "neutral",
+      suggested_customer_email: null,
+    };
+    expect(callInsightsMisattributeTechnician(badInsights, "Carlson, Jarid")).toBe(true);
+    expect(callInsightsMisattributeTechnician(
+      { ...badInsights, summary: "Jarid called Doug to schedule printer work." },
+      "Carlson, Jarid",
+    )).toBe(false);
   });
 
   it("renders the customer report and findings while escaping transcript-derived HTML", () => {
