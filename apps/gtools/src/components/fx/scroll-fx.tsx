@@ -6,9 +6,8 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
 import { prefersFinePointer, prefersReducedMotion } from "./pointer";
 import type { ScrollFxCleanup, ScrollFxContext } from "./scroll-fx-context";
-import { registerHeroAssembly } from "./scroll-fx-hero";
 import { registerGridLogoDeal } from "./scroll-fx-grid";
-import { registerSectionLogoGlide } from "./scroll-fx-section-logo";
+import { registerHeaderDrop } from "./scroll-fx-header-drop";
 import { registerParallax } from "./scroll-fx-parallax";
 import { registerMarqueeBoost } from "./scroll-fx-marquee";
 import { registerCursorDepth } from "./scroll-fx-cursor-depth";
@@ -21,9 +20,12 @@ import { setActiveLenis } from "./scroll-fx-lenis-ref";
 
 // Motion v3 orchestrator — the one place that mounts Lenis + GSAP
 // ScrollTrigger and registers every scroll-driven effect (11-effect spec:
-// 2026-07-15-gtools-motion-v3-scroll.md, plus THE LOGO JOURNEY's 3-phase
-// hero->marquee->grid->section choreography from task 17, split across
-// scroll-fx-hero/grid/section-logo.ts). Two-phase mount, same pattern as
+// 2026-07-15-gtools-motion-v3-scroll.md, plus the task-18 header
+// logo-drop choreography — every tool logo lives in the nav and scrubs
+// down into its section and back, registerHeaderDrop in
+// scroll-fx-header-drop.ts — and the suite-grid card logo "deal-in" from
+// task 17 that choreography's phase 2 left untouched, scroll-fx-grid.ts).
+// Two-phase mount, same pattern as
 // Spotlight/ReticleCursor: phase 1 just resolves the feature gate (fine
 // pointer + `prefers-reduced-motion: no-preference`); phase 2 — gated on
 // that result, so it only ever runs once this component's own DOM (the
@@ -66,9 +68,8 @@ export function ScrollFx() {
 
       const ctx: ScrollFxContext = { gsap, ScrollTrigger, lenis };
       cleanups = [
-        registerHeroAssembly(ctx),
         registerGridLogoDeal(ctx),
-        registerSectionLogoGlide(ctx),
+        registerHeaderDrop(ctx),
         registerParallax(ctx),
         registerMarqueeBoost(ctx),
         registerCursorDepth(ctx),

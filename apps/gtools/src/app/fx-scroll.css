@@ -11,8 +11,8 @@
  * that attribute lands. All motion is transform/opacity only; GSAP owns the
  * live values via inline styles, this file only owns resting state,
  * transform-origin, and the couple of pure-CSS loops (boot-line cursor
- * blink) that don't need per-frame JS. THE LOGO JOURNEY's hero-orbit,
- * nav-dropdown, and section-logo-trail styles live in fx-journey.css (kept
+ * blink) that don't need per-frame JS. The header logo-drop choreography's
+ * nav-chip and section-logo-trail styles live in fx-journey.css (kept
  * separate purely to stay under the file-size gate).
  * ========================================================================== */
 
@@ -52,34 +52,6 @@
   transform: scaleY(0);
   background: linear-gradient(to bottom, var(--color-brand), var(--color-connectit));
   box-shadow: -2px 0 16px -4px color-mix(in srgb, var(--color-brand) 70%, transparent);
-}
-
-.fx-nav a[data-fx="nav-link"] {
-  position: relative;
-}
-.fx-nav a[data-fx="nav-link"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -6px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--nav-accent, var(--color-brand));
-  transform: scaleX(0);
-  transform-origin: left center;
-  opacity: 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .fx-nav a[data-fx="nav-link"]::after {
-    transition:
-      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-      opacity 0.35s ease;
-  }
-}
-.fx-nav a[data-fx="nav-link"][data-active="true"]::after {
-  transform: scaleX(1);
-  opacity: 1;
 }
 
 /* --- ConnectIT diagram assembly (effect 4) ---------------------------------

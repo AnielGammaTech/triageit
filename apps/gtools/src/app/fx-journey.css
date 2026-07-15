@@ -1,188 +1,74 @@
 /* ==========================================================================
- * THE LOGO JOURNEY (task 17) — hero orbit ring, nav "Tools" dropdown, and
- * per-section logo glide/trail. Split out of fx-scroll.css purely to stay
- * under the file-size gate; same gating rules apply (everything motion-y is
- * scoped to `html[data-fx-scroll="active"]`, itself fine-pointer +
- * no-reduced-motion only — see fx-scroll.tsx). Resting/static states here
- * are always visible unconditionally (no CLS, no dependency on JS landing).
+ * HEADER LOGO-DROP CHOREOGRAPHY (task 18, supersedes task 17's THE LOGO
+ * JOURNEY hero-orbit / nav-dropdown / short section-logo-glide styles).
+ * Nav chips (nav.tsx) are each tool's permanent header slot; the tool's own
+ * section-logo (tool-section.tsx) is the docking destination.
+ * scroll-fx-header-drop.ts drives every animated value here imperatively
+ * via inline styles — this file only owns resting/default state (always
+ * visible, no CLS) and things that don't need per-frame JS (the ghost
+ * chip's decorative outline, hover states). Everything here is gated the
+ * same way as fx-scroll.css: motion only applies once
+ * `html[data-fx-scroll="active"]` lands (fine pointer + no-reduced-motion —
+ * see fx-scroll.tsx); until then chips sit at full opacity and section
+ * logos sit fully docked, which is also the exact static fallback touch/
+ * reduced-motion/no-JS visitors get permanently.
  * ========================================================================== */
 
-/* --- Hero orbit ring (phase 0 — hero.tsx) ----------------------------------
- * This IS the hero's tool presence now (the old static chip row was a
- * straight duplicate and is gone), so it's visible at full opacity from
- * first paint unconditionally. Only the two looping CSS animations (ring
- * spin + per-logo bob) are gated behind `html[data-fx-scroll="active"]`, so
- * touch/reduced-motion/no-JS visitors get this exact ring frozen in place —
- * the spec's required "current static logo placements" mobile fallback.
- * `.fx-orbit-logo`'s own transform is the fixed orbit position
- * (angle/radius, untouched by GSAP or any animation); `.fx-orbit-float` is a
- * separate wrapper that owns the idle bob keyframe; `-inner` (a real anchor
- * now, not a decorative span) is the only element GSAP's scrub convergence
- * ever touches — three layers, three separate transforms, so none of them
- * ever fight over the same element's `transform`. */
-.fx-orbit-stage {
-  perspective: 1100px;
+/* --- Nav chip row (nav.tsx) -------------------------------------------
+ * `overflow-x-auto` on the row itself (Tailwind, in the component) is the
+ * actual overflow safety net; these two rules just hide that scrollbar so
+ * it reads as a plain row rather than a visible scroll widget when it isn't
+ * needed (`lg` and up, where 11 tiles fit without scrolling). */
+.fx-nav-chips {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-.fx-orbit-ring {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-}
-@media (prefers-reduced-motion: no-preference) {
-  html[data-fx-scroll="active"] .fx-orbit-ring {
-    animation: fx-orbit-spin 40s linear infinite;
-  }
-  html[data-fx-scroll="active"] .fx-orbit-float {
-    animation: fx-orbit-bob 5s ease-in-out infinite;
-    animation-delay: calc(var(--orbit-index, 0) * -0.35s);
-  }
-}
-@keyframes fx-orbit-spin {
-  to {
-    transform: rotateY(360deg);
-  }
-}
-@keyframes fx-orbit-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-.fx-orbit-logo {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 2.75rem;
-  height: 2.75rem;
-  margin: -1.375rem 0 0 -1.375rem;
-  transform: rotateY(var(--orbit-angle, 0deg)) translateZ(var(--orbit-radius, 320px));
-  transform-style: preserve-3d;
-  opacity: 0.88;
-}
-.fx-orbit-float {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.fx-orbit-logo-inner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  border-radius: 9999px;
-  border: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-panel) 78%, transparent);
-  backdrop-filter: blur(2px);
-  box-shadow: 0 0 24px -8px color-mix(in srgb, var(--color-brand) 60%, transparent);
-  /* the stage above is pointer-events-none (so empty space between logos
-     still lets clicks/hover through to spotlight etc.) — re-enable it here
-     since this is now a real, keyboard-focusable jump-to-section link. */
-  pointer-events: auto;
-  text-decoration: none;
-  color: inherit;
-  transition:
-    border-color 0.25s ease,
-    box-shadow 0.25s ease;
-}
-.fx-orbit-logo-inner:hover,
-.fx-orbit-logo-inner:focus-visible {
-  border-color: color-mix(in srgb, var(--color-snow) 45%, transparent);
-  box-shadow: 0 0 24px -4px color-mix(in srgb, var(--color-brand) 80%, transparent);
-}
-.fx-orbit-logo-inner:focus-visible {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 3px;
-}
-
-/* name label — hidden until hover/focus, so the ring stays clean at rest
-   and only reveals identity as a "magic trick" flourish on interaction. */
-.fx-orbit-label {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-top: 6px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  border: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-ink) 90%, transparent);
-  font-size: 0.65rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--color-snow);
-  opacity: 0;
-  transform: translate(-50%, 4px);
-  pointer-events: none;
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
-}
-.fx-orbit-logo:focus-within .fx-orbit-label {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-@media (hover: hover) and (pointer: fine) {
-  .fx-orbit-logo:hover .fx-orbit-label {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
-/* --- Nav "Tools" dropdown (nav.tsx redesign) -------------------------------
- * Replaces the 11-link text row. The trigger picks up the active tool's
- * accent (registerProgressAndNav in scroll-fx-nav.ts copies the same
- * `--nav-accent` custom property it already writes per dropdown item onto
- * the trigger), so closed-panel state still reads which section is active.
- * Panel items trade the underline (reads oddly on a vertical list) for a
- * left accent bar + tinted hover, so `[data-active]` styling never has to
- * fork per-consumer in the registrar itself — only the CSS differs. */
-.fx-tools-trigger {
-  color: var(--nav-accent, var(--color-fog));
-}
-.fx-tools-trigger:hover {
-  color: var(--color-snow);
-}
-.fx-tools-panel {
-  animation: fx-tools-panel-in 0.18s ease both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .fx-tools-panel {
-    animation: none;
-  }
-}
-@keyframes fx-tools-panel-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -6px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0) scale(1);
-  }
-}
-.fx-tools-panel a[data-fx="nav-link"] {
-  border-left: 2px solid transparent;
-}
-.fx-tools-panel a[data-fx="nav-link"]::after {
+.fx-nav-chips::-webkit-scrollbar {
   display: none;
 }
-.fx-tools-panel a[data-fx="nav-link"][data-active="true"] {
-  border-left-color: var(--nav-accent, var(--color-brand));
-  background: color-mix(in srgb, var(--nav-accent, var(--color-brand)) 12%, transparent);
-  color: var(--color-snow);
+
+.fx-nav-chip {
+  border: 1px solid transparent;
+  text-decoration: none;
+  /* Deliberately no `transition` on opacity — scroll-fx-header-drop.ts
+     writes it directly every scrub tick while a drop is in flight, and a
+     competing CSS transition would just lag behind / fight those writes.
+     `border-color` is the only thing that ever needs to ease, since it's a
+     one-off hover/ghost state change, not a per-frame value. */
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-nav-chip {
+    transition: border-color 0.25s ease;
+  }
+}
+.fx-nav-chip:hover,
+.fx-nav-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--color-snow) 30%, transparent);
+}
+.fx-nav-chip:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
 }
 
-/* --- Section logo glide + trail (phase 3 — tool-section.tsx) --------------
+/* Ghost state — set once the chip's logo has actually dropped out
+ * (`data-dropped`, toggled by the registrar only when progress crosses a
+ * small threshold, not every frame). Opacity itself is still driven
+ * continuously by JS; this just adds a dashed "vacancy" outline so the
+ * empty slot reads intentionally rather than looking like a rendering
+ * glitch. */
+.fx-nav-chip[data-dropped="true"] {
+  border-color: color-mix(in srgb, var(--color-line) 90%, transparent);
+  border-style: dashed;
+}
+
+/* --- Section logo docking slot + landing trail (tool-section.tsx) --------
  * `section-logo` needs a positioned ancestor for `logo-trail` (absolute) to
  * anchor to; it carries no size/layout opinion of its own beyond that, so it
- * never changes the kicker row's existing flex sizing. Resting opacity 0 on
- * the trail means a no-JS/gate-failed visitor never sees it (registrar sets
- * the "from" state imperatively, same convention as the ConnectIT diagram in
- * fx-scroll.css), and it's `position: absolute` so it can never affect
- * layout/CLS either way. */
+ * never changes the kicker row's existing flex sizing. Resting opacity 1 /
+ * no transform means a no-JS/gate-failed visitor always sees the logo fully
+ * docked here — the registrar is what makes it start invisible/off-position
+ * and fly in, never the reverse, so nothing here can strand a visitor with
+ * a missing logo if JS fails after this markup has already painted. */
 .fx-section-logo {
   position: relative;
   display: inline-flex;

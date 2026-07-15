@@ -1,10 +1,14 @@
 import { TOOLS } from "@/content/tools";
-import { ToolLogo } from "@/components/tool-logo";
 import { Reveal } from "@/components/fx/reveal";
 
 const BOOT_LINE = `gtools os — ${TOOLS.length} systems online`;
-const ORBIT_STEP_DEG = 360 / TOOLS.length;
 
+// Header logo-drop redesign (task 18) — the hero no longer carries any tool
+// logo presence of its own. All 11 logos now live in the nav (nav.tsx) and
+// travel from there down into their own section via
+// scroll-fx-header-drop.ts; keeping the hero clean (headline, subhead, boot
+// line only) is what makes that first "drop" read clearly instead of
+// competing with a duplicate logo display up here.
 export function Hero() {
   return (
     <section
@@ -20,55 +24,6 @@ export function Hero() {
             "radial-gradient(ellipse 55% 45% at 50% 0%, var(--color-brand), transparent 70%)",
         }}
       />
-
-      {/* THE LOGO JOURNEY, phase 0 — the 11 tool logos are the hero's only
-          tool presence now (the old static chip row was a straight
-          duplicate of this ring and is gone). Always rendered at full
-          opacity from first paint (no JS/scroll-gated fade-in, so there's
-          no CLS risk and no repeat of the task-16 hero-invisible bug); only
-          the *motion* (3D orbit spin + idle bob) is gated behind
-          `html[data-fx-scroll="active"]` (itself fine-pointer +
-          no-reduced-motion only — see fx-scroll.tsx), so touch/reduced-
-          motion/no-JS visitors get this exact ring, frozen in place, which
-          is the spec's required mobile fallback. Each logo is a real
-          same-page anchor (keyboard-reachable, `aria-label`led) so the
-          in-hero jump-to-section affordance the old chips provided isn't
-          lost — it doubles as a name label on hover/focus. */}
-      <div
-        data-fx="hero-orbit"
-        className="fx-orbit-stage pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[42%]"
-      >
-        <div className="fx-orbit-ring">
-          {TOOLS.map((tool, i) => (
-            <span
-              key={tool.slug}
-              data-fx="orbit-logo"
-              data-fx-index={i}
-              className="fx-orbit-logo"
-              style={
-                {
-                  "--orbit-angle": `${i * ORBIT_STEP_DEG}deg`,
-                  "--orbit-index": i,
-                } as React.CSSProperties
-              }
-            >
-              <span className="fx-orbit-float">
-                <a
-                  href={`#${tool.slug}`}
-                  data-fx="orbit-logo-inner"
-                  className="fx-orbit-logo-inner"
-                  aria-label={tool.name}
-                >
-                  <ToolLogo slug={tool.slug} size={24} />
-                </a>
-                <span aria-hidden className="fx-orbit-label">
-                  {tool.name}
-                </span>
-              </span>
-            </span>
-          ))}
-        </div>
-      </div>
 
       <h1
         data-fx="hero-headline"

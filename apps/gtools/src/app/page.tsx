@@ -9,6 +9,7 @@ import { Backdrop } from "@/components/fx/backdrop";
 import { Marquee } from "@/components/fx/marquee";
 import { Spotlight } from "@/components/fx/spotlight";
 import { ReticleCursor } from "@/components/fx/cursor";
+import { SmokeTrail } from "@/components/fx/smoke-trail";
 import { EasterEgg } from "@/components/fx/easter-egg";
 import { ScrollFx } from "@/components/fx/scroll-fx";
 import { BackToTop } from "@/components/fx/back-to-top";
@@ -32,6 +33,7 @@ export default function Home() {
       </main>
       <Footer />
       <ReticleCursor />
+      <SmokeTrail />
       <EasterEgg />
       <ScrollFx />
       <BackToTop />

@@ -108,6 +108,14 @@ html.fx-cursor-active * {
 .fx-cursor {
   contain: layout style;
 }
+
+/* --- Smoke cursor trail (fx/smoke-trail.tsx) -------------------------------
+ * The canvas paints itself entirely from JS (fixed-size particle pool,
+ * additive `lighter` compositing) — this just scopes browser paint/layout
+ * work to the canvas's own layer, same reasoning as `.fx-cursor` above. */
+.fx-smoke {
+  contain: layout style paint;
+}
 .fx-cursor-reticle {
   position: absolute;
   top: -13px;
@@ -171,18 +179,6 @@ html.fx-cursor-active * {
   border-color: color-mix(in srgb, var(--color-connectit) 60%, transparent);
   animation-duration: 2.4s;
 }
-.fx-cursor-spark {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 4px;
-  margin: -2px 0 0 -2px;
-  border-radius: 9999px;
-  opacity: 0;
-  transform: translate3d(-100px, -100px, 0);
-}
-
 /* --- Easter egg (fx/easter-egg.tsx) ----------------------------------------
  * Confetti pieces are a fixed recycled pool animated via the Web Animations
  * API straight from JS (cancelled + replayed per burst — see the component),

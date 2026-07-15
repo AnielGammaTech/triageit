@@ -75,13 +75,17 @@ export function ToolSection({
               className={flip ? "lg:order-2" : undefined}
             >
               <div className="flex items-center gap-2.5">
-                {/* THE LOGO JOURNEY, phase 3 — this tool's own "guide"
-                    entrance: scroll-fx-section-logo.ts glides the logo down
-                    from above the kicker as the section scrubs into view,
-                    with an accent trail line (logo-trail) shrinking away
-                    behind it as it docks. Both inert/static until the gate
-                    passes — this span's normal flow position is the
-                    resting/no-JS state. */}
+                {/* Header logo-drop choreography (task 18) — this is the
+                    docking destination for this tool's nav chip
+                    (nav.tsx). scroll-fx-header-drop.ts scrubs the logo in
+                    from the live header-chip position down into this exact
+                    slot as the section approaches (arc + rotation + scale
+                    up), with an accent trail line (logo-trail) flaring just
+                    before it lands. Both inert/static until the gate
+                    passes — this span's normal flow position (full
+                    opacity, no transform) is the resting/no-JS/reduced-
+                    motion state, so the logo is always visible here even
+                    when the drop never runs. */}
                 <span data-fx="section-logo" className="fx-section-logo">
                   <span
                     aria-hidden
