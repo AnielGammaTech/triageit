@@ -35,8 +35,10 @@ interface CallAnalysisResult {
   readonly notesPosted: number;
 }
 
-interface CallInsights {
+export interface CallInsights {
   readonly summary: string;
+  readonly customer_reported: ReadonlyArray<string>;
+  readonly key_findings: ReadonlyArray<string>;
   readonly actions_taken: ReadonlyArray<string>;
   readonly commitments: ReadonlyArray<string>;
   readonly next_steps: ReadonlyArray<string>;
@@ -57,7 +59,9 @@ interface TranscriptCallerIdentity {
 
 const MIN_TRANSCRIPT_CHARS = 150;
 const MAX_RECORDINGS_PER_RUN = 40;
-const MAX_TRANSCRIPT_FOR_LLM = 24_000;
+const MAX_TRANSCRIPT_FOR_MATCHING = 24_000;
+/** Stored transcripts are capped at 100k; analysis must read the entire call, including details after hold/background audio. */
+const MAX_TRANSCRIPT_FOR_ANALYSIS = 100_000;
 /** Global (no-Halo-user) matching needs enough conversation to be trustworthy. */
 const GLOBAL_MATCH_MIN_CHARS = 400;
 const MAX_GLOBAL_CANDIDATES = 120;
@@ -677,7 +681,7 @@ async function identifyCallerFromTranscript(
           `Summarize the support work without reproducing any password, security code, or credential.`,
           ``,
           `TRANSCRIPT:`,
-          transcript.slice(0, MAX_TRANSCRIPT_FOR_LLM),
+          transcript.slice(0, MAX_TRANSCRIPT_FOR_MATCHING),
           ``,
           `Respond with ONLY valid JSON:`,
           `{`,
@@ -886,7 +890,7 @@ async function selectTicketByTranscript(
       ...lines,
       ``,
       `TRANSCRIPT (3CX auto-transcription, may include IVR audio and errors):`,
-      transcript.slice(0, MAX_TRANSCRIPT_FOR_LLM),
+      transcript.slice(0, MAX_TRANSCRIPT_FOR_MATCHING),
       ``,
       `Respond with ONLY valid JSON:`,
       `{`,
@@ -928,7 +932,76 @@ async function selectTicketByTranscript(
   }
 }
 
-async function analyzeCall(
+export function buildCallAnalysisPrompt(
+  rec: ThreeCxRecording,
+  transcript: string,
+  techName: string,
+  direction: string,
+  ticketSummary: string,
+): string {
+  const durationMin =
+    rec.StartTime && rec.EndTime
+      ? ((new Date(rec.EndTime).getTime() - new Date(rec.StartTime).getTime()) / 60_000).toFixed(1)
+      : "?";
+
+  return [
+    `You are analyzing a recorded support call at an MSP so it can be documented completely on the ticket. Facts only: every claim must come from the transcript. No praise padding and no hedging.`,
+    ``,
+    `Ticket: "${ticketSummary}"`,
+    `Call: ${direction}, tech ${techName}, ${durationMin} min.`,
+    ``,
+    `COMPLETENESS RULES:`,
+    `- Read the full transcript from beginning to end. Calls may contain hold time, office background audio, or unrelated conversations and then return to IT support later. Continue scanning after those sections.`,
+    `- Exclude unrelated background conversations, patient/customer discussions unrelated to the ticket, medical details, payment details, and other incidental private information.`,
+    `- Preserve every material support detail: affected users, exact symptoms, troubleshooting already attempted, investigation steps, tools/systems checked, tentative hypotheses, confirmed findings, customer objections or corrections, changes made, blockers, commitments, and final state.`,
+    `- If an early assumption is later corrected, document both the initial observation and the corrected conclusion without blaming anyone.`,
+    `- Clearly distinguish what was attempted from what was confirmed successful. Never describe an unresolved attempt as a completed fix.`,
+    ``,
+    `TRANSCRIPT (3CX auto-transcription — may contain IVR audio and transcription errors):`,
+    transcript.slice(0, MAX_TRANSCRIPT_FOR_ANALYSIS),
+    ``,
+    `Respond with ONLY valid JSON:`,
+    `{`,
+    `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely. A tech attempting contact but only reaching an IVR/voicemail IS relevant>,`,
+    `  "summary": "<4-7 sentence chronological support narrative covering the report, prior attempts, investigation, corrected assumptions, confirmed finding, work performed, and exact end state. Omit unrelated background audio>",`,
+    `  "customer_reported": ["<each distinct symptom, affected user, prior attempt, concern, or correction stated by the customer>"],`,
+    `  "key_findings": ["<each material hypothesis or finding; label it tentative or confirmed when the transcript makes that distinction>"],`,
+    `  "actions_taken": ["<each distinct thing actually done on the call — do not merge several actions into one vague item>"],`,
+    `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
+    `  "next_steps": ["<remaining work, exact owner, and timing when stated>"],`,
+    `  "suggestions": ["<0-3 concrete suggestions for the tech based only on unresolved needs in the transcript. Imperatives, no filler>"],`,
+    `  "customer_sentiment": "<one word: satisfied | neutral | frustrated | angry>",`,
+    `  "suggested_customer_email": ${direction === "outbound" ? `"<draft follow-up email the tech can send the customer. Start with 'Hi <first name>,' then 'Per our call...' — accurately recap what was discussed, what was done versus only attempted, what happens next and when. End the body with the direct question 'Does that plan work for you?' Warm, plain English, no jargon, 4-7 sentences, sign off as ${techName.split(",").reverse().join(" ").trim()} from Gamma Tech. Only what the transcript supports.>"` : "null"}`,
+    `}`,
+  ].join("\n");
+}
+
+function stringList(value: unknown): ReadonlyArray<string> {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function normalizeCallInsights(value: Partial<CallInsights>): CallInsights | null {
+  if (typeof value.summary !== "string" || value.summary.trim().length === 0) return null;
+  const sentiment = ["satisfied", "neutral", "frustrated", "angry"].includes(value.customer_sentiment ?? "")
+    ? value.customer_sentiment!
+    : "neutral";
+  return {
+    relevant_to_ticket: value.relevant_to_ticket === true,
+    summary: value.summary.trim(),
+    customer_reported: stringList(value.customer_reported),
+    key_findings: stringList(value.key_findings),
+    actions_taken: stringList(value.actions_taken),
+    commitments: stringList(value.commitments),
+    next_steps: stringList(value.next_steps),
+    suggestions: stringList(value.suggestions).slice(0, 3),
+    customer_sentiment: sentiment,
+    suggested_customer_email: typeof value.suggested_customer_email === "string" && value.suggested_customer_email.trim()
+      ? value.suggested_customer_email.trim()
+      : null,
+  };
+}
+
+export async function analyzeCall(
   rec: ThreeCxRecording,
   transcript: string,
   techName: string,
@@ -937,42 +1010,17 @@ async function analyzeCall(
 ): Promise<CallInsights | null> {
   try {
     const anthropic = new Anthropic();
-    const durationMin =
-      rec.StartTime && rec.EndTime
-        ? ((new Date(rec.EndTime).getTime() - new Date(rec.StartTime).getTime()) / 60_000).toFixed(1)
-        : "?";
-
-    const prompt = [
-      `You are analyzing a recorded support call at an MSP so it can be documented on the ticket. Facts only — every claim must come from the transcript. No praise padding, no hedging.`,
-      ``,
-      `Ticket: "${ticketSummary}"`,
-      `Call: ${direction}, tech ${techName}, ${durationMin} min.`,
-      ``,
-      `TRANSCRIPT (3CX auto-transcription — may contain IVR menus at the start and transcription errors):`,
-      transcript.slice(0, MAX_TRANSCRIPT_FOR_LLM),
-      ``,
-      `Respond with ONLY valid JSON:`,
-      `{`,
-      `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely. A tech attempting contact but only reaching an IVR/voicemail IS relevant — that attempt should be documented>,`,
-      `  "summary": "<2-3 sentences: what the call was about and how it ended. If the tech never reached a person, say so plainly: who they tried to reach and what stopped them>",`,
-      `  "actions_taken": ["<things actually DONE on the call — e.g. rebooted server, reset password>"],`,
-      `  "commitments": ["<promises made and by whom — e.g. 'Tech: call back tomorrow 10 AM', 'Customer: send screenshot'>"],`,
-      `  "next_steps": ["<what should happen next based on the call>"],`,
-      `  "suggestions": ["<0-3 concrete suggestions for the tech — follow-ups the transcript shows are needed. Imperatives, no filler>"],`,
-      `  "customer_sentiment": "<one word: satisfied | neutral | frustrated | angry>",`,
-      `  "suggested_customer_email": ${direction === "outbound" ? `"<draft follow-up email the tech can send the customer. Start with 'Hi <first name>,' then 'Per our call...' — recap what was discussed/done in the customer's words, what happens next and when. Warm, plain English, no jargon, 3-5 sentences, sign off as ${techName.split(",").reverse().join(" ").trim()} from Gamma Tech. Only what the transcript supports.>"` : "null"}`,
-      `}`,
-    ].join("\n");
+    const prompt = buildCallAnalysisPrompt(rec, transcript, techName, direction, ticketSummary);
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-5",
-      // Room for the outbound email draft on top of the structured fields
-      max_tokens: 1500,
+      // Comprehensive call narrative + structured facts + outbound email draft.
+      max_tokens: 3000,
       messages: [{ role: "user", content: prompt }],
     });
     const text = extractResponseText(response);
     if (!text) return null;
-    return parseLlmJson<CallInsights>(text);
+    return normalizeCallInsights(parseLlmJson<Partial<CallInsights>>(text));
   } catch (error) {
     console.error("[CALL-ANALYSIS] LLM analysis failed:", error instanceof Error ? error.message : error);
     return null;
@@ -989,7 +1037,15 @@ function parse3cxTime(s: string): Date {
   return new Date(hasZone ? s : s.replace(" ", "T") + "Z");
 }
 
-function buildCallSummaryNote(
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function buildCallSummaryNote(
   rec: ThreeCxRecording,
   insights: CallInsights,
   techName: string,
@@ -1013,9 +1069,15 @@ function buildCallSummaryNote(
     : "#94a3b8";
 
   const list = (items: ReadonlyArray<string>): string =>
-    items.map((i) => `<li style="margin-bottom:3px;">${i}</li>`).join("");
+    items.map((i) => `<li style="margin-bottom:3px;">${escapeHtml(i)}</li>`).join("");
 
   const detailBlocks = [
+    insights.customer_reported.length > 0
+      ? `<div style="margin-bottom:8px;"><span style="color:#7dd3fc;font-weight:600;font-size:11px;">CUSTOMER REPORTED</span><ul style="margin:4px 0 0 18px;padding:0;color:#bae6fd;">${list(insights.customer_reported)}</ul></div>`
+      : "",
+    insights.key_findings.length > 0
+      ? `<div style="margin-bottom:8px;"><span style="color:#c084fc;font-weight:600;font-size:11px;">KEY FINDINGS</span><ul style="margin:4px 0 0 18px;padding:0;color:#e9d5ff;">${list(insights.key_findings)}</ul></div>`
+      : "",
     insights.actions_taken.length > 0
       ? `<div style="margin-bottom:8px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">DONE ON THE CALL</span><ul style="margin:4px 0 0 18px;padding:0;color:#bbf7d0;">${list(insights.actions_taken)}</ul></div>`
       : "",
@@ -1041,7 +1103,7 @@ function buildCallSummaryNote(
   const emailRow = direction === "outbound" && emailDraft
     ? `<tr style="background:#122117;"><td style="padding:0;${border}"><details style="margin:0;">` +
       `<summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:700;color:#4ade80;list-style-position:inside;">✉ Suggested customer update <span style="font-weight:400;color:#64748b;">(click to expand — draft only, edit before sending)</span></summary>` +
-      `<div style="padding:8px 12px;border-top:1px solid #3a3f4b;font-size:12.5px;color:#a7f3d0;line-height:1.55;"><em>"${emailDraft.replace(/\n/g, "<br/>")}"</em></div>` +
+      `<div style="padding:8px 12px;border-top:1px solid #3a3f4b;font-size:12.5px;color:#a7f3d0;line-height:1.55;"><em>"${escapeHtml(emailDraft).replace(/\n/g, "<br/>")}"</em></div>` +
       `</details></td></tr>`
     : "";
 
@@ -1053,17 +1115,17 @@ function buildCallSummaryNote(
 
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
-    `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">📞 Call Summary — ${techName}` +
-    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${directionLabel} · ${when} · ${durationMin} min · <span style="color:${sentimentColor};">${insights.customer_sentiment}</span></span>` +
+    `<tr><td style="padding:8px 12px;background:${headerGradient};color:white;font-size:13px;font-weight:700;">📞 Call Summary — ${escapeHtml(techName)}` +
+    `<span style="float:right;font-weight:500;font-size:11px;opacity:0.9;">${directionLabel} · ${escapeHtml(when)} · ${durationMin} min · <span style="color:${sentimentColor};">${escapeHtml(insights.customer_sentiment)}</span></span>` +
     `</td></tr>` +
     (assignedTech
-      ? `<tr style="background:#2b2410;"><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;">Call handled by ${techName} — ticket is assigned to ${assignedTech}</td></tr>`
+      ? `<tr style="background:#2b2410;"><td style="padding:5px 12px;${border}font-size:11px;color:#fcd34d;">Call handled by ${escapeHtml(techName)} — ticket is assigned to ${escapeHtml(assignedTech)}</td></tr>`
       : "") +
-    `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${insights.summary}</td></tr>` +
+    `<tr style="background:#252830;"><td style="padding:7px 12px;${border}font-size:12.5px;color:#e2e8f0;line-height:1.5;">${escapeHtml(insights.summary)}</td></tr>` +
     suggestionsRow +
     emailRow +
     (detailBlocks
-      ? `<tr style="background:#1E2028;"><td style="padding:0;${border}"><details style="margin:0;"><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ Call detail — actions, commitments &amp; next steps</summary><div style="padding:8px 12px;font-size:12px;line-height:1.5;border-top:1px solid #3a3f4b;">${detailBlocks}</div></details></td></tr>`
+      ? `<tr style="background:#1E2028;"><td style="padding:0;${border}"><details style="margin:0;"><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;list-style-position:inside;">▸ Full call detail — customer report, findings, actions, commitments &amp; next steps</summary><div style="padding:8px 12px;font-size:12px;line-height:1.5;border-top:1px solid #3a3f4b;">${detailBlocks}</div></details></td></tr>`
       : "") +
     `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">TriageIt AI · auto-matched from 3CX recording · number ${externalNumber.replace(/^1(?=\d{10}$)/, "")}</td></tr>` +
     `</table>`
