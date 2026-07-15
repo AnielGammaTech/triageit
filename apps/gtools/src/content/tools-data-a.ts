@@ -103,30 +103,30 @@ export const TOOLS_A: readonly Tool[] = [
   {
     slug: "portalit",
     name: "PortalIT",
-    oneLiner: "Vendor-stack sync & billing reconciliation",
-    tagline: "Find the money your vendor stack is leaking.",
+    oneLiner: "The client transparency portal",
+    tagline: "Radical transparency with your MSP.",
     description:
-      "PortalIT syncs billing, licensing, and security data from the entire vendor stack, reconciles what you invoice against what you actually use, and gives every client a branded self-service portal.",
+      "PortalIT gives every client a branded login to see exactly what Gamma Tech manages for them — services, licenses, invoices, quotes, and support — backed by live vendor data instead of a black box. It's the transparency most MSPs never give you.",
     features: [
       {
-        title: "Billing reconciliation",
+        title: "Live service visibility",
         blurb:
-          "Recurring PSA invoices compared against real vendor usage — over- and under-billing surfaced automatically.",
+          "Every managed service and license shown in real time, straight from the vendor — not a static PDF nobody reads.",
       },
       {
-        title: "40+ scheduled syncs",
+        title: "Invoices you can trust",
         blurb:
-          "PSA, distribution, RMM, backup, and security vendors pulled into one dashboard on a schedule.",
+          "Every bill is reconciled against real usage before it reaches you, so what you're charged is what you actually run.",
       },
       {
-        title: "License hygiene",
+        title: "Quotes & support, one login",
         blurb:
-          "Unused licenses detected and suspended automatically, with renewal reminders before anything lapses.",
+          "Track quote approvals and open support tickets without the email back-and-forth.",
       },
       {
-        title: "Branded client portal",
+        title: "Powered by 40+ vendor syncs",
         blurb:
-          "Clients see their services, invoices, and quotes, and open support tickets — all in one login.",
+          "The same live data engine that keeps your MSP honest on billing is the data your portal shows you.",
       },
     ],
     integrations: ["Halo PSA", "Pax8", "Datto", "JumpCloud", "Microsoft 365"],

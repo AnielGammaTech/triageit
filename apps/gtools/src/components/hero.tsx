@@ -21,15 +21,20 @@ export function Hero() {
         }}
       />
 
-      {/* decorative orbit ring — inert (opacity 0) until fx/scroll-fx.tsx
-          confirms the fine-pointer + reduced-motion gate and marks
-          `html[data-fx-scroll="active"]`; the real chip row below always
-          renders and always carries the actual entrance/fallback content.
-          Anchored to the lower band of the hero (behind/around the chip
-          row) rather than the section's full height, so its center never
-          lands on the headline/subhead text. */}
+      {/* THE LOGO JOURNEY, phase 0 — the 11 tool logos are the hero's only
+          tool presence now (the old static chip row was a straight
+          duplicate of this ring and is gone). Always rendered at full
+          opacity from first paint (no JS/scroll-gated fade-in, so there's
+          no CLS risk and no repeat of the task-16 hero-invisible bug); only
+          the *motion* (3D orbit spin + idle bob) is gated behind
+          `html[data-fx-scroll="active"]` (itself fine-pointer +
+          no-reduced-motion only — see fx-scroll.tsx), so touch/reduced-
+          motion/no-JS visitors get this exact ring, frozen in place, which
+          is the spec's required mobile fallback. Each logo is a real
+          same-page anchor (keyboard-reachable, `aria-label`led) so the
+          in-hero jump-to-section affordance the old chips provided isn't
+          lost — it doubles as a name label on hover/focus. */}
       <div
-        aria-hidden
         data-fx="hero-orbit"
         className="fx-orbit-stage pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[42%]"
       >
@@ -40,10 +45,25 @@ export function Hero() {
               data-fx="orbit-logo"
               data-fx-index={i}
               className="fx-orbit-logo"
-              style={{ "--orbit-angle": `${i * ORBIT_STEP_DEG}deg` } as React.CSSProperties}
+              style={
+                {
+                  "--orbit-angle": `${i * ORBIT_STEP_DEG}deg`,
+                  "--orbit-index": i,
+                } as React.CSSProperties
+              }
             >
-              <span data-fx="orbit-logo-inner" className="fx-orbit-logo-inner">
-                <ToolLogo slug={tool.slug} size={20} />
+              <span className="fx-orbit-float">
+                <a
+                  href={`#${tool.slug}`}
+                  data-fx="orbit-logo-inner"
+                  className="fx-orbit-logo-inner"
+                  aria-label={tool.name}
+                >
+                  <ToolLogo slug={tool.slug} size={24} />
+                </a>
+                <span aria-hidden className="fx-orbit-label">
+                  {tool.name}
+                </span>
               </span>
             </span>
           ))}
@@ -82,20 +102,6 @@ export function Hero() {
         <span data-fx="boot-line">{BOOT_LINE}</span>
         <span data-fx="boot-cursor" className="fx-boot-cursor" />
       </p>
-
-      <div className="mt-10 flex flex-wrap items-center justify-center gap-2.5">
-        {TOOLS.map((tool, i) => (
-          <Reveal key={tool.slug} variant="up" delayMs={380 + i * 60}>
-            <a
-              href={`#${tool.slug}`}
-              className="inline-flex items-center gap-2 rounded-full border border-line bg-panel-2/80 px-3.5 py-1.5 text-xs font-medium text-fog transition-colors hover:border-white/20 hover:text-snow"
-            >
-              <ToolLogo slug={tool.slug} size={16} />
-              {tool.name}
-            </a>
-          </Reveal>
-        ))}
-      </div>
     </section>
   );
 }

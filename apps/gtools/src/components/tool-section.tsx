@@ -75,7 +75,22 @@ export function ToolSection({
               className={flip ? "lg:order-2" : undefined}
             >
               <div className="flex items-center gap-2.5">
-                <ToolLogo slug={tool.slug} size={30} />
+                {/* THE LOGO JOURNEY, phase 3 — this tool's own "guide"
+                    entrance: scroll-fx-section-logo.ts glides the logo down
+                    from above the kicker as the section scrubs into view,
+                    with an accent trail line (logo-trail) shrinking away
+                    behind it as it docks. Both inert/static until the gate
+                    passes — this span's normal flow position is the
+                    resting/no-JS state. */}
+                <span data-fx="section-logo" className="fx-section-logo">
+                  <span
+                    aria-hidden
+                    data-fx="logo-trail"
+                    className="fx-logo-trail"
+                    style={{ background: `linear-gradient(to bottom, transparent, ${accent})` }}
+                  />
+                  <ToolLogo slug={tool.slug} size={30} />
+                </span>
                 <p
                   data-fx="decrypt-kicker"
                   className="text-xs font-semibold uppercase tracking-[0.25em]"

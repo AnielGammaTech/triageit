@@ -10,6 +10,7 @@ export function Marquee() {
   return (
     <div
       aria-hidden
+      data-fx="marquee"
       className="fx-marquee relative overflow-hidden border-y border-line/60 py-5"
     >
       <div className="fx-marquee-fade fx-marquee-fade-left pointer-events-none absolute inset-y-0 left-0 z-10 w-16 md:w-32" />

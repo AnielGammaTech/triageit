@@ -38,7 +38,15 @@ function SuiteCard({
           style={{ borderColor: accentVar(tool.accent) }}
         />
 
-        <ToolLogo slug={tool.slug} size={26} />
+        {/* THE LOGO JOURNEY, phase 2 — GSAP (scroll-fx-grid.ts) pops this in
+            with a per-card stagger scrubbed against the grid's own scroll
+            progress, reading as the marquee "dealing" each card its logo;
+            reversible and inert until the fine-pointer/no-reduced-motion
+            gate passes, at which point this span's normal static layout is
+            simply the pre-scroll rest state GSAP animates from. */}
+        <span data-fx="grid-card-logo" className="inline-flex">
+          <ToolLogo slug={tool.slug} size={26} />
+        </span>
 
         <h3 className="font-display text-lg font-semibold text-snow">
           {tool.name}

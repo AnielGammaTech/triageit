@@ -1,48 +1,44 @@
 import type { ScrollFxContext, ScrollFxCleanup } from "./scroll-fx-context";
 
-const CONVERGE_SCALE = 0.42;
+const CONVERGE_SCALE = 0.5;
+const LOGO_STAGGER_S = 0.03;
 
-// Effects 2 + 7 — idle 3D orbit ring (pure CSS, see fx-scroll.css) plus the
-// scrub-driven convergence: as the hero scrolls out, each orbiting logo
-// flies to the *actual* on-screen position of its matching suite-grid card
-// (same TOOLS order both sides) and fades, handing off to the grid's own
-// Reveal cards as they fade in. Deltas are measured as document-relative
-// offsets (rect + scroll position) so they're correct regardless of scroll
-// position at measurement time, and re-measured via `invalidateOnRefresh` on
-// every resize.
+// THE LOGO JOURNEY, phase 1 (task 17) — idle 3D orbit ring (pure CSS, see
+// fx-journey.css) plus the scrub-driven convergence: as the hero scrolls
+// out, each orbiting logo drops straight down (x untouched) to the marquee
+// band's vertical center and fades, staggered per logo so they read as
+// "landing" in the circling banner one after another rather than all at
+// once. The marquee loops infinitely (no fixed x target makes sense — it's
+// always full-width), so only the vertical descent + fade + stagger sell
+// the "joining the carousel" handoff; the marquee's own base loop is never
+// touched here (see scroll-fx-marquee.ts for its separate velocity boost).
+// Deltas are measured as document-relative offsets (rect + scroll position)
+// so they're correct regardless of scroll position at measurement time, and
+// re-measured via `invalidateOnRefresh` on every resize.
 export function registerHeroAssembly({ gsap, ScrollTrigger }: ScrollFxContext): ScrollFxCleanup {
   const heroSection = document.querySelector<HTMLElement>('[data-fx="hero-section"]');
   const headline = document.querySelector<HTMLElement>('[data-fx="hero-headline"]');
-  const gridSection = document.querySelector<HTMLElement>('[data-fx="suite-grid"]');
+  const marquee = document.querySelector<HTMLElement>('[data-fx="marquee"]');
   const orbitLogos = Array.from(
     document.querySelectorAll<HTMLElement>('[data-fx="orbit-logo-inner"]'),
   );
-  const gridCards = Array.from(document.querySelectorAll<HTMLElement>('[data-fx="grid-card"]'));
 
-  if (!heroSection || !headline || !gridSection || orbitLogos.length === 0) {
+  if (!heroSection || !headline || !marquee || orbitLogos.length === 0) {
     return () => {};
   }
 
-  function measureDelta(i: number) {
-    const card = gridCards[i];
-    const logo = orbitLogos[i];
-    if (!card || !logo) return { dx: 0, dy: 0 };
-    const cardRect = card.getBoundingClientRect();
+  function measureDrop(logo: HTMLElement) {
+    const marqueeRect = marquee!.getBoundingClientRect();
     const logoRect = logo.getBoundingClientRect();
-    return {
-      dx:
-        cardRect.left + cardRect.width / 2 - (logoRect.left + logoRect.width / 2),
-      dy:
-        cardRect.top + cardRect.height / 2 - (logoRect.top + logoRect.height / 2),
-    };
+    return marqueeRect.top + marqueeRect.height / 2 - (logoRect.top + logoRect.height / 2);
   }
 
   const tl = gsap.timeline({
     scrollTrigger: {
       trigger: heroSection,
       start: "top top",
-      endTrigger: gridSection,
-      end: "top 35%",
+      endTrigger: marquee,
+      end: "center center",
       scrub: 0.6,
       invalidateOnRefresh: true,
     },
@@ -54,13 +50,12 @@ export function registerHeroAssembly({ gsap, ScrollTrigger }: ScrollFxContext): 
     tl.to(
       logo,
       {
-        x: () => measureDelta(i).dx,
-        y: () => measureDelta(i).dy,
+        y: () => measureDrop(logo),
         scale: CONVERGE_SCALE,
         opacity: 0,
         ease: "none",
       },
-      i * 0.015,
+      i * LOGO_STAGGER_S,
     );
   });
 
