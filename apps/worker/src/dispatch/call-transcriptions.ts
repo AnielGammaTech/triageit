@@ -140,6 +140,7 @@ export function callMatchLabel(method: string | null): string {
   const labels: Record<string, string> = {
     spoken_ticket_number: "Ticket number spoken on call",
     spoken_name_assigned_tech: "Customer name and assigned tech",
+    spoken_name_recent_assigned_tech: "Spoken customer, assigned tech, and call timing",
     user_phone: "Customer phone number",
     llm_transcript: "Transcript matched to client ticket",
     llm_transcript_user: "Transcript matched to customer ticket",
