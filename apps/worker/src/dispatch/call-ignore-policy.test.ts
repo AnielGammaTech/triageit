@@ -24,6 +24,9 @@ describe("ignoredCallMethod", () => {
       endedAt: "2026-07-15T15:01:00.000Z",
       transcript: "Thank you for calling. Please press 1 for support or dial the extension now.",
     }))).toBe("ignored_ivr");
+    expect(ignoredCallMethod(input({
+      transcript: "Hi, this is Paul with Quality Enterprises, I can't get your call right now.",
+    }))).toBe("ignored_ivr");
   });
 
   it("does not treat ordinary hold language as an IVR by itself", () => {

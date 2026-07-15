@@ -17,9 +17,10 @@ const MAX_TRANSCRIPT_POLL_ATTEMPTS = 20;
 const SHORT_CALL_SECONDS = 12;
 
 const EXPLICIT_TICKET = /(?:\bticket\b|\bcase\b|\brequest\b)\s*(?:(?:number|no\.?|#)\s*)?#?\s*\d(?:[\s-]?\d){4,7}/i;
-const ACTIONABLE_LANGUAGE = /\b(?:not working|stopped working|issue|problem|error|down|offline|locked out|password|cannot|can't|need help|call me back|computer|laptop|printer|scanner|email|outlook|internet|server|network|wi-?fi|teams)\b/i;
+const ACTIONABLE_LANGUAGE = /\b(?:not working|stopped working|can't work|cannot work|issue|problem|error|down|offline|locked out|password|need help|call me back|computer|laptop|printer|scanner|email|outlook|internet|server|network|wi-?fi|teams)\b/i;
 const STRONG_IVR = [
   /\bautomated attendant\b/i,
+  /\b(?:can'?t|cannot|unable to) (?:take|get|answer) (?:your|the) call\b/i,
   /\b(?:leave|record) (?:your|a) message (?:after|at) (?:the )?(?:tone|beep)\b/i,
   /\b(?:has been|was) forwarded to (?:an automated )?(?:voice mail|voicemail)\b/i,
   /\bmailbox (?:is )?(?:full|not accepting messages)\b/i,
