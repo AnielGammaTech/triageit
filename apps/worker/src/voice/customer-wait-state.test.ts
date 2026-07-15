@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyzeCustomerWaitState } from "./customer-wait-state.js";
+import {
+  analyzeCustomerWaitState,
+  haloActionTimestamp,
+  isOutboundCustomerEmail,
+} from "./customer-wait-state.js";
 
 function action(input: Record<string, unknown>) {
   return {
@@ -90,5 +94,49 @@ describe("analyzeCustomerWaitState", () => {
 
     expect(state.waitingForUpdate).toBe(false);
     expect(state.latestCustomerMessage).toBeNull();
+  });
+});
+
+describe("Halo action normalization", () => {
+  it("treats zone-less Halo action timestamps as UTC", () => {
+    const timestamp = haloActionTimestamp(action({
+      actiondatecreated: "2026-07-15T15:16:41.8",
+    }));
+
+    expect(new Date(timestamp).toISOString()).toBe("2026-07-15T15:16:41.800Z");
+  });
+
+  it("preserves timestamps that already include an explicit offset", () => {
+    const timestamp = haloActionTimestamp(action({
+      actiondatecreated: "2026-07-15T11:16:41.800-04:00",
+    }));
+
+    expect(new Date(timestamp).toISOString()).toBe("2026-07-15T15:16:41.800Z");
+  });
+
+  it("never classifies an inbound First User Email as Gamma's reply", () => {
+    expect(isOutboundCustomerEmail(action({
+      who: "Kaylee Rouse",
+      who_type: 2,
+      emaildirection: "I",
+      outcome: "First User Email",
+      hiddenfromuser: false,
+    }))).toBe(false);
+  });
+
+  it("accepts explicit outbound confirmation and staff email actions", () => {
+    expect(isOutboundCustomerEmail(action({
+      who: "System",
+      who_type: 0,
+      emaildirection: "O",
+      outcome: "Emailed Confirmation",
+      hiddenfromuser: false,
+    }))).toBe(true);
+    expect(isOutboundCustomerEmail(action({
+      who: "Bryanna Marquez",
+      who_type: 1,
+      outcome: "Email User",
+      hiddenfromuser: false,
+    }))).toBe(true);
   });
 });

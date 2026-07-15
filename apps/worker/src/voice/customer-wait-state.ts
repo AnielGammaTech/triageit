@@ -22,7 +22,13 @@ const CUSTOMER_UPDATE_CADENCE_MS = 4 * 60 * 60 * 1000;
 
 export function haloActionTimestamp(action: HaloAction): number {
   const raw = action.actiondatecreated ?? action.datetime ?? action.datecreated;
-  const value = raw ? new Date(raw).getTime() : NaN;
+  // Halo's actions endpoint emits ISO-looking UTC timestamps without a zone
+  // suffix. The worker runs in America/New_York, so Date(raw) previously
+  // shifted every action four hours forward during daylight saving time.
+  const normalized = raw && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw.trim())
+    ? `${raw.trim().replace(" ", "T")}Z`
+    : raw;
+  const value = normalized ? new Date(normalized).getTime() : NaN;
   return Number.isFinite(value) ? value : 0;
 }
 
@@ -46,7 +52,15 @@ function isOutboundStaffAction(action: ActionRecord): boolean {
 /** Customer-visible outbound email. Internal notes and non-email actions do not satisfy response SLAs. */
 export function isOutboundCustomerEmail(action: ActionRecord): boolean {
   if (action.hiddenfromuser !== false) return false;
-  return action.emaildirection?.toUpperCase() === "O" || /\bemail\b/i.test(action.outcome ?? "");
+  const direction = action.emaildirection?.toUpperCase();
+  if (direction === "I") return false;
+  if (direction === "O") return true;
+  // Some Halo actions omit emaildirection. In that case, a customer/user
+  // action can never be Gamma's outbound reply even when its outcome says
+  // "First User Email". Only a staff-authored email-like action qualifies.
+  if (action.who_type === 2) return false;
+  const staffAuthored = action.who_type === 1 || isInternalStaffName(action.who);
+  return staffAuthored && /\b(email|rfi|reply|responded)\b/i.test(action.outcome ?? "");
 }
 
 export function analyzeCustomerWaitState(

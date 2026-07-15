@@ -65,6 +65,10 @@ export interface ResponseComplianceScanResult {
 
 let ptoCache: { readonly at: number; readonly status: PtoStatus } | null = null;
 const PTO_CACHE_MS = 5 * 60_000;
+// Halo can write its first confirmation action a few seconds before the
+// webhook-backed ticket row reaches Supabase. Keep a small ingestion tolerance
+// so that legitimate immediate confirmations are not discarded.
+const HALO_ACTION_INGESTION_TOLERANCE_MS = 5 * 60_000;
 
 function firstName(value: string | null): string | null {
   const token = value?.trim().split(/\s+/)[0]?.replace(/[^a-z'-]/gi, "") ?? "";
@@ -100,9 +104,12 @@ export function buildInitialAcknowledgmentDraft(input: {
   ].join("\n");
 }
 
-function sortedOutboundEmails(actions: ReadonlyArray<HaloAction>, afterMs: number): ReadonlyArray<HaloAction> {
+export function sortedOutboundEmails(actions: ReadonlyArray<HaloAction>, afterMs: number): ReadonlyArray<HaloAction> {
   return [...actions]
-    .filter((action) => isOutboundCustomerEmail(action) && haloActionTimestamp(action) >= afterMs)
+    .filter((action) =>
+      isOutboundCustomerEmail(action)
+      && haloActionTimestamp(action) >= afterMs - HALO_ACTION_INGESTION_TOLERANCE_MS
+    )
     .sort((left, right) => haloActionTimestamp(left) - haloActionTimestamp(right));
 }
 
