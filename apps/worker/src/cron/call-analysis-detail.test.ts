@@ -16,6 +16,9 @@ describe("call analysis completeness", () => {
     expect(prompt).toContain("Continue scanning after those sections");
     expect(prompt).toContain("customer objections or corrections");
     expect(prompt).toContain("Exclude unrelated background conversations");
+    expect(prompt).toContain("complete but not word-for-word");
+    expect(prompt).toContain("Do not target or enforce a sentence count");
+    expect(prompt).not.toContain("4-7 sentence chronological support narrative");
     expect(prompt).toContain("Does that plan work for you?");
   });
 
