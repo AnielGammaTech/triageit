@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSupportCallStaffName } from "@triageit/shared";
 import { isWithinBusinessHours } from "../integrations/teams/client.js";
 import { sendProactiveTeamsCard } from "../integrations/teams/bot.js";
+import { cnamIdentityFromEvidence } from "./call-transcriptions.js";
 import { peopleNamesOverlap } from "./call-match-review-policy.js";
 
 interface PendingCallReview {
@@ -13,6 +14,7 @@ interface PendingCallReview {
   readonly summary: string | null;
   readonly identified_customer_name: string | null;
   readonly identified_client_name: string | null;
+  readonly match_evidence: string | null;
 }
 
 interface ConversationReference {
@@ -35,7 +37,9 @@ export function buildCallMatchReviewCard(call: PendingCallReview): Record<string
         minute: "2-digit",
       })
     : "Time unavailable";
-  const customer = [call.identified_customer_name, call.identified_client_name].filter(Boolean).join(" · ") || "Customer not identified";
+  const cnamIdentity = cnamIdentityFromEvidence(call.match_evidence);
+  const customer = [call.identified_customer_name, call.identified_client_name].filter(Boolean).join(" · ")
+    || (cnamIdentity ? `${cnamIdentity.name} (Twilio CNAM ${cnamIdentity.type?.toLowerCase() ?? "caller-name"} hint)` : "Customer not identified");
   const direction = call.direction === "outbound" ? "Outbound" : "Inbound";
 
   return {
@@ -58,7 +62,10 @@ export function buildCallMatchReviewCard(call: PendingCallReview): Record<string
               ...(call.external_number ? [{ title: "Number", value: call.external_number }] : []),
             ],
           },
-          ...(call.summary ? [{ type: "TextBlock", text: call.summary, wrap: true, spacing: "Medium" }] : []),
+          ...(call.summary ? [
+            { type: "TextBlock", text: "What the call was about", weight: "Bolder", wrap: true, spacing: "Medium" },
+            { type: "TextBlock", text: call.summary, wrap: true, spacing: "Small" },
+          ] : []),
           {
             type: "Input.Text",
             id: "halo_id",
@@ -96,7 +103,7 @@ export async function sendPendingCallMatchReviews(supabase: SupabaseClient): Pro
   const [{ data: calls, error: callError }, { data: references, error: referenceError }] = await Promise.all([
     supabase
       .from("call_analyses")
-      .select("recording_id, tech_name, direction, started_at, external_number, summary, identified_customer_name, identified_client_name")
+      .select("recording_id, tech_name, direction, started_at, external_number, summary, identified_customer_name, identified_client_name, match_evidence")
       .is("halo_id", null)
       .eq("teams_review_status", "pending")
       .is("teams_review_sent_at", null)

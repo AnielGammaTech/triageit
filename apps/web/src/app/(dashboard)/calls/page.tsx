@@ -34,6 +34,8 @@ interface CallItem {
   readonly analysisAttempts: number;
   readonly identifiedCustomerName: string | null;
   readonly identifiedClientName: string | null;
+  readonly cnamName: string | null;
+  readonly cnamType: "BUSINESS" | "CONSUMER" | null;
   readonly matchEvidence: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
@@ -158,6 +160,7 @@ export default function CallsPage() {
         item.ticket?.summary,
         item.ticket?.clientName,
         item.ticket?.customerName,
+        item.cnamName,
       ].some((value) => String(value ?? "").toLowerCase().includes(needle));
     });
   }, [data, search, view]);
@@ -320,6 +323,8 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
               <p className="mt-0.5 truncate text-xs text-zinc-500">
                 {item.identifiedCustomerName
                   ? [item.identifiedCustomerName, item.identifiedClientName].filter(Boolean).join(" · ")
+                  : item.cnamName
+                    ? `${item.cnamName} · Twilio CNAM${item.cnamType ? ` ${item.cnamType.toLowerCase()}` : ""} hint`
                   : item.matchLabel}
               </p>
             </div>

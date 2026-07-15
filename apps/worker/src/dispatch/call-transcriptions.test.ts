@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { callMatchLabel, shouldIncludeCallTranscription, type CallTranscriptionItem } from "./call-transcriptions.js";
+import {
+  callMatchLabel,
+  cnamIdentityFromEvidence,
+  shouldIncludeCallTranscription,
+  type CallTranscriptionItem,
+} from "./call-transcriptions.js";
 
 function callItem(
   techName: string,
@@ -47,6 +52,19 @@ describe("callMatchLabel", () => {
     expect(callMatchLabel("shared_phone_no_transcript_match")).toBe("Shared number with no clear ticket match");
     expect(callMatchLabel("identified_customer_no_ticket_match")).toBe("Customer identified; no related ticket found");
     expect(callMatchLabel("confirmed_separate_call")).toBe("Confirmed by tech as a separate call");
+  });
+});
+
+describe("CNAM display identity", () => {
+  it("extracts the Twilio caller-name hint from match evidence", () => {
+    expect(cnamIdentityFromEvidence("Twilio CNAM hint (CONSUMER): FRANCES RUSHMAN"))
+      .toEqual({ name: "FRANCES RUSHMAN", type: "CONSUMER" });
+  });
+
+  it("finds a CNAM hint after transcript evidence without merging the evidence", () => {
+    expect(cnamIdentityFromEvidence(
+      "Caller said Frances · Twilio CNAM hint (BUSINESS): RUSHMAN CONSULTING · another signal",
+    )).toEqual({ name: "RUSHMAN CONSULTING", type: "BUSINESS" });
   });
 });
 

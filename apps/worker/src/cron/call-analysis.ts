@@ -613,7 +613,7 @@ export async function processRecording(
           direction,
           tech_name: techName,
           matched_by: identifiedCustomerName ? "identified_customer_no_ticket_match" : "no_halo_user",
-          summary: identifiedCustomerName ? inferredIdentity?.issue_summary ?? null : null,
+          summary: inferredIdentity?.issue_summary ?? null,
           identified_customer_name: identifiedCustomerName,
           identified_client_name: identifiedClientName,
           match_evidence: identityEvidence,
@@ -671,6 +671,7 @@ export async function processRecording(
   }
 
   if (!ticket || !matchedBy) {
+    const reviewIdentity = await identifyCallerFromTranscript(transcript, techName, externalParty);
     await supabase
       .from("call_analyses")
       .upsert(
@@ -684,6 +685,10 @@ export async function processRecording(
             : candidates.length > 1
               ? "ambiguous_multiple_open"
               : "no_open_ticket",
+          summary: reviewIdentity?.issue_summary ?? null,
+          identified_customer_name: reviewIdentity?.person_name ?? (users.length === 1 ? users[0]?.name ?? null : null),
+          identified_client_name: reviewIdentity?.company_name ?? (clientNames.length === 1 ? clientNames[0] ?? null : null),
+          match_evidence: reviewIdentity?.evidence ?? null,
           teams_review_status: "pending",
           note_posted: false,
         },
@@ -816,9 +821,23 @@ async function identifyCallerFromTranscript(
     const text = extractResponseText(response);
     if (!text) return null;
     const identity = parseLlmJson<TranscriptCallerIdentity>(text);
-    if ((identity.confidence ?? 0) < 0.75 || (!identity.person_name && !identity.company_name)) return null;
-    if (identity.person_name && (isInternalStaffName(identity.person_name) || namesOverlap(identity.person_name, techName))) return null;
-    return identity;
+    const confidence = Number(identity.confidence ?? 0);
+    const personName = confidence >= 0.75
+      && identity.person_name
+      && !isInternalStaffName(identity.person_name)
+      && !namesOverlap(identity.person_name, techName)
+      ? identity.person_name
+      : null;
+    const companyName = confidence >= 0.75 ? identity.company_name ?? null : null;
+    const issueSummary = typeof identity.issue_summary === "string" ? identity.issue_summary.trim() : "";
+    if (!personName && !companyName && !issueSummary) return null;
+    return {
+      ...identity,
+      person_name: personName,
+      company_name: companyName,
+      issue_summary: issueSummary,
+      confidence,
+    };
   } catch (error) {
     console.warn("[CALL-ANALYSIS] Transcript caller identification failed:", error instanceof Error ? error.message : error);
     return null;

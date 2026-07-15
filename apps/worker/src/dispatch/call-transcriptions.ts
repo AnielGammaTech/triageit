@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAccountManagerName, isSupportCallStaffName, type HaloConfig, type ThreeCxConfig } from "@triageit/shared";
 import { ThreeCxClient, type ThreeCxRecording } from "../integrations/threecx/client.js";
+import { resolveCnamIdentity, type CnamIdentity } from "../integrations/twilio/cnam-identity.js";
 
 interface CallAnalysisRow {
   readonly recording_id: number;
@@ -53,6 +54,8 @@ export interface CallTranscriptionItem {
   readonly analysisAttempts: number;
   readonly identifiedCustomerName: string | null;
   readonly identifiedClientName: string | null;
+  readonly cnamName: string | null;
+  readonly cnamType: "BUSINESS" | "CONSUMER" | null;
   readonly matchEvidence: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
@@ -96,6 +99,19 @@ function itemPartyName(
   const customerSide = (direction === "inbound" && side === "from") || (direction === "outbound" && side === "to");
   if (customerSide && customerName) return customerName;
   return rawName?.replace(/^\[V\]\s*/i, "").trim() || null;
+}
+
+export function cnamIdentityFromEvidence(
+  evidence: string | null,
+): { readonly name: string; readonly type: "BUSINESS" | "CONSUMER" | null } | null {
+  const match = evidence?.match(/Twilio CNAM hint \((BUSINESS|CONSUMER|UNKNOWN)\):\s*(.+?)(?=\s+·\s+|$)/i);
+  const name = match?.[2]?.trim();
+  if (!name) return null;
+  const rawType = match?.[1]?.toUpperCase();
+  return {
+    name,
+    type: rawType === "BUSINESS" || rawType === "CONSUMER" ? rawType : null,
+  };
 }
 
 function samePerson(left: string | null, right: string | null): boolean {
@@ -161,6 +177,47 @@ function inferExternalNumber(recording: ThreeCxRecording): string | null {
   if (from.length >= 7 && to.length < 7) return from;
   if (to.length >= 7 && from.length < 7) return to;
   return null;
+}
+
+function callerIdNeedsName(rawName: string | null, externalNumber: string): boolean {
+  if (!rawName?.trim()) return true;
+  const nameDigits = rawName.replace(/\D/g, "");
+  const numberDigits = externalNumber.replace(/\D/g, "");
+  return nameDigits.length >= 7 && nameDigits.slice(-10) === numberDigits.slice(-10);
+}
+
+async function resolveRecentCnamNames(
+  supabase: SupabaseClient,
+  rows: ReadonlyArray<CallAnalysisRow>,
+  recordings: ReadonlyMap<number, ThreeCxRecording>,
+): Promise<ReadonlyMap<string, CnamIdentity>> {
+  const resolved = new Map<string, CnamIdentity>();
+  const candidates = new Set<string>();
+  for (const row of rows.slice(0, RECENT_CALL_LIMIT)) {
+    const evidenceIdentity = cnamIdentityFromEvidence(row.match_evidence);
+    const recording = recordings.get(Number(row.recording_id));
+    const externalNumber = row.external_number ?? (recording ? inferExternalNumber(recording) : null);
+    if (externalNumber && evidenceIdentity) resolved.set(externalNumber, { ...evidenceIdentity, source: "twilio_cnam" });
+    if (!externalNumber || evidenceIdentity) continue;
+    const internal = row.matched_by === "internal_call" || /local/i.test(row.call_type ?? recording?.CallType ?? "");
+    if (internal || !isSupportCallStaffName(row.tech_name)) continue;
+    const direction = directionOf(row.direction);
+    const rawCustomerName = direction === "inbound"
+      ? (row.from_name ?? recording?.FromDisplayName?.trim() ?? null)
+      : direction === "outbound"
+        ? (row.to_name ?? recording?.ToDisplayName?.trim() ?? null)
+        : null;
+    if (callerIdNeedsName(rawCustomerName, externalNumber)) candidates.add(externalNumber);
+  }
+
+  const numbers = [...candidates];
+  for (let index = 0; index < numbers.length; index += 5) {
+    await Promise.all(numbers.slice(index, index + 5).map(async (number) => {
+      const identity = await resolveCnamIdentity(supabase, number);
+      if (identity) resolved.set(number, identity);
+    }));
+  }
+  return resolved;
 }
 
 async function loadRecentRecordings(
@@ -232,6 +289,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).maybeSingle(),
   ]);
   const haloConfig = haloResult.data?.config as HaloConfig | undefined;
+  const cnamByNumber = await resolveRecentCnamNames(supabase, rows, recordingResult.recordings);
 
   const items = rows.map((row): CallTranscriptionItem => {
     const recording = recordingResult.recordings.get(Number(row.recording_id));
@@ -243,14 +301,19 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     const attention = !internal && hasMatch && !row.note_posted;
     const fromName = (row.from_name ?? recording?.FromDisplayName?.trim()) || null;
     const toName = (row.to_name ?? recording?.ToDisplayName?.trim()) || null;
-    const customerName = internal ? null : ticketLookup?.user_name ?? row.identified_customer_name ?? null;
+    const externalNumber = row.external_number ?? (recording ? inferExternalNumber(recording) : null);
+    const cnamIdentity = cnamIdentityFromEvidence(row.match_evidence)
+      ?? (externalNumber ? cnamByNumber.get(externalNumber) ?? null : null);
+    const customerName = internal
+      ? null
+      : cnamIdentity?.name ?? ticketLookup?.user_name ?? row.identified_customer_name ?? null;
     return {
       recordingId: Number(row.recording_id),
       startedAt: row.started_at ?? recording?.StartTime ?? null,
       endedAt: row.ended_at ?? recording?.EndTime ?? null,
       direction: directionOf(row.direction),
       techName: row.tech_name ?? "Unknown tech",
-      externalNumber: row.external_number ?? (recording ? inferExternalNumber(recording) : null),
+      externalNumber,
       transcript: row.transcript ?? recording?.Transcription?.trim() ?? null,
       transcriptChars: row.transcript_chars ?? recording?.Transcription?.length ?? 0,
       callSummary: row.summary,
@@ -261,6 +324,8 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       analysisAttempts: row.analysis_attempts ?? 0,
       identifiedCustomerName: row.identified_customer_name,
       identifiedClientName: row.identified_client_name,
+      cnamName: cnamIdentity?.name ?? null,
+      cnamType: cnamIdentity?.type ?? null,
       matchEvidence: row.match_evidence,
       callType: row.call_type ?? recording?.CallType ?? null,
       from: {
