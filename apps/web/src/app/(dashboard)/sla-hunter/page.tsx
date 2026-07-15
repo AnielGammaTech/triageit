@@ -160,30 +160,31 @@ export default function SlaHunterPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
           <div
-            className="flex h-11 w-11 items-center justify-center rounded-xl"
-            style={{ background: `linear-gradient(135deg, ${RED}, ${RED_DIM})`, boxShadow: `0 0 24px -6px ${RED}` }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+            style={{ background: "#991b1b" }}
           >
-            <Siren className="h-6 w-6 text-white" />
+            <Siren className="h-4.5 w-4.5 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">SLA Hunter</h1>
-            <p className="text-sm text-zinc-400">
-              Live SLA breaches and every automated call-out — accountability at a glance
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-white">SLA Hunter</h1>
+            <p className="hidden text-xs text-zinc-500 sm:block">
+              Live breaches, upcoming deadlines, and call-out accountability
             </p>
           </div>
         </div>
         <button
           onClick={() => void load(true)}
-          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
+          aria-label="Refresh SLA Hunter"
+          title="Refresh SLA Hunter"
+          className="flex h-8 w-8 items-center justify-center rounded-md border text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
           style={{ borderColor: HAIRLINE, background: PANEL }}
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
         </button>
       </div>
 
@@ -194,7 +195,7 @@ export default function SlaHunterPage() {
       )}
 
       {/* Metric tiles */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border sm:grid-cols-4" style={{ borderColor: HAIRLINE, background: HAIRLINE }}>
         <MetricTile
           label="Currently Breaching"
           value={m?.currentlyBreaching ?? 0}
@@ -224,12 +225,13 @@ export default function SlaHunterPage() {
         />
       </div>
 
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
       {/* Currently breaching */}
-      <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
-        <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+      <section className="overflow-hidden rounded-md border xl:col-span-5" style={{ borderColor: HAIRLINE, background: PANEL }}>
+        <div className="flex min-h-10 items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
           <TriangleAlert className="h-4 w-4" style={{ color: RED }} />
           <h2 className="text-sm font-semibold text-white">Currently Breaching SLA</h2>
-          <span className="ml-1 rounded-full px-2 py-0.5 text-xs font-bold text-white" style={{ background: RED }}>
+          <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-white" style={{ background: RED }}>
             {data?.breaches.length ?? 0}
           </span>
         </div>
@@ -244,7 +246,7 @@ export default function SlaHunterPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
             {data!.breaches.map((b) => (
-              <div key={b.halo_id} className="px-5 py-3" style={{ borderColor: HAIRLINE }}>
+              <div key={b.halo_id} className="px-4 py-2.5" style={{ borderColor: HAIRLINE }}>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -282,7 +284,7 @@ export default function SlaHunterPage() {
                 </div>
                 {b.sla_breach_last_alert_text && (
                   <div
-                    className="mt-2 rounded-lg border p-2.5"
+                    className="mt-2 rounded-md border p-2.5"
                     style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}
                   >
                     <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -301,11 +303,11 @@ export default function SlaHunterPage() {
       </section>
 
       {/* At risk — upcoming breaches */}
-      <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
-        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+      <section className="overflow-hidden rounded-md border xl:col-span-7" style={{ borderColor: HAIRLINE, background: PANEL }}>
+        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
           <CalendarClock className="h-4 w-4" style={{ color: "#f59e0b" }} />
           <h2 className="text-sm font-semibold text-white">At Risk — Upcoming Breaches</h2>
-          <span className="ml-1 rounded-full px-2 py-0.5 text-xs font-bold text-black" style={{ background: "#f59e0b" }}>
+          <span className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold text-black" style={{ background: "#f59e0b" }}>
             {atRiskShown.length}
           </span>
           <span className="hidden text-xs text-zinc-500 sm:inline">next 96h — clear the after-hours ones before you leave</span>
@@ -330,7 +332,7 @@ export default function SlaHunterPage() {
         ) : (
           <div className="divide-y" style={{ borderColor: HAIRLINE }}>
             {atRiskPageRows.map((t) => (
-              <div key={t.halo_id} className="flex min-h-[80px] flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" style={{ borderColor: HAIRLINE }}>
+              <div key={t.halo_id} className="flex min-h-[68px] flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5" style={{ borderColor: HAIRLINE }}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <a
@@ -377,7 +379,7 @@ export default function SlaHunterPage() {
               </div>
             ))}
             {atRiskPageCount > 1 && (
-              <div className="flex h-11 items-center justify-between gap-3 px-5" style={{ borderColor: HAIRLINE }}>
+              <div className="flex h-10 items-center justify-between gap-3 px-4" style={{ borderColor: HAIRLINE }}>
                 <span className="text-xs text-zinc-500">
                   Showing {safeAtRiskPage * AT_RISK_PAGE_SIZE + 1}–{Math.min((safeAtRiskPage + 1) * AT_RISK_PAGE_SIZE, atRiskShown.length)} of {atRiskShown.length}
                 </span>
@@ -411,10 +413,11 @@ export default function SlaHunterPage() {
           </div>
         )}
       </section>
+      </div>
 
       {/* Call-out accountability */}
-      <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
-        <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+      <section className="overflow-hidden rounded-md border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+        <div className="flex min-h-10 flex-wrap items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
           <PhoneCall className="h-4 w-4" style={{ color: "#f87171" }} />
           <h2 className="text-sm font-semibold text-white">Auto Call-Out Accountability</h2>
           <span className="text-xs text-zinc-500">
@@ -424,11 +427,11 @@ export default function SlaHunterPage() {
 
         {/* Per-tech chips (this week) */}
         {m && m.callOutsByTech.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+          <div className="flex flex-wrap gap-1.5 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
             {m.callOutsByTech.map((t) => (
               <span
                 key={t.tech}
-                className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-zinc-200"
+                className="flex items-center gap-1.5 rounded border px-2 py-1 text-xs text-zinc-200"
                 style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}
               >
                 <User className="h-3 w-3 text-zinc-500" />
@@ -507,7 +510,7 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition"
+      className="flex h-7 items-center gap-1 rounded border px-2 text-[11px] font-medium transition"
       style={{
         borderColor: active ? "#7c3aed" : HAIRLINE,
         background: active ? "#7c3aed" : "#0f0a0c",
@@ -517,7 +520,7 @@ function FilterChip({
       {icon}
       {label}
       <span
-        className="rounded-full px-1.5 text-[10px] font-bold"
+        className="rounded px-1 text-[10px] font-bold"
         style={{ background: active ? "rgba(255,255,255,0.25)" : HAIRLINE, color: active ? "#fff" : "#e4e4e7" }}
       >
         {count}
@@ -541,20 +544,19 @@ function MetricTile({
 }) {
   return (
     <div
-      className="rounded-xl border p-4"
+      className="flex min-h-[70px] items-center gap-3 px-4 py-3"
       style={{
-        borderColor: emphasis && value > 0 ? accent : HAIRLINE,
         background: PANEL,
-        boxShadow: emphasis && value > 0 ? `0 0 20px -8px ${accent}` : "none",
+        boxShadow: emphasis && value > 0 ? `inset 0 2px 0 ${accent}` : "none",
       }}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</span>
-        <span style={{ color: accent }}>{icon}</span>
+      <span className="shrink-0" style={{ color: accent }}>{icon}</span>
+      <div className="min-w-0">
+        <p className="text-2xl font-semibold leading-none tabular-nums" style={{ color: value > 0 ? accent : "#e4e4e7" }}>
+          {value}
+        </p>
+        <span className="mt-1 block text-[9px] font-medium uppercase leading-3 tracking-wide text-zinc-500 sm:text-[10px]">{label}</span>
       </div>
-      <p className="mt-2 text-3xl font-bold" style={{ color: value > 0 ? accent : "#e4e4e7" }}>
-        {value}
-      </p>
     </div>
   );
 }

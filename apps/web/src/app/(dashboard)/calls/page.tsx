@@ -61,7 +61,6 @@ type View = "all" | "matched" | "unmatched" | "internal" | "separate";
 const PAGE_SIZE = 15;
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
-const RED = "#dc2626";
 
 function ticketUrl(baseUrl: string, haloId: number): string | null {
   if (!baseUrl) return null;
@@ -169,15 +168,15 @@ export default function CallsPage() {
   const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style={{ background: `linear-gradient(135deg, ${RED}, #7f1d1d)` }}>
-            <PhoneCall className="h-5 w-5 text-white" />
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md" style={{ background: "#991b1b" }}>
+            <PhoneCall className="h-4.5 w-4.5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">3CX Calls</h1>
-            <p className="text-sm text-zinc-400">Transcriptions, ticket matches, and calls that need review</p>
+            <h1 className="text-lg font-semibold text-white">3CX Calls</h1>
+            <p className="hidden text-xs text-zinc-500 sm:block">Call identity, ticket matches, and recordings that need a decision</p>
           </div>
         </div>
         <button
@@ -185,23 +184,23 @@ export default function CallsPage() {
           disabled={refreshing}
           aria-label="Refresh 3CX calls"
           title="Refresh 3CX calls"
-          className="flex h-10 w-10 items-center justify-center rounded-md border text-zinc-400 transition hover:text-white disabled:opacity-50"
+          className="flex h-8 w-8 items-center justify-center rounded-md border text-zinc-400 transition hover:bg-white/[0.03] hover:text-white disabled:opacity-50"
           style={{ borderColor: HAIRLINE, background: PANEL }}
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border sm:grid-cols-4" style={{ borderColor: HAIRLINE, background: HAIRLINE }}>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border sm:grid-cols-4" style={{ borderColor: HAIRLINE, background: HAIRLINE }}>
         <Metric label="Recent Calls" value={data?.counts.total ?? 0} icon={<PhoneCall className="h-4 w-4" />} color="#e4e4e7" />
         <Metric label="Matched" value={data?.counts.matched ?? 0} icon={<Link2 className="h-4 w-4" />} color="#4ade80" />
         <Metric label="Unmatched" value={data?.counts.unmatched ?? 0} icon={<Unlink className="h-4 w-4" />} color="#fbbf24" />
         <Metric label="Internal" value={data?.counts.internal ?? 0} icon={<Users className="h-4 w-4" />} color="#60a5fa" />
       </div>
 
-      <section className="overflow-hidden rounded-lg border" style={{ borderColor: HAIRLINE, background: PANEL }}>
-        <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3" style={{ borderColor: HAIRLINE }}>
-          <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+      <section className="overflow-hidden rounded-md border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+        <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={{ borderColor: HAIRLINE }}>
+          <div className="flex h-8 w-full rounded-md border p-0.5 sm:w-auto" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
             <ViewButton active={view === "all"} onClick={() => setView("all")} label="All" count={data?.counts.total ?? 0} />
             <ViewButton active={view === "matched"} onClick={() => setView("matched")} label="Matched" count={data?.counts.matched ?? 0} />
             <ViewButton active={view === "unmatched"} onClick={() => setView("unmatched")} label="Unmatched" count={data?.counts.unmatched ?? 0} />
@@ -209,12 +208,12 @@ export default function CallsPage() {
             <ViewButton active={view === "separate"} onClick={() => setView("separate")} label="Separate" count={data?.counts.separate ?? 0} />
           </div>
           <label className="relative ml-auto min-w-0 flex-1 sm:max-w-xs">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-600" />
+            <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-600" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search calls or tickets"
-              className="h-9 w-full rounded-md border bg-black/20 pl-9 pr-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-red-800"
+              className="h-8 w-full rounded-md border bg-black/20 pl-8 pr-3 text-xs text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-red-800"
               style={{ borderColor: HAIRLINE }}
             />
           </label>
@@ -264,10 +263,10 @@ export default function CallsPage() {
 
 function Metric({ label, value, icon, color }: { readonly label: string; readonly value: number; readonly icon: React.ReactNode; readonly color: string }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: PANEL }}>
+    <div className="flex min-h-[62px] items-center gap-3 px-4 py-2.5" style={{ background: PANEL }}>
       <span style={{ color }}>{icon}</span>
       <div>
-        <p className="text-xl font-bold tabular-nums text-white">{value}</p>
+        <p className="text-xl font-semibold leading-none tabular-nums text-white">{value}</p>
         <p className="text-[10px] font-semibold uppercase text-zinc-500">{label}</p>
       </div>
     </div>
@@ -276,7 +275,7 @@ function Metric({ label, value, icon, color }: { readonly label: string; readonl
 
 function ViewButton({ active, onClick, label, count }: { readonly active: boolean; readonly onClick: () => void; readonly label: string; readonly count: number }) {
   return (
-    <button onClick={onClick} className={`flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition ${active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
+    <button onClick={onClick} className={`flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded px-1 text-[10px] font-medium transition sm:flex-none sm:px-2 sm:text-[11px] ${active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
       {label}<span className="tabular-nums opacity-60">{count}</span>
     </button>
   );
@@ -292,7 +291,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
   const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : "Unmatched";
   return (
     <details className="group">
-      <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3.5 transition hover:bg-white/[0.02] sm:grid-cols-[150px_minmax(160px,0.8fr)_minmax(240px,1.4fr)_auto] sm:items-center">
+      <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-2.5 px-3 py-2.5 transition hover:bg-white/[0.02] sm:grid-cols-[140px_minmax(190px,0.9fr)_minmax(280px,1.5fr)_auto] sm:items-center">
         <div>
           <p className="text-sm font-medium text-zinc-200">{callTime(item.startedAt)}</p>
           <p className="mt-0.5 text-[11px] text-zinc-600">Recording {item.recordingId}{elapsed ? ` · ${elapsed}` : ""}</p>
@@ -331,11 +330,11 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
           )}
         </div>
         <div className="flex items-center justify-end gap-2 self-start sm:self-center">
-          <span className="hidden rounded border px-2 py-1 text-[10px] font-bold uppercase sm:inline" style={{ borderColor: `${stateColor}55`, color: stateColor, background: `${stateColor}10` }}>{stateLabel}</span>
+          <span className="hidden rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase sm:inline" style={{ borderColor: `${stateColor}55`, color: stateColor, background: `${stateColor}10` }}>{stateLabel}</span>
           <ChevronDown className="h-4 w-4 text-zinc-600 transition group-open:rotate-180" />
         </div>
       </summary>
-      <div className="border-t bg-black/15 px-4 py-4" style={{ borderColor: HAIRLINE }}>
+      <div className="border-t bg-black/15 px-4 py-3" style={{ borderColor: HAIRLINE }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold text-zinc-300">{item.matchLabel}</p>
@@ -346,7 +345,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
             </p>
           </div>
           {href && (
-            <a href={href} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
+            <a href={href} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
               Open ticket <ArrowUpRight className="h-3.5 w-3.5" />
             </a>
           )}
@@ -362,7 +361,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
         )}
         <div className="mt-4">
           <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-zinc-600"><FileText className="h-3.5 w-3.5" /> 3CX transcription</p>
-          <div className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md border bg-black/20 px-3 py-3 text-sm leading-6 text-zinc-300" style={{ borderColor: HAIRLINE }}>
+          <div className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-300" style={{ borderColor: HAIRLINE }}>
             {item.transcript || "Transcription is not available yet."}
           </div>
         </div>

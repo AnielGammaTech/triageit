@@ -281,18 +281,18 @@ export default function DispatchPage() {
   const displayedTechs = board?.techs ?? [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
           <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-            style={{ background: `linear-gradient(135deg, ${RED}, #7f1d1d)`, boxShadow: `0 0 24px -6px ${RED}` }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+            style={{ background: "#991b1b" }}
           >
-            <Radio className="h-6 w-6 text-white" />
+            <Radio className="h-4.5 w-4.5 text-white" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-white">Dispatch</h1>
-            <p className="hidden text-sm text-zinc-400 sm:block">What needs action, who can take it, and what&apos;s coming next</p>
+            <h1 className="text-lg font-semibold text-white">Dispatch</h1>
+            <p className="hidden text-xs text-zinc-500 sm:block">Current coverage, today&apos;s commitments, and the next action queue</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -303,7 +303,7 @@ export default function DispatchPage() {
             }}
             aria-label="Refresh dispatch data"
             title="Refresh dispatch data"
-            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border text-zinc-300 transition hover:text-white"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
             style={{ borderColor: HAIRLINE, background: PANEL }}
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
@@ -331,12 +331,12 @@ export default function DispatchPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-6">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-7">
           <Section
             title="Right Now"
             icon={<Users className="h-4 w-4" style={{ color: RED }} />}
-            className="flex flex-col overflow-hidden lg:h-[476px]"
+            className="flex flex-col overflow-hidden lg:h-[456px]"
             actions={
               <p className="max-w-[180px] text-right text-[9px] leading-3 text-zinc-500 sm:max-w-none sm:text-[10px] sm:leading-normal">
                 <span className="font-semibold text-zinc-300">WOT</span> = Waiting On Tech
@@ -362,7 +362,7 @@ export default function DispatchPage() {
           </Section>
         </div>
 
-        <div className="lg:col-span-6">
+        <div className="lg:col-span-5">
           {week && week.techs.length > 0 ? (
             <DaySchedule
               week={week}
@@ -372,7 +372,7 @@ export default function DispatchPage() {
               atToday={dayOffset === 0}
             />
           ) : (
-            <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
+            <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />} className="lg:h-[456px]">
               <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
             </Section>
           )}
@@ -398,7 +398,7 @@ export default function DispatchPage() {
         title="Next Actions"
         icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}
         actions={
-          <div className="flex h-9 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+          <div className="flex h-8 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
             <ActionLaneButton
               active={actionLane === "now"}
               count={suggest?.actionCounts.now ?? 0}
@@ -873,7 +873,7 @@ function DaySchedule({
     <Section
       title={header.isToday ? "Today" : header.name}
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
-      className="flex flex-col overflow-hidden lg:h-[476px]"
+      className="flex flex-col overflow-hidden lg:h-[456px]"
       actions={
         <div className="flex items-center gap-1">
           <span className="mr-1 text-xs text-zinc-400 sm:mr-2">{header.date}</span>
@@ -881,14 +881,14 @@ function DaySchedule({
             onClick={onPrev}
             disabled={atToday}
             aria-label="Previous day"
-            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white disabled:cursor-default disabled:opacity-30"
+            className="flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
             style={{ borderColor: HAIRLINE }}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             onClick={onToday}
-            className="flex h-10 cursor-pointer items-center justify-center rounded-md border px-3 text-xs text-zinc-300 hover:text-white"
+            className="flex h-8 cursor-pointer items-center justify-center rounded-md border px-2.5 text-xs text-zinc-400 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
             Today
@@ -896,7 +896,7 @@ function DaySchedule({
           <button
             onClick={onNext}
             aria-label="Next day"
-            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
+            className="flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
             <ChevronRight className="h-4 w-4" />
@@ -908,7 +908,7 @@ function DaySchedule({
         <DayAgenda key={day} week={week} day={day} techs={activeTechs} isToday={header.isToday} nowMs={nowMs} />
         {quietTechs.length > 0 && (
           <p
-            className="flex h-9 shrink-0 items-center truncate border-t px-5 text-xs text-zinc-500"
+            className="flex h-8 shrink-0 items-center truncate border-t px-4 text-xs text-zinc-500"
             style={{ borderColor: HAIRLINE }}
             title={`${header.isToday ? "No remaining items" : "No scheduled items"}: ${quietTechs.join(", ")}`}
           >
@@ -1120,8 +1120,8 @@ function Section({
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className={`rounded-lg border ${className}`} style={{ borderColor: HAIRLINE, background: PANEL }}>
-      <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+    <section className={`overflow-hidden rounded-md border ${className}`} style={{ borderColor: HAIRLINE, background: PANEL }}>
+      <div className="flex min-h-10 items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>
         {actions && <div className="ml-auto">{actions}</div>}

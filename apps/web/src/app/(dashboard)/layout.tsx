@@ -13,7 +13,7 @@ export default async function DashboardLayout({
     <div className="min-h-screen" style={{ backgroundColor: "#09090b" }}>
       <Sidebar userEmail={user.email} userRole={user.role} />
       <main className="pt-14">
-        <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1680px] p-3 sm:p-4 lg:p-5">{children}</div>
       </main>
       {user.role === "admin" && <FloatingAdminland />}
     </div>
