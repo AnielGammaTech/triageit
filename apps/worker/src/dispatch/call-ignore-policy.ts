@@ -21,6 +21,7 @@ const ACTIONABLE_LANGUAGE = /\b(?:not working|stopped working|can't work|cannot 
 const STRONG_IVR = [
   /\bautomated attendant\b/i,
   /\b(?:can'?t|cannot|unable to) (?:take|get|answer) (?:your|the) call\b/i,
+  /\bpress any key\b/i,
   /\b(?:leave|record) (?:your|a) message (?:after|at) (?:the )?(?:tone|beep)\b/i,
   /\b(?:has been|was) forwarded to (?:an automated )?(?:voice mail|voicemail)\b/i,
   /\bmailbox (?:is )?(?:full|not accepting messages)\b/i,

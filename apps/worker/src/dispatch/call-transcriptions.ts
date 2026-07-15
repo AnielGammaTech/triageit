@@ -166,6 +166,7 @@ export function callMatchLabel(method: string | null): string {
     shared_phone_no_transcript_match: "Shared number with no clear ticket match",
     ambiguous_multiple_open: "Several possible open tickets",
     no_open_ticket: "No open ticket for this caller",
+    no_recent_ticket_match: "No open or recently closed ticket matched the call",
     error: "Analysis failed",
     cursor_seed: "Processing cursor",
     unknown: "No match reason recorded",

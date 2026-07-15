@@ -10,6 +10,7 @@ import {
   choosePhoneTicketMatchStrategy,
   phoneTicketSearchTerms,
   transcriptTicketMatchMinConfidence,
+  unmatchedRematchDue,
   type TranscriptTicketMatchScope,
 } from "./call-match-policy.js";
 import { sendPendingCallMatchReviews } from "../dispatch/call-match-review-notifications.js";
@@ -77,7 +78,7 @@ const MAX_GLOBAL_CANDIDATES = 120;
 /** Cap retries of a matched recording whose analysis or note-post keeps failing. */
 const MAX_ANALYSIS_ATTEMPTS = 5;
 const MAX_TRANSCRIPT_POLL_ATTEMPTS = 20;
-const MAX_UNMATCHED_REMATCH_ATTEMPTS = 2;
+const MAX_UNMATCHED_REMATCH_ATTEMPTS = 4;
 const RECENT_CLOSED_MATCH_DAYS = 21;
 
 // The cron fires every minute but a run with new recordings can take several
@@ -179,14 +180,17 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
       .limit(8),
     supabase
       .from("call_analyses")
-      .select("recording_id, analysis_attempts, matched_by")
-      .in("matched_by", ["no_halo_user", "shared_phone_no_transcript_match", "ambiguous_multiple_open", "no_open_ticket"])
+      .select("recording_id, analysis_attempts, matched_by, created_at")
+      .in("matched_by", ["identified_customer_no_ticket_match", "no_halo_user", "shared_phone_no_transcript_match", "ambiguous_multiple_open", "no_open_ticket", "no_recent_ticket_match"])
       .lt("analysis_attempts", MAX_UNMATCHED_REMATCH_ATTEMPTS)
       .gte("created_at", recentCutoff)
       .order("recording_id", { ascending: false })
-      .limit(6),
+      .limit(30),
   ]);
-  const retryRows = [...(failureResult.data ?? []), ...(transcriptResult.data ?? []), ...(unmatchedResult.data ?? [])]
+  const dueUnmatchedRows = (unmatchedResult.data ?? [])
+    .filter((row) => unmatchedRematchDue(row.created_at, Number(row.analysis_attempts) || 0))
+    .slice(0, 6);
+  const retryRows = [...(failureResult.data ?? []), ...(transcriptResult.data ?? []), ...dueUnmatchedRows]
     .filter((row, index, all) => all.findIndex((candidate) => candidate.recording_id === row.recording_id) === index)
     .slice(0, 12);
   for (const row of retryRows) {
@@ -447,7 +451,7 @@ export async function processRecording(
     ]).join(",");
     const { data: callbackTickets, error: callbackError } = await supabase
       .from("tickets")
-      .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
+      .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
       .eq("tickettype_id", 31)
       .or(phoneFilter)
       .order("updated_at", { ascending: false })
@@ -539,11 +543,11 @@ export async function processRecording(
       const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
       const { data: clientTickets } = await supabase
         .from("tickets")
-        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
+        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
         .eq("tickettype_id", 31)
         .in("client_name", namedClients)
-        .or(`halo_is_open.eq.true,created_at.gte.${recentClosedCutoff}`)
-        .order("created_at", { ascending: false })
+        .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
+        .order("updated_at", { ascending: false })
         .limit(50);
       const candidates = (clientTickets ?? []) as CandidateTicket[];
 
@@ -647,32 +651,38 @@ export async function processRecording(
     return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, globalPick, "llm_transcript_global", transcript);
   }
 
-  // Find an open ticket: exact user first, then single-open-ticket client
+  // Search the caller's open tickets plus tickets closed in the last 21 days.
+  // A return call often arrives after the ticket was closed, but closed-ticket
+  // selection always requires transcript confirmation; caller ID alone is not
+  // enough to post onto historical work.
   const userNames = users.map((u) => u.name.toLowerCase());
   const clientNames = [...new Set(users.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
+  const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
 
-  const { data: openTickets } = await supabase
+  const { data: clientTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent")
+    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
     .eq("tickettype_id", 31)
-    .eq("halo_is_open", true)
     .in("client_name", clientNames.length > 0 ? clientNames : ["__none__"])
-    .order("created_at", { ascending: false })
-    .limit(25);
+    .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
+    .order("updated_at", { ascending: false })
+    .limit(50);
 
-  const candidates = openTickets ?? [];
-  const byUser = candidates.filter((t) => t.user_name && userNames.includes(t.user_name.toLowerCase()));
+  const candidates = (clientTickets ?? []) as CandidateTicket[];
+  const openCandidates = candidates.filter((ticket) => ticket.halo_is_open !== false);
+  const byUser = candidates.filter((ticket) => ticket.user_name && userNames.includes(ticket.user_name.toLowerCase()));
+  const openByUser = byUser.filter((ticket) => ticket.halo_is_open !== false);
 
   const strategy = choosePhoneTicketMatchStrategy({
     haloUserCount: users.length,
-    exactUserTicketCount: byUser.length,
-    clientTicketCount: candidates.length,
+    exactUserTicketCount: openByUser.length,
+    clientTicketCount: openCandidates.length,
   });
   let ticket: CandidateTicket | null = null;
   let matchedBy: string | null = null;
 
   if (strategy === "direct_user") {
-    ticket = byUser[0] ?? null;
+    ticket = openByUser[0] ?? null;
     matchedBy = ticket ? "user_phone" : null;
   } else if (strategy === "transcript_user") {
     ticket = await selectTicketByTranscript(supabase, transcript, byUser, techName, externalParty, "user");
@@ -690,6 +700,13 @@ export async function processRecording(
     if (ticket) {
       matchedBy = sharedPhone ? "llm_transcript_shared_phone" : "llm_transcript";
     }
+  } else if (candidates.length > 0) {
+    const historyCandidates = byUser.length > 0 ? byUser : candidates;
+    const historyScope: TranscriptTicketMatchScope = users.length > 1 ? "shared_phone" : byUser.length > 0 ? "user" : "client";
+    ticket = await selectTicketByTranscript(supabase, transcript, historyCandidates, techName, externalParty, historyScope);
+    matchedBy = ticket
+      ? historyScope === "shared_phone" ? "llm_transcript_shared_phone" : historyScope === "user" ? "llm_transcript_user" : "llm_transcript"
+      : null;
   }
 
   if (!ticket || !matchedBy) {
@@ -704,9 +721,11 @@ export async function processRecording(
           tech_name: techName,
           matched_by: users.length > 1
             ? "shared_phone_no_transcript_match"
-            : candidates.length > 1
+            : openCandidates.length > 1
               ? "ambiguous_multiple_open"
-              : "no_open_ticket",
+              : candidates.length > 0
+                ? "no_recent_ticket_match"
+                : "no_open_ticket",
           summary: reviewIdentity?.issue_summary ?? null,
           identified_customer_name: reviewIdentity?.person_name ?? (users.length === 1 ? users[0]?.name ?? null : null),
           identified_client_name: reviewIdentity?.company_name ?? (clientNames.length === 1 ? clientNames[0] ?? null : null),
@@ -768,6 +787,7 @@ interface CandidateTicket {
   readonly halo_agent: string | null;
   readonly halo_is_open?: boolean | null;
   readonly created_at?: string | null;
+  readonly updated_at?: string | null;
 }
 
 function clientNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
@@ -790,10 +810,10 @@ async function findCnamClientTickets(
   const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
   const { data, error } = await supabase
     .from("tickets")
-    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
+    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
     .eq("tickettype_id", 31)
-    .or(`halo_is_open.eq.true,created_at.gte.${recentClosedCutoff}`)
-    .order("created_at", { ascending: false })
+    .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
+    .order("updated_at", { ascending: false })
     .limit(MAX_GLOBAL_CANDIDATES);
   if (error) {
     console.warn("[CALL-ANALYSIS] CNAM client candidate search failed:", error.message);
@@ -1076,7 +1096,8 @@ async function selectTicketByTranscript(
       const details = clean(t.details, 160);
       const triageSummary = clean(triageByTicket.get(t.id), 240);
       const opened = t.created_at ? new Date(t.created_at).toISOString().slice(0, 10) : "unknown";
-      return `#${t.halo_id} | ${t.halo_is_open === false ? "closed" : "open"} | opened: ${opened} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}${triageSummary ? ` | TriageIT summary: ${triageSummary}` : ""}`;
+      const lastActivity = t.updated_at ? new Date(t.updated_at).toISOString().slice(0, 10) : "unknown";
+      return `#${t.halo_id} | ${t.halo_is_open === false ? "closed" : "open"} | opened: ${opened} | last activity/closed: ${lastActivity} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}${triageSummary ? ` | TriageIT summary: ${triageSummary}` : ""}`;
     });
 
     const prompt = [
@@ -1129,7 +1150,7 @@ async function selectTicketByTranscript(
     const minConfidence = transcriptTicketMatchMinConfidence(
       scope,
       ticket?.halo_is_open,
-      ticket?.created_at,
+      ticket?.updated_at ?? ticket?.created_at,
     );
     if (!ticket || (pick.confidence ?? 0) < minConfidence) {
       console.log(`[CALL-ANALYSIS] Ticket selection (${scope}) declined: halo_id=${pick.halo_id ?? "null"} confidence=${pick.confidence ?? 0} — "${(pick.evidence ?? "").slice(0, 100)}"`);

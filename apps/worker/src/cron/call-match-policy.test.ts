@@ -4,6 +4,7 @@ import {
   choosePhoneTicketMatchStrategy,
   phoneTicketSearchTerms,
   transcriptTicketMatchMinConfidence,
+  unmatchedRematchDue,
 } from "./call-match-policy.js";
 
 describe("choosePhoneTicketMatchStrategy", () => {
@@ -92,5 +93,22 @@ describe("transcriptTicketMatchMinConfidence", () => {
     expect(transcriptTicketMatchMinConfidence("global", true, null, now)).toBe(0.75);
     expect(transcriptTicketMatchMinConfidence("cnam", true, null, now)).toBe(0.75);
     expect(transcriptTicketMatchMinConfidence("client", true, null, now)).toBe(0.6);
+    expect(transcriptTicketMatchMinConfidence("client", false, "2026-07-13T12:00:00Z", now)).toBe(0.75);
+  });
+});
+
+describe("unmatchedRematchDue", () => {
+  const now = new Date("2026-07-15T17:00:00Z").getTime();
+
+  it("spaces retries so tickets created after the call can be discovered", () => {
+    const sixMinutesAgo = "2026-07-15T16:54:00Z";
+    const twoHoursAgo = "2026-07-15T15:00:00Z";
+    expect(unmatchedRematchDue(sixMinutesAgo, 0, now)).toBe(true);
+    expect(unmatchedRematchDue(sixMinutesAgo, 1, now)).toBe(false);
+    expect(unmatchedRematchDue(twoHoursAgo, 2, now)).toBe(true);
+  });
+
+  it("stops after the bounded fourth retry", () => {
+    expect(unmatchedRematchDue("2026-07-14T17:00:00Z", 4, now)).toBe(false);
   });
 });
