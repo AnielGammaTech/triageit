@@ -246,18 +246,28 @@ function namesOverlap(a: string | null | undefined, b: string | null | undefined
 
 /**
  * Ticket numbers spoken on the call ("I'm calling about ticket 40912").
- * 3CX transcribes digits as "40912" or spaced "4 0 9 1 2" — collapse digit
- * runs and keep 5-digit values (current Halo id range). Separators are limited
- * to spaces and hyphens (NOT "." or ","), so spoken currency amounts like
- * "$409.12" → "409"/"12" and "40,911" → "40"/"911" can't collapse into a
- * bogus 5-digit ticket id and hijack the match.
+ * 3CX transcribes digits as "40912", leading-zero display ids like "0040912",
+ * or spaced "4 0 9 1 2". Explicit ticket/case phrases are checked first and
+ * leading zeros are normalized. Separators are limited to spaces and hyphens
+ * (NOT "." or ","), so currency like "$409.12" and "40,911" cannot collapse
+ * into a bogus ticket id and hijack the match.
  */
-function extractSpokenTicketNumbers(transcript: string): number[] {
-  const runs = transcript.match(/\d(?:[\s-]?\d)+/g) ?? [];
-  const ids = runs
-    .map((run) => run.replace(/\D/g, ""))
-    .filter((digits) => digits.length === 5)
-    .map(Number);
+export function extractSpokenTicketNumbers(transcript: string): number[] {
+  const explicitRuns = [...transcript.matchAll(
+    /(?:\bticket\b|\bcase\b|\brequest\b)\s*(?:(?:number|no\.?|#)\s*)?#?\s*(\d(?:[\s-]?\d){4,7})/gi,
+  )].map((match) => match[1]);
+  const hashRuns = [...transcript.matchAll(/(?:^|\s)#\s*(\d(?:[\s-]?\d){4,7})/g)]
+    .map((match) => match[1]);
+  const genericRuns = transcript.match(/\d(?:[\s-]?\d)+/g) ?? [];
+  const normalize = (run: string): number | null => {
+    const digits = run.replace(/\D/g, "");
+    if (digits.length < 5 || digits.length > 8) return null;
+    const value = Number(digits);
+    return Number.isSafeInteger(value) && value >= 10_000 && value <= 9_999_999 ? value : null;
+  };
+  const ids = [...explicitRuns, ...hashRuns, ...genericRuns]
+    .map(normalize)
+    .filter((id): id is number => id !== null);
   return [...new Set(ids)];
 }
 
@@ -391,11 +401,13 @@ export async function processRecording(
       .from("tickets")
       .select("id, halo_id, summary, user_name, client_name, halo_status, halo_agent")
       .in("halo_id", spokenIds)
-      .eq("tickettype_id", 31)
-      .eq("halo_is_open", true);
-    const byFirstMention = ((spokenMatches ?? []) as CandidateTicket[])
-      .slice()
-      .sort((a, b) => transcript.replace(/\D/g, "").indexOf(String(a.halo_id)) - transcript.replace(/\D/g, "").indexOf(String(b.halo_id)));
+      .eq("tickettype_id", 31);
+    const matchesById = new Map(
+      ((spokenMatches ?? []) as CandidateTicket[]).map((ticket) => [ticket.halo_id, ticket]),
+    );
+    const byFirstMention = spokenIds
+      .map((haloId) => matchesById.get(haloId))
+      .filter((ticket): ticket is CandidateTicket => Boolean(ticket));
     if (byFirstMention[0]) {
       console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: ticket #${byFirstMention[0].halo_id} spoken on the call — direct match`);
       return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, byFirstMention[0], "spoken_ticket_number", transcript);
