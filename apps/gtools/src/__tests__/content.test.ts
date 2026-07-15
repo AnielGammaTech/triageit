@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { TOOLS } from "@/content/tools";
 
 describe("tools content integrity", () => {
-  it("has exactly 8 tools", () => {
-    expect(TOOLS).toHaveLength(8);
+  it("has exactly 11 tools", () => {
+    expect(TOOLS).toHaveLength(11);
   });
 
   it("has unique slugs matching their mockup keys", () => {
     const slugs = TOOLS.map((t) => t.slug);
-    expect(new Set(slugs).size).toBe(8);
+    expect(new Set(slugs).size).toBe(11);
     for (const t of TOOLS) expect(t.mockup).toBe(t.slug);
   });
 

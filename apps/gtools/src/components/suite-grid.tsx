@@ -57,7 +57,7 @@ export function SuiteGrid() {
     <section className="mx-auto max-w-7xl px-6 pt-8 pb-24 md:pt-10">
       <Reveal variant="up">
         <h2 className="font-display text-3xl font-semibold tracking-tight text-snow md:text-4xl">
-          Eight tools. One stack.
+          Eleven tools. One stack.
         </h2>
       </Reveal>
 

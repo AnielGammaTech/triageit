@@ -30,7 +30,7 @@ export function Hero() {
       <Reveal variant="up" delayMs={260}>
         <p className="mt-6 max-w-2xl text-lg text-fog">
           Gamma Tech Services didn{"'"}t settle for off-the-shelf. GTools is
-          the suite of eight products we engineered to triage tickets, stop
+          the suite of eleven products we engineered to triage tickets, stop
           attacks, reconcile billing, and keep clients informed — and it runs
           our helpdesk every day.
         </p>

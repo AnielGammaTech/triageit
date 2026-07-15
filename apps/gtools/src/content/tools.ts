@@ -134,6 +134,39 @@ export const TOOLS: readonly Tool[] = [
     mockup: "portalit",
   },
   {
+    slug: "lootit",
+    name: "LootIT",
+    oneLiner: "Deep-audit billing reconciliation",
+    tagline: "Every invoice audited. Every dollar found.",
+    description:
+      "LootIT is PortalIT's deep-audit companion — a standalone reconciliation tool that cross-checks every PSA recurring-billing line item against live vendor usage across Datto, Cove, JumpCloud, RocketCyber, Pax8, 3CX, and more, catching over- and under-billing before invoices go out.",
+    features: [
+      {
+        title: "Reconciliation work queue",
+        blurb:
+          "Customer roster with Issues/Matched/Signed Off/Pending filters, plus a collapsible billing-anomalies panel.",
+      },
+      {
+        title: "Line-by-line workbench",
+        blurb:
+          "Verify PSA quantities against vendor usage, force-match exceptions, and auto-extract pricing from uploaded contracts.",
+      },
+      {
+        title: "Formal sign-off workflow",
+        blurb:
+          "Every reconciliation moves from In Progress to Ready to Sign to a snapshotted, signed-off packet.",
+      },
+      {
+        title: "Configurable anomaly alerts",
+        blurb:
+          "Matching rules plus dollar- and percent-based email alerts flag billing drift the moment it appears.",
+      },
+    ],
+    integrations: ["Halo PSA", "Datto", "Cove", "JumpCloud", "Pax8"],
+    accent: "lootit",
+    mockup: "lootit",
+  },
+  {
     slug: "quoteit",
     name: "QuoteIT",
     oneLiner: "Quote-to-cash with e-signature",
@@ -165,6 +198,39 @@ export const TOOLS: readonly Tool[] = [
     integrations: ["QuickBooks", "Halo PSA", "Microsoft Teams", "ProjectIT"],
     accent: "quoteit",
     mockup: "quoteit",
+  },
+  {
+    slug: "accountit",
+    name: "AccountIT",
+    oneLiner: "The CRM built into QuoteIT",
+    tagline: "The CRM that knows when a deal goes cold.",
+    description:
+      "AccountIT is the sales and account-management CRM built directly into QuoteIT — no separate login, no sync lag. A nightly scoring job reads real quote-view and email-open activity to flag deals going cold before a rep has to guess.",
+    features: [
+      {
+        title: "Six-stage deal pipeline",
+        blurb:
+          "Drag-and-drop kanban from New to Won, with quarterly goals, carry-forward, and configurable loss reasons.",
+      },
+      {
+        title: "Behavior-driven win scoring",
+        blurb:
+          "Every open deal scored nightly from stage, activity recency, and real quote-view and email-open engagement.",
+      },
+      {
+        title: "One-click lead-to-quote",
+        blurb:
+          "Any lead becomes a pre-filled QuoteIT proposal, and every quote view feeds straight back into deal health.",
+      },
+      {
+        title: "Full account 360°",
+        blurb:
+          "Customers, contacts, and contracts with renewal tracking, MRR, QBRs, and opportunity-template playbooks.",
+      },
+    ],
+    integrations: ["Halo PSA", "QuickBooks", "Microsoft Teams", "QuoteIT"],
+    accent: "accountit",
+    mockup: "accountit",
   },
   {
     slug: "connectit",
@@ -259,5 +325,38 @@ export const TOOLS: readonly Tool[] = [
     integrations: ["Twilio Lookup", "3CX"],
     accent: "phoneit",
     mockup: "phoneit",
+  },
+  {
+    slug: "vendit",
+    name: "VendIT",
+    oneLiner: "QR-code vending machine payments",
+    tagline: "A payment terminal in every QR code.",
+    description:
+      "VendIT turns any product into unattended checkout — customers scan a QR code and pay through Stripe Checkout, with card fees automatically grossed up so the operator nets the sticker price every time.",
+    features: [
+      {
+        title: "Dual purchase flows",
+        blurb:
+          "A single-item QR buy page, a multi-item storefront with cart, and an in-person POS mode for card or cash.",
+      },
+      {
+        title: "Automatic fee gross-up",
+        blurb:
+          "Stripe's card fee is shown as its own line item at a configurable rate, so margins stay protected.",
+      },
+      {
+        title: "Barcode-driven inventory",
+        blurb:
+          "A camera barcode scanner with live UPC/EAN lookup auto-fills name, brand, and image on restock.",
+      },
+      {
+        title: "Sales analytics & labels",
+        blurb:
+          "Today, 7-day, and all-time net and profit, a void/refund workflow, and one-click printable QR label sheets.",
+      },
+    ],
+    integrations: ["Stripe Checkout", "Apple Pay", "Google Pay"],
+    accent: "vendit",
+    mockup: "vendit",
   },
 ] as const;

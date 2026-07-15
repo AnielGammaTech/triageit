@@ -25,9 +25,12 @@
   --color-projectit: #0069af;
   --color-portalit: #5b21b6;
   --color-quoteit: #f96302;
+  --color-accountit: #6366f1;
+  --color-lootit: #EC4899;
   --color-connectit: #2f80ed;
   --color-runit: #dc2626;
   --color-phoneit: #1f6feb;
+  --color-vendit: #10b981;
 
   --font-display: var(--font-space-grotesk), sans-serif;
   --font-body: var(--font-inter), sans-serif;

@@ -4,9 +4,12 @@ export type MockupKey =
   | "projectit"
   | "portalit"
   | "quoteit"
+  | "accountit"
+  | "lootit"
   | "connectit"
   | "runit"
-  | "phoneit";
+  | "phoneit"
+  | "vendit";
 
 export interface Feature {
   readonly title: string;

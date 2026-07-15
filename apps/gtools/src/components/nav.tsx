@@ -37,12 +37,12 @@ export function Nav() {
           <span className="text-brand">G</span>TOOLS
         </Link>
 
-        <nav className="hidden items-center gap-7 lg:flex" aria-label="Tools">
+        <nav className="hidden items-center gap-4 xl:flex" aria-label="Tools">
           {TOOLS.map((tool) => (
             <a
               key={tool.slug}
               href={`#${tool.slug}`}
-              className="text-sm text-fog transition-colors hover:text-snow"
+              className="whitespace-nowrap text-sm text-fog transition-colors hover:text-snow"
             >
               {tool.name}
             </a>
