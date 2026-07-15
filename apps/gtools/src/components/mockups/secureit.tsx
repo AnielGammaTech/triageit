@@ -51,7 +51,7 @@ export function SecureitMockup() {
       <div className="flex flex-col gap-2 p-2.5 text-[color:var(--mock-text)]">
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[7px] text-[color:var(--mock-muted)]">Coastal Law / Incidents</span>
+            <span className="text-[7px] text-[color:var(--mock-muted)]">Michael Scott Paper Co. / Incidents</span>
             <span className="text-[10px] font-semibold">Impossible travel — token replay</span>
           </div>
           <span className="rounded-none border px-1.5 py-0.5 text-[8px] font-medium" style={{ borderColor: "#dc2626", color: "#dc2626", background: "#fef2f2" }}>

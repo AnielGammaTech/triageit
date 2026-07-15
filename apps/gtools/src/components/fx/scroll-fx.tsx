@@ -15,6 +15,7 @@ import { registerProgressAndNav } from "./scroll-fx-nav";
 import { registerDecryptKickers } from "./scroll-fx-decrypt";
 import { registerStatsCountUp } from "./scroll-fx-stats";
 import { registerBootLine } from "./scroll-fx-boot";
+import { setActiveLenis } from "./scroll-fx-lenis-ref";
 
 // Motion v3 orchestrator — the one place that mounts Lenis + GSAP
 // ScrollTrigger and registers every scroll-driven effect (11-effect spec:
@@ -46,6 +47,7 @@ export function ScrollFx() {
 
       lenis = new Lenis({ anchors: true });
       tick = (time: number) => lenis?.raf(time * 1000);
+      setActiveLenis(lenis);
 
       lenis.on("scroll", ScrollTrigger.update);
       gsap.ticker.add(tick);
@@ -84,6 +86,7 @@ export function ScrollFx() {
       cleanups.forEach((cleanup) => cleanup());
       ScrollTrigger.killAll();
       if (tick) gsap.ticker.remove(tick);
+      setActiveLenis(null);
       lenis?.destroy();
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
       delete document.documentElement.dataset.fxScroll;

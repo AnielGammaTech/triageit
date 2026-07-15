@@ -42,7 +42,7 @@ export function QuoteitMockup() {
       <div className="flex flex-col gap-2 p-2.5 text-[color:var(--mock-text)]">
         <div className="flex flex-wrap items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] font-semibold">Coastal Law — Network Refresh</span>
+            <span className="text-[9px] font-semibold">WUPHF.com — Network Refresh</span>
             <span className="rounded border px-1 py-0.5 font-mono text-[7px]" style={{ borderColor: "var(--mock-border)", color: "var(--mock-muted)" }}>
               Q-2047
             </span>
@@ -69,7 +69,7 @@ export function QuoteitMockup() {
           <div className="flex flex-col gap-1.5">
             <div className="rounded-lg border p-1.5" style={{ borderColor: "var(--mock-border)", background: "var(--mock-panel)" }}>
               <span className="block text-[7px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Customer</span>
-              <span className="block text-[8px] font-medium">Coastal Law</span>
+              <span className="block text-[8px] font-medium">WUPHF.com</span>
             </div>
             <div className="rounded-lg border p-1.5" style={{ borderColor: "var(--mock-border)", background: "var(--mock-panel)" }}>
               <span className="block text-[7px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Total</span>

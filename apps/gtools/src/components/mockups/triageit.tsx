@@ -52,7 +52,7 @@ export function TriageitMockup() {
       <div className="flex flex-col gap-2 p-2.5 text-[color:var(--mock-text)]">
         <div className="flex flex-wrap items-center justify-between gap-1.5">
           <span className="font-display text-[11px] font-semibold">
-            Ticket #4821 <span className="text-[color:var(--mock-muted)]">· Acme Dental</span>
+            Ticket #4821 <span className="text-[color:var(--mock-muted)]">· Dunder Mifflin</span>
           </span>
           <div className="flex items-center gap-1">
             <span

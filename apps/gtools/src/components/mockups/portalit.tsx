@@ -13,9 +13,9 @@ const METRICS: readonly Metric[] = [
 ];
 
 const CUSTOMERS = [
-  { name: "Acme Dental", pct: 100, tone: "#059669", status: "Reconciled" },
-  { name: "Coastal Law", pct: 62, tone: "#e11d48", status: "Under-billed" },
-  { name: "Naples Realty", pct: 100, tone: "#059669", status: "Reconciled" },
+  { name: "Dunder Mifflin", pct: 100, tone: "#059669", status: "Reconciled" },
+  { name: "Vance Refrigeration", pct: 62, tone: "#e11d48", status: "Under-billed" },
+  { name: "Schrute Farms", pct: 100, tone: "#059669", status: "Reconciled" },
 ] as const;
 
 export function PortalitMockup() {

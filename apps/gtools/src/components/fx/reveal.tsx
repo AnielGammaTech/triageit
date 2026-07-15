@@ -2,6 +2,7 @@
 
 import {
   cloneElement,
+  isValidElement,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -139,6 +140,44 @@ export function Reveal({
     };
   }, [state]);
 
+  // Server Components that pass JSX straight into this ("use client")
+  // wrapper can, in a deep/repeated tree, hand it an unresolved React
+  // Flight reference (`$$typeof: Symbol(react.lazy)`, no `.props` yet)
+  // instead of the final element while dev-mode SSR/hydration is still
+  // streaming it in — never happens in the production static build (the
+  // whole tree is fully resolved ahead of time), and whether any given
+  // instance is affected is a genuine timing race, so it can resolve
+  // *differently* on the server's render pass than on the client's
+  // hydration-matching one. `cloneElement`/`.props` access requires an
+  // already-resolved element and throws otherwise ("Cannot read properties
+  // of undefined (reading 'style')") — with no error boundary anywhere in
+  // the tree, that took the whole page down, which is what actually caused
+  // the "hero content invisible" reports (whichever Reveal instance hit an
+  // unresolved reference crashed the entire render).
+  //
+  // The fix isn't just "guard before cloning" — since the race can resolve
+  // differently server-side vs. client-side, guarding *and still cloning
+  // when possible* would make the two sides genuinely disagree on output
+  // (a real, if non-fatal, hydration mismatch — DOM patched, but a console
+  // error and a flash of the wrong classes). So this render (whichever side
+  // it's running on, and the client's very first, hydration-matching
+  // render) never inspects `children` at all while `state === "idle"`:
+  // both server and client-before-mount always return it completely
+  // unmodified, which trivially matches regardless of the resolution race.
+  // Only once `useLayoutEffect` above confirms a real post-hydration client
+  // mount (state moves off "idle") does rendering ever reach the
+  // `cloneElement` below — and a plain client-side re-render of an
+  // already-mounted tree never carries a transient Flight placeholder, so
+  // `children` is guaranteed concrete by then. `isValidElement` stays here
+  // as a defensive fallback only (its `$$typeof` is `Symbol(react.lazy)`,
+  // not `Symbol(react.element)`/`react.transitional.element`, so it
+  // reliably reports false for one of these) — bailing out and returning
+  // the child unmodified beats a crash even in a case this reasoning
+  // missed.
+  if (state === "idle" || !isValidElement<RevealChildProps>(children)) {
+    return children;
+  }
+
   const style: CSSProperties = {
     ...children.props.style,
     ...(delayMs ? ({ "--reveal-delay": `${delayMs}ms` } as CSSProperties) : {}),
@@ -174,7 +213,11 @@ export function Reveal({
     ref: setRefs,
     className,
     style,
-    "data-reveal-state": state === "idle" ? undefined : state,
+    // `state` is never "idle" here — the guard above already returned
+    // early for that case — so this is always a real hidden/visible/done
+    // value, never the `undefined` that meant "no attribute at all" back
+    // when this same cloneElement call also had to handle the idle render.
+    "data-reveal-state": state,
   } as any);
   /* eslint-enable @typescript-eslint/no-explicit-any, react-hooks/refs */
 }

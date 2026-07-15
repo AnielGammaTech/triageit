@@ -1,9 +1,9 @@
 import { accentVar } from "@/components/browser-frame";
 
 const RESULTS = [
-  { phone: "(239) 555-0148", name: "Acme Dental Front Desk", type: "Business", carrier: "Verizon", line: "Landline", ok: true },
-  { phone: "(239) 555-0173", name: "Coastal Law LLP", type: "Business", carrier: "T-Mobile", line: "Mobile", ok: true },
-  { phone: "(239) 555-0199", name: "Naples Realty Group", type: "Business", carrier: "AT&T", line: "VoIP", ok: false },
+  { phone: "(239) 555-0148", name: "Dunder Mifflin Recept.", type: "Business", carrier: "Verizon", line: "Landline", ok: true },
+  { phone: "(239) 555-0173", name: "Vance Refrigeration", type: "Business", carrier: "T-Mobile", line: "Mobile", ok: true },
+  { phone: "(239) 555-0199", name: "Schrute Farms", type: "Business", carrier: "AT&T", line: "VoIP", ok: false },
 ] as const;
 
 export function PhoneitMockup() {

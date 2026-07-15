@@ -10,9 +10,9 @@ const STATS = [
 ] as const;
 
 const CUSTOMERS = [
-  { name: "Acme Dental", tone: "#059669", services: 12, pct: 100, issues: 0 },
-  { name: "Coastal Law", tone: "#EA580C", services: 9, pct: 62, issues: 2 },
-  { name: "Naples Realty", tone: "#EC4899", services: 7, pct: 40, issues: 1 },
+  { name: "Dunder Mifflin", tone: "#059669", services: 12, pct: 100, issues: 0 },
+  { name: "Vance Refrigeration", tone: "#EA580C", services: 9, pct: 62, issues: 2 },
+  { name: "Schrute Farms", tone: "#EC4899", services: 7, pct: 40, issues: 1 },
 ] as const;
 
 export function LootitMockup() {
@@ -66,7 +66,7 @@ export function LootitMockup() {
             <span className="text-[6.5px]" style={{ color: "#b91c1c" }}>2 flagged</span>
           </div>
           <div className="flex items-center justify-between text-[6.5px]">
-            <span className="truncate">Coastal Law · Datto RMM</span>
+            <span className="truncate">Vance Refrigeration · Datto RMM</span>
             <span style={{ color: "#b91c1c" }}>+38% · $420 → $580</span>
           </div>
         </div>

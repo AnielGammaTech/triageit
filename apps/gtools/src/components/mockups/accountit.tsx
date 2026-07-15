@@ -8,9 +8,9 @@ const STATS = [
 ] as const;
 
 const QBR_ROWS = [
-  { name: "Acme Dental", sub: "0/1 prep complete", pill: "Prep", overdue: false },
-  { name: "Coastal Law", sub: "51d past cadence", pill: "Overdue", overdue: true },
-  { name: "Naples Realty", sub: "0/1 prep complete", pill: "Prep", overdue: false },
+  { name: "Dunder Mifflin", sub: "0/1 prep complete", pill: "Prep", overdue: false },
+  { name: "Vance Refrigeration", sub: "51d past cadence", pill: "Overdue", overdue: true },
+  { name: "Schrute Farms", sub: "0/1 prep complete", pill: "Prep", overdue: false },
 ] as const;
 
 const STAGES = [
@@ -116,7 +116,7 @@ export function AccountitMockup() {
             </div>
             <div className="mt-1 flex items-center justify-between border-t pt-1" style={{ borderColor: "var(--mock-border)" }}>
               <span className="text-[5px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Next deal</span>
-              <span className="text-[6px] font-semibold">Naples Realty · $18k</span>
+              <span className="text-[6px] font-semibold">Athlead · $18k</span>
             </div>
           </div>
         </div>

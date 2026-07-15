@@ -5,6 +5,13 @@ import { Reveal } from "@/components/fx/reveal";
 import { Tilt } from "@/components/fx/tilt";
 import type { Tool } from "@/content/types";
 
+// How far each section's accent wash overshoots its own top/bottom edge
+// (viewport-height units, so it scales with the visitor's screen rather
+// than any one section's actual content height) — the amount that bleeds
+// into the neighboring section above/below, turning the seam between them
+// into a continuous gradient instead of a hard cut.
+const WASH_BLEED_VH = 18;
+
 export function ToolSection({
   tool,
   flip,
@@ -23,16 +30,27 @@ export function ToolSection({
       id={tool.slug}
       data-fx="tool-section"
       data-fx-slug={tool.slug}
-      className="relative scroll-mt-24 overflow-x-clip border-t border-line/60"
+      className="relative scroll-mt-24 overflow-x-clip"
     >
-      {/* directional accent wash, flips sides with the layout */}
+      {/* directional accent wash, flips sides with the layout. No hard
+          `border-t` between sections anymore and no `inset-0` clipping to
+          this section's own box either — the wash overshoots top/bottom by
+          `WASH_BLEED_VH` so its long, soft tail actually paints into the
+          neighboring sections above/below (nothing here has an opaque
+          background, so low-opacity layers from adjacent sections combine
+          naturally), and the 3-stop gradient trades the old sharp
+          "color, transparent 70%" falloff for a much longer, gentler one —
+          together that's what turns section boundaries from a hard seam
+          into a continuous color bleed when scrolling past them. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.06]"
+        className="pointer-events-none absolute inset-x-0 -z-10 opacity-[0.09]"
         style={{
-          background: `radial-gradient(ellipse 60% 55% at ${
-            flip ? "85% 10%" : "15% 10%"
-          }, ${accent}, transparent 70%)`,
+          top: `-${WASH_BLEED_VH}vh`,
+          bottom: `-${WASH_BLEED_VH}vh`,
+          background: `radial-gradient(ellipse 78% 62% at ${
+            flip ? "85% 26%" : "15% 26%"
+          }, ${accent} 0%, color-mix(in srgb, ${accent} 45%, transparent) 42%, transparent 82%)`,
         }}
       />
 

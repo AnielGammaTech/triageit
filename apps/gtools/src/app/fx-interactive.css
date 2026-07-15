@@ -229,3 +229,36 @@ html.fx-cursor-active * {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+
+/* --- Back-to-top button ----------------------------------------------
+ * Always rendered (it's functional, not decorative, so reduced-motion
+ * visitors still get it) but hidden — `opacity`/`pointer-events` only,
+ * never `display: none`, so the fade/scale-in transition below has
+ * something to animate — until `data-visible="true"` lands once the
+ * visitor has scrolled past roughly one viewport. The entrance transition
+ * itself is scoped to `no-preference`, so under reduced motion the same
+ * attribute toggle just snaps instantly instead of easing in. */
+.fx-back-to-top {
+  opacity: 0;
+  transform: scale(0.7) translateY(10px);
+  pointer-events: none;
+}
+.fx-back-to-top[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-back-to-top {
+    transition:
+      opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+}
+.fx-back-to-top:hover,
+.fx-back-to-top:focus-visible {
+  border-color: color-mix(in srgb, var(--color-brand) 55%, var(--color-line));
+  box-shadow: 0 0 24px -6px var(--color-brand);
+}

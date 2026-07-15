@@ -11,6 +11,7 @@ import { Spotlight } from "@/components/fx/spotlight";
 import { ReticleCursor } from "@/components/fx/cursor";
 import { EasterEgg } from "@/components/fx/easter-egg";
 import { ScrollFx } from "@/components/fx/scroll-fx";
+import { BackToTop } from "@/components/fx/back-to-top";
 import { TOOLS } from "@/content/tools";
 
 export default function Home() {
@@ -33,6 +34,7 @@ export default function Home() {
       <ReticleCursor />
       <EasterEgg />
       <ScrollFx />
+      <BackToTop />
     </>
   );
 }

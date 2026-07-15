@@ -1,10 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- Reconstructed from ConnectIT web/src/main.jsx .brand-mark (bg:#2f80ed, border-radius:8px) + lucide "Server" icon at size 20 -->
+  <!-- ConnectIT — rebuilt into the shared GTools tile family (same idea as
+       accountit.svg): colored rounded-square tile using the product's real
+       brand blue (#2f80ed, matches ConnectIT web/src/main.jsx .brand-mark),
+       bold white "C", small accent dot top-right. -->
   <rect width="32" height="32" rx="7" fill="#2f80ed"/>
-  <g transform="translate(6,6) scale(0.8333)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/>
-    <rect width="20" height="8" x="2" y="14" rx="2" ry="2"/>
-    <line x1="6" x2="6.01" y1="6" y2="6"/>
-    <line x1="6" x2="6.01" y1="18" y2="18"/>
-  </g>
+  <circle cx="26" cy="6" r="8" fill="#BFDBFE" opacity="0.08"/>
+  <text x="14.5" y="20"
+    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="18"
+    fill="#FFFFFF"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="-0.5">C</text>
+  <circle cx="22.5" cy="11" r="2.2" fill="#BFDBFE"/>
 </svg>

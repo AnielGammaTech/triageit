@@ -1,1 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0b0f14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- SecureIT: the owner says the previous shield mark isn't their real
+       logo. Placeholder rebuilt into the shared GTools tile family (same
+       idea as accountit.svg) until the real one lands: dark ink
+       rounded square tile (#0B0F14, matches the product's actual
+       monochrome ink branding), bold white "S", small slate accent dot
+       (the site's own color secureit token elsewhere on this page is that
+       same slate, chosen so glows and dots stay visible against SecureIT's
+       monochrome ink brand). Swappable: replace this file's fill and text
+       with the real mark whenever it's supplied; tool logo.tsx renders
+       every slug identically, so no other file needs to change. Note for
+       future edits: XML comments may never contain a literal double
+       hyphen, so avoid writing CSS custom property names like the one
+       above verbatim in here. -->
+  <rect width="32" height="32" rx="7" fill="#0B0F14"/>
+  <circle cx="26" cy="6" r="8" fill="#94A3B8" opacity="0.10"/>
+  <text x="14.5" y="20"
+    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="18"
+    fill="#FFFFFF"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="-0.5">S</text>
+  <circle cx="22.5" cy="11" r="2.2" fill="#94A3B8"/>
+</svg>

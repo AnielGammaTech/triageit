@@ -13,8 +13,8 @@ const TOOLS = [
 ] as const;
 
 const RUNS = [
-  { tool: "autodoc", user: "sam · 2m ago", ok: true, duration: "4.2s" },
-  { tool: "file-migration", user: "tori · 18m ago", ok: true, duration: "1m 02s" },
+  { tool: "autodoc", user: "jim · 2m ago", ok: true, duration: "4.2s" },
+  { tool: "file-migration", user: "pam · 18m ago", ok: true, duration: "1m 02s" },
 ] as const;
 
 export function RunitMockup() {

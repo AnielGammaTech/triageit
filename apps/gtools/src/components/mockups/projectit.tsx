@@ -24,8 +24,8 @@ const GROUPS: readonly Group[] = [
     border: "#0069af",
     done: "2/4",
     tasks: [
-      { title: "Patch Tuesday rollout — Acme Dental", status: "In Progress", statusColor: "#0069af", due: "Today", dueColor: "#c2410c", avatar: "SR", avatarColor: "#0ea5e9" },
-      { title: "Migrate mail flow — Coastal Law", status: "Review", statusColor: "#b45309", due: "Tomorrow", dueColor: "#b45309", avatar: "MK", avatarColor: "#8b5cf6", flag: true },
+      { title: "Patch Tuesday rollout — Dunder Mifflin", status: "In Progress", statusColor: "#0069af", due: "Today", dueColor: "#c2410c", avatar: "JH", avatarColor: "#0ea5e9" },
+      { title: "Migrate mail flow — Vance Refrigeration", status: "Review", statusColor: "#b45309", due: "Tomorrow", dueColor: "#b45309", avatar: "PB", avatarColor: "#8b5cf6", flag: true },
     ],
   },
   {
@@ -33,7 +33,7 @@ const GROUPS: readonly Group[] = [
     border: "#f59e0b",
     done: "1/3",
     tasks: [
-      { title: "Onboard Naples Realty", status: "To Do", statusColor: "#64748b", due: "Fri", dueColor: "#2563eb", avatar: "TB", avatarColor: "#ec4899" },
+      { title: "Onboard Schrute Farms", status: "To Do", statusColor: "#64748b", due: "Fri", dueColor: "#2563eb", avatar: "KM", avatarColor: "#ec4899" },
       { title: "Firewall rule audit", status: "Completed", statusColor: "#10b981", due: "—", dueColor: "#94a3b8", avatar: "SR", avatarColor: "#0ea5e9" },
     ],
   },
