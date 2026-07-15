@@ -12,13 +12,23 @@ import { useMagnetic } from "@/components/fx/magnetic";
 // fresh, independent ref and proximity calculation per card. The ref is
 // threaded into Reveal's `innerRef` so both the scroll-reveal and the
 // magnetic pull land on the exact same anchor element.
-function SuiteCard({ tool, delayMs }: { tool: Tool; delayMs: number }) {
+function SuiteCard({
+  tool,
+  delayMs,
+  index,
+}: {
+  tool: Tool;
+  delayMs: number;
+  index: number;
+}) {
   const magnetRef = useMagnetic<HTMLAnchorElement>();
 
   return (
     <Reveal variant="up" delayMs={delayMs} innerRef={magnetRef}>
       <a
         href={`#${tool.slug}`}
+        data-fx="grid-card"
+        data-fx-index={index}
         className="group relative flex flex-col gap-3 rounded-2xl border border-line bg-panel p-6 transition-transform duration-300 ease-out hover:-translate-y-1"
       >
         {/* accent border on hover */}
@@ -48,7 +58,7 @@ function SuiteCard({ tool, delayMs }: { tool: Tool; delayMs: number }) {
 
 export function SuiteGrid() {
   return (
-    <section className="mx-auto max-w-7xl px-6 pt-8 pb-24 md:pt-10">
+    <section data-fx="suite-grid" className="mx-auto max-w-7xl px-6 pt-8 pb-24 md:pt-10">
       <Reveal variant="up">
         <h2 className="font-display text-3xl font-semibold tracking-tight text-snow md:text-4xl">
           Eleven tools. One stack.
@@ -57,7 +67,7 @@ export function SuiteGrid() {
 
       <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {TOOLS.map((tool, i) => (
-          <SuiteCard key={tool.slug} tool={tool} delayMs={i * 70} />
+          <SuiteCard key={tool.slug} tool={tool} delayMs={i * 70} index={i} />
         ))}
       </div>
     </section>

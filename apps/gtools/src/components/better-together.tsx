@@ -37,7 +37,11 @@ export function BetterTogether() {
       </Reveal>
 
       <Reveal variant="scale" delayMs={150}>
-        <div className="relative mx-auto mt-16 max-w-2xl" aria-hidden="true">
+        <div
+          className="relative mx-auto mt-16 max-w-2xl"
+          aria-hidden="true"
+          data-fx="connectit-diagram"
+        >
           {/* blueprint dot-grid backdrop */}
           <div
             className="pointer-events-none absolute inset-0 -z-10 opacity-[0.12]"
@@ -113,6 +117,7 @@ function ConnectorFan({
     <div className="relative hidden h-8 md:block">
       {/* single continuous bus, sits at the edge farthest from the chips */}
       <div
+        data-fx="connector-bus"
         className={`absolute inset-x-0 h-px bg-line ${stemsAtTop ? "bottom-0" : "top-0"}`}
       />
       {/* one stem per column, sharing the chip row's grid template — each
@@ -121,7 +126,11 @@ function ConnectorFan({
       <div className={`grid h-full ${gridCols} ${GAP}`}>
         {Array.from({ length: count }).map((_, i) => (
           <div key={i} className="flex justify-center">
-            <div className="relative h-full w-px bg-line">
+            <div
+              data-fx="connector-stem"
+              data-fx-origin={stemsAtTop ? "top" : "bottom"}
+              className="relative h-full w-px bg-line"
+            >
               <span
                 aria-hidden
                 className="fx-line-dot-track fx-line-dot-y"
@@ -145,6 +154,7 @@ function Junction() {
   return (
     <div className="hidden justify-center md:flex">
       <span
+        data-fx="junction-dot"
         className="fx-junction-pulse size-1.5 rounded-full"
         style={{ background: accent, boxShadow: `0 0 8px ${accent}` }}
       />
@@ -155,7 +165,7 @@ function Junction() {
 function ConnectItNode() {
   const accent = accentVar("connectit");
   return (
-    <div className="relative isolate">
+    <div data-fx="connectit-node" className="relative isolate">
       <div
         className="pointer-events-none absolute -inset-10 -z-10 rounded-full opacity-60 blur-2xl"
         style={{
@@ -220,7 +230,10 @@ function CornerBracket({
 
 function ProductChip({ name, accent }: { name: string; accent: string }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border border-line bg-panel-2/80 px-4 py-2 text-sm font-medium text-snow">
+    <div
+      data-fx="chip"
+      className="inline-flex items-center gap-2 rounded-full border border-line bg-panel-2/80 px-4 py-2 text-sm font-medium text-snow"
+    >
       <span
         className="size-2 rounded-full"
         style={{
@@ -235,7 +248,10 @@ function ProductChip({ name, accent }: { name: string; accent: string }) {
 
 function PlatformChip({ name }: { name: string }) {
   return (
-    <div className="inline-flex items-center rounded-full border border-line bg-panel px-4 py-2 text-sm text-fog">
+    <div
+      data-fx="chip"
+      className="inline-flex items-center rounded-full border border-line bg-panel px-4 py-2 text-sm text-fog"
+    >
       {name}
     </div>
   );

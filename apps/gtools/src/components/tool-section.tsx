@@ -5,13 +5,24 @@ import { Reveal } from "@/components/fx/reveal";
 import { Tilt } from "@/components/fx/tilt";
 import type { Tool } from "@/content/types";
 
-export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
+export function ToolSection({
+  tool,
+  flip,
+  index,
+}: {
+  tool: Tool;
+  flip: boolean;
+  index: number;
+}) {
   const accent = accentVar(tool.accent);
   const Mockup = MOCKUPS[tool.mockup];
+  const numeral = String(index + 1).padStart(2, "0");
 
   return (
     <section
       id={tool.slug}
+      data-fx="tool-section"
+      data-fx-slug={tool.slug}
       className="relative scroll-mt-24 overflow-x-clip border-t border-line/60"
     >
       {/* directional accent wash, flips sides with the layout */}
@@ -25,13 +36,30 @@ export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
         }}
       />
 
+      {/* ghost section numeral — big translucent outline, parallax-shifted
+          against scroll depth once fx/scroll-fx.tsx is active; static and
+          harmless (translateY(0)) otherwise. */}
+      <div
+        aria-hidden
+        data-fx="ghost-numeral"
+        data-fx-index={index}
+        className="fx-ghost-numeral-wrap"
+        style={flip ? { right: "2%" } : { left: "2%" }}
+      >
+        <span className="fx-ghost-numeral">{numeral}</span>
+      </div>
+
       <div className="mx-auto max-w-7xl px-6 py-20 md:py-28">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <Reveal variant="up">
-            <div className={flip ? "lg:order-2" : undefined}>
+            <div
+              data-fx="parallax-copy"
+              className={flip ? "lg:order-2" : undefined}
+            >
               <div className="flex items-center gap-2.5">
                 <ToolLogo slug={tool.slug} size={30} />
                 <p
+                  data-fx="decrypt-kicker"
                   className="text-xs font-semibold uppercase tracking-[0.25em]"
                   style={{ color: accent }}
                 >
@@ -82,7 +110,10 @@ export function ToolSection({ tool, flip }: { tool: Tool; flip: boolean }) {
           </Reveal>
 
           <Reveal variant={flip ? "left" : "right"}>
-            <div className={flip ? "lg:order-1" : undefined}>
+            <div
+              data-fx="parallax-mockup"
+              className={flip ? "lg:order-1" : undefined}
+            >
               <Tilt>
                 <BrowserFrame
                   accent={accent}

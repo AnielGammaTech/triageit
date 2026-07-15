@@ -2,9 +2,15 @@ import { TOOLS } from "@/content/tools";
 import { ToolLogo } from "@/components/tool-logo";
 import { Reveal } from "@/components/fx/reveal";
 
+const BOOT_LINE = `gtools os — ${TOOLS.length} systems online`;
+const ORBIT_STEP_DEG = 360 / TOOLS.length;
+
 export function Hero() {
   return (
-    <section className="relative flex min-h-[80vh] flex-col items-center justify-center overflow-hidden px-6 py-16 text-center">
+    <section
+      data-fx="hero-section"
+      className="relative flex min-h-[80vh] flex-col items-center justify-center overflow-hidden px-6 py-16 text-center"
+    >
       {/* brand glow — breathes continuously once on screen */}
       <div
         aria-hidden
@@ -15,7 +21,39 @@ export function Hero() {
         }}
       />
 
-      <h1 className="max-w-3xl text-balance font-display text-4xl font-semibold tracking-tight text-snow md:max-w-4xl md:text-6xl">
+      {/* decorative orbit ring — inert (opacity 0) until fx/scroll-fx.tsx
+          confirms the fine-pointer + reduced-motion gate and marks
+          `html[data-fx-scroll="active"]`; the real chip row below always
+          renders and always carries the actual entrance/fallback content.
+          Anchored to the lower band of the hero (behind/around the chip
+          row) rather than the section's full height, so its center never
+          lands on the headline/subhead text. */}
+      <div
+        aria-hidden
+        data-fx="hero-orbit"
+        className="fx-orbit-stage pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[42%]"
+      >
+        <div className="fx-orbit-ring">
+          {TOOLS.map((tool, i) => (
+            <span
+              key={tool.slug}
+              data-fx="orbit-logo"
+              data-fx-index={i}
+              className="fx-orbit-logo"
+              style={{ "--orbit-angle": `${i * ORBIT_STEP_DEG}deg` } as React.CSSProperties}
+            >
+              <span data-fx="orbit-logo-inner" className="fx-orbit-logo-inner">
+                <ToolLogo slug={tool.slug} size={20} />
+              </span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <h1
+        data-fx="hero-headline"
+        className="max-w-3xl text-balance font-display text-4xl font-semibold tracking-tight text-snow md:max-w-4xl md:text-6xl"
+      >
         <Reveal variant="up">
           <span className="block">The software we built</span>
         </Reveal>
@@ -35,6 +73,15 @@ export function Hero() {
           our helpdesk every day.
         </p>
       </Reveal>
+
+      {/* terminal boot line — real text server-rendered (progressive
+          enhancement); scroll-fx.tsx only clears + retypes it once the gate
+          passes, so no-JS/reduced-motion/touch visitors just read the full
+          line immediately, exactly like the spec requires. */}
+      <p aria-hidden="true" className="fx-boot-line mt-4">
+        <span data-fx="boot-line">{BOOT_LINE}</span>
+        <span data-fx="boot-cursor" className="fx-boot-cursor" />
+      </p>
 
       <div className="mt-10 flex flex-wrap items-center justify-center gap-2.5">
         {TOOLS.map((tool, i) => (

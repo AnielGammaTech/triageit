@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TOOLS } from "@/content/tools";
+import { accentVar } from "@/components/browser-frame";
 import { useMagnetic } from "@/components/fx/magnetic";
 
 // The only bit of Nav that needs the client: a tiny scroll listener that
@@ -42,6 +43,9 @@ export function Nav() {
             <a
               key={tool.slug}
               href={`#${tool.slug}`}
+              data-fx="nav-link"
+              data-fx-target={tool.slug}
+              style={{ "--nav-accent": accentVar(tool.accent) } as React.CSSProperties}
               className="whitespace-nowrap text-sm text-fog transition-colors hover:text-snow"
             >
               {tool.name}

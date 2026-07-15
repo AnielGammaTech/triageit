@@ -26,23 +26,38 @@ export function Backdrop() {
       aria-hidden
       className="fx-backdrop pointer-events-none fixed inset-0 -z-50 overflow-hidden"
     >
-      <div className="fx-grid-floor" />
+      {/* two independent transform layers per depth group: the outer
+          `scroll-parallax-bg` wrapper is scroll-position driven (translateY
+          at a depth ratio), the inner `cursor-depth` wrapper is pointer
+          driven (a few px toward the cursor) — separate elements so
+          fx/scroll-fx.tsx never has two effects fighting over one
+          element's `transform`, and the drift/breathe keyframes keep
+          running untouched on the innermost children. */}
+      <div data-fx="scroll-parallax-bg" data-fx-depth="0.12">
+        <div data-fx="cursor-depth" data-fx-depth="0.4">
+          <div className="fx-grid-floor" />
+        </div>
+      </div>
 
-      {ORBS.map((orb, i) => (
-        <span
-          key={i}
-          className="fx-orb"
-          style={{
-            top: orb.top,
-            left: orb.left,
-            width: orb.size,
-            height: orb.size,
-            background: `radial-gradient(circle, ${orb.color}, transparent 70%)`,
-            animationDuration: orb.duration,
-            animationDelay: orb.delay,
-          }}
-        />
-      ))}
+      <div data-fx="scroll-parallax-bg" data-fx-depth="0.22">
+        <div data-fx="cursor-depth" data-fx-depth="0.7">
+          {ORBS.map((orb, i) => (
+            <span
+              key={i}
+              className="fx-orb"
+              style={{
+                top: orb.top,
+                left: orb.left,
+                width: orb.size,
+                height: orb.size,
+                background: `radial-gradient(circle, ${orb.color}, transparent 70%)`,
+                animationDuration: orb.duration,
+                animationDelay: orb.delay,
+              }}
+            />
+          ))}
+        </div>
+      </div>
 
       {SPECKS.map(([x, y], i) => (
         <span
