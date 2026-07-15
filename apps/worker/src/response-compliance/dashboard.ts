@@ -25,6 +25,33 @@ function ticketIsOpen(row: ComplianceDashboardRow): boolean {
   return ticket?.halo_is_open !== false;
 }
 
+function dashboardItem(row: ComplianceDashboardRow, now: Date) {
+  return {
+    halo_id: row.halo_id,
+    ticket_summary: row.ticket_summary,
+    client_name: row.client_name,
+    ticket_created_at: row.ticket_created_at,
+    ticket_is_open: ticketIsOpen(row),
+    acknowledgment_due_at: row.acknowledgment_due_at,
+    acknowledgment_at: row.acknowledgment_at,
+    acknowledgment_met: row.acknowledgment_met,
+    acknowledgment_overdue: !row.acknowledgment_at && Date.parse(row.acknowledgment_due_at) <= now.getTime(),
+    dispatcher_outcome: row.dispatcher_outcome,
+    approval_id: row.approval_id,
+    assigned_tech: row.assigned_tech,
+    assigned_at: row.assigned_at,
+    technician_response_due_at: row.technician_response_due_at,
+    technician_response_at: row.technician_response_at,
+    technician_response_met: row.technician_response_met,
+    technician_overdue: Boolean(
+      row.assigned_at
+      && !row.technician_response_at
+      && row.technician_response_due_at
+      && Date.parse(row.technician_response_due_at) <= now.getTime()
+    ),
+  };
+}
+
 export async function buildResponseComplianceDashboard() {
   const supabase = createSupabaseClient();
   const now = new Date();
@@ -37,8 +64,16 @@ export async function buildResponseComplianceDashboard() {
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as ReadonlyArray<ComplianceDashboardRow>;
   const todayRows = rows.filter((row) => Date.parse(row.ticket_created_at) >= Date.parse(start));
-  const active = [...rows]
-    .filter(ticketIsOpen)
+  const openRows = rows.filter(ticketIsOpen);
+  const detailRows = {
+    ackOnTime: todayRows.filter((row) => row.acknowledgment_met === true),
+    ackMissed: todayRows.filter((row) => row.dispatcher_outcome === "missed"),
+    ptoExempt: todayRows.filter((row) => row.dispatcher_outcome === "pto_exempt"),
+    needsApproval: openRows.filter((row) => !row.acknowledgment_at && row.approval_id !== null),
+    techOnTime: todayRows.filter((row) => row.technician_response_met === true),
+    techMissed: todayRows.filter((row) => row.technician_response_met === false),
+  } as const;
+  const active = [...openRows]
     .filter((row) => !row.acknowledgment_at || (row.assigned_at && !row.technician_response_at))
     .sort((left, right) => {
       const leftDue = Math.min(Date.parse(left.acknowledgment_due_at), Date.parse(left.technician_response_due_at ?? "9999-12-31"));
@@ -46,28 +81,32 @@ export async function buildResponseComplianceDashboard() {
       return leftDue - rightDue;
     })
     .slice(0, 8)
-    .map((row) => ({
-      ...row,
-      acknowledgment_overdue: !row.acknowledgment_at && Date.parse(row.acknowledgment_due_at) <= now.getTime(),
-      technician_overdue: Boolean(row.assigned_at && !row.technician_response_at && row.technician_response_due_at && Date.parse(row.technician_response_due_at) <= now.getTime()),
-    }));
+    .map((row) => dashboardItem(row, now));
 
   return {
     generatedAt: now.toISOString(),
     summary: {
       acknowledgment: {
-        onTime: todayRows.filter((row) => row.acknowledgment_met === true).length,
-        missed: todayRows.filter((row) => row.dispatcher_outcome === "missed").length,
-        ptoExempt: todayRows.filter((row) => row.dispatcher_outcome === "pto_exempt").length,
+        onTime: detailRows.ackOnTime.length,
+        missed: detailRows.ackMissed.length,
+        ptoExempt: detailRows.ptoExempt.length,
         ptoUnknown: todayRows.filter((row) => row.dispatcher_outcome === "pto_unknown").length,
-        pending: rows.filter((row) => !row.acknowledgment_at && row.dispatcher_outcome === "pending").length,
-        approvalNeeded: rows.filter((row) => !row.acknowledgment_at && row.approval_id !== null).length,
+        pending: openRows.filter((row) => !row.acknowledgment_at && row.dispatcher_outcome === "pending").length,
+        approvalNeeded: detailRows.needsApproval.length,
       },
       technician: {
-        onTime: todayRows.filter((row) => row.technician_response_met === true).length,
-        missed: todayRows.filter((row) => row.technician_response_met === false).length,
-        pending: rows.filter((row) => row.assigned_at && !row.technician_response_at && !row.technician_missed_at).length,
+        onTime: detailRows.techOnTime.length,
+        missed: detailRows.techMissed.length,
+        pending: openRows.filter((row) => row.assigned_at && !row.technician_response_at && !row.technician_missed_at).length,
       },
+    },
+    details: {
+      ackOnTime: detailRows.ackOnTime.map((row) => dashboardItem(row, now)),
+      ackMissed: detailRows.ackMissed.map((row) => dashboardItem(row, now)),
+      ptoExempt: detailRows.ptoExempt.map((row) => dashboardItem(row, now)),
+      needsApproval: detailRows.needsApproval.map((row) => dashboardItem(row, now)),
+      techOnTime: detailRows.techOnTime.map((row) => dashboardItem(row, now)),
+      techMissed: detailRows.techMissed.map((row) => dashboardItem(row, now)),
     },
     active,
   };

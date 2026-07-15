@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   Tv,
 } from "lucide-react";
+import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
 
 interface StatusCount {
   readonly status: string;
@@ -242,6 +243,8 @@ export default function CommandPage() {
       </div>
 
       <TeamAvailability />
+
+      <ResponseCompliancePanel haloBaseUrl={data?.haloBaseUrl ?? ""} />
 
       {/* Status breakdown */}
       <Section title="Tickets by Status">
