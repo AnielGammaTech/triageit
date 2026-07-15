@@ -1,24 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- No branding exists for AccountIT (it's QuoteIT's CRM module, no standalone app/repo).
-       DERIVED MARK: reuses QuoteIT's public/favicon.svg tile treatment (rx=7 gradient tile + corner glow + accent dot)
-       but recolored to #6366f1 (indigo) with a lucide "Users" glyph instead of a letterform, to visually
-       distinguish it as a related-but-separate product in the suite. -->
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="100%" stop-color="#4F46E5"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
-  <!-- Subtle corner glow, matching QuoteIT's treatment -->
-  <circle cx="26" cy="6" r="8" fill="#C7D2FE" opacity="0.1"/>
-  <!-- Users glyph (lucide "Users") -->
-  <g transform="translate(7.5,8) scale(0.72)" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-    <circle cx="9" cy="7" r="4"/>
-    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-  </g>
-  <!-- Accent dot, matching QuoteIT's treatment -->
-  <circle cx="22.5" cy="11" r="2.2" fill="#C7D2FE"/>
+  <!-- AccountIT is a standalone-branded CRM app (own top bar/logo, links out to QuoteIT — not a QuoteIT module).
+       Mark matches the deployed app: dark navy rounded-square tile, bold white "A", small indigo accent dot. -->
+  <rect width="32" height="32" rx="7" fill="#1E2532"/>
+  <!-- Subtle corner glow -->
+  <circle cx="26" cy="6" r="8" fill="#818CF8" opacity="0.08"/>
+  <!-- A letter -->
+  <text x="14.5" y="20"
+    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="18"
+    fill="#FFFFFF"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="-0.5">A</text>
+  <!-- Indigo accent dot -->
+  <circle cx="22.5" cy="11" r="2.2" fill="#A5B4FC"/>
 </svg>

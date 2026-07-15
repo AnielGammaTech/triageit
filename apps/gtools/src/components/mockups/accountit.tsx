@@ -1,116 +1,124 @@
-const STAGES = [
-  { name: "New", accent: "#0ea5e9", count: 8, total: "41k" },
-  { name: "Contacted", accent: "#8b5cf6", count: 6, total: "38k" },
-  { name: "Meeting", accent: "#f59e0b", count: 4, total: "29k" },
-  { name: "Proposal", accent: "#6366f1", count: 3, total: "52k" },
-  { name: "Negotiating", accent: "#06b6d4", count: 2, total: "24k" },
-  { name: "Won", accent: "#10b981", count: 5, total: "68k" },
+const NAV = ["Dashboard", "Accounts", "QBR", "Pipeline", "Reports"] as const;
+
+const STATS = [
+  { label: "Active accounts", value: "42", caption: "9% have QBR history", icon: "◆", bg: "#eff6ff", fg: "#2563eb" },
+  { label: "QBR actions", value: "6", caption: "Schedule, prep, or follow up", icon: "✓", bg: "#ecfdf5", fg: "#059669" },
+  { label: "Open pipeline", value: "$96k", caption: "7 active opportunities", icon: "$", bg: "#fffbeb", fg: "#b45309" },
+  { label: "Contract risk", value: "12", caption: "3 overdue · 4 due in 30d", icon: "!", bg: "#fef2f2", fg: "#dc2626" },
 ] as const;
 
-const CARDS: Record<string, { name: string; owner: string; hot?: boolean; stale?: boolean }> = {
-  New: { name: "Coastal Law", owner: "J", stale: true },
-  Contacted: { name: "Acme Dental", owner: "B" },
-  Meeting: { name: "Naples Realty", owner: "M", hot: true },
-  Proposal: { name: "Coastal Law", owner: "J" },
-  Negotiating: { name: "Acme Dental", owner: "B" },
-  Won: { name: "Naples Realty", owner: "M" },
-};
+const QBR_ROWS = [
+  { name: "Acme Dental", sub: "0/1 prep complete", pill: "Prep", overdue: false },
+  { name: "Coastal Law", sub: "51d past cadence", pill: "Overdue", overdue: true },
+  { name: "Naples Realty", sub: "0/1 prep complete", pill: "Prep", overdue: false },
+] as const;
+
+const STAGES = [
+  { name: "New", count: 8, pct: 80 },
+  { name: "Contacted", count: 6, pct: 62 },
+  { name: "Meeting", count: 4, pct: 44 },
+  { name: "Proposal", count: 3, pct: 30 },
+  { name: "Negotiating", count: 2, pct: 18 },
+] as const;
+
+const CARD = { borderColor: "var(--mock-border)", background: "var(--mock-panel)" };
 
 export function AccountitMockup() {
-  const orange = "#f96302";
   return (
     <div
       className="mock-root overflow-hidden rounded-md border"
-      style={
-        {
-          "--mock-bg": "#f9fafb",
-          "--mock-panel": "#ffffff",
-          "--mock-panel-2": "#f3f4f6",
-          "--mock-border": "#e5e7eb",
-          "--mock-text": "#0f1729",
-          "--mock-muted": "#6b7280",
-          borderColor: "var(--mock-border)",
-          background: "var(--mock-bg)",
-        } as React.CSSProperties
-      }
+      style={{ "--mock-bg": "#f8fafc", "--mock-panel": "#ffffff", "--mock-panel-2": "#f1f5f9", "--mock-border": "#e2e8f0", "--mock-text": "#0f172a", "--mock-muted": "#64748b", borderColor: "var(--mock-border)", background: "var(--mock-bg)" } as React.CSSProperties}
     >
-      <div className="flex items-center justify-between px-2.5 py-1.5" style={{ background: "#0f1729" }}>
-        <div className="flex items-center gap-2">
-          <span className="font-display text-[10px] font-bold">
-            <span className="text-white">Quote</span>
-            <span style={{ color: orange }}>IT</span>
-          </span>
-          <span className="hidden text-[7px] font-medium text-white/50 sm:inline">Dashboard · Quotes ·</span>
-          <span className="hidden border-b text-[7px] font-semibold text-white sm:inline" style={{ borderColor: orange }}>
-            CRM
-          </span>
-        </div>
-        <span className="rounded-full px-2 py-0.5 text-[7px] font-semibold text-white" style={{ background: `linear-gradient(90deg, ${orange}, #fb923c)` }}>
-          + Add Lead
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2.5 border-b px-2.5 py-1 text-[7px] font-medium" style={{ borderColor: "var(--mock-border)", color: "var(--mock-muted)" }}>
-        <span>Active</span>
-        <span className="border-b-2 pb-0.5" style={{ borderColor: orange, color: "var(--mock-text)" }}>
-          Pipeline
-        </span>
-        <span>Inactive</span>
-        <span>QBR</span>
-      </div>
-
-      <div className="flex flex-col gap-1.5 p-2 text-[color:var(--mock-text)]">
-        <div className="flex flex-wrap items-center justify-between gap-1">
-          <div className="flex items-center gap-1.5 text-[7px]">
-            <span className="rounded border px-1 py-0.5" style={{ borderColor: "var(--mock-border)" }}>Q3 2026</span>
-            <span className="rounded px-1 py-0.5 font-medium text-white" style={{ background: "#0f1729" }}>Board</span>
-            <span className="rounded border px-1.5 py-0.5" style={{ borderColor: "#fdba74", color: orange, background: "#fff7ed" }}>3 stale</span>
+      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5" style={{ background: "#1e2532" }}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex size-4 shrink-0 items-center justify-center rounded-[5px] text-[8px] font-bold text-white" style={{ background: "#0f172a" }}>
+              A<span className="absolute -right-px -top-px size-[3px] rounded-full" style={{ background: "#a5b4fc" }} />
+            </span>
+            <div className="flex flex-col leading-none">
+              <span className="font-display text-[9px] font-bold text-white">AccountIT</span>
+              <span className="text-[5.5px] font-semibold uppercase tracking-wider text-white/40">CRM</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-[7px]" style={{ color: "var(--mock-muted)" }}>
-            <span>Pipeline <b style={{ color: "var(--mock-text)" }}>$252k</b></span>
-            <span>Forecast <b style={{ color: "var(--mock-text)" }}>$96k</b></span>
-            <span>Won <b style={{ color: "#059669" }}>$68k</b></span>
+          <div className="hidden items-center gap-2 text-[6.5px] font-medium sm:flex">
+            {NAV.map((item, i) => (
+              <span key={item} className="rounded px-1 py-0.5" style={i === 0 ? { background: "rgba(255,255,255,0.1)", color: "#fff", boxShadow: "inset 0 -1.5px 0 #818cf8" } : { color: "rgba(255,255,255,0.45)" }}>
+                {item}
+              </span>
+            ))}
           </div>
         </div>
-
-        <div className="flex items-center gap-1 text-[6.5px]">
-          <span className="rounded-full px-1.5 py-0.5 font-medium text-white" style={{ background: "#0f1729" }}>Open</span>
-          <span className="rounded-full border px-1.5 py-0.5" style={{ borderColor: "var(--mock-border)", color: "var(--mock-muted)" }}>All</span>
-          <span className="rounded-full border px-1.5 py-0.5" style={{ borderColor: "var(--mock-border)", color: "var(--mock-muted)" }}>Lost</span>
-          <span className="rounded-full border px-1.5 py-0.5" style={{ borderColor: "#fecdd3", color: "#e11d48", background: "#fff1f2" }}>Hot</span>
+        <div className="flex items-center gap-1.5">
+          <span className="rounded-full bg-white px-1.5 py-0.5 text-[6.5px] font-semibold" style={{ color: "#1e2532" }}>QuoteIT ↗</span>
+          <span className="flex size-3.5 items-center justify-center rounded-full text-[6px] font-semibold text-white" style={{ background: "#475569" }}>J</span>
         </div>
-
-        <div className="flex gap-1 overflow-hidden">
-          {STAGES.map((stage) => {
-            const card = CARDS[stage.name];
-            return (
-              <div
-                key={stage.name}
-                className="flex min-w-0 flex-1 flex-col gap-1 rounded-md p-1"
-                style={{ background: `linear-gradient(180deg, ${stage.accent}26, ${stage.accent}05)` }}
-              >
-                <div className="flex items-center justify-between gap-0.5">
-                  <span className="truncate text-[6px] font-semibold" style={{ color: stage.accent }}>{stage.name}</span>
-                  <span className="shrink-0 rounded-full px-1 text-[5.5px] font-medium text-white" style={{ background: stage.accent }}>{stage.count}</span>
-                </div>
-                <span className="text-[6px] font-medium" style={{ color: "var(--mock-muted)" }}>${stage.total}</span>
-                {card ? (
-                  <div
-                    className="flex flex-col gap-0.5 rounded border bg-[color:var(--mock-panel)] p-1"
-                    style={card.stale ? { borderColor: "#fb923c", boxShadow: "0 0 0 1px #fb923c" } : { borderColor: "var(--mock-border)" }}
-                  >
-                    <span className="truncate text-[6px] font-medium">{card.name}</span>
-                    <div className="flex items-center justify-between">
-                      <span className="flex size-2.5 items-center justify-center rounded-full text-[5px] font-semibold text-white" style={{ background: stage.accent }}>
-                        {card.owner}
-                      </span>
-                      {card.hot ? <span className="text-[6px]">🔥</span> : null}
-                    </div>
+      </div>
+      <div className="flex flex-col gap-1.5 p-2.5 text-[color:var(--mock-text)]">
+        <div className="rounded-xl border p-1.5" style={CARD}>
+          <span className="block text-[6px] font-semibold uppercase tracking-wider text-[color:var(--mock-muted)]">Customer Success</span>
+          <span className="block text-[10px] font-semibold">Dashboard</span>
+          <span className="block text-[6.5px] text-[color:var(--mock-muted)]">What needs attention across accounts, QBRs, and pipeline.</span>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {STATS.map((s) => (
+            <div key={s.label} className="rounded-xl border p-1.5" style={CARD}>
+              <span className="mb-1 flex size-3.5 items-center justify-center rounded-md text-[7px] font-bold" style={{ background: s.bg, color: s.fg }}>{s.icon}</span>
+              <span className="block text-[9px] font-semibold">{s.value}</span>
+              <span className="block text-[6.5px] font-medium">{s.label}</span>
+              <span className="block truncate text-[6px] text-[color:var(--mock-muted)]">{s.caption}</span>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-[1.3fr_0.9fr] gap-1.5">
+          <div className="rounded-xl border p-1.5" style={CARD}>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[6.5px] font-semibold uppercase tracking-wider text-[color:var(--mock-muted)]">QBR priorities</span>
+              <span className="text-[6px] font-medium" style={{ color: "#6366f1" }}>View all →</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              {QBR_ROWS.map((r) => (
+                <div key={r.name} className="flex items-center gap-1.5">
+                  <span className="relative flex size-3.5 shrink-0 items-center justify-center rounded-md" style={{ background: r.overdue ? "#fef2f2" : "#f1f5f9" }}>
+                    <span className="size-1.5 rounded-sm" style={{ background: r.overdue ? "#fca5a5" : "#94a3b8" }} />
+                    {r.overdue ? <span className="absolute -right-0.5 -top-0.5 flex size-2 items-center justify-center rounded-full bg-rose-500 text-[5px] font-bold text-white">!</span> : null}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[7px] font-medium">{r.name}</span>
+                    <span className="block truncate text-[5.5px] text-[color:var(--mock-muted)]">{r.sub}</span>
                   </div>
-                ) : null}
+                  <span className="shrink-0 rounded-full px-1 py-0.5 text-[5.5px] font-medium" style={r.overdue ? { background: "#fef2f2", color: "#dc2626" } : { background: "#f1f5f9", color: "#475569" }}>{r.pill}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border p-1.5" style={CARD}>
+            <span className="mb-1 block text-[6.5px] font-semibold uppercase tracking-wider text-[color:var(--mock-muted)]">Pipeline snapshot</span>
+            <div className="mb-1.5 grid grid-cols-2 gap-1">
+              <div className="rounded-lg p-1" style={{ background: "var(--mock-panel-2)" }}>
+                <span className="block text-[5px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Weighted forecast</span>
+                <span className="block text-[8px] font-semibold">$96k</span>
               </div>
-            );
-          })}
+              <div className="rounded-lg p-1" style={{ background: "var(--mock-panel-2)" }}>
+                <span className="block text-[5px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Win rate</span>
+                <span className="block text-[8px] font-semibold">38%</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              {STAGES.map((s) => (
+                <div key={s.name} className="flex items-center gap-1 text-[5.5px]">
+                  <span className="w-11 shrink-0 truncate text-[color:var(--mock-muted)]">{s.name}</span>
+                  <span className="h-1 flex-1 overflow-hidden rounded-full" style={{ background: "var(--mock-panel-2)" }}>
+                    <span className="block h-full rounded-full" style={{ width: `${s.pct}%`, background: "#6366f1" }} />
+                  </span>
+                  <span className="w-2.5 shrink-0 text-right font-medium">{s.count}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 flex items-center justify-between border-t pt-1" style={{ borderColor: "var(--mock-border)" }}>
+              <span className="text-[5px] font-medium uppercase tracking-wider text-[color:var(--mock-muted)]">Next deal</span>
+              <span className="text-[6px] font-semibold">Naples Realty · $18k</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

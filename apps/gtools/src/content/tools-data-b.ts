@@ -4,15 +4,15 @@ export const TOOLS_B: readonly Tool[] = [
   {
     slug: "accountit",
     name: "AccountIT",
-    oneLiner: "The CRM built into QuoteIT",
+    oneLiner: "The standalone CRM for customer success",
     tagline: "The CRM that knows when a deal goes cold.",
     description:
-      "AccountIT is the sales and account-management CRM built directly into QuoteIT — no separate login, no sync lag. A nightly scoring job reads real quote-view and email-open activity to flag deals going cold before a rep has to guess.",
+      "AccountIT is a standalone customer-success CRM for accounts, QBRs, pipeline, and contract risk — with one-click jump into QuoteIT the moment a deal needs a proposal. No re-entering data, no second system of record for the deal.",
     features: [
       {
-        title: "Six-stage deal pipeline",
+        title: "QBR cadence, prioritized",
         blurb:
-          "Drag-and-drop kanban from New to Won, with quarterly goals, carry-forward, and configurable loss reasons.",
+          "Every account gets one next action — prep an upcoming review or catch up on one that's overdue, ranked by how far past cadence it is.",
       },
       {
         title: "Behavior-driven win scoring",
@@ -22,7 +22,7 @@ export const TOOLS_B: readonly Tool[] = [
       {
         title: "One-click lead-to-quote",
         blurb:
-          "Any lead becomes a pre-filled QuoteIT proposal, and every quote view feeds straight back into deal health.",
+          "Any lead jumps straight into a pre-filled QuoteIT proposal, and every quote view feeds back into deal health.",
       },
       {
         title: "Full account 360°",
