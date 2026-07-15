@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAccountManagerName, isSupportCallStaffName, type HaloConfig, type ThreeCxConfig } from "@triageit/shared";
 import { ThreeCxClient, type ThreeCxRecording } from "../integrations/threecx/client.js";
 import { resolveCnamIdentity, type CnamIdentity } from "../integrations/twilio/cnam-identity.js";
+import { ignoredCallMethod } from "./call-ignore-policy.js";
 
 interface CallAnalysisRow {
   readonly recording_id: number;
@@ -47,7 +48,7 @@ export interface CallTranscriptionItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate" | "ignored";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
@@ -75,7 +76,7 @@ export interface CallTranscriptionPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallTranscriptionItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
 }
 
 let cache: { readonly at: number; readonly payload: CallTranscriptionPayload } | null = null;
@@ -157,6 +158,11 @@ export function callMatchLabel(method: string | null): string {
     no_halo_user: "Caller not found and transcript had no safe match",
     identified_customer_no_ticket_match: "Customer identified; no related ticket found",
     confirmed_separate_call: "Confirmed by tech as a separate call",
+    ignored_ivr: "Automated attendant or voicemail system",
+    ignored_no_external_number: "No external caller to match",
+    ignored_short_call: "Short non-actionable call",
+    ignored_silence: "Silent or empty recording",
+    ignored_unusable_recording: "Recording remained unusable after retries",
     shared_phone_no_transcript_match: "Shared number with no clear ticket match",
     ambiguous_multiple_open: "Several possible open tickets",
     no_open_ticket: "No open ticket for this caller",
@@ -297,7 +303,19 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
     const hasMatch = row.halo_id != null;
     const internal = row.matched_by === "internal_call" || /local/i.test(row.call_type ?? recording?.CallType ?? "");
     const separate = row.matched_by === "confirmed_separate_call";
-    const effectiveMatchMethod = internal ? "internal_call" : row.matched_by ?? "unknown";
+    const transcript = row.transcript ?? recording?.Transcription?.trim() ?? null;
+    const startedAt = row.started_at ?? recording?.StartTime ?? null;
+    const endedAt = row.ended_at ?? recording?.EndTime ?? null;
+    const ignoredMethod = !internal && !separate && !hasMatch
+      ? ignoredCallMethod({
+          transcript,
+          startedAt,
+          endedAt,
+          matchedBy: row.matched_by,
+          analysisAttempts: row.analysis_attempts ?? 0,
+        })
+      : null;
+    const effectiveMatchMethod = internal ? "internal_call" : ignoredMethod ?? row.matched_by ?? "unknown";
     const attention = !internal && hasMatch && !row.note_posted;
     const fromName = (row.from_name ?? recording?.FromDisplayName?.trim()) || null;
     const toName = (row.to_name ?? recording?.ToDisplayName?.trim()) || null;
@@ -309,15 +327,15 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       : cnamIdentity?.name ?? ticketLookup?.user_name ?? row.identified_customer_name ?? null;
     return {
       recordingId: Number(row.recording_id),
-      startedAt: row.started_at ?? recording?.StartTime ?? null,
-      endedAt: row.ended_at ?? recording?.EndTime ?? null,
+      startedAt,
+      endedAt,
       direction: directionOf(row.direction),
       techName: row.tech_name ?? "Unknown tech",
       externalNumber,
-      transcript: row.transcript ?? recording?.Transcription?.trim() ?? null,
+      transcript,
       transcriptChars: row.transcript_chars ?? recording?.Transcription?.length ?? 0,
       callSummary: row.summary,
-      matchState: internal ? "internal" : separate ? "separate" : hasMatch ? (attention ? "attention" : "matched") : "unmatched",
+      matchState: internal ? "internal" : separate ? "separate" : ignoredMethod ? "ignored" : hasMatch ? (attention ? "attention" : "matched") : "unmatched",
       matchMethod: effectiveMatchMethod,
       matchLabel: callMatchLabel(effectiveMatchMethod),
       notePosted: row.note_posted,
@@ -359,6 +377,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       unmatched: items.filter((item) => item.matchState === "unmatched").length,
       internal: items.filter((item) => item.matchState === "internal").length,
       separate: items.filter((item) => item.matchState === "separate").length,
+      ignored: items.filter((item) => item.matchState === "ignored").length,
       attention: items.filter((item) => item.matchState === "attention").length,
     },
   };

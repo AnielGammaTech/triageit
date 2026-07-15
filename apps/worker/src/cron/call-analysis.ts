@@ -13,6 +13,7 @@ import {
   type TranscriptTicketMatchScope,
 } from "./call-match-policy.js";
 import { sendPendingCallMatchReviews } from "../dispatch/call-match-review-notifications.js";
+import { ignoredCallMethod } from "../dispatch/call-ignore-policy.js";
 import { resolveCnamIdentity, type CnamIdentity } from "../integrations/twilio/cnam-identity.js";
 
 /**
@@ -373,6 +374,27 @@ export async function processRecording(
         halo_id: null,
         summary: null,
         matched_by: "internal_call",
+        note_posted: false,
+      }, { onConflict: "recording_id" });
+    return { matched: false, posted: false };
+  }
+
+  const ignoredMethod = ignoredCallMethod({
+    transcript,
+    startedAt: base.started_at,
+    endedAt: base.ended_at,
+    matchedBy: external ? "transcript_too_short" : "no_external_number",
+    analysisAttempts: 0,
+  });
+  if (ignoredMethod) {
+    await supabase
+      .from("call_analyses")
+      .upsert({
+        ...base,
+        ticket_id: null,
+        halo_id: null,
+        summary: null,
+        matched_by: ignoredMethod,
         note_posted: false,
       }, { onConflict: "recording_id" });
     return { matched: false, posted: false };

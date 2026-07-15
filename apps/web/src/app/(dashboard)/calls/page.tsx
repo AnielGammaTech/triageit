@@ -27,7 +27,7 @@ interface CallItem {
   readonly transcript: string | null;
   readonly transcriptChars: number;
   readonly callSummary: string | null;
-  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate";
+  readonly matchState: "matched" | "unmatched" | "attention" | "internal" | "separate" | "ignored";
   readonly matchMethod: string;
   readonly matchLabel: string;
   readonly notePosted: boolean;
@@ -54,10 +54,10 @@ interface CallPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
 }
 
-type View = "all" | "matched" | "unmatched" | "internal" | "separate";
+type View = "all" | "matched" | "unmatched" | "internal" | "separate" | "ignored";
 const PAGE_SIZE = 15;
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
@@ -144,6 +144,7 @@ export default function CallsPage() {
       if (view === "unmatched" && item.matchState !== "unmatched") return false;
       if (view === "internal" && item.matchState !== "internal") return false;
       if (view === "separate" && item.matchState !== "separate") return false;
+      if (view === "ignored" && item.matchState !== "ignored") return false;
       if (!needle) return true;
       return [
         item.techName,
@@ -200,12 +201,13 @@ export default function CallsPage() {
 
       <section className="overflow-hidden rounded-md border" style={{ borderColor: HAIRLINE, background: PANEL }}>
         <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={{ borderColor: HAIRLINE }}>
-          <div className="flex h-8 w-full rounded-md border p-0.5 sm:w-auto" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+          <div className="grid w-full grid-cols-3 rounded-md border p-0.5 sm:flex sm:h-8 sm:w-auto" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
             <ViewButton active={view === "all"} onClick={() => setView("all")} label="All" count={data?.counts.total ?? 0} />
             <ViewButton active={view === "matched"} onClick={() => setView("matched")} label="Matched" count={data?.counts.matched ?? 0} />
             <ViewButton active={view === "unmatched"} onClick={() => setView("unmatched")} label="Unmatched" count={data?.counts.unmatched ?? 0} />
             <ViewButton active={view === "internal"} onClick={() => setView("internal")} label="Internal" count={data?.counts.internal ?? 0} />
             <ViewButton active={view === "separate"} onClick={() => setView("separate")} label="Separate" count={data?.counts.separate ?? 0} />
+            <ViewButton active={view === "ignored"} onClick={() => setView("ignored")} label="Ignored" count={data?.counts.ignored ?? 0} />
           </div>
           <label className="relative ml-auto min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-600" />
@@ -287,8 +289,9 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
   const DirectionIcon = item.direction === "inbound" ? PhoneIncoming : item.direction === "outbound" ? PhoneOutgoing : PhoneCall;
   const internal = item.matchState === "internal";
   const separate = item.matchState === "separate";
-  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : separate ? "#a1a1aa" : "#fbbf24";
-  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : "Unmatched";
+  const ignored = item.matchState === "ignored";
+  const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : separate ? "#a1a1aa" : ignored ? "#71717a" : "#fbbf24";
+  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : ignored ? "Ignored" : "Unmatched";
   return (
     <details className="group">
       <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-2.5 px-3 py-2.5 transition hover:bg-white/[0.02] sm:grid-cols-[140px_minmax(190px,0.9fr)_minmax(280px,1.5fr)_auto] sm:items-center">
@@ -308,6 +311,11 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-sky-300">Internal call</p>
               <p className="mt-0.5 truncate text-xs text-zinc-500">{partyName(item.from)} called {partyName(item.to)}</p>
+            </div>
+          ) : ignored ? (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-zinc-400">Ignored call</p>
+              <p className="mt-0.5 truncate text-xs text-zinc-600">{item.matchLabel}</p>
             </div>
           ) : item.ticket ? (
             <div className="min-w-0">
@@ -340,7 +348,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
             <p className="text-xs font-semibold text-zinc-300">{item.matchLabel}</p>
             {item.matchEvidence && <p className="mt-1 text-xs text-zinc-400">Identity evidence: {item.matchEvidence}</p>}
             <p className="mt-1 text-xs text-zinc-600">
-              {internal ? "Internal staff call; no ticket match expected" : item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
+              {internal ? "Internal staff call; no ticket match expected" : ignored ? "Non-actionable call; no ticket review needed" : item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
               {item.analysisAttempts > 0 ? ` · ${item.analysisAttempts} retry attempt${item.analysisAttempts === 1 ? "" : "s"}` : ""}
             </p>
           </div>

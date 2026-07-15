@@ -24,7 +24,7 @@ function last10(num: string): string {
   return num.replace(/\D/g, "").slice(-10);
 }
 
-export function registerEscalationCall(phone: string, ctx: EscalationContext, onNoAnswer?: () => void): void {
+export function registerEscalationCall(phone: string, ctx: EscalationContext, onNoAnswer?: () => void): () => void {
   const key = last10(phone);
   // If nobody answers within 60s the call is dead — document it
   const timer = onNoAnswer
@@ -36,8 +36,16 @@ export function registerEscalationCall(phone: string, ctx: EscalationContext, on
       }, 60_000)
     : undefined;
   timer?.unref?.();
-  pendingEscalations.set(key, { ctx, expiresAt: Date.now() + 3 * 60_000, timer });
+  const previous = pendingEscalations.get(key);
+  if (previous?.timer) clearTimeout(previous.timer);
+  const entry = { ctx, expiresAt: Date.now() + 3 * 60_000, timer };
+  pendingEscalations.set(key, entry);
   console.log(`[VOICE] Escalation call registered for ${phone} (ticket #${ctx.haloId})`);
+  return () => {
+    if (pendingEscalations.get(key) !== entry) return;
+    pendingEscalations.delete(key);
+    if (entry.timer) clearTimeout(entry.timer);
+  };
 }
 
 function takeEscalation(callerNumber: string): EscalationContext | null {

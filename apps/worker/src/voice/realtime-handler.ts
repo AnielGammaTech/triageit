@@ -8,6 +8,7 @@ import { pcm16ToUlaw, ulawToPcm16 } from "./ulaw.js";
 import { DtmfMenuHandler, type VoiceCallContext, type VoiceCallHandler } from "./session.js";
 import { buildEscalationCallNote } from "./escalation-note.js";
 import { stageCustomerUpdate } from "../dispatch/customer-update-approvals.js";
+import type { SlaCallFailureReason } from "./sla-call-fallback.js";
 
 /**
  * Stage 2 voice: conversational assistant on the OpenAI Realtime API.
@@ -79,6 +80,10 @@ export interface EscalationContext {
   readonly customerContactMethod?: "call" | "reply";
   readonly customerName?: string | null;
   readonly customerEmail?: string | null;
+  /** Dispatch fallback calls use a direct front-desk script, not the tech SLA workflow. */
+  readonly dispatchFollowup?: boolean;
+  /** Called once when a standard SLA call reaches voicemail or another non-human endpoint. */
+  readonly onUnreachable?: (reason: SlaCallFailureReason) => Promise<void> | void;
 }
 
 export class RealtimeVoiceHandler implements VoiceCallHandler {
@@ -101,6 +106,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   /** Set when the call moved the ticket off PAST-DUE after a new target. */
   private statusSetTo: string | null = null;
   private stagedCustomerUpdate: { id: string; draft: string } | null = null;
+  private unreachableReported = false;
 
   constructor(
     private readonly deps: VoicemailDeps,
@@ -126,7 +132,9 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         type: "response.create",
         response: {
           instructions: this.escalation
-            ? (this.escalation.objective
+            ? (this.escalation.dispatchFollowup
+                ? `The dispatcher just answered. Greet Bryanna by name, identify yourself as the TriageIt assistant, and clearly deliver this operational alert: ${this.escalation.objective} Keep it brief, then stop and wait for her response.`
+                : this.escalation.objective
                 ? `The tech just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech calling on behalf of management, and say this is in regards to ticket ${this.escalation.haloId}, "${this.escalation.summary}". ${this.escalation.lastCommunication ? `Mention the last communication on file: ${this.escalation.lastCommunication}. ` : ""}Then ask your question. Two or three short sentences, then stop and listen.`
                 : `The tech just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech, and say this is in regards to ticket ${this.escalation.haloId}, "${this.escalation.summary}", which has breached its SLA.${(this.escalation.priorCalls ?? 0) > 0 ? ` This is the ${ordinalWord((this.escalation.priorCalls ?? 0) + 1)} time you have had to call about this ticket — say so plainly, like a manager would ("this is the ${ordinalWord((this.escalation.priorCalls ?? 0) + 1)} time I'm calling you about this one — it keeps getting pushed back, and we need you to get better about staying ahead of it").` : ""} ${this.escalation.lastCommunication ? `Then say the last communication you see on file: ${this.escalation.lastCommunication}. ` : ""}Then ask why it breached. Two or three short sentences, then stop and listen.`)
             : "Greet the caller now. Thank them for calling Gamma Tech, and if they are a known caller with open tickets, briefly mention you can give updates on their ticket(s), take a message, or help with something new. One or two short sentences, then stop and listen.",
@@ -423,6 +431,26 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
 
   private toolDefinitions(): ReadonlyArray<Record<string, unknown>> {
     if (this.escalation) {
+      if (this.escalation.dispatchFollowup) {
+        return [
+          {
+            type: "function",
+            name: "post_note",
+            description: "Document Bryanna's response and whether she confirmed that she will contact the assigned technician.",
+            parameters: {
+              type: "object",
+              properties: { note: { type: "string", description: "Bryanna's response and the follow-up she accepted" } },
+              required: ["note"],
+            },
+          },
+          {
+            type: "function",
+            name: "end_call",
+            description: "Hang up after documenting Bryanna's response and saying goodbye.",
+            parameters: { type: "object", properties: {} },
+          },
+        ];
+      }
       return [
         {
           type: "function",
@@ -463,6 +491,20 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             required: ["raw_message", "draft_message", "technician_confirmed"],
           },
         },
+        ...(!this.escalation.objective
+          ? [{
+              type: "function",
+              name: "report_unreachable",
+              description: "Report that the assigned technician was not reached because this call connected to voicemail. Use exactly once after leaving the brief voicemail message, before ending the call.",
+              parameters: {
+                type: "object",
+                properties: {
+                  reason: { type: "string", enum: ["voicemail"] },
+                },
+                required: ["reason"],
+              },
+            }]
+          : []),
         {
           type: "function",
           name: "end_call",
@@ -625,6 +667,19 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           };
           break;
         }
+        case "report_unreachable": {
+          if (!this.escalation || this.escalation.objective) {
+            output = { error: "Not available on this call" };
+            break;
+          }
+          if (!this.unreachableReported) {
+            this.unreachableReported = true;
+            this.agentCallNotes.push("The call reached the assigned technician's voicemail; the technician did not answer.");
+            await this.escalation.onUnreachable?.("voicemail");
+          }
+          output = { ok: true, dispatch_followup_queued: true };
+          break;
+        }
         case "lookup_ticket":
           output = await this.toolLookupTicket(Number(call.args.ticket_number));
           break;
@@ -750,12 +805,16 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
       const over = e.hoursOver != null ? (e.hoursOver >= 1 ? `${e.hoursOver.toFixed(1)} hours` : `${Math.round(e.hoursOver * 60)} minutes`) : "recently";
       const priorCalls = e.priorCalls ?? 0;
       return [
-        `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND call to ${e.techName ?? "the assigned technician"} — a Gamma Tech technician — about a ticket that has breached its SLA. You are professional, direct, and respectful: a firm colleague, not a scold.`,
-        e.techName ? `The technician you are calling is named ${e.techName}. That is the ONLY name you may address them by — never guess or substitute a different name.` : `You do not know the technician's name — do not guess one; just say "hi, this is the TriageIt assistant".`,
+        e.dispatchFollowup
+          ? `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND operational call to Bryanna Marquez, the dispatcher. A technician was not reached about an SLA-breached ticket. Deliver the alert clearly and ask Bryanna to take ownership of contacting the technician.`
+          : `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND call to ${e.techName ?? "the assigned technician"} — a Gamma Tech technician — about a ticket that has breached its SLA. You are professional, direct, and respectful: a firm colleague, not a scold.`,
+        e.dispatchFollowup
+          ? `The person you are calling is Bryanna Marquez. Address her as Bryanna. Do not call her a technician.`
+          : e.techName ? `The technician you are calling is named ${e.techName}. That is the ONLY name you may address them by — never guess or substitute a different name.` : `You do not know the technician's name — do not guess one; just say "hi, this is the TriageIt assistant".`,
         ``,
         `THE SITUATION`,
         `- Ticket ${e.haloId}: "${e.summary}" for ${e.clientName ?? "a client"}.`,
-        e.objective ? `- You are calling for information, not about a breach.` : `- It is ${over} past its SLA.`,
+        e.objective ? `- Purpose of this call: ${e.objective}` : `- It is ${over} past its SLA.`,
         ...(priorCalls > 0 && !e.objective
           ? [
               `- REPEAT OFFENSE: TriageIt has already called about this ticket ${priorCalls === 1 ? "once" : `${priorCalls} times`} and the next-action date keeps getting pushed back. This is call number ${priorCalls + 1}.`,
@@ -792,7 +851,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
             ]
           : []),
         `${e.customerWaitingForUpdate ? "8" : "4"}. If they refuse, can't say, or it's not their ticket anymore — use post_note documenting exactly what they said, and tell them management (Aniel and David) will follow up.`,
-        `${e.customerWaitingForUpdate ? "9" : "5"}. If a VOICEMAIL answers: leave one brief message ("this is the Gamma Tech assistant — ticket ${e.haloId}, ${e.summary}, has breached its SLA, please update it or call the office"), use post_note saying you reached voicemail, then end_call. Never discuss or stage a customer update with voicemail.`,
+        `${e.customerWaitingForUpdate ? "9" : "5"}. If a VOICEMAIL answers: leave one brief message ("this is the Gamma Tech assistant — ticket ${e.haloId}, ${e.summary}, has breached its SLA, please update it or call the office"), use report_unreachable so Dispatch is called next, then end_call. Never discuss or stage a customer update with voicemail.`,
             ]),
         ``,
         `CUSTOMER UPDATE SAFETY`,

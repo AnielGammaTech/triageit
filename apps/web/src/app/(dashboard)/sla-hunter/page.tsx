@@ -479,7 +479,7 @@ export default function SlaHunterPage() {
                       <CallStatus status={c.status} />
                     </td>
                     <td className="max-w-md px-5 py-2.5 text-xs text-zinc-400">
-                      {c.objective ?? (
+                      {c.objective?.replace(/^\[DISPATCH FOLLOW-UP\]\s*/, "") ?? (
                         <span style={{ color: "#f87171" }}>SLA breached — called to ask why and confirm the next action</span>
                       )}
                     </td>
@@ -567,6 +567,8 @@ function CallStatus({ status }: { readonly status: string | null }) {
     calling: { label: "Called", color: "#f87171", icon: <PhoneCall className="h-3 w-3" /> },
     completed: { label: "Completed", color: "#34d399", icon: <CheckCircle2 className="h-3 w-3" /> },
     failed: { label: "Failed", color: "#a1a1aa", icon: <PhoneOff className="h-3 w-3" /> },
+    no_answer: { label: "No answer", color: "#fbbf24", icon: <PhoneOff className="h-3 w-3" /> },
+    voicemail: { label: "Voicemail", color: "#c084fc", icon: <PhoneOff className="h-3 w-3" /> },
     pending: { label: "Pending", color: "#fbbf24", icon: <Clock className="h-3 w-3" /> },
   };
   const cfg = map[s] ?? { label: status ?? "—", color: "#a1a1aa", icon: <PhoneCall className="h-3 w-3" /> };

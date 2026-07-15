@@ -53,6 +53,12 @@ describe("callMatchLabel", () => {
     expect(callMatchLabel("identified_customer_no_ticket_match")).toBe("Customer identified; no related ticket found");
     expect(callMatchLabel("confirmed_separate_call")).toBe("Confirmed by tech as a separate call");
   });
+
+  it("explains why non-actionable recordings were ignored", () => {
+    expect(callMatchLabel("ignored_ivr")).toBe("Automated attendant or voicemail system");
+    expect(callMatchLabel("ignored_silence")).toBe("Silent or empty recording");
+    expect(callMatchLabel("ignored_short_call")).toBe("Short non-actionable call");
+  });
 });
 
 describe("CNAM display identity", () => {
