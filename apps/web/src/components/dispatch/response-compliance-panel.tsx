@@ -11,7 +11,6 @@ const PAGE_SIZE = 5;
 type ResponseBucket =
   | "ackOnTime"
   | "ackMissed"
-  | "ptoExempt"
   | "needsApproval"
   | "techOnTime"
   | "techMissed";
@@ -91,13 +90,11 @@ function etTime(value: string | null): string {
 function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket): string {
   switch (bucket) {
     case "ackOnTime":
-      return `Acknowledged ${etTime(ticket.acknowledgment_at)} · due ${etTime(ticket.acknowledgment_due_at)}`;
+      return `Initial customer reply sent ${etTime(ticket.acknowledgment_at)} · due ${etTime(ticket.acknowledgment_due_at)}`;
     case "ackMissed":
-      return `Acknowledgment due ${etTime(ticket.acknowledgment_due_at)} · ${ticket.acknowledgment_at ? `sent ${etTime(ticket.acknowledgment_at)}` : "no acknowledgment recorded"}`;
-    case "ptoExempt":
-      return `Dispatcher PTO exemption · ticket received ${etTime(ticket.ticket_created_at)}`;
+      return `Initial customer reply due ${etTime(ticket.acknowledgment_due_at)} · ${ticket.acknowledgment_at ? `sent ${etTime(ticket.acknowledgment_at)}` : "no reply recorded"}`;
     case "needsApproval":
-      return `Customer acknowledgment ready for approval · due ${etTime(ticket.acknowledgment_due_at)}`;
+      return `Initial customer reply ready for approval · due ${etTime(ticket.acknowledgment_due_at)}`;
     case "techOnTime":
       return `Tech response ${etTime(ticket.technician_response_at)} · due ${etTime(ticket.technician_response_due_at)}`;
     case "techMissed":
@@ -134,9 +131,8 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
     const ack = data?.summary.acknowledgment;
     const tech = data?.summary.technician;
     return [
-      { key: "ackOnTime", label: "Ack on time", value: ack?.onTime ?? 0, tone: "#4ade80" },
+      { key: "ackOnTime", label: "Initial reply in 30m", value: ack?.onTime ?? 0, tone: "#4ade80" },
       { key: "ackMissed", label: "Bryanna missed", value: ack?.missed ?? 0, tone: "#f87171" },
-      { key: "ptoExempt", label: "PTO exempt", value: ack?.ptoExempt ?? 0, tone: "#a1a1aa" },
       { key: "needsApproval", label: "Needs approval", value: ack?.approvalNeeded ?? 0, tone: "#fbbf24" },
       { key: "techOnTime", label: "Tech on time", value: tech?.onTime ?? 0, tone: "#7dd3fc" },
       { key: "techMissed", label: "Tech missed", value: tech?.missed ?? 0, tone: "#fb7185" },
@@ -153,10 +149,10 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
       <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         <Clock3 className="h-4 w-4 text-sky-400" />
         <h2 className="text-sm font-semibold text-white">First Response</h2>
-        <span className="ml-auto text-[10px] text-zinc-500">30m acknowledgment · 1h assigned tech email · business time</span>
+        <span className="ml-auto text-[10px] text-zinc-500">Reply to customer in 30m · assigned tech email in 1h · business time</span>
       </div>
 
-      <div className="grid grid-cols-2 border-b sm:grid-cols-3 lg:grid-cols-6" style={{ borderColor: HAIRLINE }}>
+      <div className="grid grid-cols-2 border-b sm:grid-cols-3 lg:grid-cols-5" style={{ borderColor: HAIRLINE }}>
         {metrics.map((metric) => {
           const active = metric.key === selected;
           return (
@@ -256,11 +252,8 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
 
       {data && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-5 py-2 text-[11px] text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          <span>{data.summary.acknowledgment.pending} acknowledgment clock{data.summary.acknowledgment.pending === 1 ? "" : "s"} running</span>
+          <span>{data.summary.acknowledgment.pending} customer-reply clock{data.summary.acknowledgment.pending === 1 ? "" : "s"} running</span>
           <span>{data.summary.technician.pending} technician clock{data.summary.technician.pending === 1 ? "" : "s"} running</span>
-          {data.summary.acknowledgment.ptoUnknown > 0 && (
-            <span className="text-amber-400">{data.summary.acknowledgment.ptoUnknown} PTO status awaiting verification</span>
-          )}
           {error && <span className="text-red-300">Refresh failed; showing the last update.</span>}
         </div>
       )}
