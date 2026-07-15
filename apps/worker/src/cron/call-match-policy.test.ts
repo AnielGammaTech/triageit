@@ -90,6 +90,7 @@ describe("transcriptTicketMatchMinConfidence", () => {
 
   it("keeps global matches strict and client-scoped matches practical", () => {
     expect(transcriptTicketMatchMinConfidence("global", true, null, now)).toBe(0.75);
+    expect(transcriptTicketMatchMinConfidence("cnam", true, null, now)).toBe(0.75);
     expect(transcriptTicketMatchMinConfidence("client", true, null, now)).toBe(0.6);
   });
 });

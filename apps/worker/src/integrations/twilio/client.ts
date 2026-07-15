@@ -113,6 +113,49 @@ export class TwilioClient {
     );
   }
 
+  /**
+   * Look up the US carrier caller-name record for a number. Twilio bills
+   * these requests, so callers must cache the result rather than invoking
+   * this method directly for every recording.
+   */
+  async lookupCallerName(phoneNumber: string): Promise<TwilioCallerNameLookup> {
+    const normalized = normalizeNorthAmericanPhoneNumber(phoneNumber);
+    if (!normalized) {
+      throw new Error("Twilio caller-name lookup requires a North American phone number");
+    }
+
+    const url = new URL(
+      `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(normalized)}`,
+    );
+    url.searchParams.set("Fields", "caller_name");
+    const credentials = Buffer.from(
+      `${this.accountSid}:${this.authToken}`,
+    ).toString("base64");
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `Twilio Lookup caller name failed (${response.status}): ${body.slice(0, 500)}`,
+      );
+    }
+
+    const result = (await response.json()) as TwilioCallerNameResponse;
+    const callerType = result.caller_name?.caller_type;
+    return {
+      phoneNumber: result.phone_number ?? normalized,
+      callerName: result.caller_name?.caller_name?.trim() || null,
+      callerType: callerType === "BUSINESS" || callerType === "CONSUMER" ? callerType : null,
+      errorCode: result.caller_name?.error_code ?? null,
+    };
+  }
+
   // ── SIP Trunks ─────────────────────────────────────────────────────
 
   async getSipTrunks(): Promise<ReadonlyArray<TwilioSipTrunk> | null> {
@@ -185,6 +228,29 @@ export class TwilioClient {
 }
 
 // ── Twilio Types ─────────────────────────────────────────────────────
+
+export function normalizeNorthAmericanPhoneNumber(phoneNumber: string): string | null {
+  const digits = phoneNumber.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+}
+
+interface TwilioCallerNameResponse {
+  readonly phone_number?: string;
+  readonly caller_name?: {
+    readonly caller_name?: string | null;
+    readonly caller_type?: string | null;
+    readonly error_code?: number | null;
+  } | null;
+}
+
+export interface TwilioCallerNameLookup {
+  readonly phoneNumber: string;
+  readonly callerName: string | null;
+  readonly callerType: "BUSINESS" | "CONSUMER" | null;
+  readonly errorCode: number | null;
+}
 
 export interface TwilioAccount {
   readonly sid?: string;

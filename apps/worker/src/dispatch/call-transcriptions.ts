@@ -129,6 +129,8 @@ export function callMatchLabel(method: string | null): string {
     llm_transcript_client: "Transcript matched within client",
     llm_transcript_shared_phone: "Transcript matched from shared number",
     llm_transcript_named: "Spoken customer name and transcript",
+    llm_transcript_cnam_user: "Caller-name contact hint and transcript",
+    llm_transcript_cnam_client: "Caller-name client hint and transcript",
     llm_transcript_global: "Transcript matched across open tickets",
     llm_ticket_callback_number: "Callback number and transcript matched",
     manual_dispatch: "Matched by dispatch",

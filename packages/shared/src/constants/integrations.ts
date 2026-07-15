@@ -328,7 +328,7 @@ export const INTEGRATION_DEFINITIONS: ReadonlyArray<IntegrationDefinition> = [
     service: "twilio",
     display_name: "Twilio",
     description:
-      "Cloud communications platform. Provides call logs, SMS history, SIP trunking status, number management, and call quality metrics.",
+      "Cloud communications platform. Provides call logs, caller-name lookup, SMS history, SIP trunking status, number management, and call quality metrics.",
     fields: [
       {
         key: "account_sid",

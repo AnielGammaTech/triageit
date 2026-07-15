@@ -4,7 +4,7 @@ export type PhoneTicketMatchStrategy =
   | "transcript_client"
   | "none";
 
-export type TranscriptTicketMatchScope = "user" | "client" | "shared_phone" | "global" | "callback_number";
+export type TranscriptTicketMatchScope = "user" | "client" | "shared_phone" | "global" | "callback_number" | "cnam";
 
 interface PhoneTicketMatchCounts {
   readonly haloUserCount: number;
@@ -45,7 +45,7 @@ export function transcriptTicketMatchMinConfidence(
   ticketCreatedAt: string | null | undefined,
   now = Date.now(),
 ): number {
-  if (scope === "global" || scope === "shared_phone") return 0.75;
+  if (scope === "global" || scope === "shared_phone" || scope === "cnam") return 0.75;
   if (scope !== "callback_number") return 0.6;
   const createdAt = ticketCreatedAt ? new Date(ticketCreatedAt).getTime() : NaN;
   const staleClosed = ticketOpen === false

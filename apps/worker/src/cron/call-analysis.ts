@@ -13,6 +13,7 @@ import {
   type TranscriptTicketMatchScope,
 } from "./call-match-policy.js";
 import { sendPendingCallMatchReviews } from "../dispatch/call-match-review-notifications.js";
+import { resolveCnamIdentity, type CnamIdentity } from "../integrations/twilio/cnam-identity.js";
 
 /**
  * Call Analysis — matches 3CX call recordings to open tickets and posts a
@@ -55,6 +56,13 @@ interface TranscriptCallerIdentity {
   readonly issue_summary: string;
   readonly confidence: number;
   readonly evidence: string;
+}
+
+interface ExternalPartyIdentity {
+  readonly name: string | null;
+  readonly number: string;
+  readonly cnamName?: string | null;
+  readonly cnamType?: "BUSINESS" | "CONSUMER" | null;
 }
 
 const MIN_TRANSCRIPT_CHARS = 150;
@@ -429,23 +437,46 @@ export async function processRecording(
   // company's open tickets. Fallback: LLM over the whole open board.
   // The assigned-tech guard below still applies on every path.
   if (users.length === 0) {
+    const cnamIdentity = await resolveCnamIdentity(supabase, external.number);
+    const enrichedExternalParty: ExternalPartyIdentity = {
+      ...externalParty,
+      cnamName: cnamIdentity?.name ?? null,
+      cnamType: cnamIdentity?.type ?? null,
+    };
+    if (cnamIdentity) {
+      console.log(
+        `[CALL-ANALYSIS] Recording ${rec.Id}: Twilio CNAM returned a ${cnamIdentity.type ?? "UNKNOWN"} identity hint`,
+      );
+    }
     // Caller ID such as "NAPLES FL" is weak data. Read the conversation
     // before falling back to the whole board: callers often answer
     // "Elizabeth with Allen Concrete" without saying "this is...".
-    const inferredIdentity = await identifyCallerFromTranscript(transcript, techName, externalParty);
+    const inferredIdentity = await identifyCallerFromTranscript(transcript, techName, enrichedExternalParty);
     let identifiedCustomerName: string | null = null;
     let identifiedClientName: string | null = null;
-    let identityEvidence: string | null = null;
+    const cnamEvidence = cnamIdentity
+      ? `Twilio CNAM hint (${cnamIdentity.type ?? "UNKNOWN"}): ${cnamIdentity.name}`
+      : null;
+    let identityEvidence: string | null = cnamEvidence;
 
-    // Name-directed: spoken name → Halo user → their client's open tickets
-    const spokenNames = [
-      ...(inferredIdentity?.person_name ? [inferredIdentity.person_name] : []),
-      ...extractSpokenNames(transcript),
-    ].filter((name, index, names) => names.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index);
-    if (spokenNames.length > 0) {
-      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken names ${spokenNames.join(", ")} — trying name-directed match`);
+    // Transcript names are primary evidence. A CONSUMER CNAM can narrow the
+    // Halo contact search, but it never enables the direct assigned-tech path.
+    const nameHints = [
+      ...(inferredIdentity?.person_name
+        ? [{ name: inferredIdentity.person_name, source: "transcript" as const }]
+        : []),
+      ...extractSpokenNames(transcript).map((name) => ({ name, source: "transcript" as const })),
+      ...(cnamIdentity?.type !== "BUSINESS" && cnamIdentity?.name
+        ? [{ name: cnamIdentity.name, source: "cnam" as const }]
+        : []),
+    ].filter((hint, index, hints) =>
+      hints.findIndex((candidate) => candidate.name.toLowerCase() === hint.name.toLowerCase()) === index
+    );
+    if (nameHints.length > 0) {
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: identity name hints ${nameHints.map((hint) => hint.name).join(", ")} — trying name-directed match`);
     }
-    for (const name of spokenNames) {
+    for (const hint of nameHints) {
+      const name = hint.name;
       let namedUsers: Awaited<ReturnType<typeof halo.searchUsersByName>> = [];
       try {
         namedUsers = await halo.searchUsersByName(name);
@@ -453,7 +484,9 @@ export async function processRecording(
         console.warn(`[CALL-ANALYSIS] Name lookup "${name}" failed:`, error instanceof Error ? error.message : error);
         continue;
       }
-      const identityCompany = name === inferredIdentity?.person_name ? inferredIdentity.company_name : null;
+      const identityCompany = hint.source === "transcript" && name === inferredIdentity?.person_name
+        ? inferredIdentity.company_name
+        : null;
       const companyMatchedUsers = identityCompany
         ? namedUsers.filter((user) => clientNamesOverlap(user.client_name, identityCompany))
         : namedUsers;
@@ -462,11 +495,11 @@ export async function processRecording(
       console.log(`[CALL-ANALYSIS] Name "${name}" → ${namedUsers.length} Halo user(s), clients: ${namedClients.join(", ") || "none"}`);
       if (namedClients.length === 0 || namedClients.length > 3) continue;
 
-      if (name === inferredIdentity?.person_name && inferredIdentity.confidence >= 0.75) {
+      if (hint.source === "transcript" && name === inferredIdentity?.person_name && inferredIdentity.confidence >= 0.75) {
         const exactUser = usableUsers.find((user) => namesOverlap(user.name, name)) ?? usableUsers[0];
         identifiedCustomerName = exactUser?.name ?? name;
         identifiedClientName = exactUser?.client_name ?? identityCompany;
-        identityEvidence = inferredIdentity.evidence;
+        identityEvidence = [inferredIdentity.evidence, cnamEvidence].filter(Boolean).join(" · ");
       }
 
       const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
@@ -486,15 +519,65 @@ export async function processRecording(
       // voicemail wording ("your email… calendar issue") doesn't echo the
       // ticket title. Vague voicemails killed the topical LLM match here.
       const assignedToCaller = candidates.filter((t) => t.halo_is_open !== false && namesOverlap(techName, t.halo_agent));
-      if (assignedToCaller.length === 1) {
+      if (hint.source === "transcript" && assignedToCaller.length === 1) {
         console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken name "${name}" → ${namedClients.join("/")} + caller is assigned tech of #${assignedToCaller[0].halo_id} — direct match`);
         return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, assignedToCaller[0], "spoken_name_assigned_tech", transcript);
       }
 
-      const pick = await selectTicketByTranscript(supabase, transcript, candidates, techName, externalParty, "client");
+      const pick = await selectTicketByTranscript(
+        supabase,
+        transcript,
+        candidates,
+        techName,
+        enrichedExternalParty,
+        hint.source === "cnam" ? "cnam" : "client",
+      );
       if (pick) {
-        console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: matched via spoken name "${name}" → ${namedClients.join("/")} → #${pick.halo_id}`);
-        return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, pick, "llm_transcript_named", transcript);
+        console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: matched via ${hint.source} name "${name}" → ${namedClients.join("/")} → #${pick.halo_id}`);
+        return finishMatchedRecording(
+          supabase,
+          halo,
+          rec,
+          base,
+          external.number,
+          direction,
+          techName,
+          pick,
+          hint.source === "cnam" ? "llm_transcript_cnam_user" : "llm_transcript_named",
+          transcript,
+        );
+      }
+    }
+
+    // A BUSINESS CNAM is useful for narrowing the client, but the carrier
+    // subscriber name may be stale or belong to a parent company. Require a
+    // strict transcript match within the candidate client's tickets.
+    if (cnamIdentity && cnamIdentity.type !== "CONSUMER") {
+      const cnamClientCandidates = await findCnamClientTickets(supabase, cnamIdentity);
+      if (cnamClientCandidates.length > 0) {
+        const pick = await selectTicketByTranscript(
+          supabase,
+          transcript,
+          cnamClientCandidates,
+          techName,
+          enrichedExternalParty,
+          "cnam",
+        );
+        if (pick) {
+          console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: CNAM client hint + transcript matched #${pick.halo_id}`);
+          return finishMatchedRecording(
+            supabase,
+            halo,
+            rec,
+            base,
+            external.number,
+            direction,
+            techName,
+            pick,
+            "llm_transcript_cnam_client",
+            transcript,
+          );
+        }
       }
     }
 
@@ -507,7 +590,7 @@ export async function processRecording(
         .eq("halo_is_open", true)
         .order("created_at", { ascending: false })
         .limit(MAX_GLOBAL_CANDIDATES);
-      globalPick = await selectTicketByTranscript(supabase, transcript, allOpen ?? [], techName, externalParty, "global");
+      globalPick = await selectTicketByTranscript(supabase, transcript, allOpen ?? [], techName, enrichedExternalParty, "global");
     }
     if (!globalPick) {
       await supabase
@@ -661,10 +744,31 @@ function clientNamesOverlap(left: string | null | undefined, right: string | nul
     && rightTokens.filter((token) => leftTokens.has(token)).length >= Math.min(2, rightTokens.length);
 }
 
+async function findCnamClientTickets(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  identity: CnamIdentity,
+): Promise<ReadonlyArray<CandidateTicket>> {
+  const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
+  const { data, error } = await supabase
+    .from("tickets")
+    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at")
+    .eq("tickettype_id", 31)
+    .or(`halo_is_open.eq.true,created_at.gte.${recentClosedCutoff}`)
+    .order("created_at", { ascending: false })
+    .limit(MAX_GLOBAL_CANDIDATES);
+  if (error) {
+    console.warn("[CALL-ANALYSIS] CNAM client candidate search failed:", error.message);
+    return [];
+  }
+  return ((data ?? []) as CandidateTicket[])
+    .filter((ticket) => clientNamesOverlap(ticket.client_name, identity.name))
+    .slice(0, 50);
+}
+
 async function identifyCallerFromTranscript(
   transcript: string,
   techName: string,
-  externalParty: { readonly name: string | null; readonly number: string },
+  externalParty: ExternalPartyIdentity,
 ): Promise<TranscriptCallerIdentity | null> {
   try {
     const anthropic = new Anthropic();
@@ -677,6 +781,9 @@ async function identifyCallerFromTranscript(
           `Identify the CUSTOMER in this MSP support-call transcript. Read the whole conversation; do not rely only on caller ID.`,
           `The internal Gamma Tech employee is ${techName}. Never return that employee as the customer, even if 3CX misspells their name.`,
           `3CX caller ID: ${externalParty.name ?? "unavailable"} | ${externalParty.number}`,
+          ...(externalParty.cnamName
+            ? [`Twilio CNAM hint (unverified carrier data, not proof): ${externalParty.cnamName} | ${externalParty.cnamType ?? "UNKNOWN"}`]
+            : []),
           `Use direct conversational evidence such as an answer to "who is this?", "<name> with <company>", or a company greeting. Do not guess from the issue alone.`,
           `Summarize the support work without reproducing any password, security code, or credential.`,
           ``,
@@ -842,7 +949,7 @@ async function selectTicketByTranscript(
   transcript: string,
   candidates: ReadonlyArray<CandidateTicket>,
   techName: string,
-  externalParty: { readonly name: string | null; readonly number: string },
+  externalParty: ExternalPartyIdentity,
   scope: TranscriptTicketMatchScope,
 ): Promise<CandidateTicket | null> {
   if (candidates.length === 0) return null;
@@ -877,9 +984,14 @@ async function selectTicketByTranscript(
       ``,
       `Tech on the call: ${techName}`,
       `3CX external party: ${externalParty.name ?? "name unavailable"} | ${externalParty.number}`,
+      ...(externalParty.cnamName
+        ? [`Twilio CNAM hint (unverified carrier data; use only as supporting evidence): ${externalParty.cnamName} | ${externalParty.cnamType ?? "UNKNOWN"}`]
+        : []),
       `CRITICAL — OWNERSHIP BEATS TITLE WORDS: candidates assigned to this tech are listed first. When one plausibly fits the customer, company, issue, and TriageIT summary in the transcript, pick it over another tech's ticket at the same client — even if the other ticket's title shares more generic words.`,
       scope === "callback_number"
         ? `The external phone number is written in one or more ticket bodies as a callback number. Use the transcript to choose only the ticket whose customer, company, and issue match this call; the number alone is not enough.`
+        : scope === "cnam"
+          ? `Twilio CNAM narrowed these candidates, but CNAM can be stale, generic, or registered to a parent company. Match only when the transcript independently confirms the customer, company, or exact ticket issue. CNAM alone is never enough.`
         : scope === "global"
         ? `The caller's number is not in the PSA, so be STRICT: only match when the transcript clearly names the company, person, or the exact issue of a listed ticket.`
         : scope === "shared_phone"

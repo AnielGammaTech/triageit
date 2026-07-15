@@ -28,6 +28,8 @@ describe("callMatchLabel", () => {
   it("explains direct and AI ticket matches", () => {
     expect(callMatchLabel("spoken_ticket_number")).toBe("Ticket number spoken on call");
     expect(callMatchLabel("llm_transcript_global")).toBe("Transcript matched across open tickets");
+    expect(callMatchLabel("llm_transcript_cnam_user")).toBe("Caller-name contact hint and transcript");
+    expect(callMatchLabel("llm_transcript_cnam_client")).toBe("Caller-name client hint and transcript");
     expect(callMatchLabel("llm_ticket_callback_number")).toBe("Callback number and transcript matched");
     expect(callMatchLabel("manual_dispatch")).toBe("Matched by dispatch");
   });
