@@ -80,6 +80,9 @@ const MAX_ANALYSIS_ATTEMPTS = 5;
 const MAX_TRANSCRIPT_POLL_ATTEMPTS = 20;
 const MAX_UNMATCHED_REMATCH_ATTEMPTS = 4;
 const RECENT_CLOSED_MATCH_DAYS = 21;
+const CLIENT_OPEN_CANDIDATE_LIMIT = 40;
+const CLIENT_CLOSED_CANDIDATE_LIMIT = 25;
+const TICKET_CANDIDATE_SELECT = "id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at";
 
 // The cron fires every minute but a run with new recordings can take several
 // minutes (1-3 Sonnet calls per recording). Without this guard, BullMQ's
@@ -540,16 +543,7 @@ export async function processRecording(
         identityEvidence = [inferredIdentity.evidence, cnamEvidence].filter(Boolean).join(" · ");
       }
 
-      const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
-      const { data: clientTickets } = await supabase
-        .from("tickets")
-        .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
-        .eq("tickettype_id", 31)
-        .in("client_name", namedClients)
-        .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
-        .order("updated_at", { ascending: false })
-        .limit(50);
-      const candidates = (clientTickets ?? []) as CandidateTicket[];
+      const candidates = await findClientTicketCandidates(supabase, namedClients);
 
       // The calling tech being the ASSIGNED tech of exactly one open ticket
       // at the named person's company is decisive on its own — Jarid
@@ -657,18 +651,10 @@ export async function processRecording(
   // enough to post onto historical work.
   const userNames = users.map((u) => u.name.toLowerCase());
   const clientNames = [...new Set(users.map((u) => u.client_name).filter((c): c is string => Boolean(c)))];
-  const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
-
-  const { data: clientTickets } = await supabase
-    .from("tickets")
-    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
-    .eq("tickettype_id", 31)
-    .in("client_name", clientNames.length > 0 ? clientNames : ["__none__"])
-    .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
-    .order("updated_at", { ascending: false })
-    .limit(50);
-
-  const candidates = (clientTickets ?? []) as CandidateTicket[];
+  const candidates = await findClientTicketCandidates(
+    supabase,
+    clientNames.length > 0 ? clientNames : ["__none__"],
+  );
   const openCandidates = candidates.filter((ticket) => ticket.halo_is_open !== false);
   const byUser = candidates.filter((ticket) => ticket.user_name && userNames.includes(ticket.user_name.toLowerCase()));
   const openByUser = byUser.filter((ticket) => ticket.halo_is_open !== false);
@@ -790,6 +776,51 @@ interface CandidateTicket {
   readonly updated_at?: string | null;
 }
 
+/**
+ * Reserve candidate capacity for recently closed work instead of combining it
+ * with open tickets in one limited query. Large clients can have enough open
+ * tickets to otherwise hide the exact ticket that closed during the call.
+ */
+async function findClientTicketCandidates(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  clientNames: ReadonlyArray<string>,
+): Promise<ReadonlyArray<CandidateTicket>> {
+  const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
+  const [openResult, closedResult] = await Promise.all([
+    supabase
+      .from("tickets")
+      .select(TICKET_CANDIDATE_SELECT)
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", true)
+      .in("client_name", [...clientNames])
+      .order("updated_at", { ascending: false })
+      .limit(CLIENT_OPEN_CANDIDATE_LIMIT),
+    supabase
+      .from("tickets")
+      .select(TICKET_CANDIDATE_SELECT)
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", false)
+      .in("client_name", [...clientNames])
+      .gte("updated_at", recentClosedCutoff)
+      .order("updated_at", { ascending: false })
+      .limit(CLIENT_CLOSED_CANDIDATE_LIMIT),
+  ]);
+  if (openResult.error) {
+    console.warn("[CALL-ANALYSIS] Open client candidate search failed:", openResult.error.message);
+  }
+  if (closedResult.error) {
+    console.warn("[CALL-ANALYSIS] Recent closed client candidate search failed:", closedResult.error.message);
+  }
+
+  const combined = [
+    ...((openResult.data ?? []) as CandidateTicket[]),
+    ...((closedResult.data ?? []) as CandidateTicket[]),
+  ];
+  return combined.filter((ticket, index) =>
+    combined.findIndex((candidate) => candidate.id === ticket.id) === index
+  );
+}
+
 function clientNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
   if (!left || !right) return false;
   const ignored = new Set(["and", "the", "inc", "llc", "corp", "corporation", "company"]);
@@ -808,18 +839,27 @@ async function findCnamClientTickets(
   identity: CnamIdentity,
 ): Promise<ReadonlyArray<CandidateTicket>> {
   const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("id, halo_id, summary, details, user_name, client_name, halo_status, halo_agent, halo_is_open, created_at, updated_at")
-    .eq("tickettype_id", 31)
-    .or(`halo_is_open.eq.true,updated_at.gte.${recentClosedCutoff}`)
-    .order("updated_at", { ascending: false })
-    .limit(MAX_GLOBAL_CANDIDATES);
-  if (error) {
-    console.warn("[CALL-ANALYSIS] CNAM client candidate search failed:", error.message);
-    return [];
+  const [openResult, closedResult] = await Promise.all([
+    supabase
+      .from("tickets")
+      .select(TICKET_CANDIDATE_SELECT)
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", true)
+      .order("updated_at", { ascending: false })
+      .limit(MAX_GLOBAL_CANDIDATES),
+    supabase
+      .from("tickets")
+      .select(TICKET_CANDIDATE_SELECT)
+      .eq("tickettype_id", 31)
+      .eq("halo_is_open", false)
+      .gte("updated_at", recentClosedCutoff)
+      .order("updated_at", { ascending: false })
+      .limit(MAX_GLOBAL_CANDIDATES),
+  ]);
+  if (openResult.error || closedResult.error) {
+    console.warn("[CALL-ANALYSIS] CNAM client candidate search failed:", openResult.error?.message ?? closedResult.error?.message);
   }
-  return ((data ?? []) as CandidateTicket[])
+  return ([...((openResult.data ?? []) as CandidateTicket[]), ...((closedResult.data ?? []) as CandidateTicket[])])
     .filter((ticket) => clientNamesOverlap(ticket.client_name, identity.name))
     .slice(0, 50);
 }
