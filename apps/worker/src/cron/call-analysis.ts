@@ -9,6 +9,7 @@ import { isCallAuditStaffName, isInternalStaffName, type ThreeCxConfig } from "@
 import {
   choosePhoneTicketMatchStrategy,
   phoneTicketSearchTerms,
+  recentClosedTicketNearCall,
   transcriptTicketMatchMinConfidence,
   unmatchedRematchDue,
   type TranscriptTicketMatchScope,
@@ -63,6 +64,7 @@ interface TranscriptCallerIdentity {
 interface ExternalPartyIdentity {
   readonly name: string | null;
   readonly number: string;
+  readonly callStartedAt?: string | null;
   readonly cnamName?: string | null;
   readonly cnamType?: "BUSINESS" | "CONSUMER" | null;
 }
@@ -285,11 +287,12 @@ export function extractSpokenTicketNumbers(transcript: string): number[] {
  * ("this is Melissa"). Used to find the person in Halo BY NAME when their
  * direct-dial number isn't on their contact card.
  */
-function extractSpokenNames(transcript: string): string[] {
+export function extractSpokenNames(transcript: string): string[] {
   const patterns = [
     /[Yy]ou(?:'ve| have) reached ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
     /(?:^|[.,!?]\s+)[Tt]his is ([A-Z][a-z]+(?: [A-Z][a-z]+)?)/g,
     /(?:[Hh]ello|[Hh]i|[Hh]ey),?\s+(?:this is )?([A-Z][a-z]+(?: [A-Z][a-z]+)?) speaking/g,
+    /(?:^|[.,!?]\s+)([A-Z][a-z]+(?: [A-Z][a-z]+)?)\s+(?:over at|from|with)\s+[A-Z]/g,
   ];
   const names = new Set<string>();
   for (const re of patterns) {
@@ -419,6 +422,7 @@ export async function processRecording(
   const externalParty = {
     name: (direction === "inbound" ? rec.FromDisplayName : rec.ToDisplayName)?.trim() || null,
     number: external.number,
+    callStartedAt: rec.StartTime ?? null,
   };
 
   // A ticket number SPOKEN on the call is the strongest cue there is —
@@ -655,6 +659,27 @@ export async function processRecording(
     supabase,
     clientNames.length > 0 ? clientNames : ["__none__"],
   );
+  const spokenRecentTicket = findRecentlyClosedTicketFromCallContext(
+    candidates,
+    transcript,
+    techName,
+    rec.StartTime ?? null,
+  );
+  if (spokenRecentTicket) {
+    console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: spoken customer + assigned tech + call-time activity matched recent #${spokenRecentTicket.halo_id}`);
+    return finishMatchedRecording(
+      supabase,
+      halo,
+      rec,
+      base,
+      external.number,
+      direction,
+      techName,
+      spokenRecentTicket,
+      "spoken_name_recent_assigned_tech",
+      transcript,
+    );
+  }
   const openCandidates = candidates.filter((ticket) => ticket.halo_is_open !== false);
   const byUser = candidates.filter((ticket) => ticket.user_name && userNames.includes(ticket.user_name.toLowerCase()));
   const openByUser = byUser.filter((ticket) => ticket.halo_is_open !== false);
@@ -774,6 +799,27 @@ interface CandidateTicket {
   readonly halo_is_open?: boolean | null;
   readonly created_at?: string | null;
   readonly updated_at?: string | null;
+}
+
+function findRecentlyClosedTicketFromCallContext(
+  candidates: ReadonlyArray<CandidateTicket>,
+  transcript: string,
+  techName: string,
+  callStartedAt: string | null,
+): CandidateTicket | null {
+  const spokenNames = extractSpokenNames(transcript);
+  if (spokenNames.length === 0) return null;
+  const matches = candidates.filter((ticket) =>
+    spokenNames.some((name) => namesOverlap(name, ticket.user_name))
+    && namesOverlap(techName, ticket.halo_agent)
+    && recentClosedTicketNearCall(
+      ticket.halo_is_open,
+      ticket.created_at,
+      ticket.updated_at,
+      callStartedAt,
+    )
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 /**
@@ -1032,7 +1078,8 @@ async function finishMatchedRecording(
     matchedBy === "llm_ticket_callback_number" ||
     matchedBy === "manual_dispatch" ||
     matchedBy === "spoken_ticket_number" ||
-    matchedBy === "spoken_name_assigned_tech";
+    matchedBy === "spoken_name_assigned_tech" ||
+    matchedBy === "spoken_name_recent_assigned_tech";
   if (!insights || (!contentMatched && !insights.relevant_to_ticket)) {
     await supabase
       .from("call_analyses")
@@ -1135,8 +1182,8 @@ async function selectTicketByTranscript(
       // Forward" says nothing, its details name the actual people involved
       const details = clean(t.details, 160);
       const triageSummary = clean(triageByTicket.get(t.id), 240);
-      const opened = t.created_at ? new Date(t.created_at).toISOString().slice(0, 10) : "unknown";
-      const lastActivity = t.updated_at ? new Date(t.updated_at).toISOString().slice(0, 10) : "unknown";
+      const opened = t.created_at ? new Date(t.created_at).toISOString() : "unknown";
+      const lastActivity = t.updated_at ? new Date(t.updated_at).toISOString() : "unknown";
       return `#${t.halo_id} | ${t.halo_is_open === false ? "closed" : "open"} | opened: ${opened} | last activity/closed: ${lastActivity} | status: ${t.halo_status ?? "?"} | client: ${t.client_name ?? "?"} | reporter: ${t.user_name ?? "?"} | assigned: ${t.halo_agent ?? "unassigned"} | ${clean(t.summary, 120)}${details ? ` | details: ${details}` : ""}${triageSummary ? ` | TriageIT summary: ${triageSummary}` : ""}`;
     });
 
@@ -1144,6 +1191,7 @@ async function selectTicketByTranscript(
       `A support call at an MSP was recorded and transcribed. Decide which support ticket (if any) the call is about, so the call summary lands on the right ticket. A recently closed ticket is valid when this is a follow-up or return call about the same issue.`,
       ``,
       `Tech on the call: ${techName}`,
+      `Call started: ${externalParty.callStartedAt ?? "unknown"}`,
       `3CX external party: ${externalParty.name ?? "name unavailable"} | ${externalParty.number}`,
       ...(externalParty.cnamName
         ? [`Twilio CNAM hint (unverified carrier data; use only as supporting evidence): ${externalParty.cnamName} | ${externalParty.cnamType ?? "UNKNOWN"}`]

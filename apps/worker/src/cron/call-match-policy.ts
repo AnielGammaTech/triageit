@@ -70,3 +70,19 @@ export function unmatchedRematchDue(
   if (!Number.isFinite(created)) return false;
   return now - created >= UNMATCHED_RETRY_DELAYS_MS[attempts];
 }
+
+/** Same-day ticket activity is strong corroboration for a spoken customer + assigned-tech match. */
+export function recentClosedTicketNearCall(
+  ticketOpen: boolean | null | undefined,
+  ticketCreatedAt: string | null | undefined,
+  ticketActivityAt: string | null | undefined,
+  callStartedAt: string | null | undefined,
+): boolean {
+  if (ticketOpen !== false) return false;
+  const createdAt = ticketCreatedAt ? new Date(ticketCreatedAt).getTime() : NaN;
+  const activityAt = ticketActivityAt ? new Date(ticketActivityAt).getTime() : NaN;
+  const callAt = callStartedAt ? new Date(callStartedAt).getTime() : NaN;
+  if (![createdAt, activityAt, callAt].every(Number.isFinite)) return false;
+  return createdAt <= callAt + 4 * 3600_000
+    && Math.abs(activityAt - callAt) <= 24 * 3600_000;
+}

@@ -3,6 +3,7 @@ import {
   buildCallAnalysisPrompt,
   buildCallSummaryNote,
   callInsightsMisattributeTechnician,
+  extractSpokenNames,
   type CallInsights,
 } from "./call-analysis.js";
 
@@ -13,6 +14,11 @@ const recording = {
 };
 
 describe("call analysis completeness", () => {
+  it("extracts informal customer introductions from shared company lines", () => {
+    expect(extractSpokenNames("This is Ryan at Gamma Tech. Ryan, how you doing? Mike over at Naples Genesis."))
+      .toEqual(["Mike"]);
+  });
+
   it("includes transcript details beyond the old 24k cutoff", () => {
     const transcript = `${"early ".repeat(4_500)}TAIL_SUPPORT_DETAIL`;
     const prompt = buildCallAnalysisPrompt(recording, transcript, "Matthew Lawyer", "outbound", "Outlook group issue");

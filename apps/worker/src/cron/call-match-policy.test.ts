@@ -3,6 +3,7 @@ import { isCallAuditStaffName, isSupportCallStaffName } from "@triageit/shared";
 import {
   choosePhoneTicketMatchStrategy,
   phoneTicketSearchTerms,
+  recentClosedTicketNearCall,
   transcriptTicketMatchMinConfidence,
   unmatchedRematchDue,
 } from "./call-match-policy.js";
@@ -110,5 +111,22 @@ describe("unmatchedRematchDue", () => {
 
   it("stops after the bounded fourth retry", () => {
     expect(unmatchedRematchDue("2026-07-14T17:00:00Z", 4, now)).toBe(false);
+  });
+});
+
+describe("recentClosedTicketNearCall", () => {
+  it("accepts a ticket that closed minutes after the call", () => {
+    expect(recentClosedTicketNearCall(
+      false,
+      "2026-07-15T11:42:45Z",
+      "2026-07-15T12:51:26Z",
+      "2026-07-15T12:45:58Z",
+    )).toBe(true);
+  });
+
+  it("rejects open, stale, and invalid ticket activity", () => {
+    expect(recentClosedTicketNearCall(true, "2026-07-15T11:00:00Z", "2026-07-15T13:00:00Z", "2026-07-15T12:00:00Z")).toBe(false);
+    expect(recentClosedTicketNearCall(false, "2026-06-01T11:00:00Z", "2026-06-02T13:00:00Z", "2026-07-15T12:00:00Z")).toBe(false);
+    expect(recentClosedTicketNearCall(false, null, null, "2026-07-15T12:00:00Z")).toBe(false);
   });
 });
