@@ -69,13 +69,13 @@ export function Nav() {
               data-fx-target={tool.slug}
               aria-label={tool.name}
               title={tool.name}
-              className="fx-nav-chip flex shrink-0 items-center gap-1 rounded-full px-1 py-1"
+              className="fx-nav-chip flex shrink-0 items-center gap-1.5 rounded-full px-1.5 py-1"
             >
-              <ToolLogo slug={tool.slug} size={14} />
+              <ToolLogo slug={tool.slug} size={20} />
               <ToolWordmark
                 name={tool.name}
                 slug={tool.slug}
-                className="fx-nav-chip-label hidden text-[10px] font-semibold tracking-[-0.01em] text-snow xl:inline"
+                className="fx-nav-chip-label hidden text-[12px] font-semibold tracking-[-0.01em] text-snow 2xl:inline"
                 decorative
               />
             </a>

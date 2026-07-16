@@ -94,9 +94,9 @@ export function ToolSection({
                     className="fx-logo-trail"
                     style={{ background: `linear-gradient(to bottom, transparent, ${accent})` }}
                   />
-                  <ToolLogo slug={tool.slug} size={28} />
+                  <ToolLogo slug={tool.slug} size={40} />
                 </span>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-snow">
+                <p className="text-sm font-semibold uppercase tracking-[0.25em] text-snow">
                   {/*
                     `data-fx="decrypt-kicker"` moves down to the base-name
                     span (not this <p>) so scroll-fx-decrypt.ts's scramble

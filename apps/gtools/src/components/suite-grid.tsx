@@ -46,7 +46,7 @@ function SuiteCard({
             gate passes, at which point this span's normal static layout is
             simply the pre-scroll rest state GSAP animates from. */}
         <span data-fx="grid-card-logo" className="inline-flex">
-          <ToolLogo slug={tool.slug} size={24} />
+          <ToolLogo slug={tool.slug} size={28} />
         </span>
 
         <h3 className="text-base font-semibold text-snow">
