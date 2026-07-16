@@ -36,6 +36,7 @@ describe("callMatchLabel", () => {
     expect(callMatchLabel("llm_transcript_global")).toBe("Transcript matched across open tickets");
     expect(callMatchLabel("llm_transcript_cnam_user")).toBe("Caller-name contact hint and transcript");
     expect(callMatchLabel("llm_transcript_cnam_client")).toBe("Caller-name client hint and transcript");
+    expect(callMatchLabel("llm_transcript_company")).toBe("Spoken company and issue matched");
     expect(callMatchLabel("llm_ticket_callback_number")).toBe("Callback number and transcript matched");
     expect(callMatchLabel("manual_dispatch")).toBe("Matched by dispatch");
   });
@@ -51,7 +52,7 @@ describe("callMatchLabel", () => {
   it("gives readable unmatched reasons", () => {
     expect(callMatchLabel("ambiguous_multiple_open")).toBe("Several possible open tickets");
     expect(callMatchLabel("shared_phone_no_transcript_match")).toBe("Shared number with no clear ticket match");
-    expect(callMatchLabel("identified_customer_no_ticket_match")).toBe("Customer identified; no related ticket found");
+    expect(callMatchLabel("identified_customer_no_ticket_match")).toBe("Customer identified; no recent related ticket found");
     expect(callMatchLabel("confirmed_separate_call")).toBe("Confirmed by tech as a separate call");
   });
 

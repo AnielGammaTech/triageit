@@ -17,6 +17,7 @@ import {
   addResponseBusinessMinutes,
   formatResponseDeadline,
 } from "../response-compliance/business-time.js";
+import { isCustomerResponseClient } from "../response-compliance/eligibility.js";
 
 interface TrackedTicket {
   readonly id: string;
@@ -248,9 +249,10 @@ export async function scanTicketResponseCompliance(): Promise<ResponseCompliance
     .order("created_at", { ascending: true })
     .limit(200);
   if (ticketError) throw new Error(ticketError.message);
-  if (!tickets?.length) return counters;
+  const customerTickets = (tickets ?? []).filter((ticket) => isCustomerResponseClient(ticket.client_name));
+  if (customerTickets.length === 0) return counters;
 
-  const haloIds = tickets.map((ticket) => Number(ticket.halo_id));
+  const haloIds = customerTickets.map((ticket) => Number(ticket.halo_id));
   const { data: existing, error: existingError } = await supabase
     .from("ticket_response_compliance")
     .select("id, halo_id, acknowledgment_due_at, acknowledgment_at, dispatcher_outcome, approval_id, teams_alerted_at, assigned_tech, assigned_at, technician_response_due_at, technician_response_at, technician_missed_at")
@@ -260,7 +262,7 @@ export async function scanTicketResponseCompliance(): Promise<ResponseCompliance
 
   let currentPto: PtoStatus | null = null;
   let teams: TeamsClient | null | undefined;
-  for (const rawTicket of tickets) {
+  for (const rawTicket of customerTickets) {
     const ticket = rawTicket as TrackedTicket;
     try {
       let row = existingByHalo.get(ticket.halo_id);

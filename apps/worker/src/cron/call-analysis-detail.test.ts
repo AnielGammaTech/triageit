@@ -3,6 +3,7 @@ import {
   buildCallAnalysisPrompt,
   buildCallSummaryNote,
   callInsightsMisattributeTechnician,
+  clientNamesOverlap,
   extractSpokenNames,
   type CallInsights,
 } from "./call-analysis.js";
@@ -17,6 +18,11 @@ describe("call analysis completeness", () => {
   it("extracts informal customer introductions from shared company lines", () => {
     expect(extractSpokenNames("This is Ryan at Gamma Tech. Ryan, how you doing? Mike over at Naples Genesis."))
       .toEqual(["Mike"]);
+  });
+
+  it("recognizes a transcript company against its formal Halo client name", () => {
+    expect(clientNamesOverlap("COLLIER PODIATRY, P.A", "Collier Podiatry")).toBe(true);
+    expect(clientNamesOverlap("COLLIER PODIATRY, P.A", "Collier County")).toBe(false);
   });
 
   it("includes transcript details beyond the old 24k cutoff", () => {

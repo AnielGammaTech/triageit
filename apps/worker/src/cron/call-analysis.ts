@@ -585,6 +585,39 @@ export async function processRecording(
       }
     }
 
+    // The caller may identify a real company without existing as a named Halo
+    // contact (for example, "Crisanta calling from Collier Podiatry"). Search
+    // that company's recent work directly instead of dropping immediately to
+    // the whole-board fallback. Transcript selection remains strict and may
+    // decline when the only related tickets are old or topically different.
+    if (inferredIdentity?.company_name && inferredIdentity.confidence >= 0.75) {
+      const companyCandidates = await findCompanyTicketCandidates(supabase, inferredIdentity.company_name);
+      console.log(`[CALL-ANALYSIS] Transcript company "${inferredIdentity.company_name}" → ${companyCandidates.length} open/recent ticket candidate(s)`);
+      const companyPick = await selectTicketByTranscript(
+        supabase,
+        transcript,
+        companyCandidates,
+        techName,
+        enrichedExternalParty,
+        "global",
+      );
+      if (companyPick) {
+        console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: transcript company + issue matched #${companyPick.halo_id}`);
+        return finishMatchedRecording(
+          supabase,
+          halo,
+          rec,
+          base,
+          external.number,
+          direction,
+          techName,
+          companyPick,
+          "llm_transcript_company",
+          transcript,
+        );
+      }
+    }
+
     // A BUSINESS CNAM is useful for narrowing the client, but the carrier
     // subscriber name may be stale or belong to a parent company. Require a
     // strict transcript match within the candidate client's tickets.
@@ -722,6 +755,7 @@ export async function processRecording(
 
   if (!ticket || !matchedBy) {
     const reviewIdentity = await identifyCallerFromTranscript(transcript, techName, externalParty);
+    const callerIdentified = Boolean(reviewIdentity?.person_name || reviewIdentity?.company_name);
     await supabase
       .from("call_analyses")
       .upsert(
@@ -730,13 +764,15 @@ export async function processRecording(
           external_number: external.number,
           direction,
           tech_name: techName,
-          matched_by: users.length > 1
-            ? "shared_phone_no_transcript_match"
-            : openCandidates.length > 1
-              ? "ambiguous_multiple_open"
-              : candidates.length > 0
-                ? "no_recent_ticket_match"
-                : "no_open_ticket",
+          matched_by: callerIdentified
+            ? "identified_customer_no_ticket_match"
+            : users.length > 1
+              ? "shared_phone_no_transcript_match"
+              : openCandidates.length > 1
+                ? "ambiguous_multiple_open"
+                : candidates.length > 0
+                  ? "no_recent_ticket_match"
+                  : "no_open_ticket",
           summary: reviewIdentity?.issue_summary ?? null,
           identified_customer_name: reviewIdentity?.person_name ?? (users.length === 1 ? users[0]?.name ?? null : null),
           identified_client_name: reviewIdentity?.company_name ?? (clientNames.length === 1 ? clientNames[0] ?? null : null),
@@ -867,7 +903,7 @@ async function findClientTicketCandidates(
   );
 }
 
-function clientNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
+export function clientNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
   if (!left || !right) return false;
   const ignored = new Set(["and", "the", "inc", "llc", "corp", "corporation", "company"]);
   const tokens = (value: string) => value
@@ -880,9 +916,9 @@ function clientNamesOverlap(left: string | null | undefined, right: string | nul
     && rightTokens.filter((token) => leftTokens.has(token)).length >= Math.min(2, rightTokens.length);
 }
 
-async function findCnamClientTickets(
+async function findCompanyTicketCandidates(
   supabase: ReturnType<typeof createSupabaseClient>,
-  identity: CnamIdentity,
+  companyName: string,
 ): Promise<ReadonlyArray<CandidateTicket>> {
   const recentClosedCutoff = new Date(Date.now() - RECENT_CLOSED_MATCH_DAYS * 24 * 3600_000).toISOString();
   const [openResult, closedResult] = await Promise.all([
@@ -903,11 +939,18 @@ async function findCnamClientTickets(
       .limit(MAX_GLOBAL_CANDIDATES),
   ]);
   if (openResult.error || closedResult.error) {
-    console.warn("[CALL-ANALYSIS] CNAM client candidate search failed:", openResult.error?.message ?? closedResult.error?.message);
+    console.warn("[CALL-ANALYSIS] Company candidate search failed:", openResult.error?.message ?? closedResult.error?.message);
   }
   return ([...((openResult.data ?? []) as CandidateTicket[]), ...((closedResult.data ?? []) as CandidateTicket[])])
-    .filter((ticket) => clientNamesOverlap(ticket.client_name, identity.name))
+    .filter((ticket) => clientNamesOverlap(ticket.client_name, companyName))
     .slice(0, 50);
+}
+
+async function findCnamClientTickets(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  identity: CnamIdentity,
+): Promise<ReadonlyArray<CandidateTicket>> {
+  return findCompanyTicketCandidates(supabase, identity.name);
 }
 
 async function identifyCallerFromTranscript(

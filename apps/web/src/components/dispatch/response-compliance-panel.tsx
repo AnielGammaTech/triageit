@@ -13,7 +13,9 @@ type ResponseBucket =
   | "ackMissed"
   | "needsApproval"
   | "techOnTime"
-  | "techMissed";
+  | "techMissed"
+  | "ackPending"
+  | "techPending";
 
 interface ResponseTicket {
   readonly halo_id: number;
@@ -87,7 +89,20 @@ function etTime(value: string | null): string {
   });
 }
 
-function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket): string {
+function clockDistance(value: string | null, generatedAt: string): string {
+  if (!value) return "No deadline recorded";
+  const dueAt = Date.parse(value);
+  const now = Date.parse(generatedAt);
+  if (!Number.isFinite(dueAt) || !Number.isFinite(now)) return "No deadline recorded";
+  const remainingMinutes = Math.round((dueAt - now) / 60_000);
+  const absoluteMinutes = Math.abs(remainingMinutes);
+  const duration = absoluteMinutes >= 60
+    ? `${Math.floor(absoluteMinutes / 60)}h ${absoluteMinutes % 60}m`
+    : `${absoluteMinutes}m`;
+  return remainingMinutes >= 0 ? `due in ${duration}` : `overdue by ${duration}`;
+}
+
+function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket, generatedAt: string): string {
   switch (bucket) {
     case "ackOnTime":
       return `Initial customer reply sent ${etTime(ticket.acknowledgment_at)} · due ${etTime(ticket.acknowledgment_due_at)}`;
@@ -99,6 +114,10 @@ function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket): string 
       return `Tech response ${etTime(ticket.technician_response_at)} · due ${etTime(ticket.technician_response_due_at)}`;
     case "techMissed":
       return `Tech response due ${etTime(ticket.technician_response_due_at)} · ${ticket.technician_response_at ? `sent ${etTime(ticket.technician_response_at)}` : "no response recorded"}`;
+    case "ackPending":
+      return `Expected from Bryanna / Dispatch · ${clockDistance(ticket.acknowledgment_due_at, generatedAt)} · deadline ${etTime(ticket.acknowledgment_due_at)}`;
+    case "techPending":
+      return `Expected from ${ticket.assigned_tech ?? "assigned technician"} · ${clockDistance(ticket.technician_response_due_at, generatedAt)} · deadline ${etTime(ticket.technician_response_due_at)}`;
   }
 }
 
@@ -139,6 +158,11 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
     ];
   }, [data]);
   const selectedMetric = metrics.find((metric) => metric.key === selected) ?? metrics[0];
+  const selectedLabel = selected === "ackPending"
+    ? "Customer reply clocks"
+    : selected === "techPending"
+      ? "Technician reply clocks"
+      : selectedMetric.label;
   const tickets = data?.details?.[selected] ?? [];
   const pageCount = Math.max(1, Math.ceil(tickets.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -149,6 +173,7 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
       <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
         <Clock3 className="h-4 w-4 text-sky-400" />
         <h2 className="text-sm font-semibold text-white">First Response</h2>
+        <span className="border-l pl-2 text-[10px] font-semibold uppercase text-zinc-500" style={{ borderColor: HAIRLINE }}>Today&apos;s results + live queue</span>
         <span className="ml-auto text-[10px] text-zinc-500">Reply to customer in 30m · assigned tech email in 1h · business time</span>
       </div>
 
@@ -178,7 +203,7 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
 
       <div className="flex items-center gap-3 border-b px-5 py-2" style={{ borderColor: HAIRLINE }}>
         <p className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-300">
-          {selectedMetric.label} tickets <span className="ml-1 text-zinc-600">{tickets.length}</span>
+          {selectedLabel} <span className="ml-1 text-zinc-600">{tickets.length}</span>
         </p>
         {tickets.length > PAGE_SIZE && (
           <div className="flex items-center gap-2 text-[11px] text-zinc-500">
@@ -229,7 +254,7 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
                   </p>
                   <p className="mt-1 truncate text-[11px] text-zinc-500">
                     <span className={ticket.ticket_is_open ? "text-emerald-400" : "text-zinc-600"}>{ticket.ticket_is_open ? "Open" : "Closed"}</span>
-                    <span> · {ticket.assigned_tech ?? "Unassigned"} · {responseDetail(selected, ticket)}</span>
+                    <span> · Assigned to {ticket.assigned_tech ?? "Unassigned"} · {responseDetail(selected, ticket, data.generatedAt)}</span>
                   </p>
                 </div>
                 {href && (
@@ -251,9 +276,31 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
       )}
 
       {data && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t px-5 py-2 text-[11px] text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          <span>{data.summary.acknowledgment.pending} customer-reply clock{data.summary.acknowledgment.pending === 1 ? "" : "s"} running</span>
-          <span>{data.summary.technician.pending} technician clock{data.summary.technician.pending === 1 ? "" : "s"} running</span>
+        <div className="flex flex-wrap items-center gap-1 border-t px-4 py-1.5 text-[11px] text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          <button
+            type="button"
+            aria-pressed={selected === "ackPending"}
+            onClick={() => setSelected("ackPending")}
+            className="flex items-center gap-1.5 px-2 py-1 transition hover:text-white"
+            style={{ color: selected === "ackPending" ? "#7dd3fc" : undefined }}
+            title="Show every open ticket waiting for its initial customer reply"
+          >
+            <Clock3 className="h-3 w-3" />
+            <span>{data.summary.acknowledgment.pending} customer reply clock{data.summary.acknowledgment.pending === 1 ? "" : "s"} running</span>
+            <ChevronRight className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            aria-pressed={selected === "techPending"}
+            onClick={() => setSelected("techPending")}
+            className="flex items-center gap-1.5 px-2 py-1 transition hover:text-white"
+            style={{ color: selected === "techPending" ? "#7dd3fc" : undefined }}
+            title="Show every assigned ticket waiting for its technician response"
+          >
+            <Clock3 className="h-3 w-3" />
+            <span>{data.summary.technician.pending} technician clock{data.summary.technician.pending === 1 ? "" : "s"} running</span>
+            <ChevronRight className="h-3 w-3" />
+          </button>
           {error && <span className="text-red-300">Refresh failed; showing the last update.</span>}
         </div>
       )}
