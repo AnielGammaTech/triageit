@@ -68,7 +68,11 @@ function ticketInput(ticket: HaloTicket): AlertTicketInput {
 
 function alertIsOldEnough(ticket: HaloTicket): boolean {
   const raw = ticket.datecreated ?? ticket.dateoccurred ?? ticket.lastactiondate;
-  const createdAt = raw ? Date.parse(raw) : NaN;
+  // Halo ticket timestamps are UTC wall-clock values but omit the zone suffix.
+  // Parsing them as server-local ET moves the creation time four hours into
+  // the future and strands fresh alerts behind the minimum-age guard.
+  const normalized = raw && !/[zZ]$|[+-]\d\d:?\d\d$/.test(raw.trim()) ? `${raw}Z` : raw;
+  const createdAt = normalized ? Date.parse(normalized) : NaN;
   // Halo's list projection sometimes omits datecreated. Do not stall the
   // entire queue when that projection is missing; these rows predate the run.
   return !Number.isFinite(createdAt) || Date.now() - createdAt >= MIN_ALERT_AGE_MS;
