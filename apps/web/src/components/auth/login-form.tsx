@@ -30,6 +30,11 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  function destinationAfterLogin(): string {
+    const requested = new URLSearchParams(window.location.search).get("next") || "";
+    return requested.startsWith("/") && !requested.startsWith("//") ? requested : "/tickets";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -53,7 +58,7 @@ export function LoginForm() {
       }
 
       router.refresh();
-      router.push("/tickets");
+      router.push(destinationAfterLogin());
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {

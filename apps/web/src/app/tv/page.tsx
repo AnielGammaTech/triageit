@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import {
   Activity,
   TriangleAlert,
@@ -171,14 +172,28 @@ const CAROUSEL_SLIDES = [
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
+interface TvPairingRequest {
+  readonly requestId: string;
+  readonly secret: string;
+  readonly approvalUrl: string;
+  readonly expiresAt: string;
+  readonly detectedIp: string | null;
+}
+
 export default function TvPage() {
   const [tvKey, setTvKey] = useState<string | null>(null);
+  const [keyResolved, setKeyResolved] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
+  const [accessError, setAccessError] = useState("");
+  const [pairing, setPairing] = useState<TvPairingRequest | null>(null);
+  const [pairingQr, setPairingQr] = useState("");
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const keyRef = useRef<string | null>(null);
+  const pairingRequestInFlight = useRef(false);
 
   // Resolve the key: URL param wins (and is persisted), else localStorage.
   useEffect(() => {
@@ -190,6 +205,7 @@ export default function TvPage() {
         /* private mode — key still usable from state */
       }
       setTvKey(fromUrl);
+      setKeyResolved(true);
       return;
     }
     try {
@@ -197,19 +213,56 @@ export default function TvPage() {
     } catch {
       setTvKey(null);
     }
+    setKeyResolved(true);
   }, []);
 
   useEffect(() => {
     keyRef.current = tvKey;
   }, [tvKey]);
 
+  const checkAutomaticSession = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tv/session", { method: "GET", cache: "no-store" });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const startPairing = useCallback(async () => {
+    if (pairingRequestInFlight.current) return;
+    pairingRequestInFlight.current = true;
+    try {
+      const response = await fetch("/api/tv/pairing", { method: "POST", cache: "no-store" });
+      if (!response.ok) throw new Error("Could not create pairing request");
+      setPairing((await response.json()) as TvPairingRequest);
+      setAccessError("");
+    } catch {
+      setAccessError("QR approval is temporarily unavailable. Use the emergency access key below.");
+    } finally {
+      pairingRequestInFlight.current = false;
+    }
+  }, []);
+
   const load = useCallback(async () => {
     const key = keyRef.current;
-    if (!key) return;
+    if (!key && !sessionReady) return;
     try {
-      const res = await fetch("/api/tv/command", { cache: "no-store", headers: { "x-tv-key": key } });
+      const res = await fetch("/api/tv/command", {
+        cache: "no-store",
+        headers: key ? { "x-tv-key": key } : undefined,
+      });
       if (res.status === 401 || res.status === 503) {
-        setAuthFailed(true);
+        const restored = await checkAutomaticSession();
+        if (restored) {
+          setSessionReady(true);
+          setAuthFailed(false);
+        } else {
+          try { localStorage.removeItem(KEY_STORAGE); } catch { /* ignore */ }
+          setTvKey(null);
+          setSessionReady(false);
+          setAuthFailed(true);
+        }
         return;
       }
       if (!res.ok) return; // keep last good data; staleness indicator handles it
@@ -219,11 +272,79 @@ export default function TvPage() {
     } catch {
       /* network blip — keep last good data */
     }
-  }, []);
+  }, [checkAutomaticSession, sessionReady]);
+
+  useEffect(() => {
+    if (!keyResolved || tvKey || sessionReady || pairing) return;
+    let active = true;
+    const authorize = async () => {
+      const automatic = await checkAutomaticSession();
+      if (!active) return;
+      if (automatic) {
+        setSessionReady(true);
+        setAuthFailed(false);
+        return;
+      }
+      setAuthFailed(true);
+      await startPairing();
+    };
+    void authorize();
+    return () => { active = false; };
+  }, [checkAutomaticSession, keyResolved, pairing, sessionReady, startPairing, tvKey]);
+
+  useEffect(() => {
+    if (!pairing) {
+      setPairingQr("");
+      return;
+    }
+    let active = true;
+    void QRCode.toDataURL(pairing.approvalUrl, {
+      width: 520,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#080405", light: "#ffffff" },
+    }).then((url) => {
+      if (active) setPairingQr(url);
+    }).catch(() => {
+      if (active) setAccessError("Could not draw the QR code. Use the emergency access key below.");
+    });
+    return () => { active = false; };
+  }, [pairing]);
+
+  useEffect(() => {
+    if (!pairing || sessionReady) return;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch("/api/tv/pairing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId: pairing.requestId, secret: pairing.secret }),
+        });
+        if (response.ok) {
+          setSessionReady(true);
+          setAuthFailed(false);
+          setAccessError("");
+          setPairing(null);
+        } else if (response.status === 410) {
+          setPairing(null);
+        }
+      } catch {
+        // Keep the QR visible and retry.
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => window.clearInterval(timer);
+  }, [pairing, sessionReady]);
 
   // Data refresh + clock + daily self-reload
   useEffect(() => {
-    if (!tvKey) return;
+    if (!tvKey && !sessionReady) return;
     void load();
     const dataT = setInterval(() => void load(), REFRESH_MS);
     const clockT = setInterval(() => setNowTick(Date.now()), 1000);
@@ -233,19 +354,52 @@ export default function TvPage() {
       clearInterval(clockT);
       clearTimeout(reloadT);
     };
-  }, [tvKey, load]);
+  }, [tvKey, sessionReady, load]);
 
-  if (!tvKey || (authFailed && !data)) {
+  if (!keyResolved || (!tvKey && !sessionReady) || (authFailed && !data)) {
     return (
       <Shell>
-        <div className="flex h-full flex-col items-center justify-center gap-[2vh]">
-          <BrandMark size="7vw" />
+        <div className="flex h-full flex-col items-center justify-center gap-[1.4vh] px-[4vw]">
+          <BrandMark size="4.4vw" />
           <h1 className="text-[2.6vw] font-black tracking-tight text-white">
             TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
           </h1>
-          <p className="text-[1.1vw]" style={{ color: INK_DIM }}>
-            {authFailed ? "That access key was rejected — enter the current one." : "Enter the access key to bring the board online."}
+          <p className="text-[1.05vw]" style={{ color: INK_DIM }}>
+            {!keyResolved ? "Checking this TV..." : "Scan to approve this TV from an authenticated TriageIT admin account."}
           </p>
+
+          {pairingQr && pairing ? (
+            <div className="mt-[0.5vh] flex items-center gap-[2vw] rounded-[1vw] border p-[1vw]" style={{ borderColor: HAIRLINE, background: PANEL }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={pairingQr} alt="QR code to approve this TV" className="h-[13vw] w-[13vw] rounded-[0.5vw] bg-white p-[0.35vw]" />
+              <div className="max-w-[25vw]">
+                <p className="text-[1.35vw] font-black text-white">Approve this wallboard</p>
+                <ol className="mt-[1vh] space-y-[0.65vh] text-[0.95vw] leading-relaxed" style={{ color: INK_DIM }}>
+                  <li><span className="font-bold text-white">1.</span> Scan with your phone</li>
+                  <li><span className="font-bold text-white">2.</span> Sign in to TriageIT if asked</li>
+                  <li><span className="font-bold text-white">3.</span> Tap <span className="font-bold text-white">Approve this TV</span></li>
+                </ol>
+                <p className="mt-[1.2vh] text-[0.78vw]" style={{ color: INK_FAINT }}>
+                  Keep “Trust this office network” checked and future visits activate automatically.
+                </p>
+                {pairing.detectedIp && (
+                  <p className="mt-[0.5vh] font-mono text-[0.68vw]" style={{ color: INK_FAINT }}>Detected IP {pairing.detectedIp}</p>
+                )}
+              </div>
+            </div>
+          ) : keyResolved ? (
+            <div className="flex h-[13vw] w-[13vw] items-center justify-center rounded-[0.7vw] border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+              <div className="h-[2.2vw] w-[2.2vw] animate-spin rounded-full border-[0.25vw] border-white/10 border-t-red-500" />
+            </div>
+          ) : null}
+
+          {accessError && <p className="text-[0.85vw] font-semibold" style={{ color: AMBER }}>{accessError}</p>}
+
+          <div className="flex items-center gap-[0.8vw]">
+            <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
+            <span className="text-[0.72vw] font-semibold uppercase tracking-[0.14em]" style={{ color: INK_FAINT }}>emergency access key</span>
+            <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
+          </div>
           <form
             className="flex items-center gap-[0.8vw]"
             onSubmit={(e) => {
@@ -258,6 +412,7 @@ export default function TvPage() {
                 /* ignore */
               }
               setAuthFailed(false);
+              setPairing(null);
               setTvKey(k);
             }}
           >
@@ -278,6 +433,9 @@ export default function TvPage() {
               Unlock
             </button>
           </form>
+          <p className="text-[0.8vw]" style={{ color: INK_FAINT }}>
+            MAC addresses are not exposed to websites. This TV is remembered by a secure device cookie and its trusted public network.
+          </p>
         </div>
       </Shell>
     );
@@ -777,4 +935,3 @@ function Loading() {
     </div>
   );
 }
-

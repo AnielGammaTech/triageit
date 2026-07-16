@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
-import { isValidTvKey, tvKeyConfigured } from "@/lib/api/tv-key";
+import {
+  isValidTvKey,
+  isValidTvSessionToken,
+  TV_SESSION_COOKIE,
+  tvKeyConfigured,
+} from "@/lib/api/tv-key";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { getClientIp } from "@/lib/api/request-context";
 import { workerFetch } from "@/lib/api/worker";
 
 /**
@@ -39,12 +45,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
   }
 
+  const session = request.cookies.get(TV_SESSION_COOKIE)?.value;
   const key = request.headers.get("x-tv-key") ?? request.nextUrl.searchParams.get("key");
-  if (!isValidTvKey(key)) {
-    return NextResponse.json({ error: "Invalid access key" }, { status: 401 });
+  if (!isValidTvSessionToken(session) && !isValidTvKey(key)) {
+    return NextResponse.json({ error: "TV approval required" }, { status: 401 });
   }
 
-  const rl = checkRateLimit("tv-wallboard", 30, 60_000, "tv-command");
+  const rl = checkRateLimit(getClientIp(request) || "tv-wallboard", 30, 60_000, "tv-command");
   if (rl) return rl;
 
   try {

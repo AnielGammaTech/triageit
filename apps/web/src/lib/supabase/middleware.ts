@@ -82,12 +82,18 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 
   if (user && isAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/tickets";
+    const requested = request.nextUrl.searchParams.get("next") || "";
+    const safeNext = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/tickets";
+    const destination = new URL(safeNext, request.nextUrl.origin);
+    url.pathname = destination.pathname;
+    url.search = destination.search;
     return NextResponse.redirect(url);
   }
 
