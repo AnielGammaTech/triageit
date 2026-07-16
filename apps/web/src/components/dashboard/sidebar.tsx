@@ -20,6 +20,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const PRIMARY_COLOR = "#A61B1B";
+const PRIMARY_TINT = "#E05555";
 const HEADER_BG = "#1a0a0a";
 const DROPDOWN_BG = "#241010";
 
@@ -38,6 +39,11 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const page = NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.label ?? "TriageIT";
+    document.title = `${page} · TriageIT`;
+  }, [pathname]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -77,9 +83,9 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
   return (
     <>
       <header
-        className="triageit-frosted-nav fixed top-0 left-0 right-0 z-40 h-14 text-white"
+        className="triageit-frosted-nav fixed top-0 left-0 right-0 z-40 h-16 text-white"
       >
-        <div className="mx-auto flex h-full max-w-full items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-full max-w-[1800px] items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + hamburger */}
           <div className="flex items-center gap-3">
             {/* Mobile hamburger */}
@@ -104,7 +110,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
               </svg>
             </button>
 
-            <Link href="/tickets" className="flex h-14 items-center gap-[9px]" aria-label="TriageIT home">
+            <Link href="/tickets" className="flex h-16 items-center gap-[10px]" aria-label="TriageIT home">
               <Image
                 src="/triageit-mark.svg?v=20260716"
                 alt=""
@@ -124,7 +130,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
             {NAV_ITEMS.map((item) => {
               const isActive = pathname.startsWith(item.href);
               const className = cn(
-                "relative flex items-center gap-2 px-4 h-14 text-sm font-medium transition-colors",
+                "relative flex h-16 items-center gap-2 px-3.5 text-sm font-medium transition-colors",
                 isActive
                   ? "text-white"
                   : "text-white/60 hover:text-white hover:bg-white/5",
@@ -149,7 +155,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
                   {isActive && (
                     <span
                       className="absolute bottom-0 left-0 right-0 h-0.5"
-                      style={{ backgroundColor: PRIMARY_COLOR }}
+                      style={{ backgroundColor: PRIMARY_TINT }}
                     />
                   )}
                 </Link>
@@ -158,14 +164,14 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
           </nav>
 
           {/* Right: Small profile avatar */}
-          <div className="flex items-center gap-2" ref={dropdownRef}>
+          <div className="relative flex items-center gap-2" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen((prev) => !prev)}
-              className="group -m-1.5 flex items-center rounded-full p-1.5"
+              className="group flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.07]"
               aria-label="Open profile menu"
             >
               <div
-                className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white transition-shadow group-hover:ring-2 group-hover:ring-white/20"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold text-white transition-shadow group-hover:ring-2 group-hover:ring-white/20"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
                 {getUserInitials(userEmail)}
@@ -174,7 +180,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
 
             {dropdownOpen && (
               <div
-                className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 shadow-xl"
+                className="absolute right-0 top-full mt-2 w-60 animate-in rounded-lg border border-white/10 shadow-xl"
                 style={{ backgroundColor: DROPDOWN_BG }}
               >
                 <div className="border-b border-white/10 px-3 py-2.5">
@@ -193,7 +199,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
                         className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
                         style={{
                           backgroundColor: `${PRIMARY_COLOR}20`,
-                          color: PRIMARY_COLOR,
+                          color: PRIMARY_TINT,
                         }}
                       >
                         {userRole}
@@ -244,7 +250,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
             onClick={() => setMobileMenuOpen(false)}
           />
           <nav
-            className="absolute top-14 left-0 right-0 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-b border-white/10 shadow-xl"
+            className="absolute top-16 left-0 right-0 max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-white/10 shadow-xl"
             style={{ backgroundColor: HEADER_BG }}
           >
             <div className="flex flex-col py-2">

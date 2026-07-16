@@ -79,7 +79,7 @@ body {
 .triageit-wordmark {
   font-family: "Sora", sans-serif;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .triageit-frosted-nav {
