@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import { accentVar } from "@/components/browser-frame";
+import { tintVar } from "@/components/browser-frame";
 
 // HTMLAttributes<HTMLSpanElement> alone doesn't include arbitrary
 // `data-*` keys, so a literal like `{ "data-fx": "decrypt-kicker" }`
@@ -12,7 +12,11 @@ type SpanProps = HTMLAttributes<HTMLSpanElement> &
 // "Wordmark rule"): a tool's display name splits into "<Name>" + "IT",
 // both in Manrope ExtraBold (`--font-wordmark`), where "<Name>" keeps
 // whatever foreground color the caller sets on this component and "IT"
-// is always the tool's accent (`var(--color-<slug>)`).
+// is always the tool's wordmark TINT (`var(--color-<slug>-tint)`) — a
+// brightened sibling of the locked logo hex, not the locked hex itself.
+// Several locked hexes (ProjectIT, PortalIT, SecureIT, PhoneIT, TriageIT)
+// are near-black/near-invisible as small text color directly on the
+// site's #08080d ground; the tint keeps the same hue but is legible.
 //
 // Case-insensitive on the trailing "it" so it copes with the mixed
 // casing already in content/tools-data-*.ts (e.g. "TriageIt" vs
@@ -55,7 +59,7 @@ export function ToolWordmark({
       aria-hidden={decorative || undefined}
     >
       <span {...nameProps}>{base}</span>
-      {suffix ? <span style={{ color: accentVar(slug) }}>{suffix}</span> : null}
+      {suffix ? <span style={{ color: tintVar(slug) }}>{suffix}</span> : null}
     </span>
   );
 }

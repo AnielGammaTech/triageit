@@ -74,14 +74,26 @@ stroke color and the tile's added inner stroke change.
 ## Wordmark rule (site chrome, not the mark itself)
 
 Where a tool name is rendered as a wordmark in site chrome (header chips, suite grid
-card titles, at minimum):
+card titles, section kickers, at minimum):
 
 - Font: Manrope ExtraBold (800), loaded via `next/font/google`, exposed as the
   `--font-wordmark` CSS variable.
 - Two-tone split: the product **name** renders in white (dark theme) / near-black (light
   theme) — the page's default text color — and the trailing **"IT"** renders in the
-  tool's accent color (the same hex as its logo tile).
-- Example: "Triage" in white + "IT" in `#A61B1B`.
+  tool's **wordmark tint**, not its locked logo hex directly.
+- **Tint vs. locked hex — the rule:** the locked palette hex (see table above) is for
+  **surfaces/tiles** — logo chips, borders, glows, dots — where enough area and
+  neighboring contrast keep it readable even when dark. It is **not** safe as small TEXT
+  color directly on the site's `#08080d` ground: `#0E3A5C` (ProjectIT), `#4C1D95`
+  (PortalIT), `#0B0F14` (SecureIT), `#0E7490` (PhoneIT), and `#A61B1B` (TriageIT) all read
+  as near-invisible or badly-low-contrast as glyph color at wordmark sizes. Each tool
+  gets a paired `--color-<slug>-tint` token in `globals.css` — the same hue as its locked
+  accent, lifted roughly +25-40% lightness by eye until the "IT" reads clearly on dark.
+  `ToolWordmark` (`tool-wordmark.tsx`) applies the tint via `tintVar(slug)`; the locked
+  hex (`accentVar(slug)`) stays in use for every non-text surface (card hover borders,
+  section accent washes/dots, the logo SVGs themselves).
+- Example: "Triage" in white + "IT" in the TriageIT tint (`#E05555`), not the locked
+  `#A61B1B` tile color.
 - Body copy that merely references a tool name in a sentence is unaffected — this
   treatment is for wordmark-style headings/labels, not prose.
 
@@ -95,11 +107,17 @@ card titles, at minimum):
 - Keep `viewBox="0 0 48 48"` on every mark so they drop in at any size.
 - Keep SecureIT's inner tile stroke and echo override — they're the only per-mark
   exceptions in this system.
+- Use the locked hex (`accentVar`) for tiles/surfaces/glows; use the paired tint
+  (`tintVar`, `--color-<slug>-tint`) for any text color rendered directly on the dark
+  page ground — see "Wordmark rule" above.
 
 ## Don't
 
 - Don't use `<text>`, `@font-face`, or any script in a production logo SVG.
 - Don't rely on a system font being present — glyphs are pre-converted paths.
+- Don't color wordmark/text directly with a locked logo hex on a dark ground — several
+  (ProjectIT, PortalIT, SecureIT, PhoneIT, TriageIT) are illegible as text color; use the
+  tint token instead.
 - Don't simulate the punch hole with a background-color circle — it must be a real
   cutout via `fill-rule="evenodd"`.
 - Don't recolor SecureIT's tile fill to "fix" contrast — the fix is the added stroke,

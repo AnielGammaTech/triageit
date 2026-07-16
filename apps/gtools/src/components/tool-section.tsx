@@ -94,7 +94,7 @@ export function ToolSection({
                     className="fx-logo-trail"
                     style={{ background: `linear-gradient(to bottom, transparent, ${accent})` }}
                   />
-                  <ToolLogo slug={tool.slug} size={30} />
+                  <ToolLogo slug={tool.slug} size={28} />
                 </span>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-snow">
                   {/*

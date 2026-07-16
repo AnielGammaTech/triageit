@@ -2,6 +2,15 @@ export function accentVar(slug: string): string {
   return `var(--color-${slug})`;
 }
 
+// Brightened sibling of accentVar's locked hex, for text rendered directly
+// on the dark page ground (ToolWordmark's "IT" suffix) — see globals.css's
+// `--color-<slug>-tint` tokens and docs/brand/gtools-logo-standard.md's
+// "Wordmark rule". Surfaces/tiles/glows keep using accentVar's locked hex;
+// only small on-dark text needs the lifted variant.
+export function tintVar(slug: string): string {
+  return `var(--color-${slug}-tint)`;
+}
+
 export function BrowserFrame({
   accent,
   url,

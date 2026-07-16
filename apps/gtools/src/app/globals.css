@@ -42,6 +42,30 @@
   --color-phoneit: #0e7490;
   --color-vendit: #0b9668;
 
+  /*
+   * Wordmark TINTS — brightened, legible-on-dark siblings of the locked
+   * accents above. The locked hexes are correct for TILES/SURFACES (logo
+   * chips, borders, glows, dots), which have enough area and neighboring
+   * contrast to read fine even when dark. Small TEXT (ToolWordmark's "IT"
+   * suffix) doesn't get that help — several locked hexes (ProjectIT,
+   * PortalIT, SecureIT, PhoneIT, TriageIT especially) are near-illegible
+   * as glyph color directly on the #08080d page ground. Each tint below is
+   * the same hue as its locked accent, lifted ~25-40% lighter by eye until
+   * the "IT" reads clearly at wordmark sizes — see docs/brand/gtools-logo-
+   * standard.md's "Wordmark rule" for where tint vs. locked hex applies.
+   */
+  --color-triageit-tint: #e05555;
+  --color-secureit-tint: #94a3b8;
+  --color-projectit-tint: #4e8fc7;
+  --color-portalit-tint: #8b5cf6;
+  --color-quoteit-tint: #ff8a3d;
+  --color-accountit-tint: #e066f0;
+  --color-lootit-tint: #ff6da6;
+  --color-connectit-tint: #5b9dff;
+  --color-runit-tint: #f5a742;
+  --color-phoneit-tint: #22b8d4;
+  --color-vendit-tint: #34d399;
+
   --font-display: var(--font-unbounded), sans-serif;
   --font-body: var(--font-inter), sans-serif;
   --font-wordmark: var(--font-manrope), sans-serif;
