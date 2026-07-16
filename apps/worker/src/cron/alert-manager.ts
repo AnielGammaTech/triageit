@@ -121,6 +121,24 @@ async function ensureAlertAuditTargets(
   return new Map((rows ?? []).map((row) => [Number(row.halo_id), String(row.id)]));
 }
 
+async function loadReviewedHaloIds(
+  supabase: ReturnType<typeof createSupabaseClient>,
+): Promise<Set<number>> {
+  const reviewed = new Set<number>();
+  const pageSize = 1_000;
+  for (let start = 0; start < 100_000; start += pageSize) {
+    const { data, error } = await supabase
+      .from("workflow_events")
+      .select("halo_id")
+      .like("event_type", "alert_manager_%")
+      .range(start, start + pageSize - 1);
+    if (error) throw new Error(`Could not load prior alert decisions: ${error.message}`);
+    for (const row of data ?? []) reviewed.add(Number(row.halo_id));
+    if ((data ?? []).length < pageSize) break;
+  }
+  return reviewed;
+}
+
 function recentActionContext(actions: ReadonlyArray<HaloAction>): string {
   return actions
     .slice(-8)
@@ -202,8 +220,14 @@ function closureNote(decision: AlertPolicyDecision): string {
   ].join("");
 }
 
-export async function runAlertManager(options: { readonly dryRun?: boolean } = {}): Promise<AlertManagerResult> {
+export async function runAlertManager(options: {
+  readonly dryRun?: boolean;
+  readonly limit?: number;
+  readonly aiLimit?: number;
+} = {}): Promise<AlertManagerResult> {
   const dryRun = options.dryRun === true;
+  const reviewLimit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? MAX_REVIEWS_PER_RUN)));
+  const aiLimit = Math.max(0, Math.min(100, Math.trunc(options.aiLimit ?? MAX_AI_REVIEWS_PER_RUN)));
   const supabase = createSupabaseClient();
   const { data: integration } = await supabase
     .from("integrations")
@@ -213,17 +237,13 @@ export async function runAlertManager(options: { readonly dryRun?: boolean } = {
     .maybeSingle();
   if (!integration?.config) throw new Error("Halo is not configured");
   const halo = new HaloClient(integration.config as HaloConfig);
-  const openAlerts = (await halo.getOpenTickets(ALERT_TICKET_TYPE_ID))
+  const openAlerts = (await halo.getAllOpenTickets(ALERT_TICKET_TYPE_ID))
     .filter((ticket) => ticket.tickettype_id === ALERT_TICKET_TYPE_ID)
     .filter(alertIsOldEnough);
 
-  const haloIds = openAlerts.map((ticket) => ticket.id);
-  const [{ data: existing }, localByHalo] = await Promise.all([
-    supabase.from("workflow_events").select("halo_id").like("event_type", "alert_manager_%").in("halo_id", haloIds.length ? haloIds : [-1]),
-    ensureAlertAuditTargets(supabase, openAlerts),
-  ]);
-  const reviewed = new Set((existing ?? []).map((row) => Number(row.halo_id)));
-  const candidates = openAlerts.filter((ticket) => !reviewed.has(ticket.id)).slice(0, MAX_REVIEWS_PER_RUN);
+  const reviewed = await loadReviewedHaloIds(supabase);
+  const candidates = openAlerts.filter((ticket) => !reviewed.has(ticket.id)).slice(0, reviewLimit);
+  const localByHalo = dryRun ? new Map<number, string>() : await ensureAlertAuditTargets(supabase, candidates);
 
   let aiReviews = 0;
   let autoClosed = 0;
@@ -236,7 +256,7 @@ export async function runAlertManager(options: { readonly dryRun?: boolean } = {
     const input = ticketInput(ticket);
     try {
       let proposed = deterministicAlertDecision(input);
-      if (!proposed && aiReviews < MAX_AI_REVIEWS_PER_RUN) {
+      if (!proposed && aiReviews < aiLimit) {
         const actions = await halo.getTicketActions(ticket.id, true).catch(() => [] as ReadonlyArray<HaloAction>);
         proposed = await aiAlertDecision(ticket, actions);
         aiReviews++;

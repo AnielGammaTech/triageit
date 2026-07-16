@@ -24,4 +24,11 @@ describe("deterministicAlertDecision", () => {
     expect(deterministicAlertDecision({ summary: "3CX: Your Scheduled Reports are ready", details: "Reports are ready" })?.decision).toBe("auto_close");
     expect(deterministicAlertDecision({ summary: "New missed call from +1239", details: "Ringing 00:00" })?.decision).toBe("review_required");
   });
+
+  it("protects security and backup alerts during backlog cleanup", () => {
+    expect(deterministicAlertDecision({ summary: "Phish911 Report Alert", details: "User reported a suspicious email" })?.decision).toBe("review_required");
+    expect(deterministicAlertDecision({ summary: "Microsoft Entra ID Protection Weekly Digest", details: "One risky sign-in detected" })?.decision).toBe("review_required");
+    expect(deterministicAlertDecision({ summary: "BackupIQ: Microsoft 365 Alert", details: "Backup partially completed" })?.decision).toBe("keep_open");
+    expect(deterministicAlertDecision({ summary: "3CX Alert: Scheduled Backup Failed", details: "The scheduled backup failed" })?.decision).toBe("keep_open");
+  });
 });

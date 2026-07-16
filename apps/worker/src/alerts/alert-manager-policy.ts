@@ -17,8 +17,8 @@ export interface AlertPolicyDecision {
   readonly policySource: "deterministic" | "ai";
 }
 
-const SECURITY_SIGNAL = /\b(?:malware|ransomware|compromis(?:e|ed)|dark web|credential|phish|intrusion|threat|quarantine|account creation|user created|risky user|sentinel|crowdstrike|huntress|rocket\s?cyber|managed soc|mitre|unauthori[sz]ed)\b/i;
-const PERSISTENT_OR_ACTIONABLE = /\b(?:no mailbox|does not have an exchange online mailbox|remove the license|backup did not (?:process|complete)|unsuccessful backup|no successful backup|more than 48 hours|device offline|service down|disk space|certificate expir|forbidden \(403\)|trunk.*failed|registration.*failed|undeliverable)\b/i;
+const SECURITY_SIGNAL = /\b(?:security alert|identity protection|risky sign-?in|malware|ransomware|compromis(?:e|ed)|dark web|credential|phish(?:ing|911)?|intrusion|threat|quarantine|account creation|user created|risky user|sentinel|crowdstrike|huntress|rocket\s?cyber|managed soc|mitre|unauthori[sz]ed)\b/i;
+const PERSISTENT_OR_ACTIONABLE = /\b(?:backupiq|scheduled backup failed|no mailbox|does not have an exchange online mailbox|remove the license|backup did not (?:process|complete)|unsuccessful backup|no successful backup|more than 48 hours|device offline|service down|disk space|certificate expir|forbidden \(403\)|trunk.*failed|registration.*failed|undeliverable)\b/i;
 const MISSED_COMMUNICATION = /\b(?:new missed call|new voicemail|voice mail)\b/i;
 
 function text(input: AlertTicketInput): string {

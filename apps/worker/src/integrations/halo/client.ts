@@ -323,6 +323,32 @@ export class HaloClient {
     return tickets;
   }
 
+  async getAllOpenTickets(ticketTypeId: number): Promise<ReadonlyArray<HaloTicket>> {
+    const pageSize = 100;
+    const closedStatusIds = new Set([9, 13, 15]);
+    const tickets: HaloTicket[] = [];
+    let expectedTotal = Number.POSITIVE_INFINITY;
+
+    for (let page = 1; page <= 100 && tickets.length < expectedTotal; page++) {
+      const result = await this.request<{
+        tickets?: HaloTicket[];
+        page_no?: number;
+        page_size?: number;
+        record_count?: number;
+      }>(
+        "GET",
+        `/tickets?pageinate=true&page_size=${pageSize}&page_no=${page}&open_only=true&order=datecreated&orderdesc=true&includecolumns=true&includeslainfo=true&requesttype_id=${ticketTypeId}`,
+      );
+      const pageTickets = result.tickets ?? [];
+      expectedTotal = Number(result.record_count) || tickets.length + pageTickets.length;
+      tickets.push(...pageTickets.filter((ticket) => !ticket.status_id || !closedStatusIds.has(ticket.status_id)));
+      if (pageTickets.length < pageSize) break;
+    }
+
+    console.log(`[HALO] getAllOpenTickets: ${tickets.length} open tickets (${Number.isFinite(expectedTotal) ? expectedTotal : "?"} total) (type ${ticketTypeId})`);
+    return tickets;
+  }
+
   /**
    * Appointments in [start, end) for all agents. Halo: GET /Appointment.
    * Returns null when the LOOKUP FAILED (lookupFailed pattern) — callers
