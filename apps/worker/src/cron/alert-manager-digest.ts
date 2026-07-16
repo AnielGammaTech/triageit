@@ -17,6 +17,7 @@ interface AlertReviewRow {
     readonly confidence?: number;
     readonly reason?: string;
     readonly pattern_key?: string;
+    readonly affected_resource?: string | null;
     readonly [key: string]: unknown;
   };
   readonly created_at: string;
@@ -50,43 +51,103 @@ function patternSummary(rows: ReadonlyArray<AlertReviewRow>): ReadonlyArray<{ ke
   return [...counts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
 }
 
-function digestHtml(rows: ReadonlyArray<AlertReviewRow>, haloBaseUrl: string, periodStart: Date, periodEnd: Date): string {
-  const patterns = patternSummary(rows);
-  const decisionLabel: Record<AlertReviewRow["event_type"], string> = {
-    alert_manager_auto_closed: "AUTO-CLOSED",
-    alert_manager_kept_open: "KEPT OPEN",
-    alert_manager_review_required: "REVIEW",
-    alert_manager_error: "ERROR",
-  };
-  const decisionColor: Record<AlertReviewRow["event_type"], string> = {
-    alert_manager_auto_closed: "#4ade80",
-    alert_manager_kept_open: "#fbbf24",
-    alert_manager_review_required: "#fb7185",
-    alert_manager_error: "#f87171",
-  };
-  const ticketRows = rows.map((row) => {
-    const url = `${haloBaseUrl.replace(/\/$/, "")}/tickets?id=${row.halo_id}`;
-    const summary = String(row.payload.ticket_summary ?? "Alert");
-    const source = String(row.payload.source ?? "Unknown");
-    const reason = String(row.payload.reason ?? row.note);
-    const confidence = Number(row.payload.confidence) || 0;
-    const pattern = String(row.payload.pattern_key ?? "unknown:unclassified");
-    return `<tr style="border-top:1px solid #3f3f46;"><td style="padding:8px;"><a href="${escapeHtml(url)}" style="color:#7dd3fc;font-weight:700;">#${row.halo_id}</a><br/><span style="color:#a1a1aa;font-size:11px;">${escapeHtml(source)}</span></td><td style="padding:8px;color:#e4e4e7;">${escapeHtml(summary)}<br/><span style="color:#a1a1aa;font-size:11px;">${escapeHtml(reason)}</span></td><td style="padding:8px;color:${decisionColor[row.event_type]};font-weight:700;white-space:nowrap;">${decisionLabel[row.event_type]}<br/><span style="font-size:11px;color:#a1a1aa;">${Math.round(confidence * 100)}%</span></td><td style="padding:8px;color:#a1a1aa;font-size:11px;">${escapeHtml(pattern)}</td></tr>`;
-  }).join("");
-  const patternRows = patterns.map((pattern) => `<li><strong>${pattern.count}x</strong> ${escapeHtml(pattern.key)}</li>`).join("");
-  const closed = rows.filter((row) => row.event_type === "alert_manager_auto_closed").length;
-  const open = rows.filter((row) => row.event_type === "alert_manager_kept_open").length;
-  const review = rows.filter((row) => row.event_type === "alert_manager_review_required").length;
+function renderAlertItem(row: AlertReviewRow, haloBaseUrl: string, color: string): string {
+  const url = `${haloBaseUrl.replace(/\/$/, "")}/tickets?id=${row.halo_id}`;
+  const summary = String(row.payload.ticket_summary ?? "Alert");
+  const source = String(row.payload.source ?? "Unknown");
+  const reason = String(row.payload.reason ?? row.note);
+  const confidence = Math.round((Number(row.payload.confidence) || 0) * 100);
+  const pattern = String(row.payload.pattern_key ?? "unknown:unclassified");
+  const resource = row.payload.affected_resource ? String(row.payload.affected_resource) : null;
   return [
-    `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:1000px;">`,
-    `<h2 style="margin:0 0 6px;color:#e4e4e7;">TriageIT Alerts Manager Review</h2>`,
-    `<p style="color:#a1a1aa;">${escapeHtml(easternLabel(periodStart))} to ${escapeHtml(easternLabel(periodEnd))} Eastern</p>`,
-    `<p><strong>${rows.length}</strong> reviewed &nbsp; <span style="color:#4ade80;"><strong>${closed}</strong> auto-closed</span> &nbsp; <span style="color:#fbbf24;"><strong>${open}</strong> kept open</span> &nbsp; <span style="color:#fb7185;"><strong>${review}</strong> need review</span></p>`,
-    `<p style="padding:8px 10px;border-left:3px solid #7dd3fc;background:#172033;color:#d4d4d8;">Review every auto-closure below. Reopen the original alert if the decision was incorrect; the TriageIT audit remains intact.</p>`,
-    `<h3>Patterns</h3><ul>${patternRows || "<li>No repeated pattern</li>"}</ul>`,
-    `<table style="border-collapse:collapse;width:100%;background:#18181b;"><thead><tr style="text-align:left;color:#a1a1aa;"><th style="padding:8px;">Ticket</th><th style="padding:8px;">Alert and reason</th><th style="padding:8px;">Decision</th><th style="padding:8px;">Pattern</th></tr></thead><tbody>${ticketRows}</tbody></table>`,
+    `<details style="margin:0;border-top:1px solid #34343b;background:#18181b;">`,
+    `<summary style="cursor:pointer;padding:12px 14px;color:#f4f4f5;line-height:1.35;">`,
+    `<strong style="display:inline-block;min-width:72px;color:#7dd3fc;">#${row.halo_id}</strong>`,
+    `<strong>${escapeHtml(summary)}</strong>`,
+    `<span style="float:right;color:${color};font-size:11px;font-weight:700;">${confidence}%</span>`,
+    `<br/><span style="display:inline-block;margin-left:72px;color:#a1a1aa;font-size:11px;">${escapeHtml(source)} &nbsp; | &nbsp; ${escapeHtml(pattern)}</span>`,
+    `</summary>`,
+    `<div style="margin:0 14px 14px 86px;padding:12px 14px;border-left:3px solid ${color};background:#111114;color:#d4d4d8;line-height:1.5;">`,
+    `<div style="margin-bottom:8px;"><strong style="color:#f4f4f5;">Why:</strong> ${escapeHtml(reason)}</div>`,
+    resource ? `<div style="margin-bottom:8px;"><strong style="color:#f4f4f5;">Affected:</strong> ${escapeHtml(resource)}</div>` : "",
+    `<a href="${escapeHtml(url)}" style="display:inline-block;color:#7dd3fc;font-weight:700;text-decoration:none;">Open original Halo ticket &#8599;</a>`,
+    `</div>`,
+    `</details>`,
+  ].join("");
+}
+
+function renderDecisionSection(
+  rows: ReadonlyArray<AlertReviewRow>,
+  haloBaseUrl: string,
+  title: string,
+  description: string,
+  color: string,
+): string {
+  return [
+    `<section style="margin:16px 0;border:1px solid #34343b;background:#18181b;">`,
+    `<div style="padding:11px 14px;border-left:4px solid ${color};background:#202024;">`,
+    `<strong style="color:${color};font-size:14px;">${escapeHtml(title)} <span style="color:#f4f4f5;">${rows.length}</span></strong>`,
+    `<span style="display:block;margin-top:2px;color:#a1a1aa;font-size:11px;">${escapeHtml(description)}</span>`,
+    `</div>`,
+    rows.length > 0
+      ? rows.map((row) => renderAlertItem(row, haloBaseUrl, color)).join("")
+      : `<div style="padding:14px;color:#71717a;">No alerts in this section.</div>`,
+    `</section>`,
+  ].join("");
+}
+
+export function buildAlertDigestHtml(rows: ReadonlyArray<AlertReviewRow>, haloBaseUrl: string, periodStart: Date, periodEnd: Date): string {
+  const patterns = patternSummary(rows);
+  const closedRows = rows.filter((row) => row.event_type === "alert_manager_auto_closed");
+  const openRows = rows.filter((row) => row.event_type === "alert_manager_kept_open");
+  const reviewRows = rows.filter((row) => row.event_type === "alert_manager_review_required" || row.event_type === "alert_manager_error");
+  const patternRows = patterns.map((pattern) => `<span style="display:inline-block;margin:3px 5px 3px 0;padding:5px 8px;border:1px solid #3f3f46;background:#202024;color:#d4d4d8;font-size:11px;"><strong style="color:#f4f4f5;">${pattern.count}x</strong> ${escapeHtml(pattern.key)}</span>`).join("");
+  return [
+    `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:1100px;margin:0 auto;padding:18px;background:#0f0f12;color:#e4e4e7;">`,
+    `<header style="padding:18px;border:1px solid #34343b;background:#18181b;">`,
+    `<div style="color:#f4f4f5;font-size:20px;font-weight:700;">TriageIT Alerts Manager</div>`,
+    `<div style="margin-top:4px;color:#a1a1aa;font-size:12px;">Review window: ${escapeHtml(easternLabel(periodStart))} to ${escapeHtml(easternLabel(periodEnd))} Eastern</div>`,
+    `<div style="margin-top:14px;">`,
+    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #52525b;background:#202024;"><strong style="font-size:18px;color:#f4f4f5;">${rows.length}</strong><span style="display:block;color:#a1a1aa;font-size:10px;">REVIEWED</span></span>`,
+    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #7f1d1d;background:#2a1519;"><strong style="font-size:18px;color:#fb7185;">${reviewRows.length}</strong><span style="display:block;color:#fda4af;font-size:10px;">NEEDS REVIEW</span></span>`,
+    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #854d0e;background:#261c0d;"><strong style="font-size:18px;color:#fbbf24;">${openRows.length}</strong><span style="display:block;color:#fcd34d;font-size:10px;">KEPT OPEN</span></span>`,
+    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #166534;background:#102319;"><strong style="font-size:18px;color:#4ade80;">${closedRows.length}</strong><span style="display:block;color:#86efac;font-size:10px;">AUTO-CLOSED</span></span>`,
+    `</div>`,
+    `<div style="margin-top:10px;padding:9px 11px;border-left:3px solid #38bdf8;background:#172033;color:#d4d4d8;font-size:12px;">Open a row to inspect the exact reason. If an auto-closure was wrong, reopen the original ticket; the audit remains attached.</div>`,
+    `</header>`,
+    renderDecisionSection(reviewRows, haloBaseUrl, "Needs human review", "Ambiguous, security-related, communication, or processing exceptions. No automatic closure occurred.", "#fb7185"),
+    renderDecisionSection(openRows, haloBaseUrl, "Actionable - kept open", "TriageIT found a service, backup, configuration, or delivery problem that still needs work.", "#fbbf24"),
+    renderDecisionSection(closedRows, haloBaseUrl, "Auto-closed noise", "Only allowlisted informational or explicitly self-resolving patterns are shown here.", "#4ade80"),
+    `<details style="margin-top:16px;border:1px solid #34343b;background:#18181b;">`,
+    `<summary style="cursor:pointer;padding:12px 14px;color:#7dd3fc;font-weight:700;">Recurring patterns (${patterns.length})</summary>`,
+    `<div style="padding:0 14px 14px;">${patternRows || "<span style=\"color:#71717a;\">No repeated pattern</span>"}</div>`,
+    `</details>`,
     `</div>`,
   ].join("");
+}
+
+export async function refreshAlertManagerDigestTicket(haloTicketId: number): Promise<number> {
+  const supabase = createSupabaseClient();
+  const { data: integration } = await supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).maybeSingle();
+  if (!integration?.config) throw new Error("Halo is not configured");
+  const { data, error } = await supabase
+    .from("workflow_events")
+    .select("id, halo_id, event_type, note, payload, created_at")
+    .contains("payload", { digest_halo_id: haloTicketId })
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []).map((row) => ({
+    ...row,
+    event_type: String(row.event_type).replace(/_digested$/, ""),
+  })) as ReadonlyArray<AlertReviewRow>;
+  if (rows.length === 0) throw new Error(`No audit rows found for digest #${haloTicketId}`);
+  const haloConfig = integration.config as HaloConfig;
+  const halo = new HaloClient(haloConfig);
+  await halo.updateTicketDetails(
+    haloTicketId,
+    buildAlertDigestHtml(rows, haloConfig.base_url, new Date(rows[0].created_at), new Date(rows[rows.length - 1].created_at)),
+  );
+  return rows.length;
 }
 
 export async function generateAlertManagerDigest(): Promise<AlertDigestResult> {
@@ -114,7 +175,7 @@ export async function generateAlertManagerDigest(): Promise<AlertDigestResult> {
       const part = rows.length > MAX_ROWS_PER_DIGEST ? ` (${Math.floor(offset / MAX_ROWS_PER_DIGEST) + 1}/${Math.ceil(rows.length / MAX_ROWS_PER_DIGEST)})` : "";
       const haloTicketId = await halo.createTicket({
         summary: `TriageIT Alerts Manager Review - ${easternLabel(periodEnd)}${part}`,
-        details: digestHtml(chunk, haloConfig.base_url, periodStart, periodEnd),
+        details: buildAlertDigestHtml(chunk, haloConfig.base_url, periodStart, periodEnd),
         userId: Number(process.env.ALERT_DIGEST_USER_ID) || DEFAULT_REVIEW_USER_ID,
         ticketTypeId: Number(process.env.ALERT_DIGEST_TICKET_TYPE_ID) || DIGEST_TICKET_TYPE_ID,
       });
