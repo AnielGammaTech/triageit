@@ -10,7 +10,7 @@ type SpanProps = HTMLAttributes<HTMLSpanElement> &
 
 // Two-tone wordmark treatment (docs/brand/gtools-logo-standard.md,
 // "Wordmark rule"): a tool's display name splits into "<Name>" + "IT",
-// both in Manrope ExtraBold (`--font-wordmark`), where "<Name>" keeps
+// both in Sora Bold (`--font-wordmark`), where "<Name>" keeps
 // whatever foreground color the caller sets on this component and "IT"
 // is always the tool's wordmark TINT (`var(--color-<slug>-tint)`) — a
 // brightened sibling of the locked logo hex, not the locked hex itself.

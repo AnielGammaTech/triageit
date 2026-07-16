@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Manrope, Unbounded } from "next/font/google";
+import { Inter, Sora, Unbounded } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -9,14 +9,14 @@ const unbounded = Unbounded({
   variable: "--font-unbounded",
 });
 // Wordmark treatment only (see docs/brand/gtools-logo-standard.md) — weight
-// 800 (ExtraBold) is the only weight the two-tone tool wordmark ever uses.
+// 700 (Bold) is the only weight the two-tone tool wordmark ever uses.
 // Aliased to the semantic `--font-wordmark` var in globals.css, same
 // two-tier pattern as --font-display/--font-body over --font-unbounded/
 // --font-inter.
-const manrope = Manrope({
+const sora = Sora({
   subsets: ["latin"],
-  weight: ["800"],
-  variable: "--font-manrope",
+  weight: ["700"],
+  variable: "--font-sora",
 });
 
 export const metadata: Metadata = {
@@ -40,7 +40,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${unbounded.variable} ${manrope.variable}`}
+      className={`${inter.variable} ${unbounded.variable} ${sora.variable}`}
     >
       <body>{children}</body>
     </html>

@@ -76,7 +76,7 @@ stroke color and the tile's added inner stroke change.
 Where a tool name is rendered as a wordmark in site chrome (header chips, suite grid
 card titles, section kickers, at minimum):
 
-- Font: Manrope ExtraBold (800), loaded via `next/font/google`, exposed as the
+- Font: Sora Bold (700), loaded via `next/font/google`, exposed as the
   `--font-wordmark` CSS variable.
 - Two-tone split: the product **name** renders in white (dark theme) / near-black (light
   theme) — the page's default text color — and the trailing **"IT"** renders in the

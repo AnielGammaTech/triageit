@@ -68,7 +68,7 @@
 
   --font-display: var(--font-unbounded), sans-serif;
   --font-body: var(--font-inter), sans-serif;
-  --font-wordmark: var(--font-manrope), sans-serif;
+  --font-wordmark: var(--font-sora), sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
