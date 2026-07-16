@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { TOOLS } from "@/content/tools";
-import { accentVar } from "@/components/browser-frame";
 import { useMagnetic } from "@/components/fx/magnetic";
 import { ToolLogo } from "@/components/tool-logo";
+import { ToolWordmark } from "@/components/tool-wordmark";
 
 // Header logo-drop redesign (task 18) — replaces the "Tools" disclosure
 // dropdown (task 17) with all 11 tools docked directly in the nav as
@@ -72,13 +72,12 @@ export function Nav() {
               className="fx-nav-chip flex shrink-0 items-center gap-1 rounded-full px-1 py-1"
             >
               <ToolLogo slug={tool.slug} size={14} />
-              <span
-                aria-hidden
-                className="fx-nav-chip-label hidden font-display text-[10px] font-semibold tracking-[-0.01em] xl:inline"
-                style={{ color: accentVar(tool.accent) }}
-              >
-                {tool.name}
-              </span>
+              <ToolWordmark
+                name={tool.name}
+                slug={tool.slug}
+                className="fx-nav-chip-label hidden text-[10px] font-semibold tracking-[-0.01em] text-snow xl:inline"
+                decorative
+              />
             </a>
           ))}
         </nav>

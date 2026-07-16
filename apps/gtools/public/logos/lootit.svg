@@ -1,19 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2E0820"/>
-      <stop offset="100%" stop-color="#4A1035"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
-  <circle cx="26" cy="6" r="10" fill="#EC4899" opacity="0.12"/>
-  <text x="13" y="20.5"
-    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-    font-weight="800"
-    font-size="18"
-    fill="#FFFFFF"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-0.5">L</text>
-  <circle cx="24" cy="10.5" r="2.5" fill="#EC4899"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect x="9.5" y="11.5" width="31" height="31" rx="10.5" fill="none" stroke="#D6337E" stroke-width="1.8" opacity="0.55" transform="translate(-3.4,3.4)"/>
+  <path d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.5,11.5 A6,6 0 1 0 46.5,11.5 A6,6 0 1 0 34.5,11.5 Z" fill="#D6337E" fill-rule="evenodd"/>
+  <circle cx="40.5" cy="11.5" r="3.6" fill="#D6337E"/>
+  <path d="M160 0V1440H432V254H1052V0Z" transform="translate(18.779,27.2) scale(0.011,-0.011)" fill="#fff"/>
 </svg>

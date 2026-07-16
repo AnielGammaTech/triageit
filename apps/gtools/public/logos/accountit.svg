@@ -1,18 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- AccountIT is a standalone-branded CRM app (own top bar/logo, links out to QuoteIT — not a QuoteIT module).
-       Mark matches the deployed app: dark navy rounded-square tile, bold white "A", small indigo accent dot. -->
-  <rect width="32" height="32" rx="7" fill="#1E2532"/>
-  <!-- Subtle corner glow -->
-  <circle cx="26" cy="6" r="8" fill="#818CF8" opacity="0.08"/>
-  <!-- A letter -->
-  <text x="14.5" y="20"
-    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-    font-weight="800"
-    font-size="18"
-    fill="#FFFFFF"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-0.5">A</text>
-  <!-- Indigo accent dot -->
-  <circle cx="22.5" cy="11" r="2.2" fill="#A5B4FC"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect x="9.5" y="11.5" width="31" height="31" rx="10.5" fill="none" stroke="#A21CAF" stroke-width="1.8" opacity="0.55" transform="translate(-3.4,3.4)"/>
+  <path d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.5,11.5 A6,6 0 1 0 46.5,11.5 A6,6 0 1 0 34.5,11.5 Z" fill="#A21CAF" fill-rule="evenodd"/>
+  <circle cx="40.5" cy="11.5" r="3.6" fill="#A21CAF"/>
+  <path d="M40 0 480 1440H886L1326 0H1046L654 1270H706L320 0ZM304 300V554H1064V300Z" transform="translate(17.145,27.2) scale(0.011,-0.011)" fill="#fff"/>
 </svg>

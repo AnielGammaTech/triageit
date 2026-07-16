@@ -1,17 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- ConnectIT — rebuilt into the shared GTools tile family (same idea as
-       accountit.svg): colored rounded-square tile using the product's real
-       brand blue (#2f80ed, matches ConnectIT web/src/main.jsx .brand-mark),
-       bold white "C", small accent dot top-right. -->
-  <rect width="32" height="32" rx="7" fill="#2f80ed"/>
-  <circle cx="26" cy="6" r="8" fill="#BFDBFE" opacity="0.08"/>
-  <text x="14.5" y="20"
-    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-    font-weight="800"
-    font-size="18"
-    fill="#FFFFFF"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-0.5">C</text>
-  <circle cx="22.5" cy="11" r="2.2" fill="#BFDBFE"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect x="9.5" y="11.5" width="31" height="31" rx="10.5" fill="none" stroke="#2364C7" stroke-width="1.8" opacity="0.55" transform="translate(-3.4,3.4)"/>
+  <path d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.5,11.5 A6,6 0 1 0 46.5,11.5 A6,6 0 1 0 34.5,11.5 Z" fill="#2364C7" fill-rule="evenodd"/>
+  <circle cx="40.5" cy="11.5" r="3.6" fill="#2364C7"/>
+  <path d="M758 -30Q542 -30 385.5 64Q229 158 144.5 327Q60 496 60 720Q60 944 144.5 1113Q229 1282 385.5 1376Q542 1470 758 1470Q1006 1470 1174.5 1347Q1343 1224 1412 1014L1138 938Q1098 1069 1003 1141.5Q908 1214 758 1214Q621 1214 529.5 1153Q438 1092 392 981Q346 870 346 720Q346 570 392 459Q438 348 529.5 287Q621 226 758 226Q908 226 1003 299Q1098 372 1138 502L1412 426Q1343 216 1174.5 93Q1006 -30 758 -30Z" transform="translate(16.421,27.2) scale(0.011,-0.011)" fill="#fff"/>
 </svg>

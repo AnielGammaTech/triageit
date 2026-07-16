@@ -4,6 +4,7 @@ import type { Tool } from "@/content/types";
 import { TOOLS } from "@/content/tools";
 import { accentVar } from "@/components/browser-frame";
 import { ToolLogo } from "@/components/tool-logo";
+import { ToolWordmark } from "@/components/tool-wordmark";
 import { Reveal } from "@/components/fx/reveal";
 import { useMagnetic } from "@/components/fx/magnetic";
 
@@ -48,8 +49,8 @@ function SuiteCard({
           <ToolLogo slug={tool.slug} size={20} />
         </span>
 
-        <h3 className="font-display text-base font-semibold text-snow">
-          {tool.name}
+        <h3 className="text-base font-semibold text-snow">
+          <ToolWordmark name={tool.name} slug={tool.slug} />
         </h3>
         <p className="text-[13px] leading-snug text-fog">{tool.oneLiner}</p>
 

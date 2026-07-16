@@ -19,21 +19,32 @@
   --color-snow: #f2f2f5;       /* primary text */
   --color-brand: #6e7bff;      /* GTools brand accent */
 
-  /* per-tool accents — REAL brand colors, matched to each product's actual UI */
-  --color-triageit: #b91c1c;
-  --color-secureit: #94a3b8; /* SecureIT brand is monochrome ink; slate stands in so glows/dots stay visible on the dark site */
-  --color-projectit: #0069af;
-  --color-portalit: #5b21b6;
-  --color-quoteit: #f96302;
-  --color-accountit: #6366f1;
-  --color-lootit: #EC4899;
-  --color-connectit: #2f80ed;
-  --color-runit: #dc2626;
-  --color-phoneit: #1f6feb;
-  --color-vendit: #10b981;
+  /* per-tool accents — locked brand palette, see docs/brand/gtools-logo-standard.md */
+  --color-triageit: #a61b1b;
+  /*
+   * SecureIT's LOGO tool color is #0B0F14 (near-black), per the brand
+   * standard. Do NOT use that hex here. This token drives site chrome —
+   * glows, kickers, underlines — on the dark (#08080d) page ground, where
+   * near-black would render invisible. #64748B is a deliberate site-only
+   * substitute; the near-black itself still lives inside the logo mark/tile
+   * (which has its own contrast fix, an added inner stroke). Recoloring this
+   * back toward black "to match the logo" breaks every accent-driven
+   * element in SecureIT's section.
+   */
+  --color-secureit: #64748b;
+  --color-projectit: #0e3a5c;
+  --color-portalit: #4c1d95;
+  --color-quoteit: #e05800;
+  --color-accountit: #a21caf;
+  --color-lootit: #d6337e;
+  --color-connectit: #2364c7;
+  --color-runit: #b45309;
+  --color-phoneit: #0e7490;
+  --color-vendit: #0b9668;
 
   --font-display: var(--font-unbounded), sans-serif;
   --font-body: var(--font-inter), sans-serif;
+  --font-wordmark: var(--font-manrope), sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 

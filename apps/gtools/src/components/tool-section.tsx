@@ -1,6 +1,7 @@
 import { BrowserFrame, accentVar } from "@/components/browser-frame";
 import { MOCKUPS } from "@/components/mockups";
 import { ToolLogo } from "@/components/tool-logo";
+import { ToolWordmark } from "@/components/tool-wordmark";
 import { Reveal } from "@/components/fx/reveal";
 import { Tilt } from "@/components/fx/tilt";
 import type { Tool } from "@/content/types";
@@ -95,12 +96,24 @@ export function ToolSection({
                   />
                   <ToolLogo slug={tool.slug} size={30} />
                 </span>
-                <p
-                  data-fx="decrypt-kicker"
-                  className="text-xs font-semibold uppercase tracking-[0.25em]"
-                  style={{ color: accent }}
-                >
-                  {tool.name}
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-snow">
+                  {/*
+                    `data-fx="decrypt-kicker"` moves down to the base-name
+                    span (not this <p>) so scroll-fx-decrypt.ts's scramble
+                    only rewrites the base name's textContent — otherwise it
+                    would flatten the two-tone wordmark's accent-colored
+                    "IT" span into plain text the first time this section
+                    scrolls into view. scroll-fx-header-drop.ts's
+                    `section.querySelector('[data-fx="decrypt-kicker"]')`
+                    still resolves to this same inner span for its live
+                    getBoundingClientRect() position math, which is exactly
+                    where the kicker text sits either way.
+                  */}
+                  <ToolWordmark
+                    name={tool.name}
+                    slug={tool.slug}
+                    nameProps={{ "data-fx": "decrypt-kicker" }}
+                  />
                 </p>
               </div>
 

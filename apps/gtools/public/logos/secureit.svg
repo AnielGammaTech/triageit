@@ -1,26 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- SecureIT: the owner says the previous shield mark isn't their real
-       logo. Placeholder rebuilt into the shared GTools tile family (same
-       idea as accountit.svg) until the real one lands: dark ink
-       rounded square tile (#0B0F14, matches the product's actual
-       monochrome ink branding), bold white "S", small slate accent dot
-       (the site's own color secureit token elsewhere on this page is that
-       same slate, chosen so glows and dots stay visible against SecureIT's
-       monochrome ink brand). Swappable: replace this file's fill and text
-       with the real mark whenever it's supplied; tool logo.tsx renders
-       every slug identically, so no other file needs to change. Note for
-       future edits: XML comments may never contain a literal double
-       hyphen, so avoid writing CSS custom property names like the one
-       above verbatim in here. -->
-  <rect width="32" height="32" rx="7" fill="#0B0F14"/>
-  <circle cx="26" cy="6" r="8" fill="#94A3B8" opacity="0.10"/>
-  <text x="14.5" y="20"
-    font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-    font-weight="800"
-    font-size="18"
-    fill="#FFFFFF"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-0.5">S</text>
-  <circle cx="22.5" cy="11" r="2.2" fill="#94A3B8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect x="9.5" y="11.5" width="31" height="31" rx="10.5" fill="none" stroke="#64748B" stroke-width="1.8" opacity="0.55" transform="translate(-3.4,3.4)"/>
+  <path d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.5,11.5 A6,6 0 1 0 46.5,11.5 A6,6 0 1 0 34.5,11.5 Z" fill="#0B0F14" fill-rule="evenodd" stroke="#64748B" stroke-opacity="0.45" stroke-width="1"/>
+  <circle cx="40.5" cy="11.5" r="3.6" fill="#0B0F14"/>
+  <path d="M684 -30Q524 -30 395.5 26.5Q267 83 184.5 188.5Q102 294 80 440L364 482Q394 358 488 291Q582 224 702 224Q769 224 832 245Q895 266 935.5 307Q976 348 976 408Q976 430 969.5 450.5Q963 471 948 489Q933 507 905.5 523Q878 539 836 552L462 662Q420 674 364.5 696Q309 718 257 759Q205 800 170.5 867.5Q136 935 136 1038Q136 1183 209 1279Q282 1375 404 1422Q526 1469 674 1468Q823 1466 940 1417Q1057 1368 1136 1274.5Q1215 1181 1250 1046L956 996Q940 1066 897 1114Q854 1162 794.5 1187Q735 1212 670 1214Q606 1216 549.5 1196.5Q493 1177 457.5 1140Q422 1103 422 1052Q422 1005 451 975.5Q480 946 524 928Q568 910 614 898L864 830Q920 815 988 790.5Q1056 766 1118.5 722.5Q1181 679 1221.5 608Q1262 537 1262 428Q1262 312 1213.5 225.5Q1165 139 1083 82.5Q1001 26 897.5 -2Q794 -30 684 -30Z" transform="translate(17.284,27.2) scale(0.011,-0.011)" fill="#fff"/>
 </svg>

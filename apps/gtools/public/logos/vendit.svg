@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <!-- Reconstructed from vendit/web/public/icon-512.png: emerald rounded-square tile (theme_color #10b981) + bold white "V" glyph -->
-  <rect width="32" height="32" rx="8" fill="#10b981"/>
-  <path d="M9.5 9.5 L16 20.5 L22.5 9.5" fill="none" stroke="#FFFFFF" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect x="9.5" y="11.5" width="31" height="31" rx="10.5" fill="none" stroke="#0B9668" stroke-width="1.8" opacity="0.55" transform="translate(-3.4,3.4)"/>
+  <path d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.5,11.5 A6,6 0 1 0 46.5,11.5 A6,6 0 1 0 34.5,11.5 Z" fill="#0B9668" fill-rule="evenodd"/>
+  <circle cx="40.5" cy="11.5" r="3.6" fill="#0B9668"/>
+  <path d="M450 0 10 1440H290L650 256L1016 1440H1296L856 0Z" transform="translate(17.491,27.2) scale(0.011,-0.011)" fill="#fff"/>
 </svg>
