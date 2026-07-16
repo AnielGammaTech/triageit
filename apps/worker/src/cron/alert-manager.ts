@@ -73,6 +73,54 @@ function alertIsOldEnough(ticket: HaloTicket): boolean {
   return !Number.isFinite(createdAt) || Date.now() - createdAt >= MIN_ALERT_AGE_MS;
 }
 
+async function ensureAlertAuditTargets(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  alerts: ReadonlyArray<HaloTicket>,
+): Promise<Map<number, string>> {
+  const haloIds = alerts.map((ticket) => ticket.id);
+  const { data: existing, error: lookupError } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .in("halo_id", haloIds.length ? haloIds : [-1]);
+  if (lookupError) throw new Error(`Could not load alert audit targets: ${lookupError.message}`);
+
+  const existingIds = new Set((existing ?? []).map((row) => Number(row.halo_id)));
+  const missing = alerts.filter((ticket) => !existingIds.has(ticket.id));
+  if (missing.length > 0) {
+    const now = new Date().toISOString();
+    const { error: insertError } = await supabase.from("tickets").upsert(
+      missing.map((ticket) => ({
+        halo_id: ticket.id,
+        summary: ticket.summary ?? `Alert #${ticket.id}`,
+        details: ticket.details ?? null,
+        client_name: ticket.client_name ?? null,
+        client_id: ticket.client_id ?? null,
+        user_name: ticket.user_name ?? null,
+        user_email: ticket.user_emailaddress ?? null,
+        original_priority: ticket.priority_id ?? null,
+        status: "triaged" as const,
+        halo_status_id: ticket.status_id,
+        tickettype_id: ALERT_TICKET_TYPE_ID,
+        halo_is_open: true,
+        last_tech_action_at: ticket.lastactiondate ?? null,
+        last_customer_reply_at: ticket.lastcustomeractiondate ?? null,
+        created_at: ticket.datecreated ?? now,
+        updated_at: now,
+        raw_data: { managed_by: "alert_manager" },
+      })),
+      { onConflict: "halo_id", ignoreDuplicates: true },
+    );
+    if (insertError) throw new Error(`Could not create alert audit targets: ${insertError.message}`);
+  }
+
+  const { data: rows, error: refreshError } = await supabase
+    .from("tickets")
+    .select("id, halo_id")
+    .in("halo_id", haloIds.length ? haloIds : [-1]);
+  if (refreshError) throw new Error(`Could not refresh alert audit targets: ${refreshError.message}`);
+  return new Map((rows ?? []).map((row) => [Number(row.halo_id), String(row.id)]));
+}
+
 function recentActionContext(actions: ReadonlyArray<HaloAction>): string {
   return actions
     .slice(-8)
@@ -170,12 +218,11 @@ export async function runAlertManager(options: { readonly dryRun?: boolean } = {
     .filter(alertIsOldEnough);
 
   const haloIds = openAlerts.map((ticket) => ticket.id);
-  const [{ data: existing }, { data: localTickets }] = await Promise.all([
+  const [{ data: existing }, localByHalo] = await Promise.all([
     supabase.from("workflow_events").select("halo_id").like("event_type", "alert_manager_%").in("halo_id", haloIds.length ? haloIds : [-1]),
-    supabase.from("tickets").select("id, halo_id").in("halo_id", haloIds.length ? haloIds : [-1]),
+    ensureAlertAuditTargets(supabase, openAlerts),
   ]);
   const reviewed = new Set((existing ?? []).map((row) => Number(row.halo_id)));
-  const localByHalo = new Map((localTickets ?? []).map((row) => [Number(row.halo_id), String(row.id)]));
   const candidates = openAlerts.filter((ticket) => !reviewed.has(ticket.id)).slice(0, MAX_REVIEWS_PER_RUN);
 
   let aiReviews = 0;
@@ -248,6 +295,15 @@ export async function runAlertManager(options: { readonly dryRun?: boolean } = {
         try {
           await halo.addInternalNote(ticket.id, closureNote(decision));
           await halo.updateTicketStatus(ticket.id, RESOLVED_STATUS_ID);
+          const { error: localCloseError } = await supabase.from("tickets").update({
+            halo_is_open: false,
+            halo_status: "Resolved",
+            halo_status_id: RESOLVED_STATUS_ID,
+            updated_at: new Date().toISOString(),
+          }).eq("id", localTicketId);
+          if (localCloseError) {
+            console.error(`[ALERT-MANAGER] Halo #${ticket.id} closed, but local state update failed: ${localCloseError.message}`);
+          }
           await supabase.from("workflow_events").update({
             event_type: "alert_manager_auto_closed",
             note: decision.reason,
