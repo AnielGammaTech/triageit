@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deterministicAlertDecision, hasProtectedAlertSignals } from "./alert-manager-policy.js";
+import { deterministicAlertDecision, hasProtectedAlertSignals, recurringThreeCxAlertKey } from "./alert-manager-policy.js";
 
 describe("deterministicAlertDecision", () => {
   it("closes known self-resolving Spanning throttling noise", () => {
@@ -30,5 +30,15 @@ describe("deterministicAlertDecision", () => {
     expect(deterministicAlertDecision({ summary: "Microsoft Entra ID Protection Weekly Digest", details: "One risky sign-in detected" })?.decision).toBe("review_required");
     expect(deterministicAlertDecision({ summary: "BackupIQ: Microsoft 365 Alert", details: "Backup partially completed" })?.decision).toBe("keep_open");
     expect(deterministicAlertDecision({ summary: "3CX Alert: Scheduled Backup Failed", details: "The scheduled backup failed" })?.decision).toBe("keep_open");
+  });
+
+  it("groups only identical 3CX system alerts, never customer contact events", () => {
+    const stahlman = "3CX Alert: Trunk/Provider responds to Request with an error - System wide - stahlman.fl.3cx.us";
+    expect(recurringThreeCxAlertKey({ summary: stahlman })).toBe(recurringThreeCxAlertKey({ summary: `  ${stahlman}  ` }));
+    expect(recurringThreeCxAlertKey({ summary: stahlman })).not.toBe(recurringThreeCxAlertKey({
+      summary: "3CX Alert: Trunk/Provider responds to Request with an error - System wide - another.fl.3cx.us",
+    }));
+    expect(recurringThreeCxAlertKey({ summary: "New missed call from +1239" })).toBeNull();
+    expect(recurringThreeCxAlertKey({ summary: "New Voicemail from +1239" })).toBeNull();
   });
 });

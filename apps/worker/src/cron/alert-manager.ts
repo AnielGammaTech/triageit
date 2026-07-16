@@ -5,6 +5,7 @@ import { parseLlmJson } from "../agents/parse-json.js";
 import {
   deterministicAlertDecision,
   hasProtectedAlertSignals,
+  recurringThreeCxAlertKey,
   type AlertPolicyDecision,
   type AlertTicketInput,
 } from "../alerts/alert-manager-policy.js";
@@ -262,6 +263,147 @@ export async function closeDuplicateSpanningAlerts(options: { readonly limit?: n
   return closed;
 }
 
+function easternAlertTime(value: string | null | undefined): string {
+  if (!value) return "time unavailable";
+  const normalized = /[zZ]$|[+-]\d\d:?\d\d$/.test(value.trim()) ? value : `${value}Z`;
+  const parsed = new Date(normalized);
+  if (!Number.isFinite(parsed.getTime())) return "time unavailable";
+  return parsed.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function recurringThreeCxRollupNote(
+  newest: HaloTicket,
+  older: ReadonlyArray<HaloTicket>,
+): string {
+  const occurrences = [newest, ...older].sort((a, b) => a.id - b.id);
+  const lines = occurrences.map((ticket) => {
+    const detail = stripHtml(ticket.details ?? "No alert detail").slice(0, 240);
+    return `<li style="margin-bottom:5px;"><strong>#${ticket.id}</strong> - ${escapeHtml(easternAlertTime(ticket.dateoccurred ?? ticket.datecreated))} ET<br/><span style="color:#a1a1aa;">${escapeHtml(detail)}</span></li>`;
+  }).join("");
+  return [
+    `<div style="font-family:Segoe UI,Arial,sans-serif;border-left:4px solid #38bdf8;padding:12px 14px;background:#111827;">`,
+    `<strong style="color:#7dd3fc;">TriageIT recurring alert rollup</strong><br/>`,
+    `<span style="color:#e4e4e7;">${occurrences.length} occurrences of this same 3CX system alert were consolidated. This newest ticket remains open; ${older.length} older tickets were resolved as repeats.</span><br/>`,
+    `<span style="color:#a1a1aa;font-size:11px;">Window: ${escapeHtml(easternAlertTime(occurrences[0].dateoccurred ?? occurrences[0].datecreated))} to ${escapeHtml(easternAlertTime(newest.dateoccurred ?? newest.datecreated))} ET</span>`,
+    `<details style="margin-top:8px;"><summary style="cursor:pointer;color:#7dd3fc;font-weight:700;">Occurrence history (${occurrences.length})</summary><ol style="margin:8px 0 0 20px;padding:0;color:#d4d4d8;">${lines}</ol></details>`,
+    `</div>`,
+  ].join("");
+}
+
+export async function closeRecurringThreeCxAlerts(options: { readonly limit?: number } = {}): Promise<number> {
+  const limit = Math.max(1, Math.min(300, Math.trunc(options.limit ?? 80)));
+  const supabase = createSupabaseClient();
+  const { data: integration } = await supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).maybeSingle();
+  if (!integration?.config) throw new Error("Halo is not configured");
+  const halo = new HaloClient(integration.config as HaloConfig);
+  const openAlerts = await halo.getAllOpenTickets(ALERT_TICKET_TYPE_ID);
+  const groups = new Map<string, HaloTicket[]>();
+  for (const ticket of openAlerts) {
+    const key = recurringThreeCxAlertKey({ summary: ticket.summary ?? "" });
+    if (!key) continue;
+    const group = groups.get(key) ?? [];
+    group.push(ticket);
+    groups.set(key, group);
+  }
+
+  const duplicateGroups = [...groups.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => group.sort((a, b) => b.id - a.id));
+  const allCandidates = duplicateGroups.flatMap((group) => group.slice(1));
+  const localByHalo = await ensureAlertAuditTargets(supabase, [
+    ...duplicateGroups.map((group) => group[0]),
+    ...allCandidates.slice(0, limit),
+  ]);
+
+  let closed = 0;
+  for (const group of duplicateGroups) {
+    if (closed >= limit) break;
+    const newest = group[0];
+    const older = group.slice(1, 1 + (limit - closed));
+    const closedTickets: HaloTicket[] = [];
+    for (const ticket of older) {
+      const localTicketId = localByHalo.get(ticket.id);
+      if (!localTicketId) continue;
+      const reason = `Recurring 3CX alert consolidated into newest open ticket #${newest.id}. The alert summary and PBX are identical; individual SIP response details are preserved in the rollup on #${newest.id}.`;
+      const payload = {
+        ticket_summary: ticket.summary,
+        source: "3CX",
+        alert_type: "recurring_system_alert",
+        affected_resource: ticket.summary,
+        confidence: 1,
+        reason,
+        pattern_key: "3cx:recurring_system_alert",
+        policy_source: "deterministic",
+        superseded_by_halo_id: newest.id,
+        occurrence_details: stripHtml(ticket.details ?? "").slice(0, 1_000),
+      };
+      const { data: audit, error: auditError } = await supabase.from("workflow_events").insert({
+        ticket_id: localTicketId,
+        halo_id: ticket.id,
+        event_type: "alert_manager_processing",
+        note: reason,
+        payload,
+      }).select("id").single();
+      if (auditError || !audit) continue;
+      try {
+        await halo.addInternalNote(ticket.id, closureNote({
+          decision: "auto_close",
+          confidence: 1,
+          reason,
+          source: "3CX",
+          alertType: "recurring_system_alert",
+          affectedResource: ticket.summary,
+          patternKey: "3cx:recurring_system_alert",
+          policySource: "deterministic",
+        }));
+        await halo.updateTicketStatus(ticket.id, RESOLVED_STATUS_ID);
+        await Promise.all([
+          supabase.from("tickets").update({ halo_is_open: false, halo_status: "Resolved", halo_status_id: RESOLVED_STATUS_ID, updated_at: new Date().toISOString() }).eq("id", localTicketId),
+          supabase.from("workflow_events").update({ event_type: "alert_manager_auto_closed", note: reason, payload: { ...payload, closed_at: new Date().toISOString() } }).eq("id", audit.id),
+        ]);
+        closedTickets.push(ticket);
+        closed++;
+      } catch (error) {
+        await supabase.from("workflow_events").update({ event_type: "alert_manager_error", note: error instanceof Error ? error.message : String(error), payload }).eq("id", audit.id);
+      }
+    }
+
+    if (closedTickets.length > 0) {
+      await halo.addInternalNote(newest.id, recurringThreeCxRollupNote(newest, closedTickets));
+      const newestLocalId = localByHalo.get(newest.id);
+      if (newestLocalId) {
+        const reason = `${closedTickets.length} older occurrences were consolidated into this newest open 3CX system alert.`;
+        await supabase.from("workflow_events").insert({
+          ticket_id: newestLocalId,
+          halo_id: newest.id,
+          event_type: "alert_manager_kept_open",
+          note: reason,
+          payload: {
+            ticket_summary: newest.summary,
+            source: "3CX",
+            alert_type: "recurring_system_alert_rollup",
+            affected_resource: newest.summary,
+            confidence: 1,
+            reason,
+            pattern_key: "3cx:recurring_system_alert",
+            policy_source: "deterministic",
+            occurrence_count: closedTickets.length + 1,
+            consolidated_halo_ids: closedTickets.map((ticket) => ticket.id),
+          },
+        });
+      }
+    }
+  }
+  console.log(`[ALERT-MANAGER] 3CX recurrence cleanup: ${closed} older alerts consolidated`);
+  return closed;
+}
+
 function recentActionContext(actions: ReadonlyArray<HaloAction>): string {
   return actions
     .slice(-8)
@@ -483,7 +625,10 @@ export async function runAlertManager(options: {
     }
   }
 
-  const duplicatesClosed = dryRun ? 0 : await closeDuplicateSpanningAlerts({ limit: options.duplicateLimit });
+  const duplicatesClosed = dryRun ? 0 : (
+    await closeDuplicateSpanningAlerts({ limit: options.duplicateLimit })
+    + await closeRecurringThreeCxAlerts({ limit: options.duplicateLimit })
+  );
   console.log(`[ALERT-MANAGER] ${dryRun ? "Previewed" : "Reviewed"} ${candidates.length}: ${autoClosed} auto-closed, ${duplicatesClosed} duplicates closed, ${keptOpen} kept open, ${reviewRequired} need review, ${errors} errors`);
   return { checked: candidates.length, autoClosed, keptOpen, reviewRequired, errors, duplicatesClosed, dryRun, decisions };
 }
