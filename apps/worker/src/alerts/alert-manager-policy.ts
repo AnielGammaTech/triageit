@@ -36,6 +36,18 @@ export function hasProtectedAlertSignals(input: AlertTicketInput): boolean {
   return SECURITY_SIGNAL.test(value) || PERSISTENT_OR_ACTIONABLE.test(value) || MISSED_COMMUNICATION.test(value);
 }
 
+/**
+ * Recurring 3CX system alerts use an exact summary that includes the PBX FQDN
+ * and alert class. Calls/voicemails are deliberately excluded because each is
+ * a separate customer-contact event, even when their summaries repeat.
+ */
+export function recurringThreeCxAlertKey(input: Pick<AlertTicketInput, "summary">): string | null {
+  const summary = input.summary.replace(/\s+/g, " ").trim();
+  if (!/^3CX\s+(?:Alert|Notification):/i.test(summary)) return null;
+  if (/\b(?:missed call|voicemail)\b/i.test(summary)) return null;
+  return `3cx:${summary.toLowerCase()}`;
+}
+
 export function deterministicAlertDecision(input: AlertTicketInput): AlertPolicyDecision | null {
   const value = text(input);
   if (SECURITY_SIGNAL.test(value)) {
