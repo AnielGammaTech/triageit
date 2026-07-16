@@ -508,7 +508,7 @@ export default function TvPage() {
         {/* ── Header ── */}
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-[1vw]">
-            <BrandMark size="3.4vw" />
+            <BrandMark size="4.4vw" />
             <div>
               <h1 className="text-[1.7vw] font-black leading-none tracking-tight text-white">
                 TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>

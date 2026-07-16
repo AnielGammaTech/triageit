@@ -108,10 +108,10 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
               <Image
                 src="/triageit-mark.svg?v=20260716"
                 alt=""
-                width={44}
-                height={44}
-                className="h-11 w-11"
-                style={{ transform: "translateY(-2.75px)" }}
+                width={52}
+                height={52}
+                className="h-[52px] w-[52px]"
+                style={{ transform: "translateY(-3.25px)" }}
               />
               <span className="triageit-wordmark hidden whitespace-nowrap text-[22px] font-bold leading-none text-white sm:block">
                 Triage<span className="text-[#E05555]">IT</span>
