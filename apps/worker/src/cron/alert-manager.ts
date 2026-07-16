@@ -357,8 +357,10 @@ export async function runAlertManager(options: {
     .maybeSingle();
   if (!integration?.config) throw new Error("Halo is not configured");
   const halo = new HaloClient(integration.config as HaloConfig);
+  // getAllOpenTickets already queries Halo with requesttype_id=Alerts. Halo's
+  // paginated list projection sometimes omits tickettype_id on fresh rows, so
+  // a second field-based filter incorrectly stranded those alerts.
   const openAlerts = (await halo.getAllOpenTickets(ALERT_TICKET_TYPE_ID))
-    .filter((ticket) => ticket.tickettype_id === ALERT_TICKET_TYPE_ID)
     .filter(alertIsOldEnough);
 
   const reviewed = await loadReviewedHaloIds(supabase);
