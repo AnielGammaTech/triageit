@@ -4,7 +4,10 @@ import { HaloClient } from "../integrations/halo/client.js";
 
 const DIGEST_TICKET_TYPE_ID = 28;
 const DEFAULT_REVIEW_USER_ID = 3675;
-const MAX_ROWS_PER_DIGEST = 75;
+// Halo can become unreliable with hundreds of expandable rows in one ticket
+// details field. Keep the readable sections bounded, but attach overflow as
+// private notes to ONE parent ticket so each scheduled run creates one ticket.
+const MAX_ROWS_PER_SECTION = 75;
 
 interface AlertReviewRow {
   readonly id: string;
@@ -26,6 +29,28 @@ interface AlertReviewRow {
 export interface AlertDigestResult {
   readonly reviewed: number;
   readonly digestTickets: ReadonlyArray<number>;
+}
+
+export function partitionAlertDigestRows<T>(rows: ReadonlyArray<T>): ReadonlyArray<ReadonlyArray<T>> {
+  const sections: T[][] = [];
+  for (let offset = 0; offset < rows.length; offset += MAX_ROWS_PER_SECTION) {
+    sections.push(rows.slice(offset, offset + MAX_ROWS_PER_SECTION));
+  }
+  return sections;
+}
+
+async function retryHaloWrite(operation: () => Promise<unknown>, label: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await operation();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+    }
+  }
+  throw new Error(`${label} failed after 3 attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
 function escapeHtml(value: string): string {
@@ -126,6 +151,20 @@ export function buildAlertDigestHtml(rows: ReadonlyArray<AlertReviewRow>, haloBa
   ].join("");
 }
 
+function buildParentDigestHtml(
+  allRows: ReadonlyArray<AlertReviewRow>,
+  firstSection: ReadonlyArray<AlertReviewRow>,
+  haloBaseUrl: string,
+  periodStart: Date,
+  periodEnd: Date,
+  sectionCount: number,
+): string {
+  const notice = sectionCount > 1
+    ? `<div style="margin:0 auto 12px;max-width:1100px;padding:12px 14px;border:1px solid #0e7490;background:#10212b;color:#bae6fd;font-family:Segoe UI,Arial,sans-serif;"><strong>${allRows.length} total decisions in this review.</strong> Section 1 of ${sectionCount} is below; sections 2-${sectionCount} are attached as private notes on this same Halo ticket.</div>`
+    : "";
+  return `${notice}${buildAlertDigestHtml(firstSection, haloBaseUrl, periodStart, periodEnd)}`;
+}
+
 export async function refreshAlertManagerDigestTicket(haloTicketId: number): Promise<number> {
   const supabase = createSupabaseClient();
   const { data: integration } = await supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).maybeSingle();
@@ -166,32 +205,42 @@ export async function generateAlertManagerDigest(): Promise<AlertDigestResult> {
   const rows = (data ?? []) as ReadonlyArray<AlertReviewRow>;
   if (rows.length === 0) return { reviewed: 0, digestTickets: [] };
 
-  const digestTickets: number[] = [];
-  for (let offset = 0; offset < rows.length; offset += MAX_ROWS_PER_DIGEST) {
-    const chunk = rows.slice(offset, offset + MAX_ROWS_PER_DIGEST);
-    const periodStart = new Date(chunk[0].created_at);
-    const periodEnd = new Date(chunk[chunk.length - 1].created_at);
-    try {
-      const part = rows.length > MAX_ROWS_PER_DIGEST ? ` (${Math.floor(offset / MAX_ROWS_PER_DIGEST) + 1}/${Math.ceil(rows.length / MAX_ROWS_PER_DIGEST)})` : "";
-      const haloTicketId = await halo.createTicket({
-        summary: `TriageIT Alerts Manager Review - ${easternLabel(periodEnd)}${part}`,
-        details: buildAlertDigestHtml(chunk, haloConfig.base_url, periodStart, periodEnd),
-        userId: Number(process.env.ALERT_DIGEST_USER_ID) || DEFAULT_REVIEW_USER_ID,
-        ticketTypeId: Number(process.env.ALERT_DIGEST_TICKET_TYPE_ID) || DIGEST_TICKET_TYPE_ID,
-      });
-      const updateResults = await Promise.all(chunk.map((row) => supabase.from("workflow_events").update({
-        event_type: `${row.event_type}_digested`,
-        payload: { ...row.payload, digest_halo_id: haloTicketId, digested_at: new Date().toISOString() },
-      }).eq("id", row.id)));
-      const updateFailure = updateResults.find((result) => result.error)?.error;
-      if (updateFailure) {
-        throw new Error(`Digest ticket #${haloTicketId} was created, but its audit rows could not be marked digested: ${updateFailure.message}`);
-      }
-      digestTickets.push(haloTicketId);
-    } catch (digestFailure) {
-      throw digestFailure;
+  const sections = partitionAlertDigestRows(rows);
+  const periodStart = new Date(rows[0].created_at);
+  const periodEnd = new Date(rows[rows.length - 1].created_at);
+  const haloTicketId = await halo.createTicket({
+    summary: `TriageIT Alerts Manager Review - ${easternLabel(periodEnd)}`,
+    details: buildParentDigestHtml(rows, sections[0], haloConfig.base_url, periodStart, periodEnd, sections.length),
+    userId: Number(process.env.ALERT_DIGEST_USER_ID) || DEFAULT_REVIEW_USER_ID,
+    ticketTypeId: Number(process.env.ALERT_DIGEST_TICKET_TYPE_ID) || DIGEST_TICKET_TYPE_ID,
+  });
+
+  // Overflow stays on the parent ticket as private notes. Retrying the Halo
+  // writes keeps a transient API failure from turning the next run into a
+  // second parent ticket for the same batch.
+  for (let index = 1; index < sections.length; index += 1) {
+    const section = sections[index];
+    const sectionStart = new Date(section[0].created_at);
+    const sectionEnd = new Date(section[section.length - 1].created_at);
+    const note = [
+      `<div style="padding:10px 12px;border-left:4px solid #38bdf8;background:#172033;color:#bae6fd;"><strong>Alerts Manager review section ${index + 1} of ${sections.length}</strong><br/>${section.length} decisions from ${escapeHtml(easternLabel(sectionStart))} to ${escapeHtml(easternLabel(sectionEnd))} Eastern</div>`,
+      buildAlertDigestHtml(section, haloConfig.base_url, sectionStart, sectionEnd),
+    ].join("");
+    await retryHaloWrite(() => halo.addInternalNote(haloTicketId, note), `Attaching digest section ${index + 1}/${sections.length}`);
+  }
+
+  const digestedAt = new Date().toISOString();
+  for (const section of sections) {
+    const updateResults = await Promise.all(section.map((row) => supabase.from("workflow_events").update({
+      event_type: `${row.event_type}_digested`,
+      payload: { ...row.payload, digest_halo_id: haloTicketId, digested_at: digestedAt },
+    }).eq("id", row.id)));
+    const updateFailure = updateResults.find((result) => result.error)?.error;
+    if (updateFailure) {
+      throw new Error(`Digest ticket #${haloTicketId} was created, but its audit rows could not be marked digested: ${updateFailure.message}`);
     }
   }
-  console.log(`[ALERT-DIGEST] Created ${digestTickets.length} Halo review ticket(s) for ${rows.length} alert decisions`);
-  return { reviewed: rows.length, digestTickets };
+
+  console.log(`[ALERT-DIGEST] Created Halo review ticket #${haloTicketId} with ${sections.length} section(s) for ${rows.length} alert decisions`);
+  return { reviewed: rows.length, digestTickets: [haloTicketId] };
 }

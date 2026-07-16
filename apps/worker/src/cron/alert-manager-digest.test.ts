@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAlertDigestHtml } from "./alert-manager-digest.js";
+import { buildAlertDigestHtml, partitionAlertDigestRows } from "./alert-manager-digest.js";
 
 describe("buildAlertDigestHtml", () => {
   it("renders a compact expandable review page", () => {
@@ -22,5 +22,14 @@ describe("buildAlertDigestHtml", () => {
     expect(html).toContain("Auto-closed noise");
     expect(html).toContain("Open original Halo ticket");
     expect(html).not.toContain("<table");
+  });
+});
+
+describe("partitionAlertDigestRows", () => {
+  it("keeps a 500-decision run on one parent ticket with seven bounded sections", () => {
+    const sections = partitionAlertDigestRows(Array.from({ length: 500 }, (_, index) => index));
+
+    expect(sections).toHaveLength(7);
+    expect(sections.map((section) => section.length)).toEqual([75, 75, 75, 75, 75, 75, 50]);
   });
 });
