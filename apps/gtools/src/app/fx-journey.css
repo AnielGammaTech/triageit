@@ -1,0 +1,87 @@
+/* ==========================================================================
+ * HEADER LOGO-DROP CHOREOGRAPHY (task 18, supersedes task 17's THE LOGO
+ * JOURNEY hero-orbit / nav-dropdown / short section-logo-glide styles).
+ * Nav chips (nav.tsx) are each tool's permanent header slot; the tool's own
+ * section-logo (tool-section.tsx) is the docking destination.
+ * scroll-fx-header-drop.ts drives every animated value here imperatively
+ * via inline styles — this file only owns resting/default state (always
+ * visible, no CLS) and things that don't need per-frame JS (the ghost
+ * chip's decorative outline, hover states). Everything here is gated the
+ * same way as fx-scroll.css: motion only applies once
+ * `html[data-fx-scroll="active"]` lands (fine pointer + no-reduced-motion —
+ * see fx-scroll.tsx); until then chips sit at full opacity and section
+ * logos sit fully docked, which is also the exact static fallback touch/
+ * reduced-motion/no-JS visitors get permanently.
+ * ========================================================================== */
+
+/* --- Nav chip row (nav.tsx) -------------------------------------------
+ * `overflow-x-auto` on the row itself (Tailwind, in the component) is the
+ * actual overflow safety net; these two rules just hide that scrollbar so
+ * it reads as a plain row rather than a visible scroll widget when it isn't
+ * needed (`lg` and up, where 11 tiles fit without scrolling). */
+.fx-nav-chips {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.fx-nav-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.fx-nav-chip {
+  border: 1px solid transparent;
+  text-decoration: none;
+  /* Deliberately no `transition` on opacity — scroll-fx-header-drop.ts
+     writes it directly every scrub tick while a drop is in flight, and a
+     competing CSS transition would just lag behind / fight those writes.
+     `border-color` is the only thing that ever needs to ease, since it's a
+     one-off hover/ghost state change, not a per-frame value. */
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-nav-chip {
+    transition: border-color 0.25s ease;
+  }
+}
+.fx-nav-chip:hover,
+.fx-nav-chip:focus-visible {
+  border-color: color-mix(in srgb, var(--color-snow) 30%, transparent);
+}
+.fx-nav-chip:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Ghost state — set once the chip's logo has actually dropped out
+ * (`data-dropped`, toggled by the registrar only when progress crosses a
+ * small threshold, not every frame). Opacity itself is still driven
+ * continuously by JS; this just adds a dashed "vacancy" outline so the
+ * empty slot reads intentionally rather than looking like a rendering
+ * glitch. */
+.fx-nav-chip[data-dropped="true"] {
+  border-color: color-mix(in srgb, var(--color-line) 90%, transparent);
+  border-style: dashed;
+}
+
+/* --- Section logo docking slot + landing trail (tool-section.tsx) --------
+ * `section-logo` needs a positioned ancestor for `logo-trail` (absolute) to
+ * anchor to; it carries no size/layout opinion of its own beyond that, so it
+ * never changes the kicker row's existing flex sizing. Resting opacity 1 /
+ * no transform means a no-JS/gate-failed visitor always sees the logo fully
+ * docked here — the registrar is what makes it start invisible/off-position
+ * and fly in, never the reverse, so nothing here can strand a visitor with
+ * a missing logo if JS fails after this markup has already painted. */
+.fx-section-logo {
+  position: relative;
+  display: inline-flex;
+}
+.fx-logo-trail {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 2px;
+  height: 110px;
+  transform: translateX(-50%);
+  transform-origin: bottom center;
+  opacity: 0;
+  border-radius: 2px;
+  pointer-events: none;
+}

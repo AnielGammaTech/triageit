@@ -1,0 +1,53 @@
+/* ==========================================================================
+ * Asteroid mini-game (fx/asteroids.tsx, fx/asteroid-engine.ts,
+ * fx/asteroid-fragments.ts) — split out of fx-interactive.css purely to keep
+ * that file under the size limit; same reduced-motion contract as every
+ * other FX partial (all animation lives inside `@media (prefers-reduced-
+ * motion: no-preference)`), and the whole feature is additionally gated in
+ * JS behind `(pointer: fine)`, so a touch/reduced-motion visitor never
+ * mounts any of this DOM at all.
+ * ========================================================================== */
+
+/* The rocks/fragments/dust canvas paints itself entirely from JS (own fixed
+ * pools, same additive-friendly discipline as `.fx-smoke` in
+ * fx-interactive.css) — this just scopes browser paint/layout work to the
+ * canvas's own layer. */
+.fx-asteroid-canvas {
+  contain: layout style paint;
+}
+
+/* The score chip is a plain decorative badge (`aria-hidden`, no live region
+ * — the spec is explicit this is "showing off," not information the page
+ * needs to announce); it only ever mounts once the first rock has been
+ * shattered, so there's no separate hidden/visible state to define here,
+ * just its resting look plus a one-time entrance play. */
+.fx-asteroid-score {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  border-radius: 9999px;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-panel-2) 90%, transparent);
+  padding: 0.4rem 0.75rem;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-fog);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-asteroid-score {
+    animation: fx-asteroid-score-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+@keyframes fx-asteroid-score-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

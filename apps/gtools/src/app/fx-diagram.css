@@ -1,0 +1,235 @@
+/* ==========================================================================
+ * Command Center — Motion Design FX (continued from fx.css)
+ *
+ * BrowserFrame chrome effects, the ConnectIT relationship diagram, and the
+ * nav's scroll state. See fx.css for the shared reduced-motion contract —
+ * every loop below is gated behind
+ * `@media (prefers-reduced-motion: no-preference)` the same way.
+ * ========================================================================== */
+
+/* --- BrowserFrame FX (browser-frame.tsx) ----------------------------------
+ * Idle float on the outer wrapper, hover tilt on the inner frame (kept on
+ * separate elements so the two transforms never fight over one property),
+ * a periodic scan-line sweep overlay, and a breathing accent glow. */
+@media (prefers-reduced-motion: no-preference) {
+  .fx-frame-float {
+    animation: fx-frame-float 7s ease-in-out infinite;
+  }
+}
+@keyframes fx-frame-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Base rule reads --tilt-x/--tilt-y/--tilt-scale so both the no-JS CSS-only
+ * hover fallback and fx/tilt.tsx's cursor-tracked JS values drive the exact
+ * same `transform` — whichever last set the vars wins, nothing fights over
+ * the property itself. Without JS, `:hover` below still supplies a static
+ * scale bump; with Tilt mounted, its inline --tilt-x/--tilt-y (see
+ * fx-interactive.css for the .fx-tilt-active snappier-follow override)
+ * take over rotation while `:hover` continues to provide the scale. */
+.fx-frame-tilt {
+  transform: perspective(1000px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg))
+    scale(var(--tilt-scale, 1));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-frame-tilt {
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .fx-frame-tilt:hover {
+    --tilt-scale: 1.015;
+  }
+}
+
+.fx-scan-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--color-snow) 14%, transparent) 48%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translateY(-120%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-scan-sweep {
+    animation: fx-scan-sweep 6s ease-in-out infinite;
+  }
+}
+@keyframes fx-scan-sweep {
+  0% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  4% {
+    opacity: 0.8;
+  }
+  22% {
+    transform: translateY(220%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(220%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-glow-pulse {
+    animation: fx-glow-breathe 6.5s ease-in-out infinite;
+  }
+}
+
+/* --- ConnectIT diagram (better-together.tsx) ------------------------------
+ * Traveling glow dots along the connector stems (both tiers) + a radar ping
+ * on the ConnectIT node. The dot "track" is sized to exactly match its
+ * line (inset: 0) so a transform translate*(100%) — which resolves against
+ * the *track's own* box — travels the line's full, responsive length
+ * without ever animating top/left/width. */
+.fx-line-dot-track {
+  position: absolute;
+  inset: 0;
+  /* Purely a motion effect — invisible at rest, only the keyframe (gated
+     behind reduced-motion below) fades it in, so reduced-motion users never
+     see a stray static dot parked at one end of the line. */
+  opacity: 0;
+}
+.fx-line-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+}
+.fx-line-dot-y .fx-line-dot {
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%);
+}
+.fx-line-dot-x .fx-line-dot {
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-line-dot-track.fx-line-dot-y {
+    animation: fx-travel-y 2.6s linear infinite;
+  }
+  .fx-line-dot-track.fx-line-dot-x {
+    animation: fx-travel-x 2.6s linear infinite;
+  }
+}
+@keyframes fx-travel-y {
+  0% {
+    transform: translateY(0%);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@keyframes fx-travel-x {
+  0% {
+    transform: translateX(0%);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.fx-radar-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 1rem;
+  border: 1px solid currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-radar-ring {
+    animation: fx-radar-ping 3s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  }
+}
+@keyframes fx-radar-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-junction-pulse {
+    animation: fx-junction-pulse 2.4s ease-in-out infinite;
+  }
+}
+@keyframes fx-junction-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+}
+
+/* --- Nav on scroll (nav.tsx) -----------------------------------------------
+ * `data-scrolled` is toggled by a small client-side scroll listener in
+ * nav.tsx — CSS scroll-driven animations (`animation-timeline: scroll()`)
+ * don't yet have consistent behavior across Chrome/Safari/Firefox for a
+ * `position: sticky` header, and silently never firing in one browser would
+ * be worse than a tiny, reliable, ~10-line scroll listener. The border/
+ * shadow/background change is a state change (not a loop); only the
+ * *smoothing* transition is gated behind reduced-motion, so a reduced-motion
+ * user still sees the scrolled state, it just snaps instead of easing. */
+.fx-nav {
+  transition: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-nav {
+    transition:
+      border-color 0.4s ease,
+      box-shadow 0.4s ease,
+      background-color 0.4s ease;
+  }
+  .fx-nav .fx-nav-row {
+    transition: height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+.fx-nav[data-scrolled="true"] {
+  border-bottom-color: color-mix(in srgb, var(--color-brand) 55%, transparent);
+  background-color: color-mix(in srgb, var(--color-ink) 92%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--color-brand) 40%, transparent),
+    0 16px 32px -20px var(--color-brand);
+}
+.fx-nav[data-scrolled="true"] .fx-nav-row {
+  height: 3.375rem;
+}

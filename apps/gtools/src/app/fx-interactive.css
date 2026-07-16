@@ -1,0 +1,283 @@
+/* ==========================================================================
+ * Round 2 — Interactive FX (fx/spotlight.tsx, fx/tilt.tsx, fx/magnetic.tsx,
+ * fx/cursor.tsx, fx/easter-egg.tsx)
+ *
+ * Same reduced-motion contract as fx.css/fx-diagram.css: every transition
+ * and keyframe here lives inside `@media (prefers-reduced-motion:
+ * no-preference)`. All five effects additionally gate their own *mounting*
+ * on `(pointer: fine)` in JS (coarse pointers get none of this — see each
+ * component's own comment), except the easter egg's toast, which always
+ * shows on trigger regardless of pointer type or motion preference. Every
+ * animated property here is transform/opacity, or — same exception the
+ * v1 spec calls out for nav — a one-off state-change color/shadow swap on
+ * hover/active, never a continuous loop.
+ * ========================================================================== */
+
+/* --- Spotlight (fx/spotlight.tsx) ------------------------------------------
+ * Fixed full-viewport layer: a soft glow plus a "hidden grid" revealed
+ * through a radial mask, both centered on --mx/--my (written directly by
+ * the component on every rAF-batched pointer flush). Starts invisible and
+ * fades in once the first pointer position lands, so it never flashes at a
+ * stale center-of-viewport default before the cursor has actually moved. */
+.fx-spotlight-glow,
+.fx-spotlight-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-spotlight-glow,
+  .fx-spotlight-grid {
+    transition: opacity 0.5s ease;
+  }
+}
+.fx-spotlight[data-active="true"] .fx-spotlight-glow {
+  opacity: 1;
+}
+.fx-spotlight[data-active="true"] .fx-spotlight-grid {
+  opacity: 0.75;
+}
+.fx-spotlight-glow {
+  background:
+    radial-gradient(180px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--color-brand) 38%, transparent), transparent 70%),
+    radial-gradient(640px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--color-brand) 18%, transparent), transparent 72%);
+}
+.fx-spotlight-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-brand) 85%, white 10%) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand) 85%, white 10%) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), black, transparent 78%);
+  mask-image: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), black, transparent 78%);
+}
+
+/* --- Tilt + glare (fx/tilt.tsx, browser-frame.tsx) -------------------------
+ * `.fx-frame-tilt`'s var-driven transform lives in fx-diagram.css next to
+ * the rest of BrowserFrame FX; this just adds the snappier "actively
+ * tracking" transition (overrides the 0.5s spring-back with a fast 0.15s
+ * follow) and the glare highlight itself. */
+.fx-tilt[data-tilt-active="true"] .fx-frame-tilt {
+  transition: transform 0.15s ease-out;
+}
+.fx-glare {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  background: radial-gradient(
+    260px circle at var(--glare-x, 50%) var(--glare-y, 50%),
+    color-mix(in srgb, white 50%, transparent),
+    transparent 70%
+  );
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-glare {
+    transition: opacity 0.3s ease;
+  }
+}
+.fx-tilt[data-tilt-active="true"] .fx-glare {
+  opacity: 1;
+}
+
+/* --- Magnetic pull (fx/magnetic.tsx) ---------------------------------------
+ * --magnet-x/--magnet-y are px offsets written by the hook whenever the
+ * cursor is within its proximity radius; snaps to a fast transition while
+ * actively pulling, springs back on the slower default once the pointer
+ * moves away. */
+.fx-magnetic {
+  transform: translate3d(var(--magnet-x, 0px), var(--magnet-y, 0px), 0);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-magnetic {
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .fx-magnetic[data-magnet-active="true"] {
+    transition: transform 0.12s ease-out;
+  }
+}
+
+/* --- Reticle cursor (fx/cursor.tsx) ----------------------------------------
+ * One class toggle hides the native cursor everywhere while the effect is
+ * mounted; the component's cleanup always removes it, so a device switch
+ * or unmount never strands the user without a pointer. */
+html.fx-cursor-active,
+html.fx-cursor-active * {
+  cursor: none;
+}
+
+/* BrowserFrame previews (`[data-native-cursor]` in browser-frame.tsx) opt
+ * out of the reticle: the sci-fi ring looks wrong floating over a mockup's
+ * own UI, so native cursors come back for the whole frame (arrow by
+ * default). Same (element + 2 classes) specificity as the `.mockup-tab`
+ * override below in fx-mockup.css — that file is `@import`ed after this one
+ * in fx.css, so its `cursor: pointer` wins the tie over this `cursor: auto`
+ * for the tab buttons specifically, while the rest of the frame stays auto. */
+html.fx-cursor-active [data-native-cursor],
+html.fx-cursor-active [data-native-cursor] * {
+  cursor: auto;
+}
+
+.fx-cursor {
+  contain: layout style;
+}
+
+/* --- Smoke cursor trail (fx/smoke-trail.tsx) -------------------------------
+ * The canvas paints itself entirely from JS (fixed-size particle pool,
+ * additive `lighter` compositing) — this just scopes browser paint/layout
+ * work to the canvas's own layer, same reasoning as `.fx-cursor` above. */
+.fx-smoke {
+  contain: layout style paint;
+}
+.fx-cursor-reticle {
+  position: absolute;
+  top: -13px;
+  left: -13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--color-brand) 80%, white 20%);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-brand) 55%, transparent);
+  transform: translate3d(var(--cursor-x, -100px), var(--cursor-y, -100px), 0) scale(var(--cursor-scale, 1));
+  opacity: 0;
+}
+.fx-cursor[data-visible="true"] .fx-cursor-reticle {
+  opacity: 1;
+}
+/* Suspended while the pointer is over a BrowserFrame preview (`data-hidden`,
+ * toggled by cursor.tsx's pointerover delegate) — same specificity as the
+ * rule above, declared after it so it wins the tie and the reticle fades
+ * out instead of floating over the frame's now-native cursor. */
+.fx-cursor[data-hidden="true"] .fx-cursor-reticle {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-cursor-reticle {
+    transition:
+      opacity 0.2s ease,
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .fx-cursor[data-hidden="true"] .fx-cursor-reticle {
+    transition-duration: 0.12s;
+  }
+}
+.fx-cursor-reticle::before {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--color-brand) 90%, white 10%);
+}
+/* Slow-spinning dashed HUD ring — a continuous transform-only loop (no
+ * layout properties), consistent with the breathing glows/orbs elsewhere on
+ * the site. Speeds up on hover for a "locking on" read. */
+.fx-cursor-reticle::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 9999px;
+  border: 1px dashed color-mix(in srgb, var(--color-brand) 50%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-cursor-reticle::after {
+    animation: fx-cursor-spin 7s linear infinite;
+  }
+}
+@keyframes fx-cursor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.fx-cursor[data-hover="true"] .fx-cursor-reticle {
+  --cursor-scale: 1.65;
+  border-color: color-mix(in srgb, var(--color-connectit) 85%, white 15%);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--color-connectit) 65%, transparent);
+}
+.fx-cursor[data-hover="true"] .fx-cursor-reticle::before {
+  background: color-mix(in srgb, var(--color-connectit) 90%, white 10%);
+}
+.fx-cursor[data-hover="true"] .fx-cursor-reticle::after {
+  border-color: color-mix(in srgb, var(--color-connectit) 60%, transparent);
+  animation-duration: 2.4s;
+}
+/* --- Easter egg (fx/easter-egg.tsx) ----------------------------------------
+ * Confetti pieces are a fixed recycled pool animated via the Web Animations
+ * API straight from JS (cancelled + replayed per burst — see the component),
+ * so no keyframes are needed here beyond their at-rest, invisible base
+ * state. The toast is a plain state-change fade/rise; reduced motion drops
+ * the transition so it still appears, it just snaps in instead of easing. */
+.fx-egg-piece {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  width: 10px;
+  height: 14px;
+  margin: -7px 0 0 -5px;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+.fx-egg-toast-card {
+  max-width: 34rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-brand) 50%, var(--color-line));
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  padding: 1.1rem 2.25rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--color-snow);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--color-brand) 55%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-brand) 25%, transparent) inset,
+    0 32px 64px -20px var(--color-brand);
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-egg-toast-card {
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+.fx-egg-toast[data-active="true"] .fx-egg-toast-card {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* --- Back-to-top button ----------------------------------------------
+ * Always rendered (it's functional, not decorative, so reduced-motion
+ * visitors still get it) but hidden — `opacity`/`pointer-events` only,
+ * never `display: none`, so the fade/scale-in transition below has
+ * something to animate — until `data-visible="true"` lands once the
+ * visitor has scrolled past roughly one viewport. The entrance transition
+ * itself is scoped to `no-preference`, so under reduced motion the same
+ * attribute toggle just snaps instantly instead of easing in. */
+.fx-back-to-top {
+  opacity: 0;
+  transform: scale(0.7) translateY(10px);
+  pointer-events: none;
+}
+.fx-back-to-top[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fx-back-to-top {
+    transition:
+      opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+}
+.fx-back-to-top:hover,
+.fx-back-to-top:focus-visible {
+  border-color: color-mix(in srgb, var(--color-brand) 55%, var(--color-line));
+  box-shadow: 0 0 24px -6px var(--color-brand);
+}

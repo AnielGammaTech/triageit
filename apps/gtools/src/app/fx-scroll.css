@@ -1,0 +1,155 @@
+/* ==========================================================================
+ * Motion v3 — Scroll-driven FX (fx/scroll-fx*.ts)
+ *
+ * Everything here is gated behind `html[data-fx-scroll="active"]`, an
+ * attribute the orchestrator (fx/scroll-fx.tsx) only ever sets after
+ * confirming a fine pointer, `prefers-reduced-motion: no-preference`, and a
+ * successful Lenis/GSAP mount. Server HTML never has the attribute, so a
+ * reduced-motion user, a touch device, or a pre-hydration/no-JS visitor gets
+ * exactly the v1/v2 page — every rule below is either fully inert (opacity 0
+ * → never drawn) or a harmless identity transform (var(..., 0px/0deg)) until
+ * that attribute lands. All motion is transform/opacity only; GSAP owns the
+ * live values via inline styles, this file only owns resting state,
+ * transform-origin, and the couple of pure-CSS loops (boot-line cursor
+ * blink) that don't need per-frame JS. The header logo-drop choreography's
+ * nav-chip and section-logo-trail styles live in fx-journey.css (kept
+ * separate purely to stay under the file-size gate).
+ * ========================================================================== */
+
+/* --- Ghost section numerals (effect 8) -------------------------------------
+ * Always rendered and visible (a nice static flourish even without JS); the
+ * wrapper's translateY defaults to 0 (identity) and only moves once the
+ * orchestrator scrubs `--ghost-shift` against scroll progress. */
+.fx-ghost-numeral-wrap {
+  position: absolute;
+  top: 2%;
+  z-index: 0;
+  pointer-events: none;
+}
+.fx-ghost-numeral {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(7rem, 18vw, 15rem);
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px color-mix(in srgb, var(--color-snow) 14%, transparent);
+  user-select: none;
+}
+
+/* --- Progress beam + active-section nav underline (effect 6) --------------
+ * Fixed hairline on the right edge; scaleY only (transform-origin: top), so
+ * "filling" never touches layout. Rendered by scroll-fx.tsx itself (client
+ * markup, same pattern as Spotlight/ReticleCursor) — nothing to gate on the
+ * attribute since the component doesn't mount at all until the gate passes. */
+.fx-progress-beam {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 60;
+  transform-origin: top center;
+  transform: scaleY(0);
+  background: linear-gradient(to bottom, var(--color-brand), var(--color-connectit));
+  box-shadow: -2px 0 16px -4px color-mix(in srgb, var(--color-brand) 70%, transparent);
+}
+
+/* --- ConnectIT diagram assembly (effect 4) ---------------------------------
+ * Only transform-origin lives here — the 0-state (scaleY/scaleX 0, dots at
+ * scale 0, chips translated+faded) is set imperatively by GSAP the instant
+ * the effect registers, so it never has to be duplicated/kept in sync here. */
+[data-fx="connector-stem"][data-fx-origin="top"] {
+  transform-origin: top center;
+}
+[data-fx="connector-stem"][data-fx-origin="bottom"] {
+  transform-origin: bottom center;
+}
+[data-fx="connector-bus"] {
+  transform-origin: center center;
+}
+
+/* Radar rings pulse unconditionally in the v1/v2 baseline (fx-diagram.css);
+ * once active, the orchestrator suppresses them (`animation: none` — a
+ * *paused* animation freezes on its current keyframe, which can still be
+ * visible, so the animation is fully unset instead) until the diagram's own
+ * assembly ScrollTrigger reports >= 90% progress and adds `data-fx-armed`.
+ * Removing the override lets the base rule re-apply, which restarts each
+ * ring's keyframe from 0% — reading as the radar "firing" the moment
+ * assembly completes. Un-arms again on scroll-up, matching the "reversible"
+ * ground rule. */
+html[data-fx-scroll="active"] [data-fx="connectit-node"]:not([data-fx-armed]) .fx-radar-ring {
+  animation: none;
+  opacity: 0;
+}
+
+/* --- Decrypt kickers (effect 9) --------------------------------------------
+ * Swaps to monospace only while actively scrambling, for a "decoding" read;
+ * reverts once the orchestrator lands on the real text. */
+[data-fx="decrypt-kicker"][data-fx-scrambling="true"] {
+  font-family: var(--font-mono);
+  letter-spacing: 0.18em;
+}
+
+/* --- Terminal boot line (effect 11) ----------------------------------------
+ * The blinking cursor is a pure CSS loop (no per-frame JS needed); the
+ * *typing* itself is JS (progressively re-filling the text node), gated by
+ * the same feature check, so under reduced motion / touch / no-JS the full
+ * line is simply present and static from the first paint. */
+.fx-boot-line {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--color-brand) 70%, var(--color-fog) 30%);
+}
+.fx-boot-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  opacity: 0;
+}
+html[data-fx-scroll="active"] .fx-boot-cursor {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-fx-scroll="active"] .fx-boot-cursor {
+    animation: fx-boot-blink 1s step-end infinite;
+  }
+}
+@keyframes fx-boot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* --- Cursor-depth background shift (effect 5) ------------------------------
+ * Wraps the backdrop's grid-floor and orb group separately so each can carry
+ * its own depth multiplier; GSAP writes x/y here, the existing drift/breathe
+ * keyframes stay on their original (child) elements untouched. */
+[data-fx="cursor-depth"],
+[data-fx="scroll-parallax-bg"] {
+  position: absolute;
+  inset: 0;
+}
+
+/* --- Mockup vs. copy parallax differential (effect 3) ----------------------
+ * No resting styles needed beyond scoping `will-change` to when the
+ * orchestrator is actually driving these two columns. */
+html[data-fx-scroll="active"] [data-fx="parallax-copy"],
+html[data-fx-scroll="active"] [data-fx="parallax-mockup"] {
+  will-change: transform;
+}
+
+/* --- Count-up stats strip (effect 10) --------------------------------------
+ * Numbers render their final server value immediately (progressive
+ * enhancement); tabular-nums keeps the digits from jittering in width while
+ * the orchestrator counts up. */
+.fx-stat-value {
+  font-variant-numeric: tabular-nums;
+}
