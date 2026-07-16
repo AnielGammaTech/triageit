@@ -178,6 +178,12 @@ export class HaloClient {
     ]);
   }
 
+  async updateTicketDetails(ticketId: number, details: string): Promise<void> {
+    await this.request("POST", "/tickets", [
+      { id: ticketId, details },
+    ]);
+  }
+
   async assignTicket(
     ticketId: number,
     agentId: number,
