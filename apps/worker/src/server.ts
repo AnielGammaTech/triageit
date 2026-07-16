@@ -430,6 +430,26 @@ server.post("/call-analysis", async (_request, reply) => {
   return reply.send(result);
 });
 
+server.post<{ Querystring: { dry_run?: string } }>("/alert-manager", async (request, reply) => {
+  try {
+    const { runAlertManager } = await import("./cron/alert-manager.js");
+    return await runAlertManager({ dryRun: request.query.dry_run === "true" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post("/alert-manager-digest", async (_request, reply) => {
+  try {
+    const { generateAlertManagerDigest } = await import("./cron/alert-manager-digest.js");
+    return await generateAlertManagerDigest();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 server.post("/error-retry", async (_request, reply) => {
   try {
     const { retryErroredTickets } = await import("./cron/error-retry.js");
