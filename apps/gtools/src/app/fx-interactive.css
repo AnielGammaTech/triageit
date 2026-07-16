@@ -63,6 +63,7 @@
   position: absolute;
   inset: 0;
   opacity: 0;
+  pointer-events: none;
   mix-blend-mode: overlay;
   background: radial-gradient(
     260px circle at var(--glare-x, 50%) var(--glare-y, 50%),

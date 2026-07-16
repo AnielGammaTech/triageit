@@ -1,0 +1,54 @@
+/* ==========================================================================
+ * Interactive mockup navigation (mockups/mockup-tabs.tsx)
+ *
+ * Two concerns:
+ * 1. `.mockup-fade` — the crossfade when a mockup's active view switches.
+ *    Base state is fully visible (opacity: 1, no transform) so SSR/no-JS/
+ *    reduced-motion all render the settled state with nothing hidden; the
+ *    actual fade-in only plays inside `prefers-reduced-motion: no-preference`,
+ *    same convention as the rest of fx.css.
+ * 2. The `.mockup-tab` cursor override. The site replaces the native cursor
+ *    with a custom reticle on fine-pointer/motion-ok visitors via
+ *    `html.fx-cursor-active, html.fx-cursor-active * { cursor: none; }`
+ *    (fx-interactive.css) — that universal selector would otherwise beat a
+ *    plain `cursor-pointer` utility class on every mockup tab button. The
+ *    two rules below win on specificity (element + 2 classes vs. element +
+ *    1 class + universal) so hovering a tab always resolves to a real
+ *    pointer cursor, reticle or not.
+ * ========================================================================== */
+
+.mockup-fade {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mockup-fade {
+    animation: mockup-fade-in 0.18s ease-out;
+  }
+}
+
+@keyframes mockup-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+html.fx-cursor-active .mockup-tab,
+html.fx-cursor-active .mockup-tab * {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mockup-tab {
+    transition: filter 0.15s ease-out;
+  }
+}
+
+.mockup-tab:hover {
+  filter: brightness(1.2);
+}
