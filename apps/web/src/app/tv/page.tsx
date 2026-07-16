@@ -185,7 +185,7 @@ const mins = (m: number): string => {
 function BrandMark({ size }: { readonly size: string }) {
   // Real TriageIT logo (app icon.svg — served by Next at /icon.svg)
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src="/icon.svg" alt="TriageIT" style={{ width: size, height: size, filter: "drop-shadow(0 0 1.2vw rgba(239,68,68,0.5))" }} />;
+  return <img src="/triageit-mark.svg?v=20260716" alt="TriageIT" style={{ width: size, height: size, filter: "drop-shadow(0 0 1.2vw rgba(239,68,68,0.5))" }} />;
 }
 
 const CAROUSEL_SLIDES = [

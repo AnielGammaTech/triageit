@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { PhoneCall, Radio } from "lucide-react";
@@ -18,7 +19,7 @@ const NAV_ITEMS = [
   { href: "/toby", label: "Toby", avatar: "/toby.png" },
 ] as const;
 
-const PRIMARY_COLOR = "#b91c1c";
+const PRIMARY_COLOR = "#A61B1B";
 const HEADER_BG = "#1a0a0a";
 const DROPDOWN_BG = "#241010";
 
@@ -76,8 +77,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
   return (
     <>
       <header
-        className="fixed top-0 left-0 right-0 z-40 h-14 text-white"
-        style={{ backgroundColor: HEADER_BG }}
+        className="triageit-frosted-nav fixed top-0 left-0 right-0 z-40 h-14 text-white"
       >
         <div className="mx-auto flex h-full max-w-full items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + hamburger */}
@@ -104,19 +104,10 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
               </svg>
             </button>
 
-            <Link href="/tickets" className="flex items-center gap-2.5">
-              {/* Logo: compact app icon — T with small dot */}
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded-md"
-                style={{ backgroundColor: PRIMARY_COLOR }}
-              >
-                <svg width="16" height="16" viewBox="0 0 32 32" fill="none">
-                  <path d="M8 8h16v4.5H19.2V24h-6.4V12.5H8V8z" fill="white" />
-                  <circle cx="26" cy="6" r="3.5" fill="#ef4444" />
-                </svg>
-              </div>
-              <span className="hidden text-sm font-bold tracking-tight text-white sm:block">
-                Triage<span style={{ color: PRIMARY_COLOR }}>IT</span>
+            <Link href="/tickets" className="flex h-14 items-center gap-[9px]" aria-label="TriageIT home">
+              <Image src="/triageit-mark.svg?v=20260716" alt="" width={44} height={44} className="h-11 w-11" />
+              <span className="triageit-wordmark hidden whitespace-nowrap text-[22px] font-bold leading-none text-white sm:block">
+                Triage<span className="text-[#E05555]">IT</span>
               </span>
             </Link>
           </div>
