@@ -430,10 +430,14 @@ server.post("/call-analysis", async (_request, reply) => {
   return reply.send(result);
 });
 
-server.post<{ Querystring: { dry_run?: string } }>("/alert-manager", async (request, reply) => {
+server.post<{ Querystring: { dry_run?: string; limit?: string; ai_limit?: string } }>("/alert-manager", async (request, reply) => {
   try {
     const { runAlertManager } = await import("./cron/alert-manager.js");
-    return await runAlertManager({ dryRun: request.query.dry_run === "true" });
+    return await runAlertManager({
+      dryRun: request.query.dry_run === "true",
+      limit: request.query.limit ? Number(request.query.limit) : undefined,
+      aiLimit: request.query.ai_limit ? Number(request.query.ai_limit) : undefined,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return reply.status(500).send({ error: message });
