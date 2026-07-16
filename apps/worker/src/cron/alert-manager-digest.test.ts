@@ -20,6 +20,7 @@ describe("buildAlertDigestHtml", () => {
 
     expect(html).toContain("<details");
     expect(html).toContain("Auto-closed noise");
+    expect(html).toContain("Daily assignment workflow");
     expect(html).toContain("Open original Halo ticket");
     expect(html).not.toContain("<table");
   });

@@ -177,6 +177,23 @@ async function loadLatestOpenAlertDecisions(
   return latest;
 }
 
+function storedAlertDecision(row: StoredAlertDecisionRow): AlertPolicyDecision {
+  const eventType = row.event_type.replace(/_digested$/, "");
+  const decision = eventType === "alert_manager_auto_closed"
+    ? "auto_close"
+    : eventType === "alert_manager_kept_open" ? "keep_open" : "review_required";
+  return {
+    decision,
+    confidence: Math.max(0, Math.min(1, Number(row.payload.confidence) || 1)),
+    reason: String(row.payload.reason || "This alert requires review and technician assignment from the daily digest."),
+    source: String(row.payload.source || "Unknown"),
+    alertType: String(row.payload.alert_type || "unclassified"),
+    affectedResource: row.payload.affected_resource ? String(row.payload.affected_resource) : null,
+    patternKey: String(row.payload.pattern_key || "unknown:manual_review"),
+    policySource: row.payload.policy_source === "ai" ? "ai" : "deterministic",
+  };
+}
+
 export async function closeDuplicateSpanningAlerts(options: { readonly limit?: number } = {}): Promise<number> {
   const limit = Math.max(1, Math.min(300, Math.trunc(options.limit ?? 80)));
   const supabase = createSupabaseClient();
@@ -475,12 +492,13 @@ function finalDecision(input: AlertTicketInput, proposed: AlertPolicyDecision): 
 }
 
 function closureNote(decision: AlertPolicyDecision): string {
+  const requiresAssignment = decision.decision !== "auto_close";
   return [
-    `<div style="font-family:Segoe UI,Arial,sans-serif;border-left:4px solid #22c55e;padding:10px 12px;background:#0f1f17;">`,
-    `<strong style="color:#86efac;">TriageIT Alerts Manager - Auto-closed</strong><br/>`,
+    `<div style="font-family:Segoe UI,Arial,sans-serif;border-left:4px solid ${requiresAssignment ? "#f59e0b" : "#22c55e"};padding:10px 12px;background:${requiresAssignment ? "#261c0d" : "#0f1f17"};">`,
+    `<strong style="color:${requiresAssignment ? "#fbbf24" : "#86efac"};">TriageIT Alerts Manager - ${requiresAssignment ? "Moved to daily assignment review" : "Auto-closed noise"}</strong><br/>`,
     `<span style="color:#d4d4d8;">${escapeHtml(decision.reason)}</span><br/>`,
     `<span style="color:#a1a1aa;font-size:11px;">Pattern: ${escapeHtml(decision.patternKey)} | Confidence: ${Math.round(decision.confidence * 100)}% | Policy: ${decision.policySource}</span><br/>`,
-    `<span style="color:#a1a1aa;font-size:11px;">This decision is recorded in the twice-daily internal Alerts Manager digest. Reopen this ticket if the alert requires action.</span>`,
+    `<span style="color:#a1a1aa;font-size:11px;">${requiresAssignment ? "This Alert ticket is closed from the alert queue, not considered remediated. Review and assign it to a technician from the once-daily Alerts Manager digest." : "This informational alert is recorded in the once-daily Alerts Manager digest for audit."}</span>`,
     `</div>`,
   ].join("");
 }
@@ -490,6 +508,7 @@ export async function runAlertManager(options: {
   readonly limit?: number;
   readonly aiLimit?: number;
   readonly duplicateLimit?: number;
+  readonly closeAllOpen?: boolean;
 } = {}): Promise<AlertManagerResult> {
   const dryRun = options.dryRun === true;
   const reviewLimit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? MAX_REVIEWS_PER_RUN)));
@@ -510,8 +529,11 @@ export async function runAlertManager(options: {
     .filter(alertIsOldEnough);
 
   const reviewed = await loadReviewedHaloIds(supabase);
-  const candidates = openAlerts.filter((ticket) => !reviewed.has(ticket.id)).slice(0, reviewLimit);
+  const candidates = (options.closeAllOpen ? openAlerts : openAlerts.filter((ticket) => !reviewed.has(ticket.id))).slice(0, reviewLimit);
   const localByHalo = dryRun ? new Map<number, string>() : await ensureAlertAuditTargets(supabase, candidates);
+  const priorDecisions = options.closeAllOpen
+    ? await loadLatestOpenAlertDecisions(supabase, new Set(candidates.map((ticket) => ticket.id)))
+    : new Map<number, StoredAlertDecisionRow>();
 
   let aiReviews = 0;
   let autoClosed = 0;
@@ -523,7 +545,12 @@ export async function runAlertManager(options: {
   for (const ticket of candidates) {
     const input = ticketInput(ticket);
     try {
+      // Current deterministic rules take precedence over an older stored
+      // classification (for example, the explicit Phish911 always-close rule).
       let proposed = deterministicAlertDecision(input);
+      if (!proposed && options.closeAllOpen && priorDecisions.has(ticket.id)) {
+        proposed = storedAlertDecision(priorDecisions.get(ticket.id)!);
+      }
       if (!proposed && aiReviews < aiLimit) {
         const actions = await halo.getTicketActions(ticket.id, true).catch(() => [] as ReadonlyArray<HaloAction>);
         proposed = await aiAlertDecision(ticket, actions);
@@ -567,57 +594,51 @@ export async function runAlertManager(options: {
           created_at: ticket.datecreated,
         },
       };
-      if (decision.decision === "auto_close") {
-        const { data: inserted, error: insertError } = await supabase
-          .from("workflow_events")
-          .insert({
-            ticket_id: localTicketId,
-            halo_id: ticket.id,
-            event_type: "alert_manager_processing",
-            note: decision.reason,
-            payload: auditPayload,
-          })
-          .select("id")
-          .single();
-        if (insertError || !inserted) throw new Error(insertError?.message ?? "Could not create alert audit row");
-        try {
-          await halo.addInternalNote(ticket.id, closureNote(decision));
-          await halo.updateTicketStatus(ticket.id, RESOLVED_STATUS_ID);
-          const { error: localCloseError } = await supabase.from("tickets").update({
-            halo_is_open: false,
-            halo_status: "Resolved",
-            halo_status_id: RESOLVED_STATUS_ID,
-            updated_at: new Date().toISOString(),
-          }).eq("id", localTicketId);
-          if (localCloseError) {
-            console.error(`[ALERT-MANAGER] Halo #${ticket.id} closed, but local state update failed: ${localCloseError.message}`);
-          }
-          await supabase.from("workflow_events").update({
-            event_type: "alert_manager_auto_closed",
-            note: decision.reason,
-            payload: { ...auditPayload, closed_at: new Date().toISOString() },
-          }).eq("id", inserted.id);
-          autoClosed++;
-        } catch (error) {
-          await supabase.from("workflow_events").update({
-            event_type: "alert_manager_error",
-            note: error instanceof Error ? error.message : String(error),
-            payload: { ...auditPayload, error: error instanceof Error ? error.message : String(error) },
-          }).eq("id", inserted.id);
-          throw error;
+      const storedDecision = decision.decision === "auto_close"
+        ? "auto_closed"
+        : decision.decision === "keep_open" ? "kept_open" : "review_required";
+      const { data: inserted, error: insertError } = await supabase.from("workflow_events").insert({
+        ticket_id: localTicketId,
+        halo_id: ticket.id,
+        event_type: "alert_manager_processing",
+        note: decision.reason,
+        payload: { ...auditPayload, requires_assignment: decision.decision !== "auto_close" },
+      }).select("id").single();
+      if (insertError || !inserted) throw new Error(insertError?.message ?? "Could not create alert audit row");
+      try {
+        await halo.addInternalNote(ticket.id, closureNote(decision));
+        await halo.updateTicketStatus(ticket.id, RESOLVED_STATUS_ID);
+        const closedAt = new Date().toISOString();
+        const { error: localCloseError } = await supabase.from("tickets").update({
+          halo_is_open: false,
+          halo_status: "Resolved",
+          halo_status_id: RESOLVED_STATUS_ID,
+          updated_at: closedAt,
+        }).eq("id", localTicketId);
+        if (localCloseError) {
+          console.error(`[ALERT-MANAGER] Halo #${ticket.id} closed, but local state update failed: ${localCloseError.message}`);
         }
-      } else {
-        const storedDecision = decision.decision === "keep_open" ? "kept_open" : "review_required";
-        const { error } = await supabase.from("workflow_events").insert({
-          ticket_id: localTicketId,
-          halo_id: ticket.id,
+        const { error: auditUpdateError } = await supabase.from("workflow_events").update({
           event_type: `alert_manager_${storedDecision}`,
           note: decision.reason,
-          payload: auditPayload,
-        });
-        if (error) throw new Error(error.message);
-        if (storedDecision === "kept_open") keptOpen++;
+          payload: {
+            ...auditPayload,
+            requires_assignment: decision.decision !== "auto_close",
+            alert_queue_closed: true,
+            closed_at: closedAt,
+          },
+        }).eq("id", inserted.id);
+        if (auditUpdateError) throw new Error(auditUpdateError.message);
+        if (storedDecision === "auto_closed") autoClosed++;
+        else if (storedDecision === "kept_open") keptOpen++;
         else reviewRequired++;
+      } catch (error) {
+        await supabase.from("workflow_events").update({
+          event_type: "alert_manager_error",
+          note: error instanceof Error ? error.message : String(error),
+          payload: { ...auditPayload, error: error instanceof Error ? error.message : String(error) },
+        }).eq("id", inserted.id);
+        throw error;
       }
     } catch (error) {
       errors++;
