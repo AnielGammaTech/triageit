@@ -101,8 +101,8 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
   },
   {
     name: "Alert Manager Digest",
-    description: "Creates an internal Halo review ticket twice each business day with every alert decision and detected pattern.",
-    schedule: "0 10,15 * * 1-5",
+    description: "Creates one daily internal Halo assignment digest with every alert decision and detected pattern.",
+    schedule: "0 15 * * 1-5",
     endpoint: "/alert-manager-digest",
   },
   {
@@ -175,7 +175,7 @@ function cronIntervalMs(pattern: string): number {
   if (/^\*\s/.test(pattern)) return 60 * 1000;
   // "0 7 * * *" -> daily
   if (/^\d+\s\d+\s\*\s\*\s\*$/.test(pattern)) return 24 * 60 * 60 * 1000;
-  // "0 10,15 * * 1-5" -> twice per weekday; shortest gap is five hours.
+  // "0 15 * * 1-5" -> once per weekday.
   const multiHourMatch = /^\d+\s([\d,]+)\s\*\s\*\s[\d,-]+$/.exec(pattern);
   if (multiHourMatch) {
     const hours = multiHourMatch[1].split(",").map(Number).filter(Number.isFinite).sort((a, b) => a - b);
@@ -888,7 +888,7 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
     { endpoint: "/ticket-response-compliance", name: "Ticket Response Compliance", schedule: "* * * * *" },
     { endpoint: "/alert-manager", name: "Alert Manager", schedule: "*/30 8-17 * * 1-5" },
-    { endpoint: "/alert-manager-digest", name: "Alert Manager Digest", schedule: "0 10,15 * * 1-5" },
+    { endpoint: "/alert-manager-digest", name: "Alert Manager Digest", schedule: "0 15 * * 1-5" },
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)

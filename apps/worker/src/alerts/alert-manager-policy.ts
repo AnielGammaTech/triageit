@@ -25,6 +25,10 @@ function text(input: AlertTicketInput): string {
   return `${input.summary}\n${input.details ?? ""}\n${input.userName ?? ""}`;
 }
 
+function isPhish911Report(input: AlertTicketInput): boolean {
+  return /\bPhish911 Report Alert\b/i.test(input.summary);
+}
+
 function spanningFields(value: string): { code: string | null; resource: string | null } {
   const code = value.match(/Error Code:\s*(\d+)/i)?.[1] ?? null;
   const resource = value.match(/Error User, Site, or Teams Channel:\s*([^\r\n]+)/i)?.[1]?.trim() ?? null;
@@ -32,6 +36,9 @@ function spanningFields(value: string): { code: string | null; resource: string 
 }
 
 export function hasProtectedAlertSignals(input: AlertTicketInput): boolean {
+  // Gamma has explicitly classified the Phish911 report notification itself
+  // as queue noise. Its content remains visible in the daily digest audit.
+  if (isPhish911Report(input)) return false;
   const value = text(input);
   return SECURITY_SIGNAL.test(value) || PERSISTENT_OR_ACTIONABLE.test(value) || MISSED_COMMUNICATION.test(value);
 }
@@ -50,6 +57,18 @@ export function recurringThreeCxAlertKey(input: Pick<AlertTicketInput, "summary"
 
 export function deterministicAlertDecision(input: AlertTicketInput): AlertPolicyDecision | null {
   const value = text(input);
+  if (isPhish911Report(input)) {
+    return {
+      decision: "auto_close",
+      confidence: 1,
+      reason: "Phish911 report notifications are designated alert-queue noise; the report remains recorded in the daily digest.",
+      source: "Phish911",
+      alertType: "report_notification",
+      affectedResource: null,
+      patternKey: "phish911:report_alert",
+      policySource: "deterministic",
+    };
+  }
   if (SECURITY_SIGNAL.test(value)) {
     return {
       decision: "review_required",

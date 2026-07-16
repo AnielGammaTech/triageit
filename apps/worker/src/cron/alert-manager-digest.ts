@@ -135,13 +135,13 @@ export function buildAlertDigestHtml(rows: ReadonlyArray<AlertReviewRow>, haloBa
     `<div style="margin-top:14px;">`,
     `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #52525b;background:#202024;"><strong style="font-size:18px;color:#f4f4f5;">${rows.length}</strong><span style="display:block;color:#a1a1aa;font-size:10px;">REVIEWED</span></span>`,
     `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #7f1d1d;background:#2a1519;"><strong style="font-size:18px;color:#fb7185;">${reviewRows.length}</strong><span style="display:block;color:#fda4af;font-size:10px;">NEEDS REVIEW</span></span>`,
-    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #854d0e;background:#261c0d;"><strong style="font-size:18px;color:#fbbf24;">${openRows.length}</strong><span style="display:block;color:#fcd34d;font-size:10px;">KEPT OPEN</span></span>`,
+    `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #854d0e;background:#261c0d;"><strong style="font-size:18px;color:#fbbf24;">${openRows.length}</strong><span style="display:block;color:#fcd34d;font-size:10px;">ASSIGN TO TECH</span></span>`,
     `<span style="display:inline-block;margin:0 8px 6px 0;padding:8px 11px;border:1px solid #166534;background:#102319;"><strong style="font-size:18px;color:#4ade80;">${closedRows.length}</strong><span style="display:block;color:#86efac;font-size:10px;">AUTO-CLOSED</span></span>`,
     `</div>`,
-    `<div style="margin-top:10px;padding:9px 11px;border-left:3px solid #38bdf8;background:#172033;color:#d4d4d8;font-size:12px;">Open a row to inspect the exact reason. If an auto-closure was wrong, reopen the original ticket; the audit remains attached.</div>`,
+    `<div style="margin-top:10px;padding:9px 11px;border-left:3px solid #38bdf8;background:#172033;color:#d4d4d8;font-size:12px;"><strong>Daily assignment workflow:</strong> every individual Alert ticket has been removed from the live alert queue. Review the red and amber sections below and assign the underlying work to a technician. Closing the Alert ticket does not mean the issue was remediated.</div>`,
     `</header>`,
-    renderDecisionSection(reviewRows, haloBaseUrl, "Needs human review", "Ambiguous, security-related, communication, or processing exceptions. No automatic closure occurred.", "#fb7185"),
-    renderDecisionSection(openRows, haloBaseUrl, "Actionable - kept open", "TriageIT found a service, backup, configuration, or delivery problem that still needs work.", "#fbbf24"),
+    renderDecisionSection(reviewRows, haloBaseUrl, "Needs review and assignment", "Ambiguous, security-related, communication, or processing exceptions. Assign these to the appropriate technician.", "#fb7185"),
+    renderDecisionSection(openRows, haloBaseUrl, "Actionable - assign to a technician", "TriageIT found a service, backup, configuration, or delivery problem that still needs work even though the Alert ticket was closed.", "#fbbf24"),
     renderDecisionSection(closedRows, haloBaseUrl, "Auto-closed noise", "Only allowlisted informational or explicitly self-resolving patterns are shown here.", "#4ade80"),
     `<details style="margin-top:16px;border:1px solid #34343b;background:#18181b;">`,
     `<summary style="cursor:pointer;padding:12px 14px;color:#7dd3fc;font-weight:700;">Recurring patterns (${patterns.length})</summary>`,
@@ -195,14 +195,19 @@ export async function generateAlertManagerDigest(): Promise<AlertDigestResult> {
   if (!integration?.config) throw new Error("Halo is not configured");
   const haloConfig = integration.config as HaloConfig;
   const halo = new HaloClient(haloConfig);
-  const { data, error } = await supabase
-    .from("workflow_events")
-    .select("id, halo_id, event_type, note, payload, created_at")
-    .in("event_type", ["alert_manager_auto_closed", "alert_manager_kept_open", "alert_manager_review_required", "alert_manager_error"])
-    .order("created_at", { ascending: true })
-    .limit(500);
-  if (error) throw new Error(error.message);
-  const rows = (data ?? []) as ReadonlyArray<AlertReviewRow>;
+  const rows: AlertReviewRow[] = [];
+  const pageSize = 1_000;
+  for (let start = 0; start < 100_000; start += pageSize) {
+    const { data, error } = await supabase
+      .from("workflow_events")
+      .select("id, halo_id, event_type, note, payload, created_at")
+      .in("event_type", ["alert_manager_auto_closed", "alert_manager_kept_open", "alert_manager_review_required", "alert_manager_error"])
+      .order("created_at", { ascending: true })
+      .range(start, start + pageSize - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as AlertReviewRow[]));
+    if ((data ?? []).length < pageSize) break;
+  }
   if (rows.length === 0) return { reviewed: 0, digestTickets: [] };
 
   const sections = partitionAlertDigestRows(rows);
