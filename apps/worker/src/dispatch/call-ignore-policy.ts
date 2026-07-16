@@ -38,6 +38,19 @@ const WEAK_IVR = [
   /\bno one is available to take your call\b/i,
   /\bplease listen carefully\b/i,
 ];
+const SUPPORT_STAFF_IDENTITY = /\b(?:this is|it'?s|my name is)\s+(?:ryan|matthew|jarid|darren|raul|david|jonathan|roman|todd|aniel|bryanna)\b|\b(?:ryan|matthew|jarid|darren|raul|david|jonathan|roman|todd|aniel|bryanna)\s+(?:with|from)\s+(?:gamma|game and tech)/i;
+const CONTACT_ATTEMPT_LANGUAGE = /\b(?:call (?:me|us) back|calling (?:about|to|regarding)|following up|left (?:you|a) (?:message|voicemail)|unblocked|sign-?in|ticket|account|updated?|resolved|completed)\b/i;
+const CONVERSATION_CUES = [
+  /\bhow can i help\b/i,
+  /\bmy name is\b/i,
+  /\bi(?:'m| am) looking for\b/i,
+  /\bwhat (?:exactly )?is (?:going on|the issue|happening)\b/i,
+  /\bcan you (?:tell|show|try|test|check|give|open|send)\b/i,
+  /\blet me (?:check|look|try|see|find|transfer)\b/i,
+  /\bthat(?:'s| is) (?:a )?ticket\b/i,
+  /\bi(?:'m| am) (?:going to|gonna)\b/i,
+  /\byou (?:just )?(?:picked|pick) up\b/i,
+];
 
 function durationSeconds(startedAt: string | null, endedAt: string | null): number | null {
   const start = startedAt ? new Date(startedAt).getTime() : NaN;
@@ -46,13 +59,43 @@ function durationSeconds(startedAt: string | null, endedAt: string | null): numb
   return Math.round((end - start) / 1_000);
 }
 
+function lastAutomationMarkerEnd(transcript: string): number {
+  let end = -1;
+  for (const pattern of [...STRONG_IVR, ...WEAK_IVR]) {
+    const global = new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`);
+    for (const match of transcript.matchAll(global)) {
+      end = Math.max(end, (match.index ?? 0) + match[0].length);
+    }
+  }
+  return end;
+}
+
+function hasHumanContinuation(transcript: string): boolean {
+  const markerEnd = lastAutomationMarkerEnd(transcript);
+  if (markerEnd < 0) return false;
+  const tail = transcript.slice(markerEnd).replace(/\s+/g, " ").trim();
+  if (tail.length < 40) return false;
+
+  const staffIdentified = SUPPORT_STAFF_IDENTITY.test(tail);
+  if (staffIdentified && (ACTIONABLE_LANGUAGE.test(tail) || CONTACT_ATTEMPT_LANGUAGE.test(tail))) return true;
+
+  const cueCount = CONVERSATION_CUES.filter((pattern) => pattern.test(tail)).length;
+  if (tail.length >= 140 && cueCount >= 2 && ACTIONABLE_LANGUAGE.test(tail)) return true;
+
+  // A person may answer after the greeting and later transfer the tech back
+  // into voicemail. In that shape the human exchange is before the final IVR
+  // marker, so evaluate the full transcript rather than only its tail.
+  const fullCueCount = CONVERSATION_CUES.filter((pattern) => pattern.test(transcript)).length;
+  return transcript.length >= 350 && fullCueCount >= 2 && ACTIONABLE_LANGUAGE.test(transcript);
+}
+
 function looksLikeIvr(transcript: string): boolean {
-  if (STRONG_IVR.some((pattern) => pattern.test(transcript))) return true;
-  return WEAK_IVR.filter((pattern) => pattern.test(transcript)).length >= 2;
+  const hasAutomation = STRONG_IVR.some((pattern) => pattern.test(transcript))
+    || WEAK_IVR.filter((pattern) => pattern.test(transcript)).length >= 2;
+  return hasAutomation && !hasHumanContinuation(transcript);
 }
 
 export function ignoredCallMethod(input: IgnoredCallInput): IgnoredCallMethod | null {
-  if (input.matchedBy?.startsWith("ignored_")) return input.matchedBy as IgnoredCallMethod;
   if (input.matchedBy === "no_external_number") return "ignored_no_external_number";
 
   const transcript = (input.transcript ?? "").replace(/\s+/g, " ").trim();

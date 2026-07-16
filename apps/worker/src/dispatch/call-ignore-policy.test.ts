@@ -40,6 +40,30 @@ describe("ignoredCallMethod", () => {
     }))).toBeNull();
   });
 
+  it("keeps a real conversation after a long automated introduction", () => {
+    expect(ignoredCallMethod(input({
+      endedAt: "2026-07-15T15:06:00.000Z",
+      matchedBy: "ignored_ivr",
+      transcript: "Thank you for calling. For English press 1. Please remain on the line. This is Mia. How can I help? Hi, my name is Matthew with Gamma Tech Services. I am looking for Emily. What exactly is going on with the card reader? The mobile reader is not working. Let me check the account and open a ticket.",
+    }))).toBeNull();
+  });
+
+  it("keeps a technician message left after a voicemail greeting", () => {
+    expect(ignoredCallMethod(input({
+      endedAt: "2026-07-15T15:01:00.000Z",
+      matchedBy: "ignored_ivr",
+      transcript: "Your call has been forwarded to voicemail. At the tone, please record your message. Hey Harry, it's Ryan from Gamma Tech. I unblocked the sign-in for your account. Call me back if you have any questions.",
+    }))).toBeNull();
+  });
+
+  it("keeps a voicemail that turns into a live troubleshooting call", () => {
+    expect(ignoredCallMethod(input({
+      endedAt: "2026-07-15T15:08:00.000Z",
+      matchedBy: "ignored_ivr",
+      transcript: "Your call has been forwarded to voicemail. At the tone, record your message. Hey, this is the tech checking the scanner. Oh, you just picked up while I was leaving a voicemail. Can you test scan to email? I am gonna check the printer settings and send a test. The printer reports a send error. Let me restart it and try again.",
+    }))).toBeNull();
+  });
+
   it("keeps short calls with a ticket number or issue language reviewable", () => {
     expect(ignoredCallMethod(input({ transcript: "Calling about ticket 0041139." }))).toBeNull();
     expect(ignoredCallMethod(input({ transcript: "My printer is down. Call me back." }))).toBeNull();
@@ -54,7 +78,10 @@ describe("ignoredCallMethod", () => {
     }))).toBe("ignored_unusable_recording");
   });
 
-  it("preserves an existing ignored classification", () => {
-    expect(ignoredCallMethod(input({ matchedBy: "ignored_ivr" }))).toBe("ignored_ivr");
+  it("preserves an existing ignored classification only while the full transcript remains automated", () => {
+    expect(ignoredCallMethod(input({
+      matchedBy: "ignored_ivr",
+      transcript: "Thank you for calling. Please press 1 for support or dial the extension now.",
+    }))).toBe("ignored_ivr");
   });
 });

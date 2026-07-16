@@ -65,6 +65,7 @@ describe("call analysis completeness", () => {
   it("rejects a summary that labels the technician as the customer", () => {
     const badInsights: CallInsights = {
       relevant_to_ticket: true,
+      contact_outcome: "connected",
       summary: "Tech Carlson contacted customer Jarid to schedule printer work.",
       customer_reported: [],
       key_findings: [],
@@ -85,6 +86,7 @@ describe("call analysis completeness", () => {
   it("renders the customer report and findings while escaping transcript-derived HTML", () => {
     const insights: CallInsights = {
       relevant_to_ticket: true,
+      contact_outcome: "connected",
       summary: "Sandy disputed the initial <group recreated> conclusion.",
       customer_reported: ["Sandy & Jess had already retried the instructed capitalization."],
       key_findings: ["Confirmed: Outlook showed a stale cached group."],
@@ -103,5 +105,18 @@ describe("call analysis completeness", () => {
     expect(note).toContain("Sandy &amp; Jess");
     expect(note).toContain("&lt;group recreated&gt;");
     expect(note).not.toContain("<group recreated>");
+  });
+
+  it("instructs voicemail attempts to produce an accurate customer draft", () => {
+    const prompt = buildCallAnalysisPrompt(
+      recording,
+      "Your call was forwarded to voicemail. Hey Harry, it's Ryan. I unblocked your account.",
+      "Ryan Fitzpatrick",
+      "outbound",
+      "Account locked",
+    );
+    expect(prompt).toContain('"contact_outcome"');
+    expect(prompt).toContain("I tried to reach you by phone but reached your voicemail");
+    expect(prompt).toContain("voicemail_left");
   });
 });

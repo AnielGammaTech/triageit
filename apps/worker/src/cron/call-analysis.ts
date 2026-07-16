@@ -39,6 +39,17 @@ interface CallAnalysisResult {
   readonly notesPosted: number;
 }
 
+export interface IgnoredCallAuditResult {
+  readonly audited: number;
+  readonly misclassified: number;
+  readonly reprocessed: number;
+  readonly matched: number;
+  readonly notesPosted: number;
+  readonly stillIgnored: number;
+  readonly failed: number;
+  readonly recordingIds: ReadonlyArray<number>;
+}
+
 export interface CallInsights {
   readonly summary: string;
   readonly customer_reported: ReadonlyArray<string>;
@@ -49,6 +60,7 @@ export interface CallInsights {
   readonly suggestions: ReadonlyArray<string>;
   readonly customer_sentiment: string;
   readonly relevant_to_ticket: boolean;
+  readonly contact_outcome: "connected" | "voicemail_left" | "ivr_only" | "unknown";
   /** Outbound calls only: draft "per our call" follow-up email for the tech to send. */
   readonly suggested_customer_email: string | null;
 }
@@ -165,7 +177,7 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
   // budget than actual LLM/note failures. Recent unmatched calls also get a
   // small rematch budget so improved customer context can repair old misses.
   const recentCutoff = new Date(Date.now() - 24 * 3600_000).toISOString();
-  const [failureResult, transcriptResult, unmatchedResult] = await Promise.all([
+  const [failureResult, transcriptResult, unmatchedResult, ignoredResult] = await Promise.all([
     supabase
       .from("call_analyses")
       .select("recording_id, analysis_attempts, matched_by")
@@ -191,11 +203,19 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
       .gte("created_at", recentCutoff)
       .order("recording_id", { ascending: false })
       .limit(30),
+    supabase
+      .from("call_analyses")
+      .select("recording_id, analysis_attempts, matched_by")
+      .in("matched_by", ["ignored_ivr", "ignored_short_call", "ignored_silence", "ignored_unusable_recording"])
+      .lt("analysis_attempts", 4)
+      .gte("created_at", recentCutoff)
+      .order("recording_id", { ascending: false })
+      .limit(8),
   ]);
   const dueUnmatchedRows = (unmatchedResult.data ?? [])
     .filter((row) => unmatchedRematchDue(row.created_at, Number(row.analysis_attempts) || 0))
     .slice(0, 6);
-  const retryRows = [...(failureResult.data ?? []), ...(transcriptResult.data ?? []), ...dueUnmatchedRows]
+  const retryRows = [...(failureResult.data ?? []), ...(transcriptResult.data ?? []), ...dueUnmatchedRows, ...(ignoredResult.data ?? [])]
     .filter((row, index, all) => all.findIndex((candidate) => candidate.recording_id === row.recording_id) === index)
     .slice(0, 12);
   for (const row of retryRows) {
@@ -240,6 +260,80 @@ async function runCallAnalysisInner(): Promise<CallAnalysisResult> {
 
   console.log(`[CALL-ANALYSIS] Complete: ${recordings.length} new recordings, ${matched} matched to tickets, ${notesPosted} notes posted`);
   return { checked: recordings.length, matched, notesPosted };
+}
+
+export async function auditIgnoredCallClassifications(
+  options: { readonly limit?: number } = {},
+): Promise<IgnoredCallAuditResult> {
+  const limit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)));
+  const supabase = createSupabaseClient();
+  const [{ data: integration }, haloConfig] = await Promise.all([
+    supabase.from("integrations").select("config").eq("service", "threecx").eq("is_active", true).maybeSingle(),
+    getCachedHaloConfig(supabase),
+  ]);
+  if (!integration || !haloConfig) throw new Error("3CX or Halo is not configured");
+
+  const { data, error } = await supabase
+    .from("call_analyses")
+    .select("recording_id, transcript, started_at, ended_at, matched_by, analysis_attempts")
+    .in("matched_by", ["ignored_ivr", "ignored_short_call", "ignored_silence", "ignored_unusable_recording"])
+    .order("recording_id", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  const tcx = new ThreeCxClient(integration.config as ThreeCxConfig);
+  const halo = new HaloClient(haloConfig);
+  let misclassified = 0;
+  let reprocessed = 0;
+  let matched = 0;
+  let notesPosted = 0;
+  let stillIgnored = 0;
+  let failed = 0;
+  const recordingIds: number[] = [];
+
+  for (const row of data ?? []) {
+    const recordingId = Number(row.recording_id);
+    const [recording] = (await tcx.getRecordingsSince(recordingId - 1, 1)) ?? [];
+    if (!recording || recording.Id !== recordingId) {
+      failed++;
+      continue;
+    }
+    const currentMethod = ignoredCallMethod({
+      transcript: recording.Transcription ?? row.transcript,
+      startedAt: recording.StartTime ?? row.started_at,
+      endedAt: recording.EndTime ?? row.ended_at,
+      matchedBy: row.matched_by,
+      analysisAttempts: Number(row.analysis_attempts) || 0,
+    });
+    if (currentMethod) {
+      stillIgnored++;
+      continue;
+    }
+
+    misclassified++;
+    recordingIds.push(recordingId);
+    try {
+      const outcome = await processRecording(supabase, halo, recording);
+      reprocessed++;
+      if (outcome.matched) matched++;
+      if (outcome.posted) notesPosted++;
+    } catch (auditError) {
+      failed++;
+      console.error(`[CALL-ANALYSIS] Ignored-call audit failed for recording ${recordingId}:`, auditError instanceof Error ? auditError.message : auditError);
+    }
+  }
+
+  console.log(`[CALL-ANALYSIS] Ignored-call audit: ${(data ?? []).length} audited, ${misclassified} misclassified, ${notesPosted} notes posted, ${stillIgnored} correctly ignored, ${failed} failed`);
+  return {
+    audited: (data ?? []).length,
+    misclassified,
+    reprocessed,
+    matched,
+    notesPosted,
+    stillIgnored,
+    failed,
+    recordingIds,
+  };
 }
 
 /**
@@ -1350,6 +1444,7 @@ export function buildCallAnalysisPrompt(
     `Respond with ONLY valid JSON:`,
     `{`,
     `  "relevant_to_ticket": <true if this call plausibly relates to the ticket above; false if it is clearly about something else entirely. A tech attempting contact but only reaching an IVR/voicemail IS relevant>,`,
+    `  "contact_outcome": "<connected | voicemail_left | ivr_only | unknown>. Use voicemail_left when an automated greeting is followed by the technician leaving a substantive message. An automated opening followed by a person is connected.",`,
     `  "summary": "<adaptive-length chronological support narrative covering every material report, prior attempt, investigation step, corrected assumption, confirmed finding, action, and exact end state once. Complete but not verbatim; omit repetition, filler, and unrelated background>",`,
     `  "customer_reported": ["<each distinct symptom, affected user, prior attempt, concern, or correction stated by the customer>"],`,
     `  "key_findings": ["<each material hypothesis or finding; label it tentative or confirmed when the transcript makes that distinction>"],`,
@@ -1358,7 +1453,7 @@ export function buildCallAnalysisPrompt(
     `  "next_steps": ["<remaining work, exact owner, and timing when stated>"],`,
     `  "suggestions": ["<0-3 concrete suggestions for the tech based only on unresolved needs in the transcript. Imperatives, no filler>"],`,
     `  "customer_sentiment": "<one word: satisfied | neutral | frustrated | angry>",`,
-    `  "suggested_customer_email": ${direction === "outbound" ? `"<draft follow-up email the tech can send the customer. Start with 'Hi <first name>,' then 'Per our call...' — accurately recap what was discussed, what was done versus only attempted, what happens next and when. End the body with the direct question 'Does that plan work for you?' Warm, plain English, no jargon, 4-7 sentences, sign off as ${techName.split(",").reverse().join(" ").trim()} from Gamma Tech. Only what the transcript supports.>"` : "null"}`,
+    `  "suggested_customer_email": ${direction === "outbound" ? `"<draft follow-up email the tech can send the customer. If contact_outcome is voicemail_left, start with 'Hi <first name>, I tried to reach you by phone but reached your voicemail.' Then state exactly what the tech completed or needs and invite a callback/reply. Otherwise start with 'Hi <first name>,' then 'Per our call...'. Accurately recap what was discussed, what was done versus only attempted, what happens next and when. End with 'Does that plan work for you?' Warm, plain English, no jargon, 4-7 sentences, sign off as ${techName.split(",").reverse().join(" ").trim()} from Gamma Tech. Only what the transcript supports.>"` : "null"}`,
     `}`,
   ].join("\n");
 }
@@ -1374,6 +1469,9 @@ function normalizeCallInsights(value: Partial<CallInsights>): CallInsights | nul
     : "neutral";
   return {
     relevant_to_ticket: value.relevant_to_ticket === true,
+    contact_outcome: ["connected", "voicemail_left", "ivr_only", "unknown"].includes(value.contact_outcome ?? "")
+      ? value.contact_outcome!
+      : "unknown",
     summary: value.summary.trim(),
     customer_reported: stringList(value.customer_reported),
     key_findings: stringList(value.key_findings),
@@ -1469,6 +1567,9 @@ export function buildCallSummaryNote(
     items.map((i) => `<li style="margin-bottom:3px;">${escapeHtml(i)}</li>`).join("");
 
   const detailBlocks = [
+    insights.contact_outcome === "voicemail_left"
+      ? `<div style="margin-bottom:8px;"><span style="color:#fbbf24;font-weight:600;font-size:11px;">CONTACT OUTCOME</span><div style="margin-top:4px;color:#fde68a;">Technician reached voicemail and left a message.</div></div>`
+      : "",
     insights.customer_reported.length > 0
       ? `<div style="margin-bottom:8px;"><span style="color:#7dd3fc;font-weight:600;font-size:11px;">CUSTOMER REPORTED</span><ul style="margin:4px 0 0 18px;padding:0;color:#bae6fd;">${list(insights.customer_reported)}</ul></div>`
       : "",

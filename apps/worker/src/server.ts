@@ -267,6 +267,20 @@ server.get("/calls/transcriptions", async (_request, reply) => {
   }
 });
 
+server.post<{ Querystring: { limit?: string } }>("/calls/transcriptions/audit-ignored", async (request, reply) => {
+  try {
+    const { auditIgnoredCallClassifications } = await import("./cron/call-analysis.js");
+    const result = await auditIgnoredCallClassifications({
+      limit: request.query.limit ? Number(request.query.limit) : undefined,
+    });
+    invalidateCallTranscriptionCache();
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 server.post<{
   Params: { recordingId: string };
   Body: { halo_id?: number };
