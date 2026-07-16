@@ -247,7 +247,7 @@ async function runTicketSync(): Promise<void> {
 
 async function runAlertManagerCron(): Promise<void> {
   const result = await runAlertManager();
-  console.log(`[CRON] Alert manager: ${result.checked} reviewed, ${result.autoClosed} auto-closed, ${result.keptOpen} kept open, ${result.reviewRequired} need review, ${result.errors} errors`);
+  console.log(`[CRON] Alert manager: ${result.checked} reviewed, ${result.autoClosed} auto-closed, ${result.duplicatesClosed} duplicates closed, ${result.keptOpen} kept open, ${result.reviewRequired} need review, ${result.errors} errors`);
 }
 
 async function runAlertManagerDigestCron(): Promise<void> {

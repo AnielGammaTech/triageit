@@ -34,6 +34,7 @@ export interface AlertManagerResult {
   readonly keptOpen: number;
   readonly reviewRequired: number;
   readonly errors: number;
+  readonly duplicatesClosed: number;
   readonly dryRun: boolean;
   readonly decisions: ReadonlyArray<{
     readonly haloId: number;
@@ -139,6 +140,124 @@ async function loadReviewedHaloIds(
   return reviewed;
 }
 
+interface StoredAlertDecisionRow {
+  readonly id: string;
+  readonly ticket_id: string;
+  readonly halo_id: number;
+  readonly event_type: string;
+  readonly payload: Record<string, unknown>;
+  readonly created_at: string;
+}
+
+async function loadLatestOpenAlertDecisions(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  openHaloIds: ReadonlySet<number>,
+): Promise<Map<number, StoredAlertDecisionRow>> {
+  const latest = new Map<number, StoredAlertDecisionRow>();
+  const pageSize = 1_000;
+  for (let start = 0; start < 100_000; start += pageSize) {
+    const { data, error } = await supabase
+      .from("workflow_events")
+      .select("id, ticket_id, halo_id, event_type, payload, created_at")
+      .like("event_type", "alert_manager_%")
+      .order("created_at", { ascending: false })
+      .range(start, start + pageSize - 1);
+    if (error) throw new Error(`Could not load alert decisions for deduplication: ${error.message}`);
+    for (const row of (data ?? []) as StoredAlertDecisionRow[]) {
+      const haloId = Number(row.halo_id);
+      if (openHaloIds.has(haloId) && !latest.has(haloId)) latest.set(haloId, row);
+    }
+    if ((data ?? []).length < pageSize) break;
+  }
+  return latest;
+}
+
+export async function closeDuplicateSpanningAlerts(options: { readonly limit?: number } = {}): Promise<number> {
+  const limit = Math.max(1, Math.min(300, Math.trunc(options.limit ?? 80)));
+  const supabase = createSupabaseClient();
+  const { data: integration } = await supabase.from("integrations").select("config").eq("service", "halo").eq("is_active", true).maybeSingle();
+  if (!integration?.config) throw new Error("Halo is not configured");
+  const halo = new HaloClient(integration.config as HaloConfig);
+  const openAlerts = await halo.getAllOpenTickets(ALERT_TICKET_TYPE_ID);
+  const openById = new Map(openAlerts.map((ticket) => [ticket.id, ticket]));
+  const latestDecisions = await loadLatestOpenAlertDecisions(supabase, new Set(openById.keys()));
+  const groups = new Map<string, Array<{ ticket: HaloTicket; event: StoredAlertDecisionRow }>>();
+
+  for (const [haloId, event] of latestDecisions) {
+    const baseEventType = event.event_type.replace(/_digested$/, "");
+    if (!new Set(["alert_manager_review_required", "alert_manager_kept_open"]).has(baseEventType)) continue;
+    const pattern = String(event.payload.pattern_key ?? "");
+    const resource = String(event.payload.affected_resource ?? "").trim().toLowerCase();
+    if (!pattern.startsWith("spanning:") || resource.length < 3) continue;
+    const ticket = openById.get(haloId);
+    if (!ticket) continue;
+    const key = `${pattern}|${resource}`;
+    const group = groups.get(key) ?? [];
+    group.push({ ticket, event });
+    groups.set(key, group);
+  }
+
+  const duplicates: Array<{ older: { ticket: HaloTicket; event: StoredAlertDecisionRow }; newest: HaloTicket }> = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => b.ticket.id - a.ticket.id);
+    const newest = group[0].ticket;
+    for (const older of group.slice(1)) duplicates.push({ older, newest });
+  }
+  duplicates.sort((a, b) => a.older.ticket.id - b.older.ticket.id);
+
+  let closed = 0;
+  for (const { older, newest } of duplicates.slice(0, limit)) {
+    const pattern = String(older.event.payload.pattern_key ?? "spanning:duplicate");
+    const resource = String(older.event.payload.affected_resource ?? "affected resource");
+    const reason = `Superseded duplicate: newer open alert #${newest.id} has the same ${pattern} condition for ${resource}. The newest ticket remains open for investigation.`;
+    const decision: AlertPolicyDecision = {
+      decision: "auto_close",
+      confidence: 1,
+      reason,
+      source: "Spanning",
+      alertType: "superseded_duplicate",
+      affectedResource: resource,
+      patternKey: pattern,
+      policySource: "deterministic",
+    };
+    const payload = {
+      ...older.event.payload,
+      ticket_summary: older.ticket.summary,
+      reason,
+      confidence: 1,
+      alert_type: "superseded_duplicate",
+      policy_source: "deterministic",
+      superseded_by_halo_id: newest.id,
+    };
+    const { data: audit, error: auditError } = await supabase.from("workflow_events").insert({
+      ticket_id: older.event.ticket_id,
+      halo_id: older.ticket.id,
+      event_type: "alert_manager_processing",
+      note: reason,
+      payload,
+    }).select("id").single();
+    if (auditError || !audit) {
+      console.error(`[ALERT-MANAGER] Could not audit duplicate #${older.ticket.id}: ${auditError?.message ?? "no audit row"}`);
+      continue;
+    }
+    try {
+      await halo.addInternalNote(older.ticket.id, closureNote(decision));
+      await halo.updateTicketStatus(older.ticket.id, RESOLVED_STATUS_ID);
+      await Promise.all([
+        supabase.from("tickets").update({ halo_is_open: false, halo_status: "Resolved", halo_status_id: RESOLVED_STATUS_ID, updated_at: new Date().toISOString() }).eq("id", older.event.ticket_id),
+        supabase.from("workflow_events").update({ event_type: "alert_manager_auto_closed", note: reason, payload: { ...payload, closed_at: new Date().toISOString() } }).eq("id", audit.id),
+      ]);
+      closed++;
+    } catch (error) {
+      await supabase.from("workflow_events").update({ event_type: "alert_manager_error", note: error instanceof Error ? error.message : String(error), payload }).eq("id", audit.id);
+      console.error(`[ALERT-MANAGER] Failed closing duplicate #${older.ticket.id}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  console.log(`[ALERT-MANAGER] Duplicate cleanup: ${closed}/${Math.min(duplicates.length, limit)} older exact-resource Spanning alerts closed`);
+  return closed;
+}
+
 function recentActionContext(actions: ReadonlyArray<HaloAction>): string {
   return actions
     .slice(-8)
@@ -224,6 +343,7 @@ export async function runAlertManager(options: {
   readonly dryRun?: boolean;
   readonly limit?: number;
   readonly aiLimit?: number;
+  readonly duplicateLimit?: number;
 } = {}): Promise<AlertManagerResult> {
   const dryRun = options.dryRun === true;
   const reviewLimit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? MAX_REVIEWS_PER_RUN)));
@@ -357,6 +477,7 @@ export async function runAlertManager(options: {
     }
   }
 
-  console.log(`[ALERT-MANAGER] ${dryRun ? "Previewed" : "Reviewed"} ${candidates.length}: ${autoClosed} auto-closed, ${keptOpen} kept open, ${reviewRequired} need review, ${errors} errors`);
-  return { checked: candidates.length, autoClosed, keptOpen, reviewRequired, errors, dryRun, decisions };
+  const duplicatesClosed = dryRun ? 0 : await closeDuplicateSpanningAlerts({ limit: options.duplicateLimit });
+  console.log(`[ALERT-MANAGER] ${dryRun ? "Previewed" : "Reviewed"} ${candidates.length}: ${autoClosed} auto-closed, ${duplicatesClosed} duplicates closed, ${keptOpen} kept open, ${reviewRequired} need review, ${errors} errors`);
+  return { checked: candidates.length, autoClosed, keptOpen, reviewRequired, errors, duplicatesClosed, dryRun, decisions };
 }
