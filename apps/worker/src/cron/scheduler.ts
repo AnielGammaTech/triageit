@@ -13,6 +13,8 @@ import { retryErroredTickets } from "./error-retry.js";
 import { runCallAnalysis } from "./call-analysis.js";
 import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
 import { runScheduleSync } from "../dispatch/schedule-sync.js";
+import { runAlertManager } from "./alert-manager.js";
+import { generateAlertManagerDigest } from "./alert-manager-digest.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
@@ -59,6 +61,18 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     description: "Syncs open tickets from Halo every minute so new customer work enters triage quickly.",
     schedule: "* * * * *",
     endpoint: "/ticket-sync",
+  },
+  {
+    name: "Alert Manager",
+    description: "Reviews open Halo Alerts during business hours and closes only high-confidence non-actionable noise with a durable audit.",
+    schedule: "*/30 8-17 * * 1-5",
+    endpoint: "/alert-manager",
+  },
+  {
+    name: "Alert Manager Digest",
+    description: "Creates an internal Halo review ticket twice each business day with every alert decision and detected pattern.",
+    schedule: "0 10,15 * * 1-5",
+    endpoint: "/alert-manager-digest",
   },
   {
     name: "SLA Breach Scan",
@@ -130,6 +144,13 @@ function cronIntervalMs(pattern: string): number {
   if (/^\*\s/.test(pattern)) return 60 * 1000;
   // "0 7 * * *" -> daily
   if (/^\d+\s\d+\s\*\s\*\s\*$/.test(pattern)) return 24 * 60 * 60 * 1000;
+  // "0 10,15 * * 1-5" -> twice per weekday; shortest gap is five hours.
+  const multiHourMatch = /^\d+\s([\d,]+)\s\*\s\*\s[\d,-]+$/.exec(pattern);
+  if (multiHourMatch) {
+    const hours = multiHourMatch[1].split(",").map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+    const gaps = hours.slice(1).map((hour, index) => hour - hours[index]).filter((gap) => gap > 0);
+    return (gaps.length > 0 ? Math.min(...gaps) : 24) * 60 * 60 * 1000;
+  }
   // "0 8 * * 1" -> weekly (specific day-of-week). Falling through to the
   // 3-hour default made the startup catch-up treat the weekly report as
   // 3-hourly — a full weekly Teams report posted on every deploy from
@@ -152,6 +173,8 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   },
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/alert-manager": runAlertManagerCron,
+  "/alert-manager-digest": runAlertManagerDigestCron,
   "/integration-heartbeat": runIntegrationHeartbeatCron,
   "/workflow-scan": runWorkflowScan,
   "/memory/evict": runMemoryEviction,
@@ -220,6 +243,16 @@ async function runTicketSync(): Promise<void> {
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
   );
+}
+
+async function runAlertManagerCron(): Promise<void> {
+  const result = await runAlertManager();
+  console.log(`[CRON] Alert manager: ${result.checked} reviewed, ${result.autoClosed} auto-closed, ${result.keptOpen} kept open, ${result.reviewRequired} need review, ${result.errors} errors`);
+}
+
+async function runAlertManagerDigestCron(): Promise<void> {
+  const result = await generateAlertManagerDigest();
+  console.log(`[CRON] Alert manager digest: ${result.reviewed} decisions in ${result.digestTickets.length} Halo review ticket(s)`);
 }
 
 async function runIntegrationHeartbeatCron(): Promise<void> {
@@ -648,6 +681,8 @@ export async function startCronScheduler(): Promise<void> {
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
+    { endpoint: "/alert-manager", name: "Alert Manager", schedule: "*/30 8-17 * * 1-5" },
+    { endpoint: "/alert-manager-digest", name: "Alert Manager Digest", schedule: "0 10,15 * * 1-5" },
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
     { endpoint: "/workflow-scan", name: "Workflow Guardrail Scan", schedule: "*/15 * * * *" }, // Every 15 minutes
     { endpoint: "/retriage", name: "Daily Re-Triage Scan", schedule: "*/30 * * * *" }, // Every 30 min (urgency timers decide which tickets to process)

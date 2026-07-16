@@ -50,6 +50,9 @@ const AVAILABLE_ENDPOINTS: ReadonlyArray<{
   { value: "/sla-scan", label: "SLA Breach Scan" },
   { value: "/toby/analyze", label: "Toby Learning Analysis" },
   { value: "/ticket-sync", label: "Halo Ticket Sync" },
+  { value: "/alert-manager", label: "Alerts Manager" },
+  { value: "/alert-manager-digest", label: "Alerts Manager Digest" },
+  { value: "/integration-heartbeat", label: "Integration Heartbeat" },
   { value: "/workflow-scan", label: "Workflow Guardrail Scan" },
   { value: "/memory/evict", label: "Agent Memory Cleanup" },
   { value: "/error-scan", label: "Errored Ticket Scan" },
@@ -66,6 +69,20 @@ function describeCron(expression: string): string {
   if (parts.length !== 5) return expression;
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
+  if (minute.startsWith("*/") && /^\d+-\d+$/.test(hour) && dayOfMonth === "*" && month === "*" && dayOfWeek === "1-5") {
+    const [start, end] = hour.split("-").map(Number);
+    return `Every ${minute.slice(2)} minutes, weekdays ${start}:00-${end}:59`;
+  }
+  if (minute === "0" && /^\d+(?:,\d+)+$/.test(hour) && dayOfMonth === "*" && month === "*" && dayOfWeek === "1-5") {
+    const labels = hour.split(",").map((value) => {
+      const h = Number(value);
+      const ampm = h >= 12 ? "PM" : "AM";
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      return `${h12}:00 ${ampm}`;
+    });
+    return `Weekdays at ${labels.join(" and ")}`;
+  }
 
   if (minute.startsWith("*/") && hour === "*" && dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
     return `Every ${minute.slice(2)} minutes`;
