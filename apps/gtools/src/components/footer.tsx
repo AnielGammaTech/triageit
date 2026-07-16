@@ -21,10 +21,10 @@ export function Footer() {
         </div>
 
         <a
-          href="mailto:help@gamma.tech"
+          href="https://gamma.tech"
           className="transition-colors hover:text-snow"
         >
-          help@gamma.tech
+          Get in touch
         </a>
       </div>
     </footer>

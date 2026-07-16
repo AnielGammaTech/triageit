@@ -85,7 +85,7 @@ export function Nav() {
 
         <a
           ref={contactRef}
-          href="mailto:help@gamma.tech"
+          href="https://gamma.tech"
           className="shrink-0 rounded-full bg-brand px-3.5 py-2 text-sm font-medium text-ink transition-opacity hover:opacity-90"
         >
           Contact us
