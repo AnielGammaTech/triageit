@@ -105,7 +105,14 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
             </button>
 
             <Link href="/tickets" className="flex h-14 items-center gap-[9px]" aria-label="TriageIT home">
-              <Image src="/triageit-mark.svg?v=20260716" alt="" width={44} height={44} className="h-11 w-11" />
+              <Image
+                src="/triageit-mark.svg?v=20260716"
+                alt=""
+                width={44}
+                height={44}
+                className="h-11 w-11"
+                style={{ transform: "translateY(-2.75px)" }}
+              />
               <span className="triageit-wordmark hidden whitespace-nowrap text-[22px] font-bold leading-none text-white sm:block">
                 Triage<span className="text-[#E05555]">IT</span>
               </span>
