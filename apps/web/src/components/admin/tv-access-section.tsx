@@ -254,7 +254,7 @@ export function TvAccessSection() {
             Copy address
           </button>
         </div>
-        <p className="mt-2 text-xs text-white/30">Open this address on the TV, then enter a one-time code below.</p>
+        <p className="mt-2 text-xs text-white/30">Open this address on the TV. Trusted office IPs activate automatically; other TVs display a QR approval code.</p>
       </section>
 
       <section className="border-b border-white/[0.08] p-5">
@@ -361,7 +361,7 @@ export function TvAccessSection() {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white/75">Trusted office IPs</h3>
-            <p className="mt-0.5 text-xs leading-5 text-white/35">Keeps an already-approved TV session renewed while it remains on this public IP. An IP never unlocks a new device by itself.</p>
+            <p className="mt-0.5 text-xs leading-5 text-white/35">Automatically authorizes the wallboard on this public IP and keeps its TV-only device session renewed. Only trust controlled office networks.</p>
           </div>
         </div>
 

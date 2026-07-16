@@ -4,6 +4,7 @@ import { secureTokenEqual } from "./secure-token";
 export const TV_SESSION_COOKIE = "triageit_tv_session";
 export const TV_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 export const TV_LINK_MAX_AGE_SECONDS = 15 * 60;
+export const TV_PAIRING_MAX_AGE_SECONDS = 10 * 60;
 const TV_ACCESS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const TV_ACCESS_CODE_LENGTH = 8;
 
@@ -27,6 +28,18 @@ export function createTvAccessCode(): string {
 
 export function hashTvAccessCode(code: string): string {
   return createHash("sha256").update(normalizeTvAccessCode(code)).digest("hex");
+}
+
+export function createTvPairingSecret(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function hashTvPairingSecret(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
+export function isValidTvPairingSecret(secret: string | null | undefined): secret is string {
+  return Boolean(secret && /^[A-Za-z0-9_-]{40,64}$/.test(secret));
 }
 
 export function isValidTvAccessCode(code: string | null | undefined): code is string {

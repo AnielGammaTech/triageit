@@ -114,12 +114,18 @@ export async function updateSession(request: NextRequest) {
     }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     return applySecurityHeaders(NextResponse.redirect(url));
   }
 
   if (user && isAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/tickets";
+    const requestedNext = request.nextUrl.searchParams.get("next") || "";
+    const safeNext = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/tickets";
+    const destination = new URL(safeNext, request.nextUrl.origin);
+    url.pathname = destination.pathname;
+    url.search = destination.search;
     return applySecurityHeaders(NextResponse.redirect(url));
   }
 

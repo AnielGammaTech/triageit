@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { formatEtTime, isActiveOrUpcomingEvent, isCurrentEtDay } from "@/lib/dispatch/schedule-visibility";
 import {
   Activity,
@@ -226,6 +227,14 @@ interface DailyScheduleData {
   readonly isToday: boolean;
 }
 
+interface TvPairingRequest {
+  readonly requestId: string;
+  readonly secret: string;
+  readonly approvalUrl: string;
+  readonly expiresAt: string;
+  readonly detectedIp: string | null;
+}
+
 function dailyScheduleData(schedule: TvSchedule | undefined, nowMs: number): DailyScheduleData {
   if (!schedule) return { day: null, rows: [], offTechs: [], isToday: false };
   const day = schedule.days[0] ?? schedule.start;
@@ -244,14 +253,41 @@ export default function TvPage() {
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  const [accessError, setAccessError] = useState("");
+  const [pairing, setPairing] = useState<TvPairingRequest | null>(null);
+  const [pairingQr, setPairingQr] = useState("");
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+
+  const checkAutomaticSession = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tv/session", { method: "GET", cache: "no-store" });
+      if (!response.ok) return false;
+      setAuthFailed(false);
+      setAccessError("");
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const startPairing = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tv/pairing", { method: "POST", cache: "no-store" });
+      if (!response.ok) throw new Error("Could not create a TV pairing request");
+      setPairing((await response.json()) as TvPairingRequest);
+      setAccessError("");
+    } catch {
+      setAccessError("QR approval is temporarily unavailable. Use a one-time code below.");
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/tv/command", { cache: "no-store" });
       if (res.status === 401 || res.status === 503) {
-        setAuthFailed(true);
+        const restored = await checkAutomaticSession();
+        setAuthFailed(!restored);
         return;
       }
       if (!res.ok) return; // keep last good data; staleness indicator handles it
@@ -261,7 +297,7 @@ export default function TvPage() {
     } catch {
       /* network blip — keep last good data */
     }
-  }, []);
+  }, [checkAutomaticSession]);
 
   const establishSession = useCallback(async (code: string) => {
     const response = await fetch("/api/tv/session", {
@@ -271,9 +307,12 @@ export default function TvPage() {
     });
     if (!response.ok) {
       setAuthFailed(true);
+      setAccessError("That one-time code is invalid, expired, revoked, or already used.");
       return false;
     }
     setAuthFailed(false);
+    setAccessError("");
+    setPairing(null);
     setCodeInput("");
     return true;
   }, []);
@@ -285,17 +324,75 @@ export default function TvPage() {
     const code = fragment.get("code");
     window.history.replaceState({}, "", window.location.pathname);
     const exchange = async () => {
+      let authorized = false;
       if (code) {
-        await establishSession(code);
+        authorized = await establishSession(code);
       }
+      if (!authorized) authorized = await checkAutomaticSession();
+      setAuthFailed(!authorized);
       setSessionReady(true);
     };
     void exchange();
-  }, [establishSession]);
+  }, [checkAutomaticSession, establishSession]);
+
+  useEffect(() => {
+    if (!sessionReady || !authFailed || pairing) return;
+    void startPairing();
+  }, [authFailed, pairing, sessionReady, startPairing]);
+
+  useEffect(() => {
+    if (!pairing) {
+      setPairingQr("");
+      return;
+    }
+    let active = true;
+    void QRCode.toDataURL(pairing.approvalUrl, {
+      width: 520,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#080405", light: "#ffffff" },
+    }).then((url) => {
+      if (active) setPairingQr(url);
+    }).catch(() => {
+      if (active) setAccessError("Could not draw the QR code. Use a one-time code below.");
+    });
+    return () => { active = false; };
+  }, [pairing]);
+
+  useEffect(() => {
+    if (!pairing || !authFailed) return;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch("/api/tv/pairing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId: pairing.requestId, secret: pairing.secret }),
+        });
+        if (response.ok) {
+          setAuthFailed(false);
+          setAccessError("");
+          setPairing(null);
+          void load();
+        } else if (response.status === 410) {
+          setPairing(null);
+        }
+      } catch {
+        // Keep the QR visible and try again on the next poll.
+      } finally {
+        polling = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => window.clearInterval(timer);
+  }, [authFailed, load, pairing]);
 
   // Data refresh + clock + daily self-reload
   useEffect(() => {
-    if (!sessionReady) return;
+    if (!sessionReady || authFailed) return;
     void load();
     const dataT = setInterval(() => void load(), REFRESH_MS);
     const clockT = setInterval(() => setNowTick(Date.now()), 1000);
@@ -305,21 +402,52 @@ export default function TvPage() {
       clearInterval(clockT);
       clearTimeout(reloadT);
     };
-  }, [sessionReady, load]);
+  }, [authFailed, sessionReady, load]);
 
   if (!sessionReady || authFailed) {
     return (
       <Shell>
-        <div className="flex h-full flex-col items-center justify-center gap-[2vh]">
-          <BrandMark size="7vw" />
+        <div className="flex h-full flex-col items-center justify-center gap-[1.4vh] px-[4vw]">
+          <BrandMark size="4.4vw" />
           <h1 className="text-[2.6vw] font-black tracking-tight text-white">
             TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
           </h1>
-          <p className="text-[1.1vw]" style={{ color: INK_DIM }}>
-            {authFailed
-              ? "That access code is invalid, expired, revoked, or already used."
-              : "This TV session is not authorized."}
+          <p className="text-[1.05vw]" style={{ color: INK_DIM }}>
+            {!sessionReady ? "Checking this TV and office network..." : "Scan to approve this TV from an authenticated TriageIT admin account."}
           </p>
+
+          {pairingQr && pairing ? (
+            <div className="mt-[0.5vh] flex items-center gap-[2vw] rounded-[1vw] border p-[1vw]" style={{ borderColor: HAIRLINE, background: PANEL }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={pairingQr} alt="QR code to approve this TV" className="h-[13vw] w-[13vw] rounded-[0.5vw] bg-white p-[0.35vw]" />
+              <div className="max-w-[25vw]">
+                <p className="text-[1.35vw] font-black text-white">Approve this wallboard</p>
+                <ol className="mt-[1vh] space-y-[0.65vh] text-[0.95vw] leading-relaxed" style={{ color: INK_DIM }}>
+                  <li><span className="font-bold text-white">1.</span> Scan with your phone</li>
+                  <li><span className="font-bold text-white">2.</span> Sign in to TriageIT if asked</li>
+                  <li><span className="font-bold text-white">3.</span> Tap <span className="font-bold text-white">Approve this TV</span></li>
+                </ol>
+                <p className="mt-[1.2vh] text-[0.78vw]" style={{ color: INK_FAINT }}>
+                  The screen activates automatically. This grants wallboard access only.
+                </p>
+                {pairing.detectedIp && (
+                  <p className="mt-[0.5vh] font-mono text-[0.68vw]" style={{ color: INK_FAINT }}>Detected IP {pairing.detectedIp}</p>
+                )}
+              </div>
+            </div>
+          ) : sessionReady ? (
+            <div className="flex h-[13vw] w-[13vw] items-center justify-center rounded-[0.7vw] border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+              <div className="h-[2.2vw] w-[2.2vw] animate-spin rounded-full border-[0.25vw] border-white/10 border-t-red-500" />
+            </div>
+          ) : null}
+
+          {accessError && <p className="text-[0.85vw] font-semibold" style={{ color: AMBER }}>{accessError}</p>}
+
+          <div className="flex items-center gap-[0.8vw]">
+            <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
+            <span className="text-[0.72vw] font-semibold uppercase tracking-[0.14em]" style={{ color: INK_FAINT }}>or enter a one-time code</span>
+            <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
+          </div>
           <form
             className="flex items-center gap-[0.8vw]"
             onSubmit={(event) => {
@@ -351,7 +479,7 @@ export default function TvPage() {
             </button>
           </form>
           <p className="text-[0.9vw]" style={{ color: "#71717a" }}>
-            Get a one-time code from Adminland &gt; Platform Operations &gt; TV Access.
+            A trusted office IP activates automatically. Manual codes remain available in Adminland &gt; TV Access.
           </p>
         </div>
       </Shell>
