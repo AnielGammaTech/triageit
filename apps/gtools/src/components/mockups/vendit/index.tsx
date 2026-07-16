@@ -48,6 +48,8 @@ export function VenditMockup() {
       style={{ ...themeVars, borderColor: "var(--mock-border)", background: "var(--mock-bg)" } as React.CSSProperties}
     >
       <div className="flex items-center gap-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logos/vendit.svg" width={12} height={12} alt="" aria-hidden />
         <span className="text-[7px] font-semibold uppercase tracking-[0.25em] text-[color:var(--mock-muted)]">VendIT</span>
         <span className="flex items-center gap-1">
           {TABS.map((tab) => (

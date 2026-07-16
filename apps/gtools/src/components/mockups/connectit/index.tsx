@@ -1,6 +1,5 @@
 "use client";
 
-import { accentVar } from "@/components/browser-frame";
 import { MockupTabButton, MockupViewport, useMockupView } from "../mockup-tabs";
 import { DashboardView } from "./dashboard";
 import { SyncRunsView } from "./sync-runs";
@@ -17,7 +16,6 @@ const NAV_VIEW: Partial<Record<(typeof NAV)[number], View>> = {
 };
 
 export function ConnectitMockup() {
-  const accent = accentVar("connectit");
   const [view, setView] = useMockupView<View>("dashboard");
 
   return (
@@ -38,9 +36,8 @@ export function ConnectitMockup() {
     >
       <div className="flex w-[68px] shrink-0 flex-col gap-2 p-2" style={{ background: "#101827" }}>
         <div className="flex items-center gap-1">
-          <span className="flex size-3.5 items-center justify-center rounded-[3px] text-[6px] font-bold text-white" style={{ background: accent }}>
-            C
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/connectit.svg" width={14} height={14} alt="" aria-hidden />
           <span className="text-[7px] font-bold text-white">ConnectIT</span>
         </div>
         <div className="flex flex-col gap-1 text-[6.5px] font-medium">

@@ -26,11 +26,13 @@ export function AccountitMockup() {
       <div className="flex items-center justify-between gap-2 px-2.5 py-1.5" style={{ background: "#1e2532" }}>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <span className="relative flex size-4 shrink-0 items-center justify-center rounded-[5px] text-[8px] font-bold text-white" style={{ background: "#0f172a" }}>
-              A<span className="absolute -right-px -top-px size-[3px] rounded-full" style={{ background: "#a5b4fc" }} />
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logos/accountit.svg" width={16} height={16} alt="" aria-hidden />
             <div className="flex flex-col leading-none">
-              <span className="font-display text-[9px] font-bold text-white">AccountIT</span>
+              <span className="font-display text-[9px] font-bold">
+                <span className="text-white">Account</span>
+                <span style={{ color: "#D946EF" }}>IT</span>
+              </span>
               <span className="text-[5.5px] font-semibold uppercase tracking-wider text-white/40">CRM</span>
             </div>
           </div>

@@ -34,12 +34,8 @@ export function LootitMockup() {
     >
       <div className="flex items-center justify-between px-2.5 py-1.5" style={{ background: "linear-gradient(90deg, #2E0820, #4A1035)" }}>
         <div className="flex items-center gap-2">
-          <span
-            className="flex size-3.5 items-center justify-center rounded-[3px] text-[7px] font-bold text-white"
-            style={{ background: "linear-gradient(135deg, #4A1035, #2E0820)", boxShadow: "0 0 4px #F472B6" }}
-          >
-            L
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/lootit.svg" width={14} height={14} alt="" aria-hidden />
           <span className="font-display text-[10px] font-bold">
             <span style={{ color: "#F472B6", textShadow: "0 0 6px rgba(244,114,182,0.6)" }}>Loot</span>
             <span className="text-white">IT</span>

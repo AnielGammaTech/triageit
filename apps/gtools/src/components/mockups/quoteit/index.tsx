@@ -30,6 +30,8 @@ export function QuoteitMockup() {
     >
       <div className="flex items-center justify-between px-2.5 py-1.5" style={{ background: "#0f1729" }}>
         <div className="flex items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/quoteit.svg" width={14} height={14} alt="" aria-hidden />
           <span className="font-display text-[10px] font-bold">
             <span className="text-white">Quote</span>
             <span style={{ color: accent }}>IT</span>

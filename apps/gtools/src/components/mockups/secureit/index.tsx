@@ -35,9 +35,8 @@ export function SecureitMockup() {
       }
     >
       <div className="flex items-center gap-2.5 px-2.5 py-1.5" style={{ background: "#0b0f14" }}>
-        <span className="flex size-3.5 items-center justify-center rounded-[3px] bg-white text-[7px] font-bold text-[#0b0f14]">
-          S
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logos/secureit.svg" width={14} height={14} alt="" aria-hidden />
         <span className="text-[9px] font-semibold text-white">SecureIT</span>
         <div className="ml-2 flex items-center gap-2 text-[7px] font-medium">
           {NAV.map((item) => {

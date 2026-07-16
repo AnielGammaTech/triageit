@@ -37,6 +37,8 @@ export function PortalitMockup() {
     >
       <div className="flex items-center justify-between gap-3 px-2.5 py-1.5" style={{ background: "#0f172a" }}>
         <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/portalit.svg" width={14} height={14} alt="" aria-hidden />
           <span className="font-display text-[10px] font-bold">
             <span className="text-white">Portal</span>
             <span style={{ color: "#a78bfa" }}>IT</span>

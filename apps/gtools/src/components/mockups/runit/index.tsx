@@ -38,9 +38,11 @@ export function RunitMockup() {
         className="flex items-center justify-center gap-3 px-2.5 py-1.5"
         style={{ background: "linear-gradient(90deg,#0f2f44,#133f5c)" }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logos/runit.svg" width={14} height={14} alt="" aria-hidden />
         <span className="font-display text-[10px] font-bold">
           <span className="text-white">Run</span>
-          <span style={{ color: "#f87171" }}>IT</span>
+          <span style={{ color: "#F59E0B" }}>IT</span>
         </span>
         <div className="flex items-center gap-2 text-[7px] font-medium">
           {NAV.map((item) => {

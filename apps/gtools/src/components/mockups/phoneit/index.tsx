@@ -35,9 +35,13 @@ export function PhoneitMockup() {
       }
     >
       <div className="flex items-center justify-between border-b px-2.5 py-1.5" style={{ background: "var(--mock-panel)", borderColor: "var(--mock-border)" }}>
-        <span className="font-display text-[10px] font-bold" style={{ color: "#58a6ff" }}>
-          PhoneIT
-        </span>
+        <div className="flex items-center gap-1.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logos/phoneit.svg" width={14} height={14} alt="" aria-hidden />
+          <span className="font-display text-[10px] font-bold" style={{ color: "#58a6ff" }}>
+            PhoneIT
+          </span>
+        </div>
         <div className="flex items-center gap-1 text-[7px] font-medium">
           {TABS.map((tab) => (
             <MockupTabButton
