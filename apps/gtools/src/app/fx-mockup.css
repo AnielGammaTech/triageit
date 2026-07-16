@@ -14,7 +14,12 @@
  *    plain `cursor-pointer` utility class on every mockup tab button. The
  *    two rules below win on specificity (element + 2 classes vs. element +
  *    1 class + universal) so hovering a tab always resolves to a real
- *    pointer cursor, reticle or not.
+ *    pointer cursor, reticle or not. fx-interactive.css also restores
+ *    `cursor: auto` across the whole BrowserFrame preview via
+ *    `[data-native-cursor]` (same element + 2 classes specificity as the
+ *    rules below) — since this file is `@import`ed after fx-interactive.css
+ *    in fx.css, the tab's `cursor: pointer` here wins that tie over the
+ *    frame's `auto`.
  * ========================================================================== */
 
 .mockup-fade {

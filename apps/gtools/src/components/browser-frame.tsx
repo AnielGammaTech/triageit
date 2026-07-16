@@ -14,7 +14,10 @@ export function BrowserFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fx-frame-float relative isolate">
+    <div
+      className="fx-frame-float relative isolate"
+      data-native-cursor
+    >
       {/* outer accent glow — breathes continuously */}
       <div
         aria-hidden

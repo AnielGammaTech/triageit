@@ -106,6 +106,18 @@ html.fx-cursor-active * {
   cursor: none;
 }
 
+/* BrowserFrame previews (`[data-native-cursor]` in browser-frame.tsx) opt
+ * out of the reticle: the sci-fi ring looks wrong floating over a mockup's
+ * own UI, so native cursors come back for the whole frame (arrow by
+ * default). Same (element + 2 classes) specificity as the `.mockup-tab`
+ * override below in fx-mockup.css — that file is `@import`ed after this one
+ * in fx.css, so its `cursor: pointer` wins the tie over this `cursor: auto`
+ * for the tab buttons specifically, while the rest of the frame stays auto. */
+html.fx-cursor-active [data-native-cursor],
+html.fx-cursor-active [data-native-cursor] * {
+  cursor: auto;
+}
+
 .fx-cursor {
   contain: layout style;
 }
@@ -132,6 +144,13 @@ html.fx-cursor-active * {
 .fx-cursor[data-visible="true"] .fx-cursor-reticle {
   opacity: 1;
 }
+/* Suspended while the pointer is over a BrowserFrame preview (`data-hidden`,
+ * toggled by cursor.tsx's pointerover delegate) — same specificity as the
+ * rule above, declared after it so it wins the tie and the reticle fades
+ * out instead of floating over the frame's now-native cursor. */
+.fx-cursor[data-hidden="true"] .fx-cursor-reticle {
+  opacity: 0;
+}
 @media (prefers-reduced-motion: no-preference) {
   .fx-cursor-reticle {
     transition:
@@ -139,6 +158,9 @@ html.fx-cursor-active * {
       transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
       border-color 0.2s ease,
       box-shadow 0.2s ease;
+  }
+  .fx-cursor[data-hidden="true"] .fx-cursor-reticle {
+    transition-duration: 0.12s;
   }
 }
 .fx-cursor-reticle::before {

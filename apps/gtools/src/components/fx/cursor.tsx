@@ -23,7 +23,13 @@ interface CursorState {
 // hidden by toggling one class on <html> (`.fx-cursor-active`, in
 // fx-interactive.css) — pure CSS, and always removed in this effect's
 // cleanup so a fast pointer-type change or an unmount never leaves the user
-// without a cursor.
+// without a cursor. BrowserFrame previews (`[data-native-cursor]`, see
+// browser-frame.tsx) opt out of the reticle entirely — the same pointerover
+// delegate that tracks hover-over-a-link/button also tracks
+// entering/leaving a preview and toggles `data-hidden` on this component's
+// root, which fades the reticle out (fx-interactive.css); native cursors
+// (arrow, or pointer over `.mockup-tab`) come back inside the frame via a
+// scoped `cursor: auto` override in the same stylesheet.
 export function ReticleCursor() {
   const [enabled, setEnabled] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -59,6 +65,10 @@ export function ReticleCursor() {
       const isInteractive = Boolean(target?.closest("a[href], button"));
       if (isInteractive) root.setAttribute("data-hover", "true");
       else root.removeAttribute("data-hover");
+
+      const overNativeCursorFrame = Boolean(target?.closest("[data-native-cursor]"));
+      if (overNativeCursorFrame) root.setAttribute("data-hidden", "true");
+      else root.removeAttribute("data-hidden");
     };
     document.addEventListener("pointerover", handlePointerOver, { passive: true });
 
