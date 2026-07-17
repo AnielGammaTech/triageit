@@ -450,10 +450,11 @@ export default function TvPage() {
   const breachAlarm = (m?.breaching ?? 0) > 0;
   // Carousel advances every 10s, derived from the 1s clock tick — no extra timer
   const slide = Math.floor(nowTick / 10_000) % CAROUSEL_SLIDES.length;
-  // Queue row budget: at-risk fills whatever breaches/unassigned don't use
-  const breachCap = Math.min(data?.breaches.length ?? 0, 6);
-  const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 5);
-  const atRiskCap = Math.max(3, 11 - breachCap - unassignedCap);
+  // Keep room for both owner-action queues at all times. Breaches and
+  // unassigned remain first, while WOT and Customer Reply split the rest 50/50.
+  const breachCap = Math.min(data?.breaches.length ?? 0, 3);
+  const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 3);
+  const ownerQueueCap = Math.max(2, Math.floor((10 - breachCap - unassignedCap) / 2));
 
   return (
     <Shell>
@@ -536,7 +537,10 @@ export default function TvPage() {
           >
             {!data ? (
               <Loading />
-            ) : data.breaches.length === 0 && data.unassignedTickets.length === 0 && data.oldestTickets.length === 0 ? (
+            ) : data.breaches.length === 0
+              && data.unassignedTickets.length === 0
+              && data.oldestTickets.length === 0
+              && data.customerReplyTickets.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-[1.2vh]">
                 <ShieldCheck className="h-[4vw] w-[4vw]" style={{ color: "#22c55e" }} />
                 <span className="text-[1.8vw] font-black tracking-[0.2em] text-white">ALL CLEAR</span>
@@ -577,21 +581,42 @@ export default function TvPage() {
                     />
                   </>
                 )}
-                {data.oldestTickets.length > 0 && (
-                  <>
+                <div className="grid min-h-0 flex-1 grid-rows-2">
+                  <div className="min-h-0 overflow-hidden border-t" style={{ borderColor: HAIRLINE }}>
                     <QueueHeader label="WAITING ON TECH — OLDEST FIRST" count={m?.waitingOnTech ?? data.oldestTickets.length} color="#fe9200" />
-                    <RowList
-                      items={data.oldestTickets.slice(0, atRiskCap).map((t) => ({
-                        id: t.halo_id,
-                        left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
-                        who: t.halo_agent ?? "UNASSIGNED",
-                        badge: `WAITING ${mins(t.ageMin)}`,
-                        badgeColor: "#fe9200",
-                      }))}
-                      more={(m?.waitingOnTech ?? 0) - Math.min(data.oldestTickets.length, atRiskCap)}
-                    />
-                  </>
-                )}
+                    {data.oldestTickets.length === 0 ? (
+                      <QueueEmpty label="No tickets are waiting on a technician." />
+                    ) : (
+                      <RowList
+                        items={data.oldestTickets.slice(0, ownerQueueCap).map((t) => ({
+                          id: t.halo_id,
+                          left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
+                          who: t.halo_agent ?? "UNASSIGNED",
+                          badge: `WAITING ${mins(t.ageMin)}`,
+                          badgeColor: "#fe9200",
+                        }))}
+                        more={Math.max(0, (m?.waitingOnTech ?? 0) - Math.min(data.oldestTickets.length, ownerQueueCap))}
+                      />
+                    )}
+                  </div>
+                  <div className="min-h-0 overflow-hidden border-t" style={{ borderColor: HAIRLINE }}>
+                    <QueueHeader label="CUSTOMER REPLIES — OLDEST FIRST" count={m?.customerReply ?? data.customerReplyTickets.length} color="#e879f9" />
+                    {data.customerReplyTickets.length === 0 ? (
+                      <QueueEmpty label="No customer replies are waiting for a technician." />
+                    ) : (
+                      <RowList
+                        items={data.customerReplyTickets.slice(0, ownerQueueCap).map((t) => ({
+                          id: t.halo_id,
+                          left: `${t.client_name ?? "Unknown"} — ${t.summary ?? ""}`,
+                          who: t.halo_agent ?? "UNASSIGNED",
+                          badge: `REPLIED ${mins(t.ageMin)} AGO`,
+                          badgeColor: "#e879f9",
+                        }))}
+                        more={Math.max(0, (m?.customerReply ?? 0) - Math.min(data.customerReplyTickets.length, ownerQueueCap))}
+                      />
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </Panel>
@@ -803,6 +828,14 @@ function QueueHeader({ label, count, color }: { readonly label: string; readonly
       <span className="text-[0.75vw] font-black text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>
         {count}
       </span>
+    </div>
+  );
+}
+
+function QueueEmpty({ label }: { readonly label: string }) {
+  return (
+    <div className="px-[1vw] py-[1vh] text-[0.8vw]" style={{ color: INK_DIM }}>
+      {label}
     </div>
   );
 }

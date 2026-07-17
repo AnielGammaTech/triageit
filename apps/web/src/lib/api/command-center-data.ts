@@ -103,6 +103,7 @@ export interface CommandCenterPayload {
   readonly atRisk: ReadonlyArray<CommandAtRisk>;
   readonly unassignedTickets: ReadonlyArray<CommandUnassigned>;
   readonly oldestTickets: ReadonlyArray<CommandUnassigned>;
+  readonly customerReplyTickets: ReadonlyArray<CommandUnassigned>;
   readonly techStats: ReadonlyArray<CommandTechStat>;
   readonly wallOfShame: ReadonlyArray<CommandRanked>;
   readonly wallOfFame: ReadonlyArray<CommandRanked>;
@@ -115,6 +116,7 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
+const HALO_CUSTOMER_REPLY_STATUS_ID = 30;
 const HALO_WAITING_ON_TECH_STATUS_ID = 32;
 const HALO_UNASSIGNED_AGENT_ID = 1;
 const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
@@ -144,6 +146,12 @@ function etDateKey(now: Date): string {
 export function isWaitingOnTechQueue(statusId: number | null, statusName: string | null): boolean {
   return statusId === HALO_WAITING_ON_TECH_STATUS_ID
     || /waiting on tech/i.test(statusName ?? "");
+}
+
+/** Match Halo's Customer Reply queue exactly; this is separate from Waiting on Tech. */
+export function isCustomerReplyQueue(statusId: number | null, statusName: string | null): boolean {
+  return statusId === HALO_CUSTOMER_REPLY_STATUS_ID
+    || /customer reply/i.test(statusName ?? "");
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -357,6 +365,25 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     .sort((a, b) => b.ageMin - a.ageMin)
     .slice(0, 12);
 
+  // ── Customer Reply tickets — the customer spoke last, oldest reply first ──
+  const customerReplyTickets: CommandUnassigned[] = tickets
+    .filter((t) => isCustomerReplyQueue(t.halo_status_id, t.halo_status))
+    .map((t) => ({
+      halo_id: t.halo_id,
+      summary: t.summary,
+      client_name: t.client_name,
+      halo_status: t.halo_status,
+      halo_agent: t.halo_agent,
+      ageMin: Math.max(
+        0,
+        Math.floor(
+          (now - new Date(t.last_customer_reply_at ?? t.created_at).getTime()) / 60_000,
+        ),
+      ),
+    }))
+    .sort((a, b) => b.ageMin - a.ageMin)
+    .slice(0, 12);
+
   // ── Per-tech stats ──
   interface TechAgg {
     tech: string;
@@ -384,9 +411,8 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     const agg = getTech(name);
     agg.openTickets++;
     if (t.sla_currently_breached) agg.breaching++;
-    const status = (t.halo_status ?? "").toLowerCase();
     if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
-    if (status.includes("customer reply")) {
+    if (isCustomerReplyQueue(t.halo_status_id, t.halo_status)) {
       const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
       const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
       if (cust > 0 && cust > tech && now - cust >= THIRTY_MIN_MS) agg.unackedReplies++;
@@ -453,11 +479,25 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     atRisk: atRisk.length,
     unassigned: unassignedTickets.length,
     waitingOnTech: tickets.filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status)).length,
-    customerReply: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("customer reply")).length,
+    customerReply: tickets.filter((t) => isCustomerReplyQueue(t.halo_status_id, t.halo_status)).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
     openedToday: openedTodayRes.count ?? 0,
     resolvedToday: haloResolvedToday ?? resolvedTodayFallbackRes.count ?? 0,
   };
 
-  return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, unassignedTickets, oldestTickets, techStats, wallOfShame, wallOfFame, scoreboard, haloBaseUrl };
+  return {
+    generatedAt: nowDate.toISOString(),
+    metrics,
+    statusCounts,
+    breaches,
+    atRisk,
+    unassignedTickets,
+    oldestTickets,
+    customerReplyTickets,
+    techStats,
+    wallOfShame,
+    wallOfFame,
+    scoreboard,
+    haloBaseUrl,
+  };
 }
