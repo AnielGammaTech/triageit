@@ -14,6 +14,7 @@ import {
   Tv,
 } from "lucide-react";
 import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 interface StatusCount {
   readonly status: string;
@@ -145,7 +146,7 @@ function commitmentHint(nextCommitment: string | null): string | null {
 /** Create a one-time wallboard link and open it in a new tab. */
 async function openTvMode(): Promise<void> {
   try {
-    const res = await fetch("/api/tv/link", { method: "POST", cache: "no-store" });
+    const res = await fetchWithTimeout("/api/tv/link", { method: "POST", cache: "no-store" }, undefined, "TV link");
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       window.alert(body?.error ?? "TV link unavailable — is TV_DASHBOARD_KEY set on the web service?");
@@ -167,7 +168,7 @@ export default function CommandPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const res = await fetch("/api/command-center", { cache: "no-store" });
+      const res = await fetchWithTimeout("/api/command-center", { cache: "no-store" }, undefined, "Command Center");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setData((await res.json()) as Payload);
       setError(null);
@@ -387,7 +388,7 @@ function TeamAvailability() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/dispatch/board", { cache: "no-store" });
+      const res = await fetchWithTimeout("/api/dispatch/board", { cache: "no-store" }, undefined, "Team availability");
       if (!res.ok) return; // keep last good snapshot
       const board = (await res.json()) as PresenceBoard;
       if (Array.isArray(board.techs)) setTechs(board.techs);

@@ -8,6 +8,7 @@ import { OpenTicketList } from "@/components/tickets/open-ticket-list";
 import { ReviewList } from "@/components/tickets/review-list";
 import { cn } from "@/lib/utils/cn";
 import type { TicketStatus } from "@triageit/shared";
+import { fetchWithTimeout, withTimeout } from "@/lib/async-timeout";
 
 interface TicketRow {
   readonly id: string;
@@ -76,6 +77,7 @@ export default function TicketsPage() {
 
   const loadTickets = useCallback(async () => {
     const supabase = createClient();
+    try {
 
     // Fetch open + recently closed Gamma Default tickets (last 90 days)
     // Two queries to avoid Supabase's 1000-row default cap
@@ -124,14 +126,18 @@ export default function TicketsPage() {
       return { rows, error: null };
     }
 
-    const [openResult, closedResult, alertsResult] = await Promise.all([
-      // All open Gamma Default tickets (no date limit)
-      fetchAllRows({ ticketType: 31, isOpen: true }),
-      // Recently closed Gamma Default (last 90 days for Resolved tab)
-      fetchAllRows({ ticketType: 31, isOpen: false, createdSince: threeMonthsAgo }),
-      // Alert tickets (type 36) — recent, for Alerts tab
-      fetchAllRows({ ticketType: 36, createdSince: threeMonthsAgo }),
-    ]);
+    const [openResult, closedResult, alertsResult] = await withTimeout(
+      Promise.all([
+        // All open Gamma Default tickets (no date limit)
+        fetchAllRows({ ticketType: 31, isOpen: true }),
+        // Recently closed Gamma Default (last 90 days for Resolved tab)
+        fetchAllRows({ ticketType: 31, isOpen: false, createdSince: threeMonthsAgo }),
+        // Alert tickets (type 36) — recent, for Alerts tab
+        fetchAllRows({ ticketType: 36, createdSince: threeMonthsAgo }),
+      ]),
+      20_000,
+      "Ticket list",
+    );
 
     const dbError = openResult.error ?? closedResult.error ?? alertsResult.error;
     const data = [...openResult.rows, ...closedResult.rows, ...alertsResult.rows]
@@ -148,10 +154,14 @@ export default function TicketsPage() {
     // messages) get a phone marker in the list. Failures just hide the
     // markers — never block the ticket list itself.
     try {
-      const [analyses, messages] = await Promise.all([
-        supabase.from("call_analyses").select("halo_id").eq("note_posted", true).not("halo_id", "is", null).limit(2000),
-        supabase.from("call_messages").select("halo_id").not("halo_id", "is", null).limit(2000),
-      ]);
+      const [analyses, messages] = await withTimeout(
+        Promise.all([
+          supabase.from("call_analyses").select("halo_id").eq("note_posted", true).not("halo_id", "is", null).limit(2000),
+          supabase.from("call_messages").select("halo_id").not("halo_id", "is", null).limit(2000),
+        ]),
+        20_000,
+        "Ticket call markers",
+      );
       const ids = [...(analyses.data ?? []), ...(messages.data ?? [])]
         .map((r) => Number((r as { halo_id: number | null }).halo_id))
         .filter((n) => Number.isFinite(n) && n > 0);
@@ -159,7 +169,11 @@ export default function TicketsPage() {
     } catch {
       setCallHaloIds(new Set());
     }
-    setLoading(false);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Tickets could not be loaded");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   // Load Halo base URL once (separate from ticket loading to avoid dependency loops)
@@ -186,7 +200,7 @@ export default function TicketsPage() {
     setPulling(true);
     setStatusMessage(null);
     try {
-      const res = await fetch("/api/admin/health/force-sync", { method: "POST" });
+      const res = await fetchWithTimeout("/api/admin/health/force-sync", { method: "POST" }, undefined, "Halo sync");
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         setStatusMessage({ type: "error", text: body.error ?? `Pull failed: ${res.status}` });
@@ -221,11 +235,11 @@ export default function TicketsPage() {
     setStatusMessage(null);
 
     try {
-      const res = await fetch("/api/triage", {
+      const res = await fetchWithTimeout("/api/triage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ halo_id: haloId }),
-      });
+      }, undefined, "Ticket triage");
 
       const result = await res.json();
 
@@ -258,7 +272,7 @@ export default function TicketsPage() {
     setTriagingAll(true);
     setStatusMessage(null);
     try {
-      const res = await fetch("/api/triage/all", { method: "POST" });
+      const res = await fetchWithTimeout("/api/triage/all", { method: "POST" }, undefined, "Triage all tickets");
       const result = await res.json();
       if (res.ok) {
         setStatusMessage({
@@ -373,7 +387,7 @@ export default function TicketsPage() {
       return ["closed", "resolved", "cancelled", "canceled", "completed"].some((m) => status.includes(m));
     };
     Promise.all([
-      fetch("/api/tech-reviews").then((r) => r.json()).then((d) => {
+      fetchWithTimeout("/api/tech-reviews", {}, undefined, "Tech reviews").then((r) => r.json()).then((d) => {
         const reviews = (d.reviews ?? []) as ReadonlyArray<{ ticket_id: string; tickets?: { halo_is_open?: boolean | null; halo_status?: string | null } }>;
         const unique = new Set(reviews.filter((r) => !strictClosed(r.tickets)).map((r) => r.ticket_id));
         return unique.size;
@@ -660,6 +674,19 @@ export default function TicketsPage() {
         {activeTab === "review_close" && "Tickets closed in the last 5 days where the AI graded the closure poorly — thin documentation or no real customer answer. Items drop off automatically after 5 days."}
         {activeTab === "resolved" && "Closed Gamma Default tickets from the last 90 days."}
       </p>
+
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void loadTickets()}
+            className="shrink-0 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/10"
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
       {statusMessage && (
         <div

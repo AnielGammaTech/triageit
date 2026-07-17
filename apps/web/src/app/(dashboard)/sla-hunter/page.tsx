@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Moon,
 } from "lucide-react";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 interface BreachRow {
   readonly halo_id: number;
@@ -123,7 +124,7 @@ export default function SlaHunterPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const res = await fetch("/api/sla-hunter", { cache: "no-store" });
+      const res = await fetchWithTimeout("/api/sla-hunter", { cache: "no-store" }, undefined, "SLA Hunter");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as Payload;
       setData(json);

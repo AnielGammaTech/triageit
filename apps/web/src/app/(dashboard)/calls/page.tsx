@@ -16,6 +16,7 @@ import {
   Unlink,
   Users,
 } from "lucide-react";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 interface CallItem {
   readonly recordingId: number;
@@ -116,7 +117,7 @@ export default function CallsPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const response = await fetch("/api/calls", { cache: "no-store" });
+      const response = await fetchWithTimeout("/api/calls", { cache: "no-store" }, undefined, "3CX calls");
       const payload = await response.json() as CallPayload & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
       setData(payload);
@@ -393,11 +394,11 @@ function ManualMatchForm({ recordingId, onMatched }: { readonly recordingId: num
     setSubmitting(true);
     setError(null);
     try {
-      const response = await fetch(`/api/calls/${recordingId}/match`, {
+      const response = await fetchWithTimeout(`/api/calls/${recordingId}/match`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ halo_id: haloId }),
-      });
+      }, undefined, "Call match");
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Could not match the call");
       await onMatched();

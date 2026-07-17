@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { AUTH_OPERATION_TIMEOUT_MS, withTimeout } from "@/lib/async-timeout";
 
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
@@ -68,7 +69,11 @@ export async function updateSession(request: NextRequest) {
 
   let user = null;
   try {
-    const { data } = await supabase.auth.getUser();
+    const { data } = await withTimeout(
+      supabase.auth.getUser(),
+      AUTH_OPERATION_TIMEOUT_MS,
+      "Authentication check",
+    );
     user = data.user;
   } catch (err) {
     console.error("[MIDDLEWARE] Auth check failed:", (err as Error).message);

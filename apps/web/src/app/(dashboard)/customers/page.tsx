@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
 import { CustomerDetail } from "@/components/customers/customer-detail";
+import { fetchWithTimeout, withTimeout } from "@/lib/async-timeout";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ export default function CustomersPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/halo/customers");
+      const response = await fetchWithTimeout("/api/halo/customers", {}, undefined, "Customers");
       const data = (await response.json()) as {
         customers?: ReadonlyArray<HaloCustomer>;
         error?: string;
@@ -59,9 +60,13 @@ export default function CustomersPage() {
 
   async function loadTriageCounts() {
     const supabase = createClient();
-    const { data } = await supabase
-      .from("tickets")
-      .select("client_name, status");
+    const { data } = await withTimeout(
+      supabase
+        .from("tickets")
+        .select("client_name, status"),
+      20_000,
+      "Customer ticket counts",
+    ).catch(() => ({ data: null }));
 
     if (data) {
       const counts: Record<string, number> = {};
@@ -170,8 +175,15 @@ export default function CustomersPage() {
 
       {/* Error state */}
       {error && (
-        <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void loadCustomers()}
+            className="shrink-0 rounded-md border border-red-400/30 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/10"
+          >
+            Try again
+          </button>
         </div>
       )}
 

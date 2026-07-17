@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { AUTH_OPERATION_TIMEOUT_MS, withTimeout } from "@/lib/async-timeout";
 
 export type AppRole = "admin" | "manager" | "viewer";
 
@@ -15,15 +16,23 @@ export async function getAuthenticatedPageUser(): Promise<{
   const supabase = await createClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await withTimeout(
+    supabase.auth.getUser(),
+    AUTH_OPERATION_TIMEOUT_MS,
+    "Authentication check",
+  );
 
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile } = await withTimeout(
+    supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle(),
+    AUTH_OPERATION_TIMEOUT_MS,
+    "Profile check",
+  );
 
   return {
     id: user.id,

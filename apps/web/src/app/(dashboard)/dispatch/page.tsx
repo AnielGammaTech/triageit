@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
 import { formatEtTime, isActiveOrUpcomingEvent } from "@/lib/dispatch/schedule-visibility";
 import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
+import { fetchWithTimeout } from "@/lib/async-timeout";
 
 interface TechStatus {
   readonly state:
@@ -199,9 +200,9 @@ export default function DispatchPage() {
     if (silent) setRefreshing(true);
     try {
       const [boardRes, suggestRes, customerUpdatesRes] = await Promise.all([
-        fetch("/api/dispatch/board", { cache: "no-store" }),
-        fetch("/api/dispatch/suggest", { cache: "no-store" }),
-        fetch("/api/dispatch/customer-updates", { cache: "no-store" }),
+        fetchWithTimeout("/api/dispatch/board", { cache: "no-store" }, undefined, "Dispatch board"),
+        fetchWithTimeout("/api/dispatch/suggest", { cache: "no-store" }, undefined, "Dispatch suggestions"),
+        fetchWithTimeout("/api/dispatch/customer-updates", { cache: "no-store" }, undefined, "Customer updates"),
       ]);
       if (!boardRes.ok) throw new Error(`HTTP ${boardRes.status}`);
       if (!suggestRes.ok) throw new Error(`HTTP ${suggestRes.status}`);
@@ -233,11 +234,11 @@ export default function DispatchPage() {
     setCustomerUpdateBusy(id);
     setCustomerUpdateError(null);
     try {
-      const response = await fetch(`/api/dispatch/customer-updates/${encodeURIComponent(id)}/${action}`, {
+      const response = await fetchWithTimeout(`/api/dispatch/customer-updates/${encodeURIComponent(id)}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: action === "approve" ? JSON.stringify({ draft_message: customerDrafts[id] ?? "" }) : "{}",
-      });
+      }, undefined, "Customer update action");
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
       setCustomerUpdates((current) => current.filter((update) => update.id !== id));
@@ -256,7 +257,7 @@ export default function DispatchPage() {
   const loadDay = useCallback(async (offset: number) => {
     try {
       const qs = offset === 0 ? "" : `?start=${dayStartIso(offset)}`;
-      const res = await fetch(`/api/dispatch/week${qs}`, { cache: "no-store" });
+      const res = await fetchWithTimeout(`/api/dispatch/week${qs}`, { cache: "no-store" }, undefined, "Dispatch schedule");
       if (!res.ok) {
         setWeek(null);
         return;

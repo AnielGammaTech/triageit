@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import { fetchWithTimeout, withTimeout } from "@/lib/async-timeout";
 import {
   MENU_GROUPS,
   INTEGRATION_CATEGORIES,
@@ -180,9 +181,13 @@ export default function AdminlandPage() {
     setIntegrationError(null);
 
     try {
-      const { data: mappingData, error: mappingError } = await supabase
-        .from("integration_mappings")
-        .select("service");
+      const { data: mappingData, error: mappingError } = await withTimeout(
+        supabase
+          .from("integration_mappings")
+          .select("service"),
+        20_000,
+        "Integration mappings",
+      );
 
       if (mappingError) throw mappingError;
 
@@ -195,9 +200,13 @@ export default function AdminlandPage() {
         setMappingCounts(counts);
       }
 
-      const { data: intData, error: integrationDataError } = await supabase
-        .from("integrations")
-        .select("service, is_active, health_status, last_health_check, config");
+      const { data: intData, error: integrationDataError } = await withTimeout(
+        supabase
+          .from("integrations")
+          .select("service, is_active, health_status, last_health_check, config"),
+        20_000,
+        "Integration health",
+      );
 
       if (integrationDataError) throw integrationDataError;
 
@@ -231,11 +240,11 @@ export default function AdminlandPage() {
     setHeartbeatRunning(true);
     setIntegrationError(null);
     try {
-      const response = await fetch("/api/integrations/heartbeat", {
+      const response = await fetchWithTimeout("/api/integrations/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
-      });
+      }, undefined, "Integration heartbeat");
       if (!response.ok) {
         throw new Error("Health checks could not be completed.");
       }
