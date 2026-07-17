@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 /**
  * GET /api/admin/health/debug-halo
  * Fetches ONE page of tickets from Halo and returns raw data for debugging.
  */
 export async function GET() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const supabase = await createServiceClient();
 

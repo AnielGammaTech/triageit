@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { AgentDefinition } from "@triageit/shared";
 import { cn } from "@/lib/utils/cn";
@@ -57,17 +57,13 @@ const MEMORY_TYPE_COLORS: Record<string, string> = {
 // ── Main Component ────────────────────────────────────────────────────
 
 export function WorkerDetail({ agent }: WorkerDetailProps) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [skills, setSkills] = useState<ReadonlyArray<Skill>>([]);
   const [memories, setMemories] = useState<ReadonlyArray<Memory>>([]);
   const [ticketCount, setTicketCount] = useState(0);
 
-  useEffect(() => {
-    loadData();
-  }, [agent.name]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     const [skillsRes, memoriesRes, logsRes] = await Promise.all([
       supabase
         .from("agent_skills")
@@ -90,7 +86,11 @@ export function WorkerDetail({ agent }: WorkerDetailProps) {
     setSkills((skillsRes.data ?? []) as ReadonlyArray<Skill>);
     setMemories((memoriesRes.data ?? []) as ReadonlyArray<Memory>);
     setTicketCount(logsRes.count ?? 0);
-  }
+  }, [agent.name, supabase]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   return (
     <div className="space-y-6">

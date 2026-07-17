@@ -1,4 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { normalizeHaloUtcTimestamp } from "@/lib/halo/date";
+import { secureTokenEqual } from "@/lib/api/secure-token";
 import { AGENTS } from "@triageit/shared";
 import { QuickActions, CollapsibleSection, GlobalStyles, EmbedTriageButton, AutoRefresh, TriageFeedback } from "./actions";
 import { ToggleableSection, SectionSettings } from "./sections";
@@ -93,7 +95,7 @@ interface HaloAction {
 }
 
 function getActionDate(a: HaloAction): string {
-  return a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when ?? "";
+  return normalizeHaloUtcTimestamp(a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when);
 }
 
 interface TriageITNote {
@@ -211,7 +213,7 @@ export default async function EmbedTriagePage({
   const token = params.token;
 
   const embedSecret = process.env.EMBED_SECRET;
-  if (!embedSecret || token !== embedSecret) {
+  if (!embedSecret || !secureTokenEqual(token, embedSecret)) {
     return <ErrorState message="Unauthorized -- invalid or missing embed token." />;
   }
 

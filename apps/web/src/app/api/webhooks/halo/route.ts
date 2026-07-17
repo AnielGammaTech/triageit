@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { workerFetch } from "@/lib/api/worker";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
+import { checkRateLimit } from "@/lib/api/rate-limit";
 import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
@@ -48,6 +51,12 @@ const CLOSED_STATUS_NAMES = new Set([
 // 9 = Closed is the most common across Halo instances
 const CLOSED_STATUS_IDS = new Set([9, 10, 24, 26, 27]);
 export async function POST(request: NextRequest) {
+  const callerIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? request.headers.get("x-real-ip")
+    ?? "unknown-webhook-client";
+  const limited = checkRateLimit(callerIp, 120, 60_000, "halo-webhook");
+  if (limited) return limited;
+
   // Auth check — supports both Basic auth (Halo's format) and Bearer token
   const authHeader = request.headers.get("authorization") ?? "";
   const expectedUser = process.env.HALO_WEBHOOK_USERNAME;
@@ -66,13 +75,16 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const [user, pass] = decoded.split(":");
-    if (user !== expectedUser || pass !== expectedPass) {
+    const separator = decoded.indexOf(":");
+    const user = separator >= 0 ? decoded.slice(0, separator) : "";
+    const pass = separator >= 0 ? decoded.slice(separator + 1) : "";
+    if (!secureTokenEqual(user, expectedUser) || !secureTokenEqual(pass, expectedPass)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else if (bearerSecret) {
     // Fallback: Bearer token
-    if (authHeader !== `Bearer ${bearerSecret}`) {
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!secureTokenEqual(bearer, bearerSecret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   } else {
@@ -84,12 +96,9 @@ export async function POST(request: NextRequest) {
   }
 
   // Parse body — Halo may send various formats
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const parsedBody = await readJsonBody<Record<string, unknown>>(request, 2 * 1024 * 1024);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
 
   // Extract ticket ID — Halo webhooks can send:
   // { id: 123, summary: "..." }  (direct ticket object)

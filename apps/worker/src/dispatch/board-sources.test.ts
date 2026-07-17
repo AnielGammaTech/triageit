@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
-import { calendarSignalFromEvents } from "./board-sources.js";
+import {
+  calendarSignalFromEvents,
+  isCustomerReplyStatus,
+  isWaitingOnTechStatus,
+} from "./board-sources.js";
 
 const NOW = Date.parse("2026-07-10T16:00:00.000Z");
 
@@ -10,6 +14,8 @@ const event = (over: Partial<MsGraphCalendarEvent>): MsGraphCalendarEvent => ({
   endsAt: "2026-07-11T04:00:00.000Z",
   showAs: "free",
   isAllDay: true,
+  isOnlineMeeting: false,
+  onlineMeetingProvider: null,
   categories: [],
   ...over,
 });
@@ -48,5 +54,20 @@ describe("calendarSignalFromEvents personal PTO rule", () => {
     const signal = calendarSignalFromEvents([meeting], NOW);
     expect(signal.inMeetingUntil).toBe("2026-07-10T16:30:00.000Z");
     expect(signal.onPtoToday).toBe(false);
+  });
+});
+
+describe("Halo dispatch status matching", () => {
+  it("uses Halo's canonical Customer Reply status ID even when the label is absent", () => {
+    expect(isCustomerReplyStatus(30, null)).toBe(true);
+    expect(isCustomerReplyStatus(null, "Customer Reply")).toBe(true);
+    expect(isCustomerReplyStatus(32, "Waiting on Tech")).toBe(false);
+  });
+
+  it("counts only Halo's Waiting On Tech status as WOT", () => {
+    expect(isWaitingOnTechStatus(32, null)).toBe(true);
+    expect(isWaitingOnTechStatus(null, "Waiting on Tech")).toBe(true);
+    expect(isWaitingOnTechStatus(31, "PAST-DUE")).toBe(false);
+    expect(isWaitingOnTechStatus(30, "Customer Reply")).toBe(false);
   });
 });

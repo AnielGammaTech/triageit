@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, ChevronLeft, ChevronRight, ClipboardList, Phone, Radio, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ListChecks, MailCheck, Radio, RefreshCw, Send, TriangleAlert, Users, X } from "lucide-react";
+import { formatEtTime, isActiveOrUpcomingEvent } from "@/lib/dispatch/schedule-visibility";
+import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
 
 interface TechStatus {
   readonly state:
@@ -26,8 +28,14 @@ interface BoardTech {
     readonly registered: boolean | null;
     readonly onCall: boolean;
   } | null;
-  readonly load: { readonly open: number; readonly wot: number; readonly breaching: number };
+  readonly load: {
+    readonly open: number;
+    readonly wot: number;
+    readonly customerReply?: number;
+    readonly breaching: number;
+  };
   readonly workingTicketId: number | null;
+  readonly statusTicketId?: number | null;
   readonly nextCommitment: string | null;
   readonly aiRead: string | null;
 }
@@ -42,18 +50,38 @@ interface Suggestion {
   readonly score: number;
   readonly reasons: ReadonlyArray<string>;
 }
-interface SuggestTicket {
+type DispatchActionLane = "now" | "today" | "watch";
+type DispatchActionKind =
+  | "sla_breach"
+  | "past_due"
+  | "assign"
+  | "cover"
+  | "due_soon"
+  | "customer_reply"
+  | "waiting_on_tech"
+  | "high_priority"
+  | "stale";
+interface DispatchAction {
   readonly halo_id: number;
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly status: string | null;
-  readonly duplicates?: number;
+  readonly assignedTo: string | null;
+  readonly priority: number | null;
+  readonly kind: DispatchActionKind;
+  readonly lane: DispatchActionLane;
+  readonly rank: number;
+  readonly reason: string;
+  readonly action: string;
+  readonly since: string | null;
+  readonly deadline: string | null;
   readonly suggestions: ReadonlyArray<Suggestion>;
 }
 interface DispatchSuggestions {
   readonly haloBaseUrl: string;
-  readonly tickets: ReadonlyArray<SuggestTicket>;
-  readonly omitted?: number;
+  readonly actions: ReadonlyArray<DispatchAction>;
+  readonly actionCounts: Readonly<Record<DispatchActionLane | "total", number>>;
+  readonly actionOmitted: number;
 }
 interface WeekEvent {
   readonly day: string; // YYYY-MM-DD (ET)
@@ -70,17 +98,39 @@ interface WeekData {
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
 }
-
+interface CustomerUpdateApproval {
+  readonly id: string;
+  readonly halo_id: number;
+  readonly ticket_summary: string;
+  readonly client_name: string | null;
+  readonly customer_name: string | null;
+  readonly customer_email: string | null;
+  readonly tech_name: string | null;
+  readonly customer_waiting_reason: string;
+  readonly raw_message: string;
+  readonly draft_message: string;
+  readonly contact_method: "call" | "reply" | null;
+  readonly next_action_at: string | null;
+  readonly customer_reply_message: string | null;
+  readonly customer_replied_at: string | null;
+  readonly status: "pending" | "failed" | "customer_declined";
+  readonly error_message: string | null;
+  readonly source: "sla_call" | "initial_acknowledgment";
+  readonly approval_reason: string | null;
+  readonly tech_approved_at: string;
+  readonly created_at: string;
+}
 const RED = "#dc2626";
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
+const DISPATCH_REFRESH_MS = 15_000;
 
 const STATE_COLOR: Record<TechStatus["state"], string> = {
   available: "#22c55e",
   working: "#38bdf8",
   on_call: "#0f75b1",
-  meeting: "#f59e0b",
-  onsite: "#fe9200",
+  meeting: "#c084fc",
+  onsite: "#22c55e",
   dnd: "#e879f9",
   away: "#a1a1aa",
   after_hours: "#71717a",
@@ -93,7 +143,7 @@ const STATE_LABEL: Record<TechStatus["state"], string> = {
   working: "Working",
   on_call: "On Call",
   meeting: "Meeting",
-  onsite: "Onsite",
+  onsite: "On Site",
   dnd: "DND",
   away: "Away",
   after_hours: "After Hours",
@@ -105,15 +155,6 @@ const STATE_LABEL: Record<TechStatus["state"], string> = {
 /** Halo web link for a ticket — null when the Halo base URL is unavailable. */
 function haloTicketUrl(base: string | undefined, id: number): string | null {
   return base ? `${base}/tickets?id=${id}` : null;
-}
-
-/** Compact "what the phone says" label for the right edge of a row. */
-function phoneLabel(phone: BoardTech["phone"]): string | null {
-  if (!phone) return null;
-  if (phone.onCall) return "On a call";
-  if (phone.registered === false) return "Not registered";
-  if (phone.profile) return phone.profile;
-  return phone.registered === true ? "Registered" : null;
 }
 
 /** A dispatcher-readable context line — only when the chip alone isn't enough. */
@@ -144,7 +185,12 @@ export default function DispatchPage() {
   const [board, setBoard] = useState<DispatchBoard | null>(null);
   const [suggest, setSuggest] = useState<DispatchSuggestions | null>(null);
   const [week, setWeek] = useState<WeekData | null>(null);
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [customerUpdates, setCustomerUpdates] = useState<ReadonlyArray<CustomerUpdateApproval>>([]);
+  const [customerDrafts, setCustomerDrafts] = useState<Record<string, string>>({});
+  const [customerUpdateBusy, setCustomerUpdateBusy] = useState<string | null>(null);
+  const [customerUpdateError, setCustomerUpdateError] = useState<string | null>(null);
+  const [dayOffset, setDayOffset] = useState(0);
+  const [actionLane, setActionLane] = useState<"now" | "today">("now");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,14 +198,28 @@ export default function DispatchPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     try {
-      const [boardRes, suggestRes] = await Promise.all([
+      const [boardRes, suggestRes, customerUpdatesRes] = await Promise.all([
         fetch("/api/dispatch/board", { cache: "no-store" }),
         fetch("/api/dispatch/suggest", { cache: "no-store" }),
+        fetch("/api/dispatch/customer-updates", { cache: "no-store" }),
       ]);
       if (!boardRes.ok) throw new Error(`HTTP ${boardRes.status}`);
       if (!suggestRes.ok) throw new Error(`HTTP ${suggestRes.status}`);
       setBoard((await boardRes.json()) as DispatchBoard);
       setSuggest((await suggestRes.json()) as DispatchSuggestions);
+      if (customerUpdatesRes.ok) {
+        const payload = await customerUpdatesRes.json() as { updates?: ReadonlyArray<CustomerUpdateApproval> };
+        const updates = payload.updates ?? [];
+        setCustomerUpdates(updates);
+        setCustomerDrafts((current) => {
+          const next: Record<string, string> = {};
+          for (const update of updates) next[update.id] = current[update.id] ?? update.draft_message;
+          return next;
+        });
+        setCustomerUpdateError(null);
+      } else {
+        setCustomerUpdateError("Customer update approvals are unavailable right now.");
+      }
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -169,9 +229,33 @@ export default function DispatchPage() {
     }
   }, []);
 
-  const loadWeek = useCallback(async (offset: number) => {
+  const actOnCustomerUpdate = useCallback(async (id: string, action: "approve" | "dismiss") => {
+    setCustomerUpdateBusy(id);
+    setCustomerUpdateError(null);
     try {
-      const qs = offset === 0 ? "" : `?start=${weekStartIso(offset)}`;
+      const response = await fetch(`/api/dispatch/customer-updates/${encodeURIComponent(id)}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: action === "approve" ? JSON.stringify({ draft_message: customerDrafts[id] ?? "" }) : "{}",
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
+      setCustomerUpdates((current) => current.filter((update) => update.id !== id));
+      setCustomerDrafts((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    } catch (error) {
+      setCustomerUpdateError(error instanceof Error ? error.message : "Could not update this approval");
+    } finally {
+      setCustomerUpdateBusy(null);
+    }
+  }, [customerDrafts]);
+
+  const loadDay = useCallback(async (offset: number) => {
+    try {
+      const qs = offset === 0 ? "" : `?start=${dayStartIso(offset)}`;
       const res = await fetch(`/api/dispatch/week${qs}`, { cache: "no-store" });
       if (!res.ok) {
         setWeek(null);
@@ -185,39 +269,46 @@ export default function DispatchPage() {
 
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(true), 60_000);
+    void loadDay(dayOffset);
+    const t = setInterval(() => {
+      void load(true);
+      void loadDay(dayOffset);
+    }, DISPATCH_REFRESH_MS);
     return () => clearInterval(t);
-  }, [load]);
-
-  useEffect(() => {
-    void loadWeek(weekOffset);
-  }, [loadWeek, weekOffset]);
+  }, [dayOffset, load, loadDay]);
 
   const degraded = board ? degradationMessages(board.sources) : [];
+  const displayedTechs = board?.techs ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
           <div
-            className="flex h-11 w-11 items-center justify-center rounded-xl"
-            style={{ background: `linear-gradient(135deg, ${RED}, #7f1d1d)`, boxShadow: `0 0 24px -6px ${RED}` }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
+            style={{ background: "#991b1b" }}
           >
-            <Radio className="h-6 w-6 text-white" />
+            <Radio className="h-4.5 w-4.5 text-white" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Dispatch</h1>
-            <p className="text-sm text-zinc-400">Who&apos;s free right now, and who should take each unassigned ticket</p>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-white">Dispatch</h1>
+            <p className="hidden text-xs text-zinc-500 sm:block">Current coverage, today&apos;s commitments, and the next action queue</p>
           </div>
         </div>
-        <button
-          onClick={() => void load(true)}
-          className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm text-zinc-300 transition hover:text-white"
-          style={{ borderColor: HAIRLINE, background: PANEL }}
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => {
+              void load(true);
+              void loadDay(dayOffset);
+            }}
+            aria-label="Refresh dispatch data"
+            title="Refresh dispatch data"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md border text-zinc-400 transition hover:bg-white/[0.03] hover:text-white"
+            style={{ borderColor: HAIRLINE, background: PANEL }}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -240,72 +331,501 @@ export default function DispatchPage() {
         </div>
       )}
 
-      {/* Right Now — full-width compact card grid */}
-      <Section title="Right Now" icon={<Users className="h-4 w-4" style={{ color: RED }} />}>
-        {loading && !board ? (
-          <BoardSkeleton />
-        ) : (board?.techs.length ?? 0) === 0 ? (
-          <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-            {board!.techs.map((t) => (
-              <TechRow key={t.tech} tech={t} haloBaseUrl={board!.haloBaseUrl} />
-            ))}
-          </div>
-        )}
-      </Section>
-
-      {/* Next 3 days schedule + assignment helper, side by side */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7">
+          <Section
+            title="Right Now"
+            icon={<Users className="h-4 w-4" style={{ color: RED }} />}
+            className="flex flex-col overflow-hidden lg:h-[456px]"
+            actions={
+              <p className="max-w-[180px] text-right text-[9px] leading-3 text-zinc-500 sm:max-w-none sm:text-[10px] sm:leading-normal">
+                <span className="font-semibold text-zinc-300">WOT</span> = Waiting On Tech
+                <span className="px-1.5 text-zinc-700">·</span>
+                <span className="font-semibold text-zinc-300">CR</span> = Customer Reply
+              </p>
+            }
+          >
+            {loading && !board ? (
+              <BoardSkeleton />
+            ) : displayedTechs.length === 0 ? (
+              <div className="p-5 text-sm text-zinc-400">No technicians on the roster right now.</div>
+            ) : (
+              <div
+                className="grid max-h-[408px] min-h-0 grid-cols-1 gap-px overflow-y-auto sm:grid-cols-2 lg:max-h-none lg:flex-1"
+                style={{ background: HAIRLINE }}
+              >
+                {displayedTechs.map((tech) => (
+                  <TechRow key={tech.tech} tech={tech} haloBaseUrl={board!.haloBaseUrl} />
+                ))}
+              </div>
+            )}
+          </Section>
+        </div>
+
+        <div className="lg:col-span-5">
           {week && week.techs.length > 0 ? (
-            <WeekGrid week={week} onPrev={() => setWeekOffset((w) => Math.max(0, w - 1))} onNext={() => setWeekOffset((w) => w + 1)} onToday={() => setWeekOffset(0)} atToday={weekOffset === 0} />
+            <DaySchedule
+              week={week}
+              onPrev={() => setDayOffset((day) => Math.max(0, day - 1))}
+              onNext={() => setDayOffset((day) => day + 1)}
+              onToday={() => setDayOffset(0)}
+              atToday={dayOffset === 0}
+            />
           ) : (
-            <Section title="Next 3 Days" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}>
+            <Section title="Today" icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />} className="lg:h-[456px]">
               <div className="p-5 text-sm text-zinc-400">Schedule unavailable right now.</div>
             </Section>
           )}
         </div>
-
-        <div className="lg:col-span-5">
-          <Section title="Assignment Helper" icon={<ClipboardList className="h-4 w-4" style={{ color: RED }} />}>
-            {loading && !suggest ? (
-              <BoardSkeleton />
-            ) : (suggest?.tickets.length ?? 0) === 0 ? (
-              <div className="p-5 text-sm text-zinc-400">No unassigned or New tickets — queue is clean.</div>
-            ) : (
-              <>
-                <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-                  {suggest!.tickets.map((t) => (
-                    <TicketSuggestions key={t.halo_id} ticket={t} haloBaseUrl={suggest!.haloBaseUrl} />
-                  ))}
-                </div>
-                {(suggest!.omitted ?? 0) > 0 && (
-                  <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-                    +{suggest!.omitted} more unassigned — see the Tickets queue.
-                  </p>
-                )}
-              </>
-            )}
-          </Section>
-        </div>
       </div>
+
+      <ResponseCompliancePanel haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""} />
+
+      <div id="customer-email-approvals" className="scroll-mt-5">
+        <CustomerUpdateQueue
+          updates={customerUpdates}
+          drafts={customerDrafts}
+          busyId={customerUpdateBusy}
+          error={customerUpdateError}
+          haloBaseUrl={board?.haloBaseUrl ?? suggest?.haloBaseUrl ?? ""}
+          onDraftChange={(id, value) => setCustomerDrafts((current) => ({ ...current, [id]: value }))}
+          onApprove={(id) => void actOnCustomerUpdate(id, "approve")}
+          onDismiss={(id) => void actOnCustomerUpdate(id, "dismiss")}
+        />
+      </div>
+
+      <Section
+        title="Next Actions"
+        icon={<ListChecks className="h-4 w-4" style={{ color: RED }} />}
+        actions={
+          <div className="flex h-8 rounded-md border p-0.5" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
+            <ActionLaneButton
+              active={actionLane === "now"}
+              count={suggest?.actionCounts.now ?? 0}
+              onClick={() => setActionLane("now")}
+            >
+              Now
+            </ActionLaneButton>
+            <ActionLaneButton
+              active={actionLane === "today"}
+              count={suggest?.actionCounts.today ?? 0}
+              onClick={() => setActionLane("today")}
+            >
+              Today
+            </ActionLaneButton>
+          </div>
+        }
+      >
+        {loading && !suggest ? <BoardSkeleton /> : <DispatchActionList data={suggest} lane={actionLane} />}
+      </Section>
     </div>
   );
 }
 
-/** Today (ET) plus `offset` 3-day pages, as YYYY-MM-DD. Never in the past. */
-function weekStartIso(offset: number): string {
+function CustomerUpdateQueue({
+  updates,
+  drafts,
+  busyId,
+  error,
+  haloBaseUrl,
+  onDraftChange,
+  onApprove,
+  onDismiss,
+}: {
+  readonly updates: ReadonlyArray<CustomerUpdateApproval>;
+  readonly drafts: Readonly<Record<string, string>>;
+  readonly busyId: string | null;
+  readonly error: string | null;
+  readonly haloBaseUrl: string;
+  readonly onDraftChange: (id: string, value: string) => void;
+  readonly onApprove: (id: string) => void;
+  readonly onDismiss: (id: string) => void;
+}) {
+  return (
+    <Section
+      title="Customer Email Approvals"
+      icon={<MailCheck className="h-4 w-4 text-amber-400" />}
+      actions={
+        <span className="inline-flex min-w-7 items-center justify-center rounded border px-2 py-1 text-xs font-bold tabular-nums text-amber-300" style={{ borderColor: "#92400e", background: "#1c1206" }}>
+          {updates.length}
+        </span>
+      }
+    >
+      {error && (
+        <div className="border-b px-5 py-3 text-sm text-red-300" style={{ borderColor: HAIRLINE, background: "#210d12" }}>
+          {error}
+        </div>
+      )}
+      {updates.length === 0 ? (
+        <div className="px-5 py-5 text-sm text-zinc-500">No customer emails awaiting approval.</div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+          {updates.map((update) => {
+            const href = haloTicketUrl(haloBaseUrl, update.halo_id);
+            const busy = busyId === update.id;
+            const draft = drafts[update.id] ?? update.draft_message;
+            const needsFollowUp = update.status === "customer_declined";
+            const initialAcknowledgment = update.source === "initial_acknowledgment";
+            const legacyDraft = !initialAcknowledgment && (!update.contact_method || !update.next_action_at);
+            const approvedAt = new Date(update.tech_approved_at).toLocaleString("en-US", {
+              timeZone: "America/New_York",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            });
+            const nextAction = update.next_action_at
+              ? new Date(update.next_action_at).toLocaleString("en-US", {
+                  timeZone: "America/New_York",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                  timeZoneName: "short",
+                })
+              : null;
+            return (
+              <div key={update.id} className="px-4 py-4 sm:px-5">
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <span className="font-mono text-xs font-bold text-white">#{update.halo_id}</span>
+                      {needsFollowUp && (
+                        <span className="inline-flex items-center gap-1 rounded border border-red-800 bg-red-950/60 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                          <TriangleAlert className="h-3 w-3" /> Needs follow-up
+                        </span>
+                      )}
+                      {initialAcknowledgment && (
+                        <span className="inline-flex items-center rounded border border-sky-900 bg-sky-950/40 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">
+                          Initial acknowledgment
+                        </span>
+                      )}
+                      <span className="text-sm font-semibold text-zinc-200">{update.client_name ?? "Unknown client"}</span>
+                      <span className="min-w-0 break-words text-sm text-zinc-400">{update.ticket_summary}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-zinc-500">
+                      <span>{update.customer_name ?? "Customer"}{update.customer_email ? ` · ${update.customer_email}` : ""}</span>
+                      <span className="text-zinc-700">·</span>
+                      <span>Tech: <span className="text-zinc-300">{update.tech_name ?? "Unknown"}</span></span>
+                      <span className="text-zinc-700">·</span>
+                      <span>{approvedAt}</span>
+                    </div>
+                  </div>
+                  {href && (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ticket ${update.halo_id} in Halo`}
+                      title={`Open ticket #${update.halo_id} in Halo`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-zinc-500 transition hover:text-white"
+                      style={{ borderColor: HAIRLINE }}
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+                <p className="mt-3 border-l-2 pl-3 text-xs leading-5 text-amber-200/80" style={{ borderColor: "#d97706" }}>
+                  {update.customer_waiting_reason}
+                </p>
+                {nextAction && update.contact_method && (
+                  <p className="mt-2 text-xs font-semibold text-sky-300">
+                    {initialAcknowledgment
+                      ? `Assigned technician email due by ${nextAction}`
+                      : `Email now · ${update.contact_method === "call" ? "Customer call" : "Next email update"} committed for ${nextAction}`}
+                  </p>
+                )}
+                {needsFollowUp && update.customer_reply_message && (
+                  <div className="mt-3 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-2.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-red-300">Customer response</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-zinc-200">{update.customer_reply_message}</p>
+                  </div>
+                )}
+                {legacyDraft && !needsFollowUp && (
+                  <p className="mt-2 text-xs text-red-300">This draft was created before exact next-action commitments were required. Restage it from a technician call before sending.</p>
+                )}
+                {update.status === "failed" && update.error_message && (
+                  <p className="mt-2 text-xs text-red-300">Last send failed: {update.error_message}</p>
+                )}
+                {!needsFollowUp && (
+                  <textarea
+                    value={draft}
+                    onChange={(event) => onDraftChange(update.id, event.target.value)}
+                    disabled={busy || legacyDraft}
+                    aria-label={`Customer email for ticket ${update.halo_id}`}
+                    className="mt-3 min-h-24 w-full resize-y rounded-md border bg-black/20 px-3 py-2.5 text-sm leading-6 text-zinc-200 outline-none transition placeholder:text-zinc-700 focus:border-red-700 disabled:opacity-60"
+                    style={{ borderColor: HAIRLINE }}
+                  />
+                )}
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => onDismiss(update.id)}
+                    disabled={busy}
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-semibold text-zinc-400 transition hover:text-white disabled:cursor-default disabled:opacity-50"
+                    style={{ borderColor: HAIRLINE }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    {needsFollowUp ? "Clear" : "Dismiss"}
+                  </button>
+                  {!needsFollowUp && (
+                    <button
+                      onClick={() => onApprove(update.id)}
+                      disabled={busy || legacyDraft || draft.trim().length < 20}
+                      className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-default disabled:opacity-50"
+                      style={{ borderColor: "#dc2626", background: "#991b1b" }}
+                    >
+                      <Send className={`h-3.5 w-3.5 ${busy ? "animate-pulse" : ""}`} />
+                      Approve &amp; Email
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function ActionLaneButton({
+  active,
+  count,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly count: number;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex h-8 min-w-[68px] cursor-pointer items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition ${
+        active ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {children}
+      <span className={active ? "text-zinc-300" : "text-zinc-600"}>{count}</span>
+    </button>
+  );
+}
+
+function DispatchActionList({
+  data,
+  lane,
+}: {
+  readonly data: DispatchSuggestions | null;
+  readonly lane: "now" | "today";
+}) {
+  const actions = (data?.actions ?? []).filter((item) => item.lane === lane);
+  const total = data?.actionCounts[lane] ?? actions.length;
+  const visible = actions.slice(0, 5);
+  const hidden = Math.max(0, total - visible.length);
+
+  return (
+    <div>
+      {visible.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm text-zinc-400">
+          Nothing needs dispatch attention {lane === "now" ? "right now" : "today"}.
+        </div>
+      ) : (
+        <div className="divide-y divide-[#3a1f24]">
+          {visible.map((item) => (
+            <DispatchActionRow key={item.halo_id} item={item} haloBaseUrl={data?.haloBaseUrl ?? ""} />
+          ))}
+        </div>
+      )}
+
+      {hidden > 0 && (
+        <div className="flex items-center justify-between gap-3 border-t px-5 py-2.5 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+          <span>Showing the top {visible.length} of {total} {lane} actions.</span>
+          <a href="/tickets" className="shrink-0 font-medium text-zinc-300 hover:text-white">Open Tickets</a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ACTION_COLOR: Record<DispatchActionKind, string> = {
+  sla_breach: "#f87171",
+  past_due: "#fb7185",
+  assign: "#38bdf8",
+  cover: "#e879f9",
+  due_soon: "#f59e0b",
+  customer_reply: "#fb923c",
+  waiting_on_tech: "#fbbf24",
+  high_priority: "#f87171",
+  stale: "#38bdf8",
+};
+
+const ACTION_FALLBACK_STATUS: Record<DispatchActionKind, string> = {
+  sla_breach: "SLA Breach",
+  past_due: "Past Due",
+  assign: "Unassigned",
+  cover: "Needs Coverage",
+  due_soon: "Due Soon",
+  customer_reply: "Customer Reply",
+  waiting_on_tech: "Waiting on Tech",
+  high_priority: "High Priority",
+  stale: "Stale",
+};
+
+function ticketStatusColor(status: string | null, fallback: string): string {
+  const normalized = status?.trim().toLowerCase() ?? "";
+  if (normalized.includes("past-due") || normalized.includes("past due")) return "#fb7185";
+  if (normalized.includes("in progress")) return "#38bdf8";
+  if (normalized.includes("customer reply")) return "#e879f9";
+  if (normalized.includes("waiting on tech")) return "#fbbf24";
+  if (normalized.includes("waiting on customer")) return "#c084fc";
+  if (normalized === "new") return "#a3e635";
+  if (normalized.includes("scheduled")) return "#4ade80";
+  return fallback;
+}
+
+function relativeAge(iso: string | null): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const mins = Math.max(0, Math.floor(ms / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function deadlineText(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return null;
+  return `Due ${date.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
+}
+
+function actionTiming(item: DispatchAction): string {
+  const deadline = deadlineText(item.deadline);
+  if (deadline) return deadline;
+  const age = relativeAge(item.since);
+  if (!age) {
+    if (item.lane === "now") return "Needs action now";
+    if (item.lane === "today") return "Needs action today";
+    return "Keep an eye on this";
+  }
+  switch (item.kind) {
+    case "assign":
+      return `${age} unassigned`;
+    case "customer_reply":
+      return `${age} since reply`;
+    case "waiting_on_tech":
+    case "stale":
+      return `${age} idle`;
+    default:
+      return `${age} since activity`;
+  }
+}
+
+function actionLabel(item: DispatchAction): string {
+  if (item.kind === "assign" && item.suggestions[0]) {
+    return `Assign ${item.suggestions[0].tech}`;
+  }
+  switch (item.kind) {
+    case "sla_breach":
+      return "Escalate now";
+    case "past_due":
+      return item.assignedTo ? "Get recovery plan" : "Assign & recover";
+    case "assign":
+      return "Assign owner";
+    case "cover":
+      return "Find coverage";
+    case "due_soon":
+      return "Confirm deadline";
+    case "customer_reply":
+      return "Respond";
+    case "waiting_on_tech":
+      return "Check progress";
+    case "high_priority":
+      return "Confirm next step";
+    case "stale":
+      return "Review ticket";
+  }
+}
+
+function DispatchActionRow({
+  item,
+  haloBaseUrl,
+}: {
+  readonly item: DispatchAction;
+  readonly haloBaseUrl: string;
+}) {
+  const color = ACTION_COLOR[item.kind];
+  const href = haloTicketUrl(haloBaseUrl, item.halo_id);
+  const status = item.status?.trim() || ACTION_FALLBACK_STATUS[item.kind];
+  const statusColor = ticketStatusColor(item.status, color);
+  const recommendation = actionLabel(item);
+  const timing = actionTiming(item);
+  const owner = item.assignedTo ?? "Unassigned";
+  const body = (
+    <>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-mono text-xs font-bold text-white">#{item.halo_id}</span>
+          {item.priority && (
+            <span className="text-[10px] font-bold" style={{ color }}>
+              P{item.priority}
+            </span>
+          )}
+          <span className="min-w-0 break-words text-sm font-medium text-zinc-200">
+            {item.client_name ?? "Unknown client"}{item.summary ? ` — ${item.summary}` : ""}
+          </span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+          <span
+            className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase"
+            style={{ color: statusColor, borderColor: `${statusColor}55`, background: `${statusColor}14` }}
+          >
+            {status}
+          </span>
+          <span><span className="text-zinc-600">Owner:</span> <span className="text-zinc-300">{owner}</span></span>
+          <span className="text-zinc-600">·</span>
+          <span>{timing}</span>
+        </div>
+      </div>
+      <span className="basis-full pl-[18px] text-xs font-semibold text-zinc-300 sm:basis-auto sm:pl-0 sm:text-right">
+        {recommendation}
+      </span>
+      {href && <ArrowUpRight className="hidden h-4 w-4 shrink-0 text-zinc-600 transition group-hover:text-white sm:block" />}
+    </>
+  );
+  const className = "group flex min-h-14 flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-2.5 transition hover:bg-white/[0.025] sm:flex-nowrap sm:px-5";
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className={className} title={`Open ticket #${item.halo_id} in Halo`}>
+      {body}
+    </a>
+  ) : (
+    <div className={className}>{body}</div>
+  );
+}
+
+/** Today (ET) plus `offset` days, as YYYY-MM-DD. Never in the past. */
+function dayStartIso(offset: number): string {
   const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  et.setDate(et.getDate() + Math.max(0, offset) * 3);
+  et.setDate(et.getDate() + Math.max(0, offset));
   return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, "0")}-${String(et.getDate()).padStart(2, "0")}`;
 }
 
 const WEEK_EVENT_STYLE: Record<WeekEvent["type"], { bg: string; text: string; label: string }> = {
-  site_visit: { bg: "#fe920022", text: "#fdba74", label: "Site Visit" },
+  site_visit: { bg: "#22c55e22", text: "#4ade80", label: "Site Visit" },
   reminder: { bg: "#38bdf822", text: "#7dd3fc", label: "Reminder" },
   pto: { bg: "#71717a22", text: "#a1a1aa", label: "OFF" },
-  meeting: { bg: "#f59e0b22", text: "#fcd34d", label: "Meeting" },
+  meeting: { bg: "#a855f722", text: "#c084fc", label: "Teams" },
 };
 
 function fmtDayHeader(day: string): { name: string; date: string; isToday: boolean } {
@@ -325,7 +845,7 @@ function eventTime(e: WeekEvent): string {
   return new Date(e.startsAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
 }
 
-function WeekGrid({
+function DaySchedule({
   week,
   onPrev,
   onNext,
@@ -338,39 +858,45 @@ function WeekGrid({
   readonly onToday: () => void;
   readonly atToday: boolean;
 }) {
-  const rangeLabel = `${fmtDayHeader(week.days[0]).date} – ${fmtDayHeader(week.days[week.days.length - 1]).date}`;
-  const days = week.days;
-  // People with nothing coming up collapse into a single footer line.
-  const activeTechs = week.techs.filter((t) => t.events.length > 0);
-  const quietTechs = week.techs.filter((t) => t.events.length === 0).map((t) => t.tech);
+  const day = week.days[0] ?? week.start;
+  const header = fmtDayHeader(day);
+  const nowMs = Date.now();
+  const relevantTechs = week.techs.map((tech) => ({
+    ...tech,
+    events: tech.events.filter((event) => event.day === day && isActiveOrUpcomingEvent(event, nowMs)),
+  }));
+  const activeTechs = relevantTechs.filter((tech) => tech.events.length > 0);
+  const quietTechs = week.techs
+    .filter((tech) => !relevantTechs.some((candidate) => candidate.tech === tech.tech && candidate.events.length > 0))
+    .map((tech) => tech.tech);
   return (
     <Section
-      title="Next 3 Days"
+      title={header.isToday ? "Today" : header.name}
       icon={<CalendarClock className="h-4 w-4" style={{ color: RED }} />}
+      className="flex flex-col overflow-hidden lg:h-[456px]"
       actions={
         <div className="flex items-center gap-1">
-          {/* Agenda day headers carry the dates on mobile; hide the range to keep the ≥40px nav buttons from overflowing at 390px. */}
-          <span className="mr-2 hidden text-xs text-zinc-400 sm:inline">{rangeLabel}</span>
+          <span className="mr-1 text-xs text-zinc-400 sm:mr-2">{header.date}</span>
           <button
             onClick={onPrev}
             disabled={atToday}
-            aria-label="Previous days"
-            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white disabled:cursor-default disabled:opacity-30"
+            aria-label="Previous day"
+            className="flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
             style={{ borderColor: HAIRLINE }}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             onClick={onToday}
-            className="flex h-10 cursor-pointer items-center justify-center rounded-md border px-3 text-xs text-zinc-300 hover:text-white"
+            className="flex h-8 cursor-pointer items-center justify-center rounded-md border px-2.5 text-xs text-zinc-400 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
             Today
           </button>
           <button
             onClick={onNext}
-            aria-label="Next days"
-            className="flex h-10 min-w-10 cursor-pointer items-center justify-center rounded-md border text-zinc-300 hover:text-white"
+            aria-label="Next day"
+            className="flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 hover:text-white"
             style={{ borderColor: HAIRLINE }}
           >
             <ChevronRight className="h-4 w-4" />
@@ -378,14 +904,18 @@ function WeekGrid({
         </div>
       }
     >
-      {/* Day-by-day agenda at every size — a 3-day column grid in a half-width
-          panel produced unreadable 10px chips (user report 2026-07-13). */}
-      <WeekAgenda week={week} days={days} techs={activeTechs} />
-      {quietTechs.length > 0 && (
-        <p className="border-t px-5 py-2 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          Nothing coming up: {quietTechs.join(", ")}
-        </p>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DayAgenda key={day} week={week} day={day} techs={activeTechs} isToday={header.isToday} nowMs={nowMs} />
+        {quietTechs.length > 0 && (
+          <p
+            className="flex h-8 shrink-0 items-center truncate border-t px-4 text-xs text-zinc-500"
+            style={{ borderColor: HAIRLINE }}
+            title={`${header.isToday ? "No remaining items" : "No scheduled items"}: ${quietTechs.join(", ")}`}
+          >
+            {header.isToday ? "No remaining items" : "No scheduled items"}: {quietTechs.join(", ")}
+          </p>
+        )}
+      </div>
     </Section>
   );
 }
@@ -395,63 +925,86 @@ interface AgendaItem {
   readonly event: WeekEvent;
 }
 
-/** Mobile week view — one section per day, one ≥44px row per event, full subjects. */
-function WeekAgenda({
+const AGENDA_PAGE_SIZE = 7;
+
+/** One dispatcher day, ordered by time, with the assigned technician on every row. */
+function DayAgenda({
   week,
-  days,
+  day,
   techs,
+  isToday,
+  nowMs,
 }: {
   readonly week: WeekData;
-  readonly days: ReadonlyArray<string>;
+  readonly day: string;
   readonly techs: ReadonlyArray<{ readonly tech: string; readonly events: ReadonlyArray<WeekEvent> }>;
+  readonly isToday: boolean;
+  readonly nowMs: number;
 }) {
-  const byDay = days
-    .map((day) => {
-      const all = techs.flatMap((t): ReadonlyArray<AgendaItem> =>
-        t.events.filter((e) => e.day === day).map((event) => ({ tech: t.tech, event })),
-      );
-      return {
-        day,
-        // One quiet "Off" line per day instead of a row per person.
-        offTechs: [...new Set(all.filter((i) => i.event.type === "pto").map((i) => i.tech.split(" ")[0]))],
-        items: all
-          .filter((i) => i.event.type !== "pto")
-          .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt)),
-      };
-    })
-    .filter((d) => d.items.length > 0 || d.offTechs.length > 0);
-
-  if (byDay.length === 0) {
-    return <div className="p-5 text-sm text-zinc-400">Nothing scheduled in the next few days.</div>;
-  }
+  const [page, setPage] = useState(0);
+  const all = techs.flatMap((tech): ReadonlyArray<AgendaItem> =>
+    tech.events.filter((event) => event.day === day).map((event) => ({ tech: tech.tech, event })),
+  );
+  const offTechs = [...new Set(all.filter((item) => item.event.type === "pto").map((item) => item.tech.split(" ")[0]))];
+  const items = all
+    .filter((item) => item.event.type !== "pto")
+    .toSorted((a, b) => a.event.startsAt.localeCompare(b.event.startsAt) || a.tech.localeCompare(b.tech));
+  const pageSize = isToday ? AGENDA_PAGE_SIZE - 1 : AGENDA_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = items.slice(safePage * pageSize, (safePage + 1) * pageSize);
 
   return (
-    <div>
-      {byDay.map(({ day, items, offTechs }) => {
-        const h = fmtDayHeader(day);
-        return (
-          <div key={day} className="border-t first:border-t-0" style={{ borderColor: HAIRLINE }}>
-            <div className="flex items-baseline gap-3 px-4 pb-1 pt-3 text-xs font-medium">
-              <span
-                className={h.isToday ? "rounded-full px-2 py-0.5 font-bold text-white" : "text-zinc-400"}
-                style={h.isToday ? { background: RED } : undefined}
-              >
-                {h.name} {h.date}
-              </span>
-              {offTechs.length > 0 && (
-                <span className="text-zinc-500">Off: {offTechs.join(", ")}</span>
-              )}
-            </div>
-            {items.length === 0 ? (
-              <p className="px-4 pb-3 text-xs text-zinc-600">No visits or reminders.</p>
-            ) : (
-              items.map(({ tech, event: e }, i) => (
-                <AgendaRow key={`${e.startsAt}-${tech}-${i}`} tech={tech} event={e} haloBaseUrl={week.haloBaseUrl} />
-              ))
-            )}
-          </div>
-        );
-      })}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {offTechs.length > 0 && (
+        <p className="shrink-0 px-4 pb-1 pt-3 text-xs font-medium text-zinc-500">Off: {offTechs.join(", ")}</p>
+      )}
+      {isToday && items.length > 0 && (
+        <div className="flex h-7 shrink-0 items-center gap-2 px-4" aria-label={`Current time ${formatEtTime(nowMs)}`}>
+          <span className="text-[10px] font-semibold uppercase text-red-400">Now</span>
+          <span className="h-px flex-1 bg-red-500/40" />
+          <span className="text-[10px] tabular-nums text-zinc-500">{formatEtTime(nowMs)}</span>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center p-5 text-sm text-zinc-400">
+          {isToday ? "Nothing else scheduled today." : "Nothing scheduled for this day."}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          {visible.map(({ tech, event: scheduledEvent }, index) => (
+            <AgendaRow
+              key={`${scheduledEvent.startsAt}-${tech}-${index}`}
+              tech={tech}
+              event={scheduledEvent}
+              haloBaseUrl={week.haloBaseUrl}
+            />
+          ))}
+        </div>
+      )}
+      {pageCount > 1 && (
+        <div className="flex h-10 shrink-0 items-center justify-end gap-2 border-t px-4" style={{ borderColor: HAIRLINE }}>
+          <button
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            disabled={safePage === 0}
+            aria-label="Previous schedule page"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="min-w-12 text-center text-xs tabular-nums text-zinc-500">{safePage + 1} / {pageCount}</span>
+          <button
+            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+            disabled={safePage >= pageCount - 1}
+            aria-label="Next schedule page"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border text-zinc-400 hover:text-white disabled:cursor-default disabled:opacity-30"
+            style={{ borderColor: HAIRLINE }}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -494,126 +1047,51 @@ function AgendaRow({
 function TechRow({ tech, haloBaseUrl }: { readonly tech: BoardTech; readonly haloBaseUrl: string }) {
   const color = STATE_COLOR[tech.status.state] ?? "#71717a";
   const context = contextLine(tech.status);
+  const statusTicketId = tech.statusTicketId ?? (tech.status.state === "working" ? tech.workingTicketId : null);
   const contextHref =
-    tech.status.state === "working" && tech.workingTicketId !== null
-      ? haloTicketUrl(haloBaseUrl, tech.workingTicketId)
+    (tech.status.state === "working" || tech.status.state === "onsite") && statusTicketId !== null
+      ? haloTicketUrl(haloBaseUrl, statusTicketId)
       : null;
-  const phone = phoneLabel(tech.phone);
+  const detail = context ?? tech.nextCommitment ?? (tech.status.state === "available" ? "Ready for assignment" : null);
   return (
-    <div className="flex h-full flex-col gap-1.5 rounded-lg border p-4" style={{ borderColor: HAIRLINE, background: PANEL }}>
-      {/* Row 1: status chip left, phone right — always the same two anchors */}
-      <div className="flex items-center justify-between gap-2">
-        <span
-          className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-          style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}
-        >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-          {STATE_LABEL[tech.status.state] ?? tech.status.state}
-        </span>
-        {phone && (
-          <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-zinc-500">
-            <Phone className="h-3 w-3 shrink-0" />
-            <span className="truncate">{phone}</span>
+    <div className="flex min-h-[68px] items-center gap-2.5 px-4 py-2.5" style={{ background: PANEL }}>
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <p className="truncate text-sm font-semibold text-white" title={tech.tech}>
+            <span className="sm:hidden">{tech.tech}</span>
+            <span className="hidden sm:inline">{tech.tech.split(" ")[0]}</span>
+          </p>
+          <span className="shrink-0 text-[10px] font-bold uppercase" style={{ color }}>
+            {STATE_LABEL[tech.status.state] ?? tech.status.state}
           </span>
-        )}
+        </div>
+        {detail &&
+          (contextHref && context ? (
+            <a
+              href={contextHref}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-0.5 block truncate text-xs text-zinc-500 hover:text-zinc-300"
+              title={detail}
+            >
+              {detail}
+            </a>
+          ) : (
+            <p className="mt-0.5 truncate text-xs text-zinc-500" title={detail}>{detail}</p>
+          ))}
       </div>
-
-      {/* Row 2: name + load, one line each, fixed positions */}
-      <div className="min-w-0">
-        <p className="truncate text-[15px] font-semibold leading-6 text-white">{tech.tech}</p>
-        <p className="text-xs text-zinc-400">
-          {tech.load.open} open · {tech.load.wot} waiting
-          {tech.load.breaching > 0 && (
-            <span className="font-semibold" style={{ color: RED }}>
-              {" "}· {tech.load.breaching} breaching
-            </span>
-          )}
+      <div className="shrink-0 text-right text-[11px] leading-4 text-zinc-500">
+        <p>
+          <span className="font-semibold text-zinc-300">{tech.load.open}</span> open
+          {tech.load.breaching > 0 && <span className="font-semibold text-red-400"> · {tech.load.breaching} SLA</span>}
+        </p>
+        <p className="whitespace-nowrap text-[10px]">
+          <span className="font-semibold text-zinc-300">{tech.load.wot}</span> WOT
+          <span className="text-zinc-700"> · </span>
+          <span className="font-semibold text-zinc-300">{tech.load.customerReply ?? 0}</span> CR
         </p>
       </div>
-
-      {/* Row 3: what they're doing + what's next (each one line, truncated) */}
-      {(context || tech.nextCommitment) && (
-        <div className="min-w-0 space-y-0.5">
-          {context &&
-            (contextHref ? (
-              <a
-                href={contextHref}
-                target="_blank"
-                rel="noreferrer"
-                className="block truncate text-xs text-zinc-300 hover:underline"
-                title={context}
-              >
-                {context}
-              </a>
-            ) : (
-              <p className="truncate text-xs text-zinc-300" title={context}>
-                {context}
-              </p>
-            ))}
-          {tech.nextCommitment && (
-            <p className="flex items-center gap-1 truncate text-xs text-zinc-500" title={tech.nextCommitment}>
-              <CalendarClock className="h-3 w-3 shrink-0" />
-              <span className="truncate">Next: {tech.nextCommitment}</span>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TicketSuggestions({
-  ticket,
-  haloBaseUrl,
-}: {
-  readonly ticket: SuggestTicket;
-  readonly haloBaseUrl: string;
-}) {
-  const href = haloTicketUrl(haloBaseUrl, ticket.halo_id);
-  return (
-    <div className="px-5 py-3">
-      <div className="flex items-baseline gap-2">
-        {href ? (
-          <a href={href} target="_blank" rel="noreferrer" className="font-mono text-sm font-bold text-white hover:underline">
-            #{ticket.halo_id}
-          </a>
-        ) : (
-          <span className="font-mono text-sm font-bold text-white">#{ticket.halo_id}</span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
-          {ticket.client_name ?? "Unknown client"}
-          {ticket.summary ? ` — ${ticket.summary}` : ""}
-        </span>
-        {(ticket.duplicates ?? 0) > 0 && (
-          <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] text-zinc-400" style={{ borderColor: HAIRLINE }}>
-            ×{(ticket.duplicates ?? 0) + 1}
-          </span>
-        )}
-      </div>
-      {ticket.suggestions.length === 0 ? (
-        <p className="mt-1.5 text-xs text-zinc-500">No suggestions available.</p>
-      ) : (
-        <div className="mt-1.5">
-          {/* One clear recommendation; the runners-up are a single muted line. */}
-          <div className="flex items-baseline gap-2">
-            <span
-              className="rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide"
-              style={{ background: `${RED}22`, color: "#fca5a5" }}
-            >
-              Assign
-            </span>
-            <span className="text-sm font-semibold text-white">{ticket.suggestions[0].tech}</span>
-            <span className="min-w-0 truncate text-xs text-zinc-500">
-              {ticket.suggestions[0].reasons.slice(0, 2).join(" · ")}
-            </span>
-          </div>
-          {ticket.suggestions.length > 1 && (
-            <p className="mt-0.5 truncate text-xs text-zinc-600">
-              Also: {ticket.suggestions.slice(1).map((s) => s.tech.split(" ")[0]).join(", ")}
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -632,16 +1110,18 @@ function Section({
   title,
   icon,
   actions,
+  className = "",
   children,
 }: {
   readonly title: string;
   readonly icon?: React.ReactNode;
   readonly actions?: React.ReactNode;
+  readonly className?: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border" style={{ borderColor: HAIRLINE, background: PANEL }}>
-      <div className="flex items-center gap-2 border-b px-5 py-3" style={{ borderColor: HAIRLINE }}>
+    <section className={`overflow-hidden rounded-md border ${className}`} style={{ borderColor: HAIRLINE, background: PANEL }}>
+      <div className="flex min-h-10 items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>
         {actions && <div className="ml-auto">{actions}</div>}

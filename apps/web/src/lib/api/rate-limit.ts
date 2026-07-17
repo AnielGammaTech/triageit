@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 
 interface WindowEntry {
   readonly timestamps: number[];
+  readonly windowMs: number;
 }
 
 const windows = new Map<string, WindowEntry>();
@@ -25,16 +26,16 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-function startCleanupTimer(windowMs: number): void {
+function startCleanupTimer(): void {
   if (cleanupTimer !== null) return;
   cleanupTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of windows.entries()) {
-      const fresh = entry.timestamps.filter((t) => now - t < windowMs);
+      const fresh = entry.timestamps.filter((t) => now - t < entry.windowMs);
       if (fresh.length === 0) {
         windows.delete(key);
       } else {
-        windows.set(key, { timestamps: fresh });
+        windows.set(key, { timestamps: fresh, windowMs: entry.windowMs });
       }
     }
   }, CLEANUP_INTERVAL_MS);
@@ -63,7 +64,7 @@ export function checkRateLimit(
   windowMs = 60_000,
   routeKey = "global",
 ): NextResponse | null {
-  startCleanupTimer(windowMs);
+  startCleanupTimer();
 
   const bucketKey = `${userId}:${routeKey}`;
   const now = Date.now();
@@ -93,7 +94,7 @@ export function checkRateLimit(
   }
 
   // Record this request and update the window (immutable pattern).
-  windows.set(bucketKey, { timestamps: [...windowTimestamps, now] });
+  windows.set(bucketKey, { timestamps: [...windowTimestamps, now], windowMs });
 
   return null;
 }

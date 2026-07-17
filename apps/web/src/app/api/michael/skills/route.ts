@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 /**
  * GET /api/michael/skills
@@ -28,8 +29,8 @@ export async function GET() {
  * Deactivate a learned skill.
  */
 export async function DELETE(request: NextRequest) {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {

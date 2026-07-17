@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 /**
  * GET /api/admin/health/debug-count
  * Mimics exactly what the tickets page does — uses auth client (not service role).
  */
 export async function GET() {
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
+
   const supabase = await createClient();
 
   const { data, error } = await supabase

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { workerFetch } from "@/lib/api/worker";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
 
 interface EmbedCloseReviewBody {
   readonly halo_id?: number;
@@ -8,10 +10,12 @@ interface EmbedCloseReviewBody {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as EmbedCloseReviewBody;
+    const parsed = await readJsonBody<EmbedCloseReviewBody>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const secret = process.env.EMBED_SECRET;
-    if (!secret || body.token !== secret) {
+    if (!secureTokenEqual(body.token, secret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

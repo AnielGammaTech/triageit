@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -57,7 +59,7 @@ function validateToken(token: string | undefined): NextResponse | null {
   if (!secret) {
     return NextResponse.json({ error: "EMBED_SECRET not configured" }, { status: 500 });
   }
-  if (!token || token !== secret) {
+  if (!secureTokenEqual(token, secret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return null;
@@ -141,7 +143,9 @@ async function fetchHaloTicket(
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as SuggestReplyBody;
+  const parsed = await readJsonBody<SuggestReplyBody>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
   const { halo_id, token } = body;
 
   const tokenError = validateToken(token);

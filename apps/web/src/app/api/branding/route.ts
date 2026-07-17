@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 
 export interface BrandingConfig {
   readonly logo_url: string | null;
@@ -32,8 +33,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   try {
     const body = (await request.json()) as {

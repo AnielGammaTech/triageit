@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
 
@@ -8,8 +8,8 @@ import { workerFetch } from "@/lib/api/worker";
  * Trigger Toby Flenderson's daily analysis manually via the worker service.
  */
 export async function POST() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const rateLimited = checkRateLimit(auth.user.id);
   if (rateLimited) return rateLimited;

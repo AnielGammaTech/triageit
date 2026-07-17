@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
 
@@ -373,8 +373,8 @@ async function testGenericIntegration(
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const rateLimited = checkRateLimit(auth.user.id);
   if (rateLimited) return rateLimited;

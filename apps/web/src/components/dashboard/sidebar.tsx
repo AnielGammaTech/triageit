@@ -1,39 +1,49 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { Radio } from "lucide-react";
+import { PhoneCall, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils/cn";
+import type { AppRole } from "@/lib/auth/page-role";
 
 const NAV_ITEMS = [
   { href: "/command", label: "Command" },
   { href: "/dispatch", label: "Dispatch", icon: Radio },
   { href: "/tickets", label: "Tickets" },
+  { href: "/calls", label: "Calls", icon: PhoneCall },
   { href: "/sla-hunter", label: "SLA Hunter" },
   { href: "/michael", label: "Prison Mike", avatar: "/prison-mike.png" },
   { href: "/toby", label: "Toby", avatar: "/toby.png" },
 ] as const;
 
-const PRIMARY_COLOR = "#b91c1c";
+const PRIMARY_COLOR = "#A61B1B";
+const PRIMARY_TINT = "#E05555";
 const HEADER_BG = "#1a0a0a";
 const DROPDOWN_BG = "#241010";
 
 interface SidebarProps {
   readonly userEmail: string;
+  readonly userRole: AppRole;
 }
 
 function getUserInitials(email: string): string {
   return email.charAt(0).toUpperCase();
 }
 
-export function Sidebar({ userEmail }: SidebarProps) {
+export function Sidebar({ userEmail, userRole }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const page = NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.label ?? "TriageIT";
+    document.title = `${page} · TriageIT`;
+  }, [pathname]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -73,10 +83,9 @@ export function Sidebar({ userEmail }: SidebarProps) {
   return (
     <>
       <header
-        className="fixed top-0 left-0 right-0 z-40 h-14 text-white"
-        style={{ backgroundColor: HEADER_BG }}
+        className="triageit-frosted-nav fixed top-0 left-0 right-0 z-40 h-16 text-white"
       >
-        <div className="mx-auto flex h-full max-w-full items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-full max-w-[1800px] items-center justify-between px-4 sm:px-6">
           {/* Left: Logo + hamburger */}
           <div className="flex items-center gap-3">
             {/* Mobile hamburger */}
@@ -101,35 +110,17 @@ export function Sidebar({ userEmail }: SidebarProps) {
               </svg>
             </button>
 
-            <Link href="/tickets" className="flex items-center gap-2.5">
-              {/* Logo: GTools TriageIT mark */}
-              <svg width="28" height="28" viewBox="0 0 48 48" aria-hidden="true">
-                <rect
-                  x="9.5"
-                  y="11.5"
-                  width="31"
-                  height="31"
-                  rx="10.5"
-                  fill="none"
-                  stroke="#A61B1B"
-                  strokeWidth="0.9"
-                  opacity="0.7"
-                  transform="translate(-2.4,2.4)"
-                />
-                <path
-                  d="M20,11.5 H30 A10.5,10.5 0 0 1 40.5,22 V32 A10.5,10.5 0 0 1 30,42.5 H20 A10.5,10.5 0 0 1 9.5,32 V22 A10.5,10.5 0 0 1 20,11.5 Z M34.2,13.3 A4.8,4.8 0 1 0 43.8,13.3 A4.8,4.8 0 1 0 34.2,13.3 Z"
-                  fill="#A61B1B"
-                  fillRule="evenodd"
-                />
-                <circle cx="39" cy="13.3" r="3.3" fill="#A61B1B" />
-                <path
-                  d="M474 0V1186H20V1440H1200V1186H746V0Z"
-                  transform="translate(17.985,35.28) scale(0.011,-0.011)"
-                  fill="#fff"
-                />
-              </svg>
-              <span className="hidden text-sm font-bold tracking-tight text-white sm:block">
-                Triage<span style={{ color: PRIMARY_COLOR }}>IT</span>
+            <Link href="/tickets" className="flex h-16 items-center gap-[10px]" aria-label="TriageIT home">
+              <Image
+                src="/triageit-mark.svg?v=20260716"
+                alt=""
+                width={52}
+                height={52}
+                className="h-[52px] w-[52px]"
+                style={{ transform: "translateY(-3.25px)" }}
+              />
+              <span className="triageit-wordmark hidden whitespace-nowrap text-[22px] font-bold leading-none text-white sm:block">
+                Triage<span className="text-[#E05555]">IT</span>
               </span>
             </Link>
           </div>
@@ -139,7 +130,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             {NAV_ITEMS.map((item) => {
               const isActive = pathname.startsWith(item.href);
               const className = cn(
-                "relative flex items-center gap-2 px-4 h-14 text-sm font-medium transition-colors",
+                "relative flex h-16 items-center gap-2 px-3.5 text-sm font-medium transition-colors",
                 isActive
                   ? "text-white"
                   : "text-white/60 hover:text-white hover:bg-white/5",
@@ -164,7 +155,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   {isActive && (
                     <span
                       className="absolute bottom-0 left-0 right-0 h-0.5"
-                      style={{ backgroundColor: PRIMARY_COLOR }}
+                      style={{ backgroundColor: PRIMARY_TINT }}
                     />
                   )}
                 </Link>
@@ -173,14 +164,14 @@ export function Sidebar({ userEmail }: SidebarProps) {
           </nav>
 
           {/* Right: Small profile avatar */}
-          <div className="flex items-center gap-2" ref={dropdownRef}>
+          <div className="relative flex items-center gap-2" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen((prev) => !prev)}
-              className="group -m-1.5 flex items-center rounded-full p-1.5"
+              className="group flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.07]"
               aria-label="Open profile menu"
             >
               <div
-                className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white transition-shadow group-hover:ring-2 group-hover:ring-white/20"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold text-white transition-shadow group-hover:ring-2 group-hover:ring-white/20"
                 style={{ backgroundColor: PRIMARY_COLOR }}
               >
                 {getUserInitials(userEmail)}
@@ -189,7 +180,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
 
             {dropdownOpen && (
               <div
-                className="absolute right-4 top-12 w-60 animate-in rounded-lg border border-white/10 shadow-xl"
+                className="absolute right-0 top-full mt-2 w-60 animate-in rounded-lg border border-white/10 shadow-xl"
                 style={{ backgroundColor: DROPDOWN_BG }}
               >
                 <div className="border-b border-white/10 px-3 py-2.5">
@@ -208,15 +199,15 @@ export function Sidebar({ userEmail }: SidebarProps) {
                         className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
                         style={{
                           backgroundColor: `${PRIMARY_COLOR}20`,
-                          color: PRIMARY_COLOR,
+                          color: PRIMARY_TINT,
                         }}
                       >
-                        Admin
+                        {userRole}
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="p-1">
+                {userRole === "admin" && <div className="p-1">
                   <Link
                     href="/adminland"
                     onClick={() => setDropdownOpen(false)}
@@ -228,7 +219,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                     </svg>
                     Adminland
                   </Link>
-                </div>
+                </div>}
                 <div className="border-t border-white/10 p-1">
                   <button
                     onClick={() => {
@@ -259,7 +250,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
             onClick={() => setMobileMenuOpen(false)}
           />
           <nav
-            className="absolute top-14 left-0 right-0 max-h-[calc(100vh-3.5rem)] overflow-y-auto border-b border-white/10 shadow-xl"
+            className="absolute top-16 left-0 right-0 max-h-[calc(100vh-4rem)] overflow-y-auto border-b border-white/10 shadow-xl"
             style={{ backgroundColor: HEADER_BG }}
           >
             <div className="flex flex-col py-2">
@@ -293,7 +284,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   </Link>
                 );
               })}
-              <Link
+              {userRole === "admin" && <Link
                 href="/adminland"
                 className={cn(
                   "flex items-center px-6 py-3 text-sm font-medium transition-colors border-t border-white/[0.06] mt-1",
@@ -304,7 +295,7 @@ export function Sidebar({ userEmail }: SidebarProps) {
                 style={pathname.startsWith("/adminland") ? { borderLeft: `3px solid ${PRIMARY_COLOR}` } : { borderLeft: "3px solid transparent" }}
               >
                 Adminland
-              </Link>
+              </Link>}
             </div>
           </nav>
         </div>

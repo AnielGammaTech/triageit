@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchUnifiSiteList } from "@/lib/unifi-sites";
 import { createClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
 import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 
@@ -12,8 +11,8 @@ import { checkRateLimit } from "@/lib/api/rate-limit";
  * Halo PSA customers by name, and returns suggested mappings.
  */
 export async function POST() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   const rateLimited = checkRateLimit(auth.user.id);
   if (rateLimited) return rateLimited;

@@ -1,10 +1,16 @@
 import { createSupabaseClient } from "../db/supabase.js";
+import { isWithinBusinessHours } from "../integrations/teams/client.js";
 
 /**
  * Scan for tickets stuck in "error" status for more than 1 hour.
  * Sends a Teams alert so the team knows something went wrong.
  */
 export async function scanForErrorTickets(): Promise<{ readonly found: number; readonly alerted: number }> {
+  if (!isWithinBusinessHours()) {
+    console.log("[ERROR-SCAN] Alert suppressed — outside business hours (8am–5:15pm ET, Mon–Fri)");
+    return { found: 0, alerted: 0 };
+  }
+
   const supabase = createSupabaseClient();
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();

@@ -396,12 +396,13 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     console.error("[SLA SCAN] Breach alerting failed:", error instanceof Error ? error.message : error);
   }
 
-  if (callRequestsQueued > 0) {
-    try {
-      await runSlaCallRequests();
-    } catch (error) {
-      console.error("[SLA SCAN] Escalation calls failed:", error instanceof Error ? error.message : error);
-    }
+  // Drain every scan, not only when this scan created a tech call. A no-answer
+  // or voicemail callback can queue a Dispatch fallback after the originating
+  // scan has already returned; the next three-minute tick must still call it.
+  try {
+    await runSlaCallRequests();
+  } catch (error) {
+    console.error("[SLA SCAN] Escalation calls failed:", error instanceof Error ? error.message : error);
   }
 
   // Look up which breaching tickets exist locally

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAuth } from "@/lib/api/require-auth";
+import { requireAdmin } from "@/lib/api/require-admin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { workerFetch } from "@/lib/api/worker";
 
@@ -14,8 +14,8 @@ import { workerFetch } from "@/lib/api/worker";
  * Returns { queued, skipped, errors }.
  */
 export async function POST() {
-  const auth = await requireAuth();
-  if (auth.error) return auth.error;
+  const auth = await requireAdmin();
+  if ("error" in auth) return auth.error;
 
   // Very strict rate limit — this is expensive (full pipeline per ticket)
   const rateLimited = checkRateLimit(auth.user.id, 2, 60_000, "triage-all");

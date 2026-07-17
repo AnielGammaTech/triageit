@@ -140,12 +140,14 @@ export class CallControlClient {
   }
 
   /** Originate an outbound call from the route point (SLA escalation calls). */
-  async makecall(dn: string, destination: string): Promise<boolean> {
+  async makecall(dn: string, destination: string, timeoutSeconds = 12 * 60): Promise<boolean> {
     try {
       const res = await this.authedFetch(`${this.baseUrl}/callcontrol/${dn}/makecall`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destination }),
+        // 3CX documents this field as required. Keep the PBX timeout beyond
+        // the assistant's own 10-minute runaway cap so TriageIT owns the end.
+        body: JSON.stringify({ destination, timeout: timeoutSeconds }),
       });
       if (!res.ok) {
         console.warn(`[VOICE] makecall ${dn} -> ${destination} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);

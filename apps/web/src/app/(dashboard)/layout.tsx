@@ -1,29 +1,21 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { FloatingAdminland } from "@/components/admin/floating-adminland";
+import { getAuthenticatedPageUser } from "@/lib/auth/page-role";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const user = await getAuthenticatedPageUser();
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "#09090b" }}>
-      <Sidebar userEmail={user.email ?? ""} />
-      <main className="pt-14">
-        <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">{children}</div>
+      <Sidebar userEmail={user.email} userRole={user.role} />
+      <main className="pt-16">
+        <div className="mx-auto w-full max-w-[1680px] p-3 sm:p-4 lg:p-5">{children}</div>
       </main>
-      <FloatingAdminland />
+      {user.role === "admin" && <FloatingAdminland />}
     </div>
   );
 }

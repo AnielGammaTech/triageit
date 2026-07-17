@@ -6,6 +6,8 @@ import {
 } from "@triageit/shared";
 import { createServiceClient } from "@/lib/supabase/server";
 import { workerFetch } from "@/lib/api/worker";
+import { secureTokenEqual } from "@/lib/api/secure-token";
+import { readJsonBody } from "@/lib/api/json-body";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -54,7 +56,7 @@ function validateToken(token: string | undefined): NextResponse | null {
     );
   }
 
-  if (!token || token !== secret) {
+  if (!secureTokenEqual(token, secret)) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401 },
@@ -120,7 +122,9 @@ async function fetchHaloTicket(
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as EmbedTriageBody;
+    const parsed = await readJsonBody<EmbedTriageBody>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.data;
 
     const authError = validateToken(body.token);
     if (authError) return authError;

@@ -16,6 +16,7 @@ interface TicketRow {
   readonly client_name: string | null;
   readonly halo_agent: string | null;
   readonly halo_status: string | null;
+  readonly halo_status_id: number | null;
   readonly sla_currently_breached: boolean | null;
   readonly sla_breach_alert_count: number | null;
   readonly sla_fix_by: string | null;
@@ -113,6 +114,121 @@ const THIRTY_MIN_MS = 30 * 60_000;
 const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
+const HALO_RESOLVED_STATUS_ID = 9;
+const HALO_WAITING_ON_TECH_STATUS_ID = 32;
+const HALO_UNASSIGNED_AGENT_ID = 1;
+const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
+
+interface HaloIntegrationConfig {
+  readonly base_url: string;
+  readonly client_id: string;
+  readonly client_secret: string;
+  readonly tenant?: string;
+}
+
+let haloTokenCache: { readonly key: string; readonly token: string; readonly expiresAt: number } | null = null;
+let haloCloseCountCache: { readonly day: string; readonly count: number; readonly fetchedAt: number } | null = null;
+
+function etDateKey(now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** Match Halo's Waiting on Tech queue exactly; PAST-DUE is a separate status. */
+export function isWaitingOnTechQueue(statusId: number | null, statusName: string | null): boolean {
+  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
+    || /waiting on tech/i.test(statusName ?? "");
+}
+
+async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
+  const key = `${config.base_url}|${config.client_id}|${config.tenant ?? ""}`;
+  if (haloTokenCache?.key === key && haloTokenCache.expiresAt > Date.now() + 60_000) {
+    return haloTokenCache.token;
+  }
+
+  const baseUrl = config.base_url.replace(/\/$/, "");
+  const authInfoRes = await fetch(`${baseUrl}/api/authinfo`, { cache: "no-store" });
+  const authInfo = authInfoRes.ok ? (await authInfoRes.json()) as { token_endpoint?: string } : {};
+  let tokenUrl = authInfo.token_endpoint ?? `${baseUrl}/auth/token`;
+  if (config.tenant) {
+    tokenUrl += `${tokenUrl.includes("?") ? "&" : "?"}tenant=${encodeURIComponent(config.tenant)}`;
+  }
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.client_id,
+      client_secret: config.client_secret,
+      scope: "all",
+    }),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Halo auth failed (${response.status})`);
+  const payload = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!payload.access_token) throw new Error("Halo auth returned no access token");
+
+  haloTokenCache = {
+    key,
+    token: payload.access_token,
+    expiresAt: Date.now() + (payload.expires_in ?? 300) * 1000,
+  };
+  return payload.access_token;
+}
+
+async function fetchHaloClosedToday(config: HaloIntegrationConfig, now: Date): Promise<number | null> {
+  const day = etDateKey(now);
+  if (
+    haloCloseCountCache?.day === day &&
+    Date.now() - haloCloseCountCache.fetchedAt < HALO_CLOSE_COUNT_CACHE_MS
+  ) {
+    return haloCloseCountCache.count;
+  }
+
+  try {
+    const token = await getHaloToken(config);
+    const baseUrl = config.base_url.replace(/\/$/, "");
+    const query = new URLSearchParams({
+      count: "500",
+      open_only: "false",
+      order: "dateclosed",
+      orderdesc: "true",
+      includecolumns: "true",
+      requesttype_id: String(GAMMA_DEFAULT_TYPE_ID),
+    });
+    const response = await fetch(`${baseUrl}/api/tickets?${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Halo tickets failed (${response.status})`);
+    const payload = (await response.json()) as {
+      tickets?: ReadonlyArray<{
+        readonly status_id?: number;
+        readonly agent_id?: number | null;
+        readonly dateclosed?: string | null;
+      }>;
+    };
+    const count = (payload.tickets ?? []).filter(
+      (ticket) =>
+        ticket.status_id === HALO_RESOLVED_STATUS_ID &&
+        ticket.agent_id != null &&
+        ticket.agent_id !== HALO_UNASSIGNED_AGENT_ID &&
+        ticket.dateclosed?.startsWith(day),
+    ).length;
+    haloCloseCountCache = { day, count, fetchedAt: Date.now() };
+    return count;
+  } catch (error) {
+    console.warn("[COMMAND] Live Halo closed-today count failed:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
 
 /** Midnight Eastern Time as an ISO timestamp (UTC). */
 function etMidnightIso(now: Date): string {
@@ -129,18 +245,20 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
   const midnightIso = etMidnightIso(nowDate);
 
   let haloBaseUrl = "";
+  let haloConfig: HaloIntegrationConfig | null = null;
   try {
     const { data: halo } = await supabase.from("integrations").select("config").eq("service", "halo").maybeSingle();
-    haloBaseUrl = ((halo?.config as { base_url?: string } | null)?.base_url ?? "").replace(/\/$/, "");
+    haloConfig = (halo?.config as HaloIntegrationConfig | null) ?? null;
+    haloBaseUrl = (haloConfig?.base_url ?? "").replace(/\/$/, "");
   } catch {
     haloBaseUrl = "";
   }
 
-  const [ticketRes, reviewRes, openedTodayRes, resolvedTodayRes] = await Promise.all([
+  const [ticketRes, reviewRes, openedTodayRes, resolvedTodayFallbackRes] = await Promise.all([
     supabase
       .from("tickets")
       .select(
-        "halo_id, summary, client_name, halo_agent, halo_status, sla_currently_breached, sla_breach_alert_count, sla_fix_by, sla_on_hold, last_tech_action_at, last_customer_reply_at, created_at",
+        "halo_id, summary, client_name, halo_agent, halo_status, halo_status_id, sla_currently_breached, sla_breach_alert_count, sla_fix_by, sla_on_hold, last_tech_action_at, last_customer_reply_at, created_at",
       )
       .eq("halo_is_open", true)
       .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID),
@@ -163,6 +281,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   const tickets = (ticketRes.data ?? []) as TicketRow[];
   const reviews = (reviewRes.data ?? []) as ReviewRow[];
+  const haloResolvedToday = haloConfig ? await fetchHaloClosedToday(haloConfig, nowDate) : null;
 
   // ── Status breakdown ──
   const statusMap = new Map<string, { count: number; breaching: number }>();
@@ -226,7 +345,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   // ── Oldest Waiting-on-Tech tickets — the tech owes the next move, oldest first ──
   const oldestTickets: CommandUnassigned[] = tickets
-    .filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech"))
+    .filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status))
     .map((t) => ({
       halo_id: t.halo_id,
       summary: t.summary,
@@ -266,7 +385,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     agg.openTickets++;
     if (t.sla_currently_breached) agg.breaching++;
     const status = (t.halo_status ?? "").toLowerCase();
-    if (status.includes("waiting on tech")) agg.waitingOnTech++;
+    if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
     if (status.includes("customer reply")) {
       const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
       const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
@@ -333,11 +452,11 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     breaching: breaches.length,
     atRisk: atRisk.length,
     unassigned: unassignedTickets.length,
-    waitingOnTech: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("waiting on tech")).length,
+    waitingOnTech: tickets.filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status)).length,
     customerReply: tickets.filter((t) => (t.halo_status ?? "").toLowerCase().includes("customer reply")).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
     openedToday: openedTodayRes.count ?? 0,
-    resolvedToday: resolvedTodayRes.count ?? 0,
+    resolvedToday: haloResolvedToday ?? resolvedTodayFallbackRes.count ?? 0,
   };
 
   return { generatedAt: nowDate.toISOString(), metrics, statusCounts, breaches, atRisk, unassignedTickets, oldestTickets, techStats, wallOfShame, wallOfFame, scoreboard, haloBaseUrl };

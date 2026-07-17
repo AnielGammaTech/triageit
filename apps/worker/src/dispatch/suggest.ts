@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isHelpdeskTechnicianName } from "@triageit/shared";
+import { isAlertTicket } from "../agents/workers/erin-hannon.js";
 import { createSupabaseClient } from "../db/supabase.js";
+import {
+  deriveDispatchAction,
+  type DispatchActionDecision,
+  type DispatchActionLane,
+} from "./action-queue.js";
 import { buildDispatchBoard } from "./board.js";
 import { namesMatch } from "./board-sources.js";
 import {
@@ -11,9 +17,9 @@ import {
 } from "./scorer.js";
 
 /**
- * Dispatch assignment helper — deterministic top-3 tech ranking for every
- * unassigned or New open Gamma Default ticket. Suggest-only: no Halo
- * assignment write-back anywhere. No LLM in the ranking.
+ * Dispatch operating queue plus deterministic top-3 tech ranking for every
+ * truly unassigned open Gamma Default ticket. Suggest-only: no Halo writes.
+ * No LLM participates in ordering or ranking.
  */
 
 export interface DispatchSuggestions {
@@ -30,6 +36,18 @@ export interface DispatchSuggestions {
   }>;
   /** Tickets beyond the display cap (after grouping). */
   readonly omitted: number;
+  /** Prioritized operating queue; every row has one reason and one next action. */
+  readonly actions: ReadonlyArray<DispatchActionDecision & {
+    readonly halo_id: number;
+    readonly summary: string | null;
+    readonly client_name: string | null;
+    readonly status: string | null;
+    readonly assignedTo: string | null;
+    readonly priority: number | null;
+    readonly suggestions: ReadonlyArray<Suggestion>;
+  }>;
+  readonly actionCounts: Readonly<Record<DispatchActionLane | "total", number>>;
+  readonly actionOmitted: number;
 }
 
 const GAMMA_DEFAULT_TYPE_ID = 31;
@@ -37,17 +55,38 @@ const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 const TOP_N = 3;
 /** Keep the helper scannable — the queue view covers the long tail. */
 const MAX_TICKETS = 8;
+/** Keep each client-side lane useful even when another lane has a large backlog. */
+const MAX_ACTIONS_PER_LANE = 25;
 /** Automated alerts are triaged, not dispatched — never suggest assignees. */
 const ALERT_CLIENT_RE = /^alerts?$/i;
 const ALERT_TYPE_RE = /alert|notification|monitor/i;
 
-interface TargetTicket {
+interface OpenTicket {
   readonly id: string;
   readonly halo_id: number;
   readonly summary: string | null;
   readonly client_name: string | null;
   readonly halo_status: string | null;
+  readonly halo_agent: string | null;
+  readonly original_priority: number | null;
+  readonly created_at: string;
+  readonly last_customer_reply_at: string | null;
+  readonly last_tech_action_at: string | null;
+  readonly sla_currently_breached: boolean;
+  readonly sla_fix_by: string | null;
+  readonly sla_respond_by: string | null;
+  readonly sla_on_hold: boolean;
 }
+
+const isUnassigned = (agent: string | null): boolean =>
+  !agent || !agent.trim() || agent.trim().toLowerCase() === "unassigned";
+
+const emptyActionCounts = (): Record<DispatchActionLane | "total", number> => ({
+  now: 0,
+  today: 0,
+  watch: 0,
+  total: 0,
+});
 
 export async function buildSuggestions(): Promise<DispatchSuggestions> {
   const supabase = createSupabaseClient();
@@ -55,68 +94,67 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
 
   const { data, error } = await supabase
     .from("tickets")
-    .select("id, halo_id, summary, client_name, halo_agent, halo_status")
+    .select("id, halo_id, summary, client_name, halo_agent, halo_status, original_priority, created_at, last_customer_reply_at, last_tech_action_at, sla_currently_breached, sla_fix_by, sla_respond_by, sla_on_hold")
     .eq("halo_is_open", true)
     .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID);
   if (error) throw new Error(`Dispatch suggest tickets query failed: ${error.message}`);
 
-  const isUnassigned = (agent: string | null): boolean =>
-    !agent || !agent.trim() || agent.trim().toLowerCase() === "unassigned";
-  const targets: ReadonlyArray<TargetTicket> = (data ?? [])
-    .filter(
-      (t) =>
-        isUnassigned(t.halo_agent as string | null) ||
-        ((t.halo_status as string | null) ?? "").trim().toLowerCase() === "new",
-    )
-    .map((t) => ({
-      id: t.id as string,
-      halo_id: t.halo_id as number,
-      summary: (t.summary as string | null) ?? null,
-      client_name: (t.client_name as string | null) ?? null,
-      halo_status: (t.halo_status as string | null) ?? null,
-    }));
-  if (targets.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [], omitted: 0 };
+  const openTickets: ReadonlyArray<OpenTicket> = (data ?? []).map((t) => ({
+    id: t.id as string,
+    halo_id: t.halo_id as number,
+    summary: (t.summary as string | null) ?? null,
+    client_name: (t.client_name as string | null) ?? null,
+    halo_status: (t.halo_status as string | null) ?? null,
+    halo_agent: (t.halo_agent as string | null) ?? null,
+    original_priority: (t.original_priority as number | null) ?? null,
+    created_at: (t.created_at as string | null) ?? new Date().toISOString(),
+    last_customer_reply_at: (t.last_customer_reply_at as string | null) ?? null,
+    last_tech_action_at: (t.last_tech_action_at as string | null) ?? null,
+    sla_currently_breached: t.sla_currently_breached === true,
+    sla_fix_by: (t.sla_fix_by as string | null) ?? null,
+    sla_respond_by: (t.sla_respond_by as string | null) ?? null,
+    sla_on_hold: t.sla_on_hold === true,
+  }));
 
-  const [typeByTicketId, profiles] = await Promise.all([
-    fetchLatestTypes(supabase, targets.map((t) => t.id)),
-    fetchTechProfiles(supabase),
-  ]);
+  const classificationByTicketId = await fetchLatestClassifications(
+    supabase,
+    openTickets.map((t) => t.id),
+  );
 
-  // Alerts are handled by the triage pipeline, not the dispatcher — drop
-  // anything classified as an alert or filed under the Alerts client, and
-  // fold duplicate storms (same client + summary) into one entry.
-  const dispatchable = targets.filter((t) => {
+  // Alerts are handled by triage, not dispatch. Apply this once so the
+  // assignment list and the operating queue can never disagree.
+  const dispatchable = openTickets.filter((t) => {
     if (t.client_name && ALERT_CLIENT_RE.test(t.client_name.trim())) return false;
-    const type = typeByTicketId.get(t.id);
-    if (type && ALERT_TYPE_RE.test(type)) return false;
+    const classification = classificationByTicketId.get(t.id);
+    if (classification?.type && ALERT_TYPE_RE.test(classification.type)) return false;
+    if (
+      isAlertTicket(
+        t.summary ?? "",
+        null,
+        classification?.type ?? "",
+        classification?.subtype ?? "",
+      )
+    ) return false;
     return true;
   });
-  const grouped = new Map<string, { ticket: TargetTicket; duplicates: number }>();
-  for (const t of dispatchable) {
-    const key = `${(t.client_name ?? "").toLowerCase()}|${(t.summary ?? "").trim().toLowerCase()}`;
-    const existing = grouped.get(key);
-    if (existing) grouped.set(key, { ...existing, duplicates: existing.duplicates + 1 });
-    else grouped.set(key, { ticket: t, duplicates: 0 });
-  }
-  const groupedList = [...grouped.values()];
-  const shown = groupedList.slice(0, MAX_TICKETS);
-  const omitted = groupedList.length - shown.length;
-  if (groupedList.length === 0) return { haloBaseUrl: board.haloBaseUrl, tickets: [], omitted: 0 };
+  const targets = dispatchable.filter((t) => isUnassigned(t.halo_agent));
+
   const clients = [...new Set(targets.map((t) => t.client_name).filter((c): c is string => !!c))];
-  const recentSimilar = await fetchRecentSimilar(supabase, clients);
+  const [profiles, recentSimilar] = targets.length > 0
+    ? await Promise.all([fetchTechProfiles(supabase), fetchRecentSimilar(supabase, clients)])
+    : [[], new Map<string, number>()] as const;
 
-  // The board now carries the WHOLE team (owner, sales, PM included) —
-  // assignment candidates stay techs-only.
+  // The board carries the whole staff roster; assignment candidates remain
+  // the five helpdesk technicians defined in shared workflow constants.
   const candidates = board.techs.filter((bt) => isHelpdeskTechnicianName(bt.tech));
-
-  const tickets = shown.map(({ ticket: t, duplicates }) => {
+  const suggestionsFor = (t: OpenTicket): ReadonlyArray<Suggestion> => {
     const ticket: TicketToAssign = {
       halo_id: t.halo_id,
       summary: t.summary,
       client_name: t.client_name,
-      ticketType: typeByTicketId.get(t.id) ?? null,
+      ticketType: classificationByTicketId.get(t.id)?.type ?? null,
     };
-    const suggestions = candidates
+    return candidates
       .map((bt) => {
         const profile = profiles.find((p) => namesMatch(bt.tech, p.tech_name)) ?? null;
         const candidate: TechCandidate = {
@@ -133,30 +171,112 @@ export async function buildSuggestions(): Promise<DispatchSuggestions> {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, TOP_N);
+  };
+
+  const decisions = dispatchable
+    .map((t) => {
+      const owner = board.techs.find((bt) => namesMatch(bt.tech, t.halo_agent)) ?? null;
+      const decision = deriveDispatchAction({
+        haloId: t.halo_id,
+        status: t.halo_status,
+        assignedTo: t.halo_agent,
+        priority: t.original_priority,
+        createdAt: t.created_at,
+        lastCustomerReplyAt: t.last_customer_reply_at,
+        lastTechActionAt: t.last_tech_action_at,
+        slaCurrentlyBreached: t.sla_currently_breached,
+        slaFixBy: t.sla_fix_by,
+        slaRespondBy: t.sla_respond_by,
+        slaOnHold: t.sla_on_hold,
+        ownerState: owner?.status.state ?? null,
+      });
+      return decision ? { ticket: t, decision } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort(
+      (a, b) =>
+        b.decision.rank - a.decision.rank ||
+        a.ticket.created_at.localeCompare(b.ticket.created_at),
+    );
+
+  const actionCounts = decisions.reduce(
+    (counts, entry) => ({
+      ...counts,
+      [entry.decision.lane]: counts[entry.decision.lane] + 1,
+      total: counts.total + 1,
+    }),
+    emptyActionCounts(),
+  );
+  const returnedPerLane: Record<DispatchActionLane, number> = { now: 0, today: 0, watch: 0 };
+  const returnedDecisions = decisions.filter(({ decision }) => {
+    if (returnedPerLane[decision.lane] >= MAX_ACTIONS_PER_LANE) return false;
+    returnedPerLane[decision.lane] += 1;
+    return true;
+  });
+  const actions = returnedDecisions.map(({ ticket: t, decision }) => ({
+    ...decision,
+    halo_id: t.halo_id,
+    summary: t.summary,
+    client_name: t.client_name,
+    status: t.halo_status,
+    assignedTo: isUnassigned(t.halo_agent) ? null : t.halo_agent,
+    priority: t.original_priority,
+    suggestions: isUnassigned(t.halo_agent) ? suggestionsFor(t) : [],
+  }));
+  const actionOmitted = Math.max(0, decisions.length - returnedDecisions.length);
+
+  // Fold duplicate assignment storms into one entry.
+  const grouped = new Map<string, { ticket: OpenTicket; duplicates: number }>();
+  for (const t of targets) {
+    const key = `${(t.client_name ?? "").toLowerCase()}|${(t.summary ?? "").trim().toLowerCase()}`;
+    const existing = grouped.get(key);
+    if (existing) grouped.set(key, { ...existing, duplicates: existing.duplicates + 1 });
+    else grouped.set(key, { ticket: t, duplicates: 0 });
+  }
+  const rankByHaloId = new Map(decisions.map((entry) => [entry.ticket.halo_id, entry.decision.rank]));
+  const groupedList = [...grouped.values()].sort(
+    (a, b) => (rankByHaloId.get(b.ticket.halo_id) ?? 0) - (rankByHaloId.get(a.ticket.halo_id) ?? 0),
+  );
+  const shown = groupedList.slice(0, MAX_TICKETS);
+  const omitted = groupedList.length - shown.length;
+
+  const tickets = shown.map(({ ticket: t, duplicates }) => {
     return {
       halo_id: t.halo_id,
       summary: t.summary,
       client_name: t.client_name,
       status: t.halo_status,
       duplicates,
-      suggestions,
+      suggestions: suggestionsFor(t),
     };
   });
 
   console.log(
-    `[DISPATCH] Suggestions built: ${tickets.length} shown, ${omitted} omitted, ${targets.length - dispatchable.length} alert tickets excluded`,
+    `[DISPATCH] Queue built: ${actions.length}/${decisions.length} actions, ${tickets.length} assignments, ${openTickets.length - dispatchable.length} alerts excluded`,
   );
-  return { haloBaseUrl: board.haloBaseUrl, tickets, omitted };
+  return {
+    haloBaseUrl: board.haloBaseUrl,
+    tickets,
+    omitted,
+    actions,
+    actionCounts,
+    actionOmitted,
+  };
 }
 
 // ── Batched lookups (each degrades independently — never blocks ranking) ──
 
-/** Latest triage classification type per ticket, one `in` query. */
-async function fetchLatestTypes(
+/** Latest triage classification per ticket, one `in` query. */
+interface TicketClassification {
+  readonly type: string | null;
+  readonly subtype: string | null;
+}
+
+async function fetchLatestClassifications(
   supabase: SupabaseClient,
   ticketIds: ReadonlyArray<string>,
-): Promise<ReadonlyMap<string, string | null>> {
-  const map = new Map<string, string | null>();
+): Promise<ReadonlyMap<string, TicketClassification>> {
+  const map = new Map<string, TicketClassification>();
   if (ticketIds.length === 0) return map;
   try {
     const { data, error } = await supabase
@@ -168,8 +288,11 @@ async function fetchLatestTypes(
     for (const row of data ?? []) {
       const id = row.ticket_id as string;
       if (map.has(id)) continue; // ordered desc — first row per ticket is latest
-      const cls = row.classification as { type?: unknown } | null;
-      map.set(id, typeof cls?.type === "string" ? cls.type : null);
+      const cls = row.classification as { type?: unknown; subtype?: unknown } | null;
+      map.set(id, {
+        type: typeof cls?.type === "string" ? cls.type : null,
+        subtype: typeof cls?.subtype === "string" ? cls.subtype : null,
+      });
     }
   } catch (err) {
     console.warn(

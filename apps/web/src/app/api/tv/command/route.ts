@@ -1,22 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
 import {
-  isValidTvKey,
+  createTvSessionToken,
   isValidTvSessionToken,
   TV_SESSION_COOKIE,
+  TV_SESSION_MAX_AGE_SECONDS,
   tvKeyConfigured,
 } from "@/lib/api/tv-key";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { getClientIp } from "@/lib/api/request-context";
+import { createServiceClient } from "@/lib/supabase/server";
 import { workerFetch } from "@/lib/api/worker";
 
 /**
- * GET /api/tv/command — key-gated Command Center data for the TV wallboard.
- * Auth: x-tv-key header (preferred) or ?key= query param, checked against
- * the TV_DASHBOARD_KEY env var. Exempted from Supabase middleware.
+ * GET /api/tv/command - device-session-gated Command Center data for the TV wallboard.
+ * Auth: an HttpOnly session cookie issued by /api/tv/session. Exempted from
+ * Supabase middleware because wallboard devices do not hold staff sessions.
  *
- * Also attaches a best-effort `dispatch` field (tech presence from the
- * worker's /dispatch/board) — omitted, never fatal, when the board errors.
+ * Also attaches best-effort dispatch presence and today's schedule from the
+ * worker. Either field is omitted, never fatal, when its source errors.
  */
 
 const DISPATCH_TIMEOUT_MS = 5_000;
@@ -25,6 +27,25 @@ interface TvDispatchTech {
   readonly tech: string;
   readonly status: { readonly state: string; readonly detail: string | null };
   readonly nextCommitment: string | null;
+}
+
+interface TvScheduleEvent {
+  readonly day: string;
+  readonly type: "site_visit" | "reminder" | "pto" | "meeting";
+  readonly subject: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  readonly allDay: boolean;
+  readonly ticketId: number | null;
+}
+
+interface TvSchedule {
+  readonly start: string;
+  readonly days: ReadonlyArray<string>;
+  readonly techs: ReadonlyArray<{
+    readonly tech: string;
+    readonly events: ReadonlyArray<TvScheduleEvent>;
+  }>;
 }
 
 /** Best-effort tech presence for the TV band — null on any failure. */
@@ -40,23 +61,76 @@ async function fetchDispatchPresence(): Promise<{ readonly techs: ReadonlyArray<
     return null;
   }
 }
+
+/** Best-effort current-day dispatch schedule — null on any failure. */
+async function fetchDispatchSchedule(): Promise<TvSchedule | null> {
+  try {
+    const res = await workerFetch("/dispatch/week", { signal: AbortSignal.timeout(DISPATCH_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const schedule = (await res.json()) as Partial<TvSchedule>;
+    if (!Array.isArray(schedule.days) || !Array.isArray(schedule.techs) || typeof schedule.start !== "string") {
+      return null;
+    }
+    return schedule as TvSchedule;
+  } catch (err) {
+    console.warn("[TV-COMMAND] Dispatch schedule unavailable:", (err as Error).message);
+    return null;
+  }
+}
+
+async function isTrustedTvIp(clientIp: string | null): Promise<boolean> {
+  if (!clientIp) return false;
+  try {
+    const serviceClient = await createServiceClient();
+    const { data, error } = await serviceClient.rpc("is_tv_ip_trusted", { p_ip: clientIp });
+    if (error) {
+      console.warn("[TV-COMMAND] Trusted-IP check failed:", error.code);
+      return false;
+    }
+    return data === true;
+  } catch (error) {
+    console.warn("[TV-COMMAND] Trusted-IP check unavailable:", (error as Error).message);
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!tvKeyConfigured()) {
     return NextResponse.json({ error: "TV access is not configured" }, { status: 503 });
   }
 
   const session = request.cookies.get(TV_SESSION_COOKIE)?.value;
-  const key = request.headers.get("x-tv-key") ?? request.nextUrl.searchParams.get("key");
-  if (!isValidTvSessionToken(session) && !isValidTvKey(key)) {
-    return NextResponse.json({ error: "TV approval required" }, { status: 401 });
+  if (!isValidTvSessionToken(session)) {
+    return NextResponse.json({ error: "Invalid or expired TV session" }, { status: 401 });
   }
 
-  const rl = checkRateLimit(getClientIp(request) || "tv-wallboard", 30, 60_000, "tv-command");
+  const clientIp = getClientIp(request);
+  const rl = checkRateLimit(clientIp || "tv-wallboard", 30, 60_000, "tv-command");
   if (rl) return rl;
 
   try {
-    const [payload, dispatch] = await Promise.all([buildCommandCenterPayload(), fetchDispatchPresence()]);
-    return NextResponse.json(dispatch ? { ...payload, dispatch } : payload);
+    const [payload, dispatch, schedule, trustedIp] = await Promise.all([
+      buildCommandCenterPayload(),
+      fetchDispatchPresence(),
+      fetchDispatchSchedule(),
+      isTrustedTvIp(clientIp),
+    ]);
+    const response = NextResponse.json({
+      ...payload,
+      ...(dispatch ? { dispatch } : {}),
+      ...(schedule ? { schedule } : {}),
+    });
+    if (trustedIp) {
+      response.cookies.set(TV_SESSION_COOKIE, createTvSessionToken(), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/api/tv",
+        maxAge: TV_SESSION_MAX_AGE_SECONDS,
+      });
+      response.headers.set("X-TV-Session-Renewed", "trusted-ip");
+    }
+    return response;
   } catch (err) {
     console.error("[TV-COMMAND] Failed to build payload:", (err as Error).message);
     return NextResponse.json({ error: "Failed to load command center data" }, { status: 500 });

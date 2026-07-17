@@ -61,9 +61,8 @@ function ordinal(n: number): string {
 /**
  * Business hours for real-time alerts: 8:00am–5:15pm ET, Monday–Friday (the
  * 15-min grace past 5 covers normal staying-a-bit-late). Every reactive Teams
- * alert (SLA breach, triage summary, response/update-request, onsite, etc.) is
- * suppressed outside this window — no more 11pm pings. Scheduled digests
- * (daily/weekly/Toby) bypass this via sendCard's allowAnytime.
+ * message is suppressed outside this window. This is the final delivery gate
+ * for alerts and scheduled digests alike, including deploy catch-up runs.
  */
 const BH_START_MIN = 8 * 60; // 8:00am
 const BH_END_MIN = 17 * 60 + 15; // 5:15pm
@@ -92,12 +91,10 @@ export class TeamsClient {
    * channel "sla" = SLA breach alerts ONLY (sla_webhook_url when
    * configured, else falls back to the ops webhook so nothing is lost).
    */
-  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops", allowAnytime = false): Promise<void> {
-    // Suppress reactive alerts outside 8am–5pm ET, Mon–Fri. Scheduled digests
-    // pass allowAnytime=true so they still fire at their set times.
-    if (!allowAnytime && !isWithinBusinessHours()) {
+  private async sendCard(card: Record<string, unknown>, channel: "ops" | "sla" = "ops"): Promise<boolean> {
+    if (!isWithinBusinessHours()) {
       console.log(`[TEAMS] Suppressed ${channel} alert — outside business hours (8am–5pm ET, Mon–Fri)`);
-      return;
+      return false;
     }
     const url = channel === "sla" && this.config.sla_webhook_url ? this.config.sla_webhook_url : this.config.webhook_url;
     const response = await fetch(url, {
@@ -110,6 +107,65 @@ export class TeamsClient {
       const text = await response.text();
       throw new Error(`Teams webhook (${channel}) failed (${response.status}): ${text}`);
     }
+    return true;
+  }
+
+  async sendInitialAcknowledgmentApproval(input: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly assignedTech: string | null;
+    readonly dispatcherOutcome: "missed" | "pto_exempt" | "pto_unknown";
+    readonly draftMessage: string;
+    readonly dispatchUrl: string;
+  }): Promise<boolean> {
+    const outcome = input.dispatcherOutcome === "pto_exempt"
+      ? "Bryanna is on PTO — exempt from the miss metric"
+      : input.dispatcherOutcome === "pto_unknown"
+        ? "Bryanna's PTO status could not be verified"
+        : "Bryanna missed the 30-business-minute acknowledgment";
+    return this.sendCard({
+      type: "message",
+      attachments: [{
+        contentType: "application/vnd.microsoft.card.adaptive",
+        contentUrl: null,
+        content: {
+          $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+          type: "AdaptiveCard",
+          version: "1.2",
+          body: [
+            {
+              type: "TextBlock",
+              text: `Aniel & David — approve the initial customer reply for ticket #${input.haloId}`,
+              weight: "Bolder",
+              color: input.dispatcherOutcome === "missed" ? "Attention" : "Warning",
+              wrap: true,
+            },
+            {
+              type: "FactSet",
+              facts: [
+                { title: "Client", value: input.clientName ?? "Unknown" },
+                { title: "Ticket", value: input.summary },
+                { title: "Assigned tech", value: input.assignedTech ?? "Unassigned" },
+                { title: "Dispatcher", value: outcome },
+              ],
+            },
+            { type: "TextBlock", text: "Suggested message", weight: "Bolder", spacing: "Medium" },
+            { type: "TextBlock", text: input.draftMessage, wrap: true, size: "Small" },
+            {
+              type: "TextBlock",
+              text: "Nothing has been emailed. Review or edit the draft in Dispatch, then approve it with one click.",
+              wrap: true,
+              color: "Accent",
+              size: "Small",
+            },
+          ],
+          actions: [
+            { type: "Action.OpenUrl", title: "Review in Dispatch", url: input.dispatchUrl },
+          ],
+        },
+      }],
+    });
   }
 
   async sendDailySummary(summary: DailySummary): Promise<void> {
@@ -239,7 +295,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendTriageSummary(triage: {
@@ -370,7 +426,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendTechPerformanceSummary(reviews: ReadonlyArray<{
@@ -803,7 +859,7 @@ export class TeamsClient {
       ],
     };
 
-    await this.sendCard(card, "ops", true);
+    await this.sendCard(card);
   }
 
   async sendPermanentFailureAlert(tickets: ReadonlyArray<{

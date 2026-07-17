@@ -25,6 +25,9 @@ npm-debug.log*
 .turbo
 .followit-data/
 
+# Supabase CLI linked-project cache
+supabase/.temp/
+
 # vercel
 .vercel
 tsconfig.tsbuildinfo

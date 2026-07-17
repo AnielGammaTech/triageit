@@ -12,9 +12,10 @@ describe("resolveTechStatus priority order", () => {
     expect(resolveTechStatus({ ...base, onPtoToday: true, onCall: true }).state).toBe("off");
   });
   it("onsite beats meeting/call", () => {
-    const s = resolveTechStatus({ ...base, onsiteAppointment: { subject: "Allen Concrete", endsAt: "2026-07-10T20:00:00Z" }, onCall: true });
+    const s = resolveTechStatus({ ...base, onsiteAppointment: { subject: "Allen Concrete", endsAt: "2026-07-10T20:00:00Z", ticketId: 41013 }, onCall: true });
     expect(s.state).toBe("onsite");
     expect(s.detail).toContain("Allen Concrete");
+    expect(s.detail).toContain("#41013");
   });
   it("meeting beats call", () => {
     expect(resolveTechStatus({ ...base, inMeetingUntil: "2026-07-10T20:00:00Z", onCall: true }).state).toBe("meeting");

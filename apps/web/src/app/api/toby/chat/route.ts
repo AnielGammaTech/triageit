@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Build system prompt with context
-  let systemPrompt = buildTobyChatPrompt();
+  const systemPrompt = buildTobyChatPrompt();
 
   // Load Toby's latest analysis data summaries (graceful — don't crash if tables are empty)
   let techProfiles: Array<Record<string, unknown>> = [];

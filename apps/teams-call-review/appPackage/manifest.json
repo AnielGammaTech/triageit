@@ -1,0 +1,59 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.23/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.23",
+  "version": "1.0.1",
+  "id": "ad44c616-04a1-4b84-a583-6686618a6a92",
+  "developer": {
+    "name": "Gamma Tech Services",
+    "websiteUrl": "https://triageit.gtools.io",
+    "privacyUrl": "https://triageit.gtools.io",
+    "termsOfUseUrl": "https://triageit.gtools.io"
+  },
+  "name": {
+    "short": "TriageIT Calls",
+    "full": "TriageIT Call Review"
+  },
+  "description": {
+    "short": "Review unmatched 3CX calls and attach them to the correct Halo ticket.",
+    "full": "TriageIT sends private unmatched-call review cards to Gamma Tech technicians. A technician can attach a call transcription to the correct Halo ticket or mark the call as separate. This app does not provide ticket search, general chat, Prison Mike, Toby, or arbitrary Halo actions."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#B91C1C",
+  "bots": [
+    {
+      "botId": "c5164f1d-d52b-4883-8456-fd7a38ed699a",
+      "scopes": [
+        "personal"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal"
+          ],
+          "commands": [
+            {
+              "title": "register",
+              "description": "Enable private unmatched-call review cards"
+            },
+            {
+              "title": "help",
+              "description": "Show the available call-review actions"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "validDomains": [
+    "worker-production-bf53b.up.railway.app"
+  ],
+  "defaultInstallScope": "personal"
+}

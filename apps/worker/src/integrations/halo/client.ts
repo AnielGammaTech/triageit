@@ -301,6 +301,36 @@ export class HaloClient {
     ]);
   }
 
+  /**
+   * Send a customer-visible email through Halo and retain it as a ticket
+   * action. Callers must perform their own human-approval and business-hours
+   * checks before reaching this method.
+   */
+  async sendCustomerEmail(params: {
+    ticketId: number;
+    recipient: string;
+    subject: string;
+    message: string;
+  }): Promise<number> {
+    const result = await this.request<{ id?: number }>("POST", "/actions", [
+      {
+        ticket_id: params.ticketId,
+        outcome: "Email User",
+        outcome_id: 16,
+        note: params.message,
+        emailbody: params.message,
+        emailsubject: params.subject,
+        emailsubjectnew: params.subject,
+        emailto: params.recipient,
+        emailtonew: params.recipient,
+        hiddenfromuser: false,
+        sendemail: true,
+        setnotetoemailbody: true,
+      },
+    ]);
+    return result.id ?? 0;
+  }
+
   async getOpenTickets(ticketTypeId?: number): Promise<ReadonlyArray<HaloTicket>> {
     // Halo uses `count` (NOT `page_size`) for result limit. `page_size` caps at 50.
     // Use `count=500` to get all open tickets in one request.

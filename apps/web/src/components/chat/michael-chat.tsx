@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import Image from "next/image";
 import { cn } from "@/lib/utils/cn";
 
 interface MessageMeta {
@@ -430,7 +431,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
               <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </button>
-          <img src={agentAvatar} alt="Prison Mike" className="h-8 w-8 rounded-full object-cover" />
+          <Image unoptimized src={agentAvatar} alt="Prison Mike" width={32} height={32} className="h-8 w-8 rounded-full object-cover" />
           <div>
             <h2 className="text-sm font-semibold text-white">Prison Mike</h2>
             <p className="text-[11px] text-[#fca5a5]/60">The Worst Thing About Prison — AI Triage</p>
@@ -457,7 +458,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && !streaming && (
             <div className="flex flex-col items-center justify-center h-full text-center">
-              <img src={agentAvatar} alt="Prison Mike" className="h-16 w-16 rounded-full object-cover mb-4" />
+              <Image unoptimized src={agentAvatar} alt="Prison Mike" width={64} height={64} className="h-16 w-16 rounded-full object-cover mb-4" />
               <h3 className="text-lg font-semibold text-white/80 mb-1">Talk to Prison Mike</h3>
               <p className="text-sm text-white/40 max-w-md">
                 Ask about tickets, discuss triage decisions, teach him new skills, or get his take on client patterns.
@@ -484,7 +485,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
           {messages.map((msg) => (
             <div key={msg.id} className={cn("flex gap-3", msg.role === "user" && "justify-end")}>
               {msg.role === "assistant" && (
-                <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+                <Image unoptimized src={agentAvatar} alt="Prison Mike" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               )}
               <div className="max-w-[75%]">
                 <div
@@ -514,7 +515,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && streamingText && (
             <div className="flex gap-3">
-              <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+              <Image unoptimized src={agentAvatar} alt="Prison Mike" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="max-w-[75%] rounded-xl bg-[#151010] border border-[#7f1d1d]/25 px-4 py-2.5 text-sm leading-relaxed text-white/90">
                 <MessageContent content={streamingText} />
                 <span className="inline-block w-1.5 h-4 bg-[#f87171]/70 animate-pulse ml-0.5" />
@@ -524,7 +525,7 @@ export function MichaelChat({ ticketContext }: MichaelChatProps) {
 
           {streaming && !streamingText && (
             <div className="flex gap-3">
-              <img src={agentAvatar} alt="Prison Mike" className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
+              <Image unoptimized src={agentAvatar} alt="Prison Mike" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full object-cover mt-0.5" />
               <div className="rounded-xl bg-[#151010] border border-[#7f1d1d]/25 px-4 py-3 min-w-[200px]">
                 {activityLog.length > 0 && (
                   <div className="mb-2 space-y-1.5">

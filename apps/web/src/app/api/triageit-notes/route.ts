@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { normalizeHaloUtcTimestamp } from "@/lib/halo/date";
 
 interface HaloConfig {
   readonly base_url: string;
@@ -167,8 +168,9 @@ export async function POST(request: Request) {
 
     // Filter to only TriageIT-posted notes
     // Halo returns dates under various field names depending on version
-    const getActionDate = (a: HaloAction): string =>
-      a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when ?? "";
+    const getActionDate = (a: HaloAction): string => normalizeHaloUtcTimestamp(
+      a.actiondatecreated ?? a.datetime ?? a.datecreated ?? a.dateoccurred ?? a.when,
+    );
 
     const triageItNotes: ReadonlyArray<TriageITNote> = allActions
       .filter(isTriageITNote)

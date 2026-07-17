@@ -29,6 +29,7 @@ export const WORKING_RECENCY_MS = 60 * 60_000;
 export interface TechLoad {
   readonly open: number;
   readonly wot: number;
+  readonly customerReply: number;
   readonly breaching: number;
   /** The In Progress ticket the tech most recently touched (within the
    *  recency window) — stale In Progress tickets never count. */
@@ -42,6 +43,18 @@ export interface TechLoad {
 export interface ThreeCxSnapshot {
   readonly activeCalls: ReadonlyArray<ThreeCxActiveCall> | null;
   readonly extensions: ReadonlyArray<ThreeCxUserPresence> | null;
+}
+
+const HALO_CUSTOMER_REPLY_STATUS_ID = 30;
+const HALO_WAITING_ON_TECH_STATUS_ID = 32;
+
+export function isCustomerReplyStatus(statusId: number | null, statusName: string | null): boolean {
+  return statusId === HALO_CUSTOMER_REPLY_STATUS_ID || /customer reply/i.test(statusName ?? "");
+}
+
+export function isWaitingOnTechStatus(statusId: number | null, statusName: string | null): boolean {
+  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
+    || /waiting on tech/i.test(statusName ?? "");
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────
@@ -124,7 +137,7 @@ export async function fetchTicketLoads(
   try {
     const { data, error } = await supabase
       .from("tickets")
-      .select("halo_id, summary, halo_agent, halo_status, sla_currently_breached, last_tech_action_at")
+      .select("halo_id, summary, halo_agent, halo_status_id, halo_status, sla_currently_breached, last_tech_action_at")
       .eq("halo_is_open", true);
     if (error) throw new Error(error.message);
 
@@ -132,7 +145,9 @@ export async function fetchTicketLoads(
     for (const t of data ?? []) {
       const name = ((t.halo_agent as string | null) ?? "").trim();
       if (!name || name.toLowerCase() === "unassigned") continue;
-      const status = ((t.halo_status as string | null) ?? "").toLowerCase();
+      const statusName = (t.halo_status as string | null) ?? null;
+      const statusId = (t.halo_status_id as number | null) ?? null;
+      const status = (statusName ?? "").toLowerCase();
       const cur = loads.get(name) ?? EMPTY_LOAD;
       // "In Progress" = the tech is actively working that ticket right now
       // (user decision 2026-07-10) — surfaces as the "working" presence state.
@@ -155,7 +170,8 @@ export async function fetchTicketLoads(
           : cur.inProgressTicket;
       loads.set(name, {
         open: cur.open + 1,
-        wot: cur.wot + (status.includes("waiting on tech") ? 1 : 0),
+        wot: cur.wot + (isWaitingOnTechStatus(statusId, statusName) ? 1 : 0),
+        customerReply: cur.customerReply + (isCustomerReplyStatus(statusId, statusName) ? 1 : 0),
         breaching: cur.breaching + (t.sla_currently_breached ? 1 : 0),
         inProgressTicket,
       });
@@ -167,7 +183,7 @@ export async function fetchTicketLoads(
   }
 }
 
-const EMPTY_LOAD: TechLoad = { open: 0, wot: 0, breaching: 0, inProgressTicket: null };
+const EMPTY_LOAD: TechLoad = { open: 0, wot: 0, customerReply: 0, breaching: 0, inProgressTicket: null };
 
 /** Load for a roster tech: exact agent-name match first, then token match. */
 export function loadForTech(

@@ -37,11 +37,23 @@ import {
   getMsGraphSetupStatus,
 } from "./integrations/msgraph/setup.js";
 import { HaloClient } from "./integrations/halo/client.js";
+import { ThreeCxClient } from "./integrations/threecx/client.js";
 import { buildDispatchBoard } from "./dispatch/board.js";
+import { buildResponseComplianceDashboard } from "./response-compliance/dashboard.js";
+import { scanTicketResponseCompliance } from "./cron/ticket-response-compliance.js";
 import { buildSuggestions } from "./dispatch/suggest.js";
+import { buildCallTranscriptionPayload, invalidateCallTranscriptionCache } from "./dispatch/call-transcriptions.js";
+import { manuallyMatchRecording } from "./cron/call-analysis.js";
+import {
+  approveCustomerUpdate,
+  dismissCustomerUpdate,
+  listCustomerUpdateApprovals,
+  refreshCustomerUpdateReplies,
+} from "./dispatch/customer-update-approvals.js";
 import { generateKbIdeas } from "./agents/manager/kb-ideas.js";
 import { createAgent } from "./agents/registry.js";
 import type { TriageContext } from "./agents/types.js";
+import type { ThreeCxConfig } from "@triageit/shared";
 
 const server = Fastify({ logger: true });
 const TRIAGE_QUEUE_NAME = "triage";
@@ -122,14 +134,14 @@ server.post("/api/teams/messages", async (request, reply) => {
 
     const token = authHeader.slice(7);
     const { verifyBotToken, handleBotMessage } = await import("./integrations/teams/bot.js");
+    const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string }; recipient?: { id?: string } };
 
-    const valid = await verifyBotToken(token);
+    const valid = await verifyBotToken(token, activity.recipient?.id);
     if (!valid) {
       console.warn("[TEAMS-BOT] Invalid token — rejecting");
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    const activity = request.body as { type: string; text?: string; serviceUrl: string; conversation: { id: string }; id: string; from?: { name?: string } };
     // Fire and forget — respond 200 immediately, process async
     handleBotMessage(activity).catch((err) => {
       console.error("[TEAMS-BOT] Async error:", err);
@@ -216,6 +228,24 @@ server.get("/dispatch/board", async (_request, reply) => {
   }
 });
 
+server.get("/dispatch/response-compliance", async (_request, reply) => {
+  try {
+    return await buildResponseComplianceDashboard();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post("/ticket-response-compliance", async (_request, reply) => {
+  try {
+    return { status: "completed", ...(await scanTicketResponseCompliance()) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
 // Dispatch suggestions — suggest-only ranking for unassigned/New tickets
 server.get("/dispatch/suggest", async (_request, reply) => {
   try {
@@ -226,7 +256,129 @@ server.get("/dispatch/suggest", async (_request, reply) => {
   }
 });
 
-// Dispatch week view — per tech per day: appointments (typed) + PTO days
+// Recent 3CX recordings with the complete match audit and transcript. This is
+// protected because call text and phone numbers contain customer PII.
+server.get("/calls/transcriptions", async (_request, reply) => {
+  try {
+    return await buildCallTranscriptionPayload(createSupabaseClient());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post<{ Querystring: { limit?: string } }>("/calls/transcriptions/audit-ignored", async (request, reply) => {
+  try {
+    const { auditIgnoredCallClassifications } = await import("./cron/call-analysis.js");
+    const result = await auditIgnoredCallClassifications({
+      limit: request.query.limit ? Number(request.query.limit) : undefined,
+    });
+    invalidateCallTranscriptionCache();
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { recordingId: string };
+  Body: { halo_id?: number };
+}>("/calls/transcriptions/:recordingId/match", async (request, reply) => {
+  const recordingId = Number(request.params.recordingId);
+  const haloId = Number(request.body?.halo_id);
+  if (!Number.isInteger(recordingId) || recordingId <= 0 || !Number.isInteger(haloId) || haloId <= 0) {
+    return reply.status(400).send({ error: "A valid recording id and Halo ticket number are required" });
+  }
+
+  const supabase = createSupabaseClient();
+  const { data: existing } = await supabase
+    .from("call_analyses")
+    .select("halo_id, note_posted")
+    .eq("recording_id", recordingId)
+    .maybeSingle();
+  if (existing?.halo_id) {
+    return reply.status(409).send({ error: `Recording ${recordingId} is already matched to ticket #${existing.halo_id}` });
+  }
+
+  const [{ data: integration }, haloConfig] = await Promise.all([
+    supabase.from("integrations").select("config").eq("service", "threecx").eq("is_active", true).maybeSingle(),
+    getCachedHaloConfig(supabase),
+  ]);
+  if (!integration || !haloConfig) return reply.status(503).send({ error: "3CX or Halo is unavailable" });
+
+  const tcx = new ThreeCxClient(integration.config as ThreeCxConfig);
+  const [recording] = (await tcx.getRecordingsSince(recordingId - 1, 1)) ?? [];
+  if (!recording || recording.Id !== recordingId) return reply.status(404).send({ error: "3CX recording was not found" });
+
+  try {
+    const result = await manuallyMatchRecording(supabase, new HaloClient(haloConfig), recording, haloId);
+    invalidateCallTranscriptionCache();
+    return { status: "matched", halo_id: haloId, note_posted: result.posted };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not match the call";
+    return reply.status(400).send({ error: message });
+  }
+});
+
+// Tech-approved drafts awaiting a second human check in Dispatch.
+server.get("/dispatch/customer-updates", async (_request, reply) => {
+  try {
+    const supabase = createSupabaseClient();
+    try {
+      await refreshCustomerUpdateReplies(supabase);
+    } catch (error) {
+      server.log.warn({ error }, "Could not refresh customer responses for Dispatch");
+    }
+    const updates = await listCustomerUpdateApprovals(supabase);
+    return { updates };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { id: string };
+  Body: { draft_message?: string; approved_by_user_id?: string; approved_by_email?: string | null };
+}>("/dispatch/customer-updates/:id/approve", async (request, reply) => {
+  const draft = String(request.body?.draft_message ?? "").trim();
+  const userId = String(request.body?.approved_by_user_id ?? "").trim();
+  if (!draft || !userId) return reply.status(400).send({ error: "draft_message and approved_by_user_id are required" });
+  try {
+    const result = await approveCustomerUpdate(createSupabaseClient(), request.params.id, draft, {
+      userId,
+      email: request.body?.approved_by_email?.trim() || null,
+    });
+    return { status: "sent", ...result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const conflict = /outside business hours|already handled/i.test(message);
+    const invalid = /too short|valid email address|never receiving emails|next-action|must explicitly|must ask|predates|required contact/i.test(message);
+    return reply.status(conflict ? 409 : invalid ? 422 : 500).send({ error: message });
+  }
+});
+
+server.post<{
+  Params: { id: string };
+  Body: { approved_by_user_id?: string; approved_by_email?: string | null };
+}>("/dispatch/customer-updates/:id/dismiss", async (request, reply) => {
+  const userId = String(request.body?.approved_by_user_id ?? "").trim();
+  if (!userId) return reply.status(400).send({ error: "approved_by_user_id is required" });
+  try {
+    await dismissCustomerUpdate(createSupabaseClient(), request.params.id, {
+      userId,
+      email: request.body?.approved_by_email?.trim() || null,
+    });
+    return { status: "dismissed" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const conflict = /already handled/i.test(message);
+    return reply.status(conflict ? 409 : 500).send({ error: message });
+  }
+});
+
+// Dispatch daily schedule — per tech: appointments, Teams meetings, and PTO
 server.get<{ Querystring: { start?: string } }>("/dispatch/week", async (request, reply) => {
   try {
     const { buildWeekData } = await import("./dispatch/week.js");

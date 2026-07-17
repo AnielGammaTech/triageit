@@ -1,4 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
+import { randomUUID } from "node:crypto";
+import type { Redis } from "ioredis";
 import { getRedisConnectionOptions } from "../queue/connection.js";
 import { createSupabaseClient } from "../db/supabase.js";
 import { runDailyScan } from "../agents/retriage/daily-scan.js";
@@ -13,6 +15,7 @@ import { retryErroredTickets } from "./error-retry.js";
 import { runCallAnalysis } from "./call-analysis.js";
 import { runIntegrationHeartbeat } from "./integration-heartbeat.js";
 import { runScheduleSync } from "../dispatch/schedule-sync.js";
+import { scanTicketResponseCompliance } from "./ticket-response-compliance.js";
 import { runAlertManager } from "./alert-manager.js";
 import { generateAlertManagerDigest } from "./alert-manager-digest.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
@@ -37,6 +40,7 @@ const CRON_QUEUE_NAME = "cron-jobs";
 interface CronJobData {
   readonly endpoint: string;
   readonly name: string;
+  readonly source?: "scheduled" | "catch_up";
 }
 
 interface CronJobRecord {
@@ -46,6 +50,27 @@ interface CronJobRecord {
   readonly endpoint: string;
   readonly is_active: boolean;
   readonly last_run_at?: string | null;
+}
+
+type WorkerRunSource = "scheduled" | "manual" | "catch_up";
+
+interface TrackedCronJob {
+  readonly id: string | null;
+  readonly name: string;
+  readonly endpoint: string;
+}
+
+interface WorkerRunRecord {
+  readonly id: string;
+  readonly job_name: string;
+  readonly endpoint: string;
+  readonly source: WorkerRunSource;
+  readonly status: "running" | "success" | "error" | "skipped";
+  readonly worker_instance: string;
+  readonly started_at: string;
+  readonly finished_at: string | null;
+  readonly duration_ms: number | null;
+  readonly error: string | null;
 }
 
 interface RequiredCronJob {
@@ -61,6 +86,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     description: "Syncs open tickets from Halo every minute so new customer work enters triage quickly.",
     schedule: "* * * * *",
     endpoint: "/ticket-sync",
+  },
+  {
+    name: "Ticket Response Compliance",
+    description: "Tracks the 30-minute customer acknowledgment and one-business-hour assigned-tech email clocks.",
+    schedule: "* * * * *",
+    endpoint: "/ticket-response-compliance",
   },
   {
     name: "Alert Manager",
@@ -163,6 +194,67 @@ function cronIntervalMs(pattern: string): number {
 
 let cronQueue: Queue<CronJobData> | null = null;
 let cronWorker: Worker<CronJobData> | null = null;
+const activeEndpoints = new Set<string>();
+const WORKER_INSTANCE =
+  process.env.RAILWAY_REPLICA_ID ?? process.env.HOSTNAME ?? "local";
+const ENDPOINT_LOCK_TTL_MS = 30 * 60 * 1000;
+const ENDPOINT_LOCK_RENEW_MS = 60 * 1000;
+
+interface EndpointLock {
+  readonly acquired: boolean;
+  readonly release: () => Promise<void>;
+}
+
+async function acquireEndpointLock(endpoint: string): Promise<EndpointLock> {
+  if (!cronQueue) return { acquired: true, release: async () => undefined };
+
+  const key = `triageit:cron-lock:${endpoint}`;
+  const token = `${WORKER_INSTANCE}:${randomUUID()}`;
+  try {
+    // BullMQ exposes a deliberately narrow client interface, but the backing
+    // client is IORedis and supports the atomic lease commands used here.
+    const redis = await cronQueue.client as unknown as Redis;
+    const acquired = await redis.set(key, token, "PX", ENDPOINT_LOCK_TTL_MS, "NX");
+    if (acquired !== "OK") {
+      return { acquired: false, release: async () => undefined };
+    }
+
+    const renew = setInterval(() => {
+      void redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+        1,
+        key,
+        token,
+        String(ENDPOINT_LOCK_TTL_MS),
+      ).catch((error: unknown) => {
+        console.warn(`[CRON] Failed to renew distributed lock for ${endpoint}:`, error);
+      });
+    }, ENDPOINT_LOCK_RENEW_MS);
+    renew.unref();
+
+    return {
+      acquired: true,
+      release: async () => {
+        clearInterval(renew);
+        try {
+          await redis.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            key,
+            token,
+          );
+        } catch (error) {
+          console.warn(`[CRON] Failed to release distributed lock for ${endpoint}:`, error);
+        }
+      },
+    };
+  } catch (error) {
+    // BullMQ already depends on Redis; a temporary lock call failure should be
+    // visible but local endpoint locking can still prevent same-process overlap.
+    console.warn(`[CRON] Distributed lock unavailable for ${endpoint}; using local lock:`, error);
+    return { acquired: true, release: async () => undefined };
+  }
+}
 
 // Map of endpoint -> handler function
 const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
@@ -173,6 +265,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   },
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
+  "/ticket-response-compliance": runTicketResponseCompliance,
   "/alert-manager": runAlertManagerCron,
   "/alert-manager-digest": runAlertManagerDigestCron,
   "/integration-heartbeat": runIntegrationHeartbeatCron,
@@ -217,6 +310,102 @@ async function updateJobStatus(
     .eq("id", jobId);
 }
 
+async function createWorkerRun(
+  job: TrackedCronJob,
+  source: WorkerRunSource,
+  status: "running" | "skipped",
+  bullmqJobId?: string,
+  error?: string,
+): Promise<string | null> {
+  const supabase = createSupabaseClient();
+  const now = new Date().toISOString();
+  const { data, error: insertError } = await supabase
+    .from("worker_runs")
+    .insert({
+      job_id: job.id,
+      job_name: job.name,
+      endpoint: job.endpoint,
+      source,
+      status,
+      bullmq_job_id: bullmqJobId ?? null,
+      worker_instance: WORKER_INSTANCE,
+      started_at: now,
+      ...(status === "skipped"
+        ? { finished_at: now, duration_ms: 0, error: error ?? "Skipped" }
+        : {}),
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    console.error(`[CRON] Failed to create run record for "${job.name}": ${insertError.message}`);
+    return null;
+  }
+  return data.id as string;
+}
+
+async function finishWorkerRun(
+  runId: string | null,
+  status: "success" | "error",
+  startedAtMs: number,
+  error?: string,
+): Promise<void> {
+  if (!runId) return;
+  const supabase = createSupabaseClient();
+  const { error: updateError } = await supabase
+    .from("worker_runs")
+    .update({
+      status,
+      finished_at: new Date().toISOString(),
+      duration_ms: Math.max(0, Date.now() - startedAtMs),
+      error: error ?? null,
+    })
+    .eq("id", runId);
+
+  if (updateError) {
+    console.error(`[CRON] Failed to finish run record ${runId}: ${updateError.message}`);
+  }
+}
+
+async function runTrackedCronJob(
+  job: TrackedCronJob,
+  handler: () => Promise<void>,
+  source: WorkerRunSource,
+  bullmqJobId?: string,
+): Promise<"success" | "skipped"> {
+  if (activeEndpoints.has(job.endpoint)) {
+    console.warn(`[CRON] Skipping overlapping "${job.name}" — ${job.endpoint} is already running`);
+    await createWorkerRun(job, source, "skipped", bullmqJobId, "Endpoint already running");
+    return "skipped";
+  }
+
+  activeEndpoints.add(job.endpoint);
+  const endpointLock = await acquireEndpointLock(job.endpoint);
+  if (!endpointLock.acquired) {
+    activeEndpoints.delete(job.endpoint);
+    console.warn(`[CRON] Skipping overlapping "${job.name}" — another worker owns ${job.endpoint}`);
+    await createWorkerRun(job, source, "skipped", bullmqJobId, "Endpoint is running on another worker instance");
+    return "skipped";
+  }
+  const startedAtMs = Date.now();
+  const runId = await createWorkerRun(job, source, "running", bullmqJobId);
+
+  try {
+    await handler();
+    if (job.id) await updateJobStatus(job.id, "success");
+    await finishWorkerRun(runId, "success", startedAtMs);
+    return "success";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (job.id) await updateJobStatus(job.id, "error", message);
+    await finishWorkerRun(runId, "error", startedAtMs, message);
+    throw err;
+  } finally {
+    await endpointLock.release();
+    activeEndpoints.delete(job.endpoint);
+  }
+}
+
 async function runTobyAnalysisCron(): Promise<void> {
   console.log("[CRON] Starting Toby's learning analysis");
   const supabase = createSupabaseClient();
@@ -242,6 +431,13 @@ async function runTicketSync(): Promise<void> {
   const result = await syncTicketsFromHalo();
   console.log(
     `[CRON] Ticket sync complete: ${result.pulled} pulled, ${result.created} new, ${result.updated} updated`,
+  );
+}
+
+async function runTicketResponseCompliance(): Promise<void> {
+  const result = await scanTicketResponseCompliance();
+  console.log(
+    `[CRON] Response compliance: ${result.tracked} tracked, ${result.dispatcherMisses} dispatcher misses, ${result.ptoExemptions} PTO exemptions, ${result.technicianMisses} technician misses, ${result.approvalsStaged} approvals staged`,
   );
 }
 
@@ -479,6 +675,7 @@ async function reconcileRequiredSystemCronJobs(
  */
 async function processCronJob(job: Job<CronJobData>): Promise<void> {
   const { endpoint, name } = job.data;
+  const source = job.data.source ?? "scheduled";
 
   const handler = ENDPOINT_HANDLERS[endpoint];
   if (!handler) {
@@ -502,6 +699,13 @@ async function processCronJob(job: Job<CronJobData>): Promise<void> {
     const sinceLastRun = Date.now() - new Date(dbJob.last_run_at).getTime();
     if (sinceLastRun < cronIntervalMs(dbJob.schedule) * 0.6) {
       console.log(`[CRON] Skipping redundant "${name}" — ran ${Math.round(sinceLastRun / 1000)}s ago`);
+      await createWorkerRun(
+        { id: dbJob.id, name, endpoint },
+        source,
+        "skipped",
+        String(job.id ?? ""),
+        "Recent successful run made this queue item redundant",
+      );
       return;
     }
   }
@@ -509,12 +713,15 @@ async function processCronJob(job: Job<CronJobData>): Promise<void> {
   console.log(`[CRON] Running "${name}" (${endpoint})`);
 
   try {
-    await handler();
-    if (dbJob) await updateJobStatus(dbJob.id, "success");
+    await runTrackedCronJob(
+      { id: dbJob?.id ?? null, name, endpoint },
+      handler,
+      source,
+      String(job.id ?? ""),
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[CRON] Job "${name}" failed:`, message);
-    if (dbJob) await updateJobStatus(dbJob.id, "error", message);
     throw err; // Re-throw so BullMQ sees the failure and retries
   }
 }
@@ -542,7 +749,8 @@ export async function startCronScheduler(): Promise<void> {
   cronWorker = new Worker<CronJobData>(CRON_QUEUE_NAME, processCronJob, {
     connection,
     // Cron handlers are I/O-bound (Halo/Datto/AI API calls) and some run for
-    // minutes — 3 slots let two slow jobs starve the every-minute ticket sync
+    // minutes. Separate endpoint locking prevents duplicate work while eight
+    // slots keep slow jobs from starving the every-minute ticket sync.
     concurrency: 8,
     // Handlers legitimately run for minutes (daily scan ~100s+). The default
     // 30s lock meant any Redis hiccup or event-loop stall marked running jobs
@@ -657,16 +865,13 @@ export async function startCronScheduler(): Promise<void> {
     const overdueMs = intervalMs + 10 * 60 * 1000; // interval + 10 min grace
 
     if (!lastRun || Date.now() - new Date(lastRun).getTime() > overdueMs) {
-      console.log(`[CRON] Catch-up: "${job.name}" overdue (last run: ${lastRun ?? "never"}) — firing immediately`);
-      const handler = ENDPOINT_HANDLERS[job.endpoint];
-      if (handler) {
-        handler().then(() => {
-          console.log(`[CRON] Catch-up complete: "${job.name}"`);
-          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "success");
-        }).catch((err) => {
-          console.error(`[CRON] Catch-up failed for "${job.name}":`, err);
-          if (!job.id.startsWith("required:")) updateJobStatus(job.id, "error", (err as Error).message);
-        });
+      console.log(`[CRON] Catch-up: "${job.name}" overdue (last run: ${lastRun ?? "never"}) — queueing now`);
+      if (Object.hasOwn(ENDPOINT_HANDLERS, job.endpoint)) {
+        await cronQueue.add(
+          `catchup-${job.endpoint}`,
+          { endpoint: job.endpoint, name: job.name, source: "catch_up" },
+          { jobId: `catchup-${job.endpoint.replace(/[^a-z0-9]+/gi, "-")}-${Date.now()}` },
+        );
       }
     }
   }
@@ -681,6 +886,7 @@ export async function startCronScheduler(): Promise<void> {
 async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
+    { endpoint: "/ticket-response-compliance", name: "Ticket Response Compliance", schedule: "* * * * *" },
     { endpoint: "/alert-manager", name: "Alert Manager", schedule: "*/30 8-17 * * 1-5" },
     { endpoint: "/alert-manager-digest", name: "Alert Manager Digest", schedule: "0 15 * * 1-5" },
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes
@@ -758,12 +964,14 @@ export async function triggerCronJob(jobId: string): Promise<{ status: string; e
   }
 
   try {
-    await handler();
-    await updateJobStatus(job.id, "success");
-    return { status: "triggered" };
+    const result = await runTrackedCronJob(
+      { id: job.id, name: job.name, endpoint: job.endpoint },
+      handler,
+      "manual",
+    );
+    return { status: result === "skipped" ? "already_running" : "triggered" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await updateJobStatus(job.id, "error", message);
     return { status: "error", error: message };
   }
 }
@@ -772,6 +980,53 @@ export async function triggerCronJob(jobId: string): Promise<{ status: string; e
 
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const WORKER_RUN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const WORKER_RUN_MAINTENANCE_MS = 6 * 60 * 60 * 1000;
+let lastWorkerRunMaintenanceAt = 0;
+
+async function maintainWorkerRunHistory(): Promise<void> {
+  if (!cronQueue || Date.now() - lastWorkerRunMaintenanceAt < WORKER_RUN_MAINTENANCE_MS) return;
+
+  const supabase = createSupabaseClient();
+  const redis = await cronQueue.client as unknown as Redis;
+  const staleBefore = new Date(Date.now() - ENDPOINT_LOCK_TTL_MS).toISOString();
+  const { data: staleRuns, error: staleError } = await supabase
+    .from("worker_runs")
+    .select("id, endpoint, started_at")
+    .eq("status", "running")
+    .lt("started_at", staleBefore)
+    .limit(100);
+
+  if (staleError) {
+    console.warn(`[CRON] Could not inspect stale worker runs: ${staleError.message}`);
+  } else {
+    for (const run of staleRuns ?? []) {
+      const hasLease = await redis.exists(`triageit:cron-lock:${run.endpoint}`);
+      if (hasLease) continue;
+      const finishedAt = new Date();
+      await supabase
+        .from("worker_runs")
+        .update({
+          status: "error",
+          finished_at: finishedAt.toISOString(),
+          duration_ms: Math.max(0, finishedAt.getTime() - new Date(run.started_at).getTime()),
+          error: "Worker stopped before recording completion",
+        })
+        .eq("id", run.id)
+        .eq("status", "running");
+    }
+  }
+
+  const retentionCutoff = new Date(Date.now() - WORKER_RUN_RETENTION_MS).toISOString();
+  const { error: retentionError } = await supabase
+    .from("worker_runs")
+    .delete()
+    .lt("started_at", retentionCutoff);
+  if (retentionError) {
+    console.warn(`[CRON] Could not prune worker run history: ${retentionError.message}`);
+  }
+  lastWorkerRunMaintenanceAt = Date.now();
+}
 
 function startHeartbeat(): void {
   if (heartbeatInterval) return;
@@ -817,6 +1072,8 @@ function startHeartbeat(): void {
           },
           { onConflict: "id" },
         );
+
+      await maintainWorkerRunHistory();
     } catch {
       // Non-critical
     }
@@ -845,6 +1102,10 @@ export async function getCronStatus(): Promise<{
   readonly active: boolean;
   readonly jobCount: number;
   readonly heartbeat: string | null;
+  readonly queue: Readonly<Record<string, number>>;
+  readonly runningCount: number;
+  readonly failedLast24Hours: number;
+  readonly recentRuns: ReadonlyArray<WorkerRunRecord>;
   readonly jobs: ReadonlyArray<{
     readonly name: string;
     readonly schedule: string;
@@ -854,7 +1115,8 @@ export async function getCronStatus(): Promise<{
 }> {
   const supabase = createSupabaseClient();
 
-  const [{ data: heartbeat }, { data: jobs }] = await Promise.all([
+  const sinceYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [{ data: heartbeat }, { data: jobs }, { data: recentRuns }, runningResult, failedResult] = await Promise.all([
     supabase
       .from("cron_heartbeat")
       .select("last_heartbeat")
@@ -864,14 +1126,35 @@ export async function getCronStatus(): Promise<{
       .from("cron_jobs")
       .select("name, schedule, last_run_at, last_status, is_active")
       .eq("is_active", true),
+    supabase
+      .from("worker_runs")
+      .select("id, job_name, endpoint, source, status, worker_instance, started_at, finished_at, duration_ms, error")
+      .order("started_at", { ascending: false })
+      .limit(25),
+    supabase
+      .from("worker_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "running"),
+    supabase
+      .from("worker_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "error")
+      .gte("started_at", sinceYesterday),
   ]);
 
   const repeatableCount = cronQueue ? (await cronQueue.getRepeatableJobs()).length : 0;
+  const queue = cronQueue
+    ? await cronQueue.getJobCounts("waiting", "active", "delayed", "failed")
+    : { waiting: 0, active: 0, delayed: 0, failed: 0 };
 
   return {
     active: repeatableCount > 0,
     jobCount: repeatableCount,
     heartbeat: heartbeat?.last_heartbeat ?? null,
+    queue,
+    runningCount: runningResult.count ?? 0,
+    failedLast24Hours: failedResult.count ?? 0,
+    recentRuns: (recentRuns ?? []) as ReadonlyArray<WorkerRunRecord>,
     jobs: (jobs ?? []).map((j) => ({
       name: j.name,
       schedule: j.schedule,

@@ -22,7 +22,7 @@ export interface MenuGroup {
 
 export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
   {
-    title: "People",
+    title: "Organization",
     items: [
       {
         id: "users",
@@ -31,11 +31,6 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconBg: "bg-violet-500/10",
         iconColor: "text-violet-400",
       },
-    ],
-  },
-  {
-    title: "Appearance",
-    items: [
       {
         id: "branding",
         label: "Branding",
@@ -46,19 +41,7 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
     ],
   },
   {
-    title: "Integrations",
-    items: [
-      {
-        id: "integrations",
-        label: "Integrations",
-        desc: "PSA, RMM, identity & cloud services",
-        iconBg: "bg-emerald-500/10",
-        iconColor: "text-emerald-400",
-      },
-    ],
-  },
-  {
-    title: "Triage Settings",
+    title: "Triage Engine",
     items: [
       {
         id: "triage-rules",
@@ -81,6 +64,11 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         iconBg: "bg-orange-500/10",
         iconColor: "text-orange-400",
       },
+    ],
+  },
+  {
+    title: "Halo PSA",
+    items: [
       {
         id: "halo-agents",
         label: "Halo Agents",
@@ -94,6 +82,25 @@ export const MENU_GROUPS: ReadonlyArray<MenuGroup> = [
         desc: "Every Halo status and how TriageIt reads it — open/closed, paused SLA, re-triage triggers",
         iconBg: "bg-sky-500/10",
         iconColor: "text-sky-400",
+      },
+    ],
+  },
+  {
+    title: "Platform Operations",
+    items: [
+      {
+        id: "integrations",
+        label: "Integrations",
+        desc: "PSA, RMM, identity & cloud services",
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-400",
+      },
+      {
+        id: "tv-access",
+        label: "TV Access",
+        desc: "Issue one-time links for the command wallboard",
+        iconBg: "bg-indigo-500/10",
+        iconColor: "text-indigo-400",
       },
       {
         id: "cron-jobs",
