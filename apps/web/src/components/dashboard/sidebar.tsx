@@ -150,7 +150,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
                       className="h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
                     />
                   )}
-                  {"icon" in item && <item.icon className="h-[18px] w-[18px]" />}
+                  {"icon" in item && <item.icon className="h-5 w-5" />}
                   {item.label}
                   {isActive && (
                     <span
@@ -279,7 +279,7 @@ export function Sidebar({ userEmail, userRole }: SidebarProps) {
                         className="mr-2 h-5 w-5 rounded-full object-cover ring-1 ring-white/20"
                       />
                     )}
-                    {"icon" in item && <item.icon className="mr-2 h-[18px] w-[18px]" />}
+                    {"icon" in item && <item.icon className="mr-2 h-5 w-5" />}
                     {item.label}
                   </Link>
                 );

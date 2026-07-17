@@ -23,9 +23,9 @@ This repository follows the locked GTools application-shell standard. The canoni
 | Mark gap | 10px |
 | Wordmark | Sora Bold, 22px, line-height 1, letter-spacing 0 |
 | Optional descriptor | 9px uppercase, 0.08em tracking |
-| Navigation | 64px high, 18px icon, 8px gap |
+| Navigation | 64px high, 20px icon, 8px gap |
 | Active rule | 2px product tint |
-| Controls | 36px high, 8px radius, 18px icons |
+| Controls | 36px high, 8px radius, 20px icons |
 | Avatar | 32px inside a 36px trigger |
 | Content offset | 64px when the header is fixed |
 
