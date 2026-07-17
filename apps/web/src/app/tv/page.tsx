@@ -500,7 +500,7 @@ export default function TvPage() {
           <Kpi label="Open Tickets" value={m?.open} icon={Activity} accent="#e4e4e7" />
           <Kpi label="Breaching Now" value={m?.breaching} icon={TriangleAlert} accent={RED} alarm={breachAlarm} />
           <Kpi label="At Risk < 2h" value={m?.atRisk} icon={Timer} accent={AMBER} alarm={(m?.atRisk ?? 0) > 0} />
-          <Kpi label="Customer Reply" value={m?.unackedReplies} icon={MessageSquareWarning} accent={AMBER} alarm={(m?.unackedReplies ?? 0) > 0} />
+          <Kpi label="Customer Reply" value={m?.customerReply} icon={MessageSquareWarning} accent={AMBER} alarm={(m?.customerReply ?? 0) > 0} />
           <Kpi label="Waiting on Tech" value={m?.waitingOnTech} icon={Wrench} accent="#fb923c" />
           <Kpi label="Unassigned" value={m?.unassigned} icon={UserX} accent="#f87171" />
           <div className="rounded-[0.8vw] border p-[0.9vw]" style={{ borderColor: HAIRLINE, background: PANEL }}>
