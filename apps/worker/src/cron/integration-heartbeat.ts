@@ -189,24 +189,15 @@ async function checkThreeCx(config: Record<string, unknown>): Promise<CheckResul
     client_id: clientId || undefined,
     client_secret: clientSecret || undefined,
   });
-  const status = await threeCx.getSystemStatus();
-  const summary = [
-    status.Version ? `v${status.Version}` : null,
-    typeof status.ExtensionsRegistered === "number" ? `${status.ExtensionsRegistered} extensions registered` : null,
-    typeof status.TrunksRegistered === "number" && typeof status.TrunksTotal === "number"
-      ? `${status.TrunksRegistered}/${status.TrunksTotal} trunks registered`
-      : null,
-  ].filter(Boolean).join("; ");
-
-  if (status.HasNotRunningServices || status.HasUnregisteredSystemExtensions) {
-    const warnings = [
-      status.HasNotRunningServices ? "one or more 3CX services are not running" : null,
-      status.HasUnregisteredSystemExtensions ? "one or more system extensions are unregistered" : null,
-    ].filter(Boolean).join("; ");
-    return { status: "degraded", message: `${warnings}${summary ? ` (${summary})` : ""}.` };
-  }
-
-  return { status: "healthy", message: `3CX system status is healthy${summary ? ` (${summary})` : ""}.` };
+  // V20 OAuth apps expose the XAPI surface, while the legacy
+  // /api/SystemStatus route can return 404 even when authentication and the
+  // production PBX are healthy. A small Users read verifies the same things a
+  // heartbeat needs to prove: token minting, tenant routing, and XAPI access.
+  const extensions = await threeCx.listExtensions();
+  return {
+    status: "healthy",
+    message: `3CX XAPI authenticated and returned ${extensions.length} extension${extensions.length === 1 ? "" : "s"}.`,
+  };
 }
 
 async function checkUnifi(config: Record<string, unknown>): Promise<CheckResult> {
