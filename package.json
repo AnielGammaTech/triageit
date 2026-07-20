@@ -10,9 +10,9 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "clean": "turbo clean",
-    "dev:web": "turbo dev --filter=gtools",
+    "dev:web": "turbo dev --filter=web",
     "dev:worker": "turbo dev --filter=worker",
-    "build:web": "turbo build --filter=gtools",
+    "build:web": "turbo build --filter=web",
     "build:worker": "turbo build --filter=worker"
   },
   "devDependencies": {
