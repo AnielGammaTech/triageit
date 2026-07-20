@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   ChevronDown,
@@ -38,6 +38,10 @@ interface CallItem {
   readonly cnamName: string | null;
   readonly cnamType: "BUSINESS" | "CONSUMER" | null;
   readonly matchEvidence: string | null;
+  readonly reviewStatus: string | null;
+  readonly reviewOwner: string;
+  readonly reviewSentAt: string | null;
+  readonly reviewedAt: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
   readonly to: { readonly name: string | null; readonly number: string | null };
@@ -54,11 +58,12 @@ interface CallPayload {
   readonly generatedAt: string;
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
+  readonly viewer: { readonly name: string | null; readonly role: "admin" | "manager" | "viewer" };
   readonly items: ReadonlyArray<CallItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly pendingReviews: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
 }
 
-type View = "all" | "matched" | "unmatched" | "internal" | "separate" | "ignored";
+type View = "all" | "reviews" | "matched" | "unmatched" | "internal" | "separate" | "ignored";
 const PAGE_SIZE = 15;
 const PANEL = "#151013";
 const HAIRLINE = "#3a1f24";
@@ -105,6 +110,18 @@ function partyName(party: CallItem["from"] | CallItem["to"]): string {
   return party.name || phone(party.number);
 }
 
+function peopleNamesOverlap(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) return false;
+  const tokens = (value: string) => new Set(value.toLowerCase().split(/[^a-z]+/).filter((token) => token.length >= 3));
+  const a = tokens(left);
+  const b = tokens(right);
+  return [...a].filter((token) => b.has(token)).length >= Math.min(2, a.size, b.size);
+}
+
+function isPendingReview(item: CallItem): boolean {
+  return item.matchState === "unmatched" && item.reviewStatus === "pending";
+}
+
 export default function CallsPage() {
   const [data, setData] = useState<CallPayload | null>(null);
   const [view, setView] = useState<View>("all");
@@ -113,6 +130,7 @@ export default function CallsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialReviewFocusApplied = useRef(false);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -121,6 +139,10 @@ export default function CallsPage() {
       const payload = await response.json() as CallPayload & { error?: string };
       if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
       setData(payload);
+      if (!initialReviewFocusApplied.current) {
+        initialReviewFocusApplied.current = true;
+        if (payload.counts.pendingReviews > 0) setView("reviews");
+      }
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load calls");
@@ -142,6 +164,7 @@ export default function CallsPage() {
     const needle = search.trim().toLowerCase();
     return (data?.items ?? []).filter((item) => {
       if (view === "matched" && !item.ticket) return false;
+      if (view === "reviews" && !isPendingReview(item)) return false;
       if (view === "unmatched" && item.matchState !== "unmatched") return false;
       if (view === "internal" && item.matchState !== "internal") return false;
       if (view === "separate" && item.matchState !== "separate") return false;
@@ -165,6 +188,7 @@ export default function CallsPage() {
       ].some((value) => String(value ?? "").toLowerCase().includes(needle));
     });
   }, [data, search, view]);
+  const pendingReviewCount = data?.counts.pendingReviews ?? 0;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
   const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
@@ -197,13 +221,14 @@ export default function CallsPage() {
         <Metric label="Recent Calls" value={data?.counts.total ?? 0} icon={<PhoneCall className="h-4 w-4" />} color="#e4e4e7" />
         <Metric label="Matched" value={data?.counts.matched ?? 0} icon={<Link2 className="h-4 w-4" />} color="#4ade80" />
         <Metric label="Unmatched" value={data?.counts.unmatched ?? 0} icon={<Unlink className="h-4 w-4" />} color="#fbbf24" />
-        <Metric label="Internal" value={data?.counts.internal ?? 0} icon={<Users className="h-4 w-4" />} color="#60a5fa" />
+        <Metric label="Needs Tech Match" value={pendingReviewCount} icon={<Users className="h-4 w-4" />} color="#fbbf24" />
       </div>
 
       <section className="overflow-hidden rounded-md border" style={{ borderColor: HAIRLINE, background: PANEL }}>
         <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={{ borderColor: HAIRLINE }}>
           <div className="grid w-full grid-cols-3 rounded-md border p-0.5 sm:flex sm:h-8 sm:w-auto" style={{ borderColor: HAIRLINE, background: "#0f0a0c" }}>
             <ViewButton active={view === "all"} onClick={() => setView("all")} label="All" count={data?.counts.total ?? 0} />
+            <ViewButton active={view === "reviews"} onClick={() => setView("reviews")} label="Needs review" count={pendingReviewCount} />
             <ViewButton active={view === "matched"} onClick={() => setView("matched")} label="Matched" count={data?.counts.matched ?? 0} />
             <ViewButton active={view === "unmatched"} onClick={() => setView("unmatched")} label="Unmatched" count={data?.counts.unmatched ?? 0} />
             <ViewButton active={view === "internal"} onClick={() => setView("internal")} label="Internal" count={data?.counts.internal ?? 0} />
@@ -239,6 +264,7 @@ export default function CallsPage() {
                 key={item.recordingId}
                 item={item}
                 haloBaseUrl={data?.haloBaseUrl ?? ""}
+                viewer={data?.viewer ?? { name: null, role: "viewer" }}
                 onMatched={() => load(true)}
               />
             ))}
@@ -284,15 +310,18 @@ function ViewButton({ active, onClick, label, count }: { readonly active: boolea
   );
 }
 
-function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; readonly haloBaseUrl: string; readonly onMatched: () => Promise<void> }) {
+function CallRow({ item, haloBaseUrl, viewer, onMatched }: { readonly item: CallItem; readonly haloBaseUrl: string; readonly viewer: CallPayload["viewer"]; readonly onMatched: () => Promise<void> }) {
   const href = item.ticket ? ticketUrl(haloBaseUrl, item.ticket.haloId) : null;
   const elapsed = duration(item.startedAt, item.endedAt);
   const DirectionIcon = item.direction === "inbound" ? PhoneIncoming : item.direction === "outbound" ? PhoneOutgoing : PhoneCall;
   const internal = item.matchState === "internal";
   const separate = item.matchState === "separate";
   const ignored = item.matchState === "ignored";
+  const pendingReview = isPendingReview(item);
+  const ownedByViewer = pendingReview && peopleNamesOverlap(item.reviewOwner, viewer.name);
+  const canResolve = ownedByViewer || viewer.role === "admin" || viewer.role === "manager";
   const stateColor = item.matchState === "matched" ? "#4ade80" : item.matchState === "attention" ? "#fb7185" : internal ? "#60a5fa" : separate ? "#a1a1aa" : ignored ? "#71717a" : "#fbbf24";
-  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : ignored ? "Ignored" : "Unmatched";
+  const stateLabel = item.matchState === "matched" ? "Matched" : item.matchState === "attention" ? "Match needs attention" : internal ? "Internal" : separate ? "Separate" : ignored ? "Ignored" : ownedByViewer ? "Your review" : pendingReview ? "Tech review" : "Unmatched";
   return (
     <details className="group">
       <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] gap-2.5 px-3 py-2.5 transition hover:bg-white/[0.02] sm:grid-cols-[140px_minmax(190px,0.9fr)_minmax(280px,1.5fr)_auto] sm:items-center">
@@ -327,7 +356,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
             </div>
           ) : (
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-amber-300">No ticket matched</p>
+              <p className="text-sm font-semibold text-amber-300">{ownedByViewer ? "Needs your ticket match" : pendingReview ? `Waiting for ${item.reviewOwner}` : "No ticket matched"}</p>
               <p className="mt-0.5 truncate text-xs text-zinc-500">
                 {item.identifiedCustomerName
                   ? [item.identifiedCustomerName, item.identifiedClientName].filter(Boolean).join(" · ")
@@ -352,6 +381,14 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
               {internal ? "Internal staff call; no ticket match expected" : ignored ? "Non-actionable call; no ticket review needed" : item.notePosted ? "Call Summary posted to Halo" : item.ticket ? "Ticket matched, but no Call Summary note was posted" : "No Halo ticket was changed"}
               {item.analysisAttempts > 0 ? ` · ${item.analysisAttempts} retry attempt${item.analysisAttempts === 1 ? "" : "s"}` : ""}
             </p>
+            {pendingReview && (
+              <div className="mt-1 text-xs font-medium text-amber-300">
+                <p>Assigned in TriageIT to {item.reviewOwner}, the technician on the call. Match it to the correct ticket below.</p>
+                <p className="mt-0.5 text-[11px] font-normal text-zinc-500">
+                  {item.reviewSentAt ? `Private Teams review delivered ${callTime(item.reviewSentAt)}.` : "Private Teams delivery is pending; this review remains visible here until resolved."}
+                </p>
+              </div>
+            )}
           </div>
           {href && (
             <a href={href} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold text-zinc-300 hover:text-white" style={{ borderColor: HAIRLINE }}>
@@ -359,7 +396,7 @@ function CallRow({ item, haloBaseUrl, onMatched }: { readonly item: CallItem; re
             </a>
           )}
         </div>
-        {!internal && !item.ticket && (
+        {!internal && !item.ticket && canResolve && (
           <ManualMatchForm recordingId={item.recordingId} onMatched={onMatched} />
         )}
         {item.callSummary && (

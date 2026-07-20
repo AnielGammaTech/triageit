@@ -27,6 +27,9 @@ interface CallAnalysisRow {
   readonly identified_customer_name: string | null;
   readonly identified_client_name: string | null;
   readonly match_evidence: string | null;
+  readonly teams_review_status: string | null;
+  readonly teams_review_sent_at: string | null;
+  readonly teams_reviewed_at: string | null;
 }
 
 interface TicketLookup {
@@ -58,6 +61,10 @@ export interface CallTranscriptionItem {
   readonly cnamName: string | null;
   readonly cnamType: "BUSINESS" | "CONSUMER" | null;
   readonly matchEvidence: string | null;
+  readonly reviewStatus: string | null;
+  readonly reviewOwner: string;
+  readonly reviewSentAt: string | null;
+  readonly reviewedAt: string | null;
   readonly callType: string | null;
   readonly from: { readonly name: string | null; readonly number: string | null };
   readonly to: { readonly name: string | null; readonly number: string | null };
@@ -76,7 +83,7 @@ export interface CallTranscriptionPayload {
   readonly haloBaseUrl: string;
   readonly sourceAvailable: boolean;
   readonly items: ReadonlyArray<CallTranscriptionItem>;
-  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
+  readonly counts: { readonly total: number; readonly matched: number; readonly unmatched: number; readonly pendingReviews: number; readonly internal: number; readonly separate: number; readonly ignored: number; readonly attention: number };
 }
 
 let cache: { readonly at: number; readonly payload: CallTranscriptionPayload } | null = null;
@@ -276,7 +283,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
 
   const { data, error } = await supabase
     .from("call_analyses")
-    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number, identified_customer_name, identified_client_name, match_evidence")
+    .select("recording_id, ticket_id, halo_id, tech_name, external_number, direction, started_at, ended_at, transcript_chars, transcript, matched_by, summary, note_posted, analysis_attempts, call_type, from_name, from_number, to_name, to_number, identified_customer_name, identified_client_name, match_evidence, teams_review_status, teams_review_sent_at, teams_reviewed_at")
     .neq("matched_by", "cursor_seed")
     .order("recording_id", { ascending: false })
     .limit(RECENT_CALL_LIMIT * 3);
@@ -349,6 +356,10 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       cnamName: cnamIdentity?.name ?? null,
       cnamType: cnamIdentity?.type ?? null,
       matchEvidence: row.match_evidence,
+      reviewStatus: row.teams_review_status,
+      reviewOwner: row.tech_name ?? "Unknown tech",
+      reviewSentAt: row.teams_review_sent_at,
+      reviewedAt: row.teams_reviewed_at,
       callType: row.call_type ?? recording?.CallType ?? null,
       from: {
         name: itemPartyName("from", directionOf(row.direction), fromName, customerName),
@@ -379,6 +390,7 @@ export async function buildCallTranscriptionPayload(supabase: SupabaseClient): P
       total: items.length,
       matched: items.filter((item) => item.ticket !== null).length,
       unmatched: items.filter((item) => item.matchState === "unmatched").length,
+      pendingReviews: items.filter((item) => item.matchState === "unmatched" && item.reviewStatus === "pending").length,
       internal: items.filter((item) => item.matchState === "internal").length,
       separate: items.filter((item) => item.matchState === "separate").length,
       ignored: items.filter((item) => item.matchState === "ignored").length,

@@ -27,6 +27,8 @@ describe("unmatched-call Teams review", () => {
     expect(serialized).toContain("85631");
     expect(serialized).toContain("Elizabeth Balmer");
     expect(serialized).toContain("What the call was about");
+    expect(serialized).toContain("You handled this call");
+    expect(serialized).toContain("instead of letting the system guess");
     expect(serialized).not.toContain("EWS");
   });
 

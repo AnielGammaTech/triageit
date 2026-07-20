@@ -52,8 +52,8 @@ export function buildCallMatchReviewCard(call: PendingCallReview): Record<string
         type: "AdaptiveCard",
         version: "1.4",
         body: [
-          { type: "TextBlock", text: "Was this call related to a ticket?", weight: "Bolder", size: "Medium", wrap: true },
-          { type: "TextBlock", text: `TriageIT could not safely match recording ${call.recording_id}.`, color: "Warning", wrap: true, spacing: "Small" },
+          { type: "TextBlock", text: "TriageIT needs your ticket match", weight: "Bolder", size: "Medium", wrap: true },
+          { type: "TextBlock", text: `You handled this call, but TriageIT could not safely match recording ${call.recording_id}. Choose the correct ticket instead of letting the system guess.`, color: "Warning", wrap: true, spacing: "Small" },
           {
             type: "FactSet",
             facts: [
