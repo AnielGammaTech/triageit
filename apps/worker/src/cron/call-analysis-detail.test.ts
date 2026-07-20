@@ -5,6 +5,7 @@ import {
   callInsightsMisattributeTechnician,
   clientNamesOverlap,
   extractSpokenNames,
+  mergeTicketCandidateGroups,
   type CallInsights,
 } from "./call-analysis.js";
 
@@ -15,6 +16,19 @@ const recording = {
 };
 
 describe("call analysis completeness", () => {
+  it("keeps the handling technician's same-client ticket in callback-number comparisons", () => {
+    const callbackOnly = [{ id: "ryan-ticket", halo_id: 40916, halo_agent: "Ryan Fitzpatrick" }];
+    const sameClient = [
+      ...callbackOnly,
+      { id: "darren-ticket", halo_id: 41485, halo_agent: "Darren Davillier" },
+    ];
+
+    expect(mergeTicketCandidateGroups(callbackOnly, sameClient)).toEqual([
+      callbackOnly[0],
+      sameClient[1],
+    ]);
+  });
+
   it("extracts informal customer introductions from shared company lines", () => {
     expect(extractSpokenNames("This is Ryan at Gamma Tech. Ryan, how you doing? Mike over at Naples Genesis."))
       .toEqual(["Mike"]);

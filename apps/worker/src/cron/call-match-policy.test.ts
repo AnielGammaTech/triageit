@@ -92,6 +92,7 @@ describe("transcriptTicketMatchMinConfidence", () => {
 
   it("keeps global matches strict and client-scoped matches practical", () => {
     expect(transcriptTicketMatchMinConfidence("global", true, null, now)).toBe(0.75);
+    expect(transcriptTicketMatchMinConfidence("assigned_tech", true, null, now)).toBe(0.75);
     expect(transcriptTicketMatchMinConfidence("cnam", true, null, now)).toBe(0.75);
     expect(transcriptTicketMatchMinConfidence("client", true, null, now)).toBe(0.6);
     expect(transcriptTicketMatchMinConfidence("client", false, "2026-07-13T12:00:00Z", now)).toBe(0.75);

@@ -31,6 +31,9 @@ import { resolveCnamIdentity, type CnamIdentity } from "../integrations/twilio/c
  * company line → strict transcript selection across the client's tickets.
  * Numbers Halo doesn't know get a strict transcript-only pass over the whole
  * open board. The LLM can decline every ambiguous path instead of guessing.
+ * The technician's own open work is checked before callback-number matches,
+ * and callback hits are expanded to every open ticket at that client so a
+ * phone number copied into another technician's ticket cannot hijack a call.
  */
 
 interface CallAnalysisResult {
@@ -348,6 +351,11 @@ function namesOverlap(a: string | null | undefined, b: string | null | undefined
   return tokens(b).some((t) => setA.has(t));
 }
 
+function naturalPersonName(name: string): string {
+  const parts = name.split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.length === 2 ? `${parts[1]} ${parts[0]}` : name.trim();
+}
+
 /**
  * Ticket numbers spoken on the call ("I'm calling about ticket 40912").
  * 3CX transcribes digits as "40912", leading-zero display ids like "0040912",
@@ -541,6 +549,38 @@ export async function processRecording(
     }
   }
 
+  // The person actually handling the call gets first consideration. This is
+  // intentionally transcript-gated: assignment is a strong routing signal,
+  // but never proof that an unrelated call belongs to one of the tech's
+  // tickets. This prevents a callback number copied into Ryan's ticket from
+  // beating Darren's active ticket about the issue Darren is discussing.
+  const assignedTechCandidates = await findAssignedTechOpenTicketCandidates(supabase, techName);
+  if (assignedTechCandidates.length > 0) {
+    const assignedTechPick = await selectTicketByTranscript(
+      supabase,
+      transcript,
+      assignedTechCandidates,
+      techName,
+      externalParty,
+      "assigned_tech",
+    );
+    if (assignedTechPick) {
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: transcript matched the handling tech's assigned ticket #${assignedTechPick.halo_id}`);
+      return finishMatchedRecording(
+        supabase,
+        halo,
+        rec,
+        base,
+        external.number,
+        direction,
+        techName,
+        assignedTechPick,
+        "llm_transcript_assigned_tech",
+        transcript,
+      );
+    }
+  }
+
   // Callback numbers are often typed into the ticket body but not saved on
   // the Halo contact. Include recent closed tickets: a return call commonly
   // happens after the dispatcher or tech already closed the ticket.
@@ -560,9 +600,17 @@ export async function processRecording(
     if (callbackError) {
       console.warn(`[CALL-ANALYSIS] Callback-number ticket search failed for ${external.number}: ${callbackError.message}`);
     }
-    const callbackPick = await selectTicketByTranscript(supabase, transcript, callbackTickets ?? [], techName, externalParty, "callback_number");
+    const callbackRows = (callbackTickets ?? []) as CandidateTicket[];
+    const callbackClients = [...new Set(
+      callbackRows.map((ticket) => ticket.client_name).filter((name): name is string => Boolean(name)),
+    )];
+    const sameClientTickets = callbackClients.length > 0
+      ? await findClientTicketCandidates(supabase, callbackClients)
+      : [];
+    const callbackCandidates = mergeTicketCandidateGroups(callbackRows, sameClientTickets);
+    const callbackPick = await selectTicketByTranscript(supabase, transcript, callbackCandidates, techName, externalParty, "callback_number");
     if (callbackPick) {
-      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: callback number ${external.number} found in #${callbackPick.halo_id} and transcript confirmed the issue`);
+      console.log(`[CALL-ANALYSIS] Recording ${rec.Id}: callback number identified the client and transcript selected #${callbackPick.halo_id}`);
       return finishMatchedRecording(supabase, halo, rec, base, external.number, direction, techName, callbackPick, "llm_ticket_callback_number", transcript);
     }
   }
@@ -929,6 +977,36 @@ interface CandidateTicket {
   readonly halo_is_open?: boolean | null;
   readonly created_at?: string | null;
   readonly updated_at?: string | null;
+}
+
+/** Combine candidate sources without allowing one ticket to appear twice. */
+export function mergeTicketCandidateGroups<T extends { readonly id: string }>(
+  ...groups: ReadonlyArray<ReadonlyArray<T>>
+): T[] {
+  const combined = groups.flat();
+  return combined.filter((ticket, index) =>
+    combined.findIndex((candidate) => candidate.id === ticket.id) === index
+  );
+}
+
+async function findAssignedTechOpenTicketCandidates(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  techName: string,
+): Promise<ReadonlyArray<CandidateTicket>> {
+  const naturalName = naturalPersonName(techName);
+  const { data, error } = await supabase
+    .from("tickets")
+    .select(TICKET_CANDIDATE_SELECT)
+    .eq("tickettype_id", 31)
+    .eq("halo_is_open", true)
+    .ilike("halo_agent", naturalName)
+    .order("updated_at", { ascending: false })
+    .limit(CLIENT_OPEN_CANDIDATE_LIMIT);
+  if (error) {
+    console.warn(`[CALL-ANALYSIS] Assigned-ticket search failed for ${naturalName}: ${error.message}`);
+    return [];
+  }
+  return ((data ?? []) as CandidateTicket[]).filter((ticket) => namesOverlap(techName, ticket.halo_agent));
 }
 
 function findRecentlyClosedTicketFromCallContext(
@@ -1334,8 +1412,10 @@ async function selectTicketByTranscript(
         ? [`Twilio CNAM hint (unverified carrier data; use only as supporting evidence): ${externalParty.cnamName} | ${externalParty.cnamType ?? "UNKNOWN"}`]
         : []),
       `CRITICAL — OWNERSHIP BEATS TITLE WORDS: candidates assigned to this tech are listed first. When one plausibly fits the customer, company, issue, and TriageIT summary in the transcript, pick it over another tech's ticket at the same client — even if the other ticket's title shares more generic words.`,
-      scope === "callback_number"
-        ? `The external phone number is written in one or more ticket bodies as a callback number. Use the transcript to choose only the ticket whose customer, company, and issue match this call; the number alone is not enough.`
+      scope === "assigned_tech"
+        ? `These are the handling technician's own open tickets. Assignment gets first consideration, but it is not proof. Match only when the transcript identifies the customer, company, or specific issue of one candidate; otherwise return null.`
+        : scope === "callback_number"
+        ? `The external phone number is written in at least one ticket body as a callback number. The list also includes other open tickets at that same client. Prefer the handling technician's ticket when its customer and issue fit the transcript. The callback number alone is not enough and must never force another technician's ticket.`
         : scope === "cnam"
           ? `Twilio CNAM narrowed these candidates, but CNAM can be stale, generic, or registered to a parent company. Match only when the transcript independently confirms the customer, company, or exact ticket issue. CNAM alone is never enough.`
         : scope === "global"
