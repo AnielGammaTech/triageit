@@ -9,9 +9,10 @@ import {
   Users,
   Clock,
   MessageSquareWarning,
-  Skull,
   ArrowUpRight,
   Tv,
+  Timer,
+  Wrench,
 } from "lucide-react";
 import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -27,6 +28,7 @@ interface Breach {
   readonly client_name: string | null;
   readonly halo_agent: string | null;
   readonly alertCount: number;
+  readonly breachingForMin: number | null;
 }
 interface TechStat {
   readonly tech: string;
@@ -37,15 +39,25 @@ interface TechStat {
   readonly poorReviews: number;
   readonly worstGapHours: number;
 }
-interface Shame {
-  readonly tech: string;
-  readonly score: number;
-  readonly reasons: ReadonlyArray<string>;
+interface AtRiskTicket {
+  readonly halo_id: number;
+  readonly summary: string | null;
+  readonly client_name: string | null;
+  readonly halo_agent: string | null;
+  readonly dueInMin: number;
+}
+interface QueueTicket {
+  readonly halo_id: number;
+  readonly summary: string | null;
+  readonly client_name: string | null;
+  readonly halo_agent?: string | null;
+  readonly ageMin: number;
 }
 interface Payload {
   readonly metrics: {
     readonly open: number;
     readonly breaching: number;
+    readonly atRisk: number;
     readonly unassigned: number;
     readonly waitingOnTech: number;
     readonly customerReply: number;
@@ -53,8 +65,10 @@ interface Payload {
   };
   readonly statusCounts: ReadonlyArray<StatusCount>;
   readonly breaches: ReadonlyArray<Breach>;
+  readonly atRisk: ReadonlyArray<AtRiskTicket>;
+  readonly oldestTickets: ReadonlyArray<QueueTicket>;
+  readonly customerReplyTickets: ReadonlyArray<QueueTicket>;
   readonly techStats: ReadonlyArray<TechStat>;
-  readonly wallOfShame: ReadonlyArray<Shame>;
   readonly haloBaseUrl: string;
 }
 
@@ -79,6 +93,11 @@ function statusColor(s: string): string {
 }
 function haloLink(base: string, id: number): string {
   return base ? `${base}/tickets?id=${id}` : "#";
+}
+function durationLabel(minutes: number): string {
+  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`;
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `${minutes}m`;
 }
 
 // ── Team presence (worker dispatch board via /api/dispatch/board) ──
@@ -277,68 +296,73 @@ export default function CommandPage() {
 
       <ResponseCompliancePanel haloBaseUrl={data?.haloBaseUrl ?? ""} />
 
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
-        {/* Wall of Shame */}
-        <div className="xl:col-span-4">
-        <Section title="Wall of Shame" icon={<Skull className="h-4 w-4" style={{ color: RED }} />}>
-          {loading && !data ? (
-            <div className="p-5 text-sm text-zinc-500">Loading…</div>
-          ) : (data?.wallOfShame.length ?? 0) === 0 ? (
-            <div className="p-5 text-sm text-zinc-400">Nobody on the wall right now — clean board.</div>
-          ) : (
-            <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-              {data!.wallOfShame.map((w, i) => (
-                <div key={w.tech} className="flex items-start gap-2.5 px-4 py-2.5">
-                  <span
-                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-                    style={{ background: i === 0 ? RED : "#7f1d1d" }}
-                  >
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-white">{w.tech}</div>
-                    <ul className="mt-0.5 space-y-0.5">
-                      {w.reasons.map((r) => (
-                        <li key={r} className="text-xs text-zinc-400">
-                          • {r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
-        </div>
-
-        {/* Currently breaching */}
-        <div className="xl:col-span-8">
-        <Section title="Currently Breaching SLA" icon={<TriangleAlert className="h-4 w-4" style={{ color: RED }} />}>
-          {loading && !data ? (
-            <div className="p-5 text-sm text-zinc-500">Loading…</div>
-          ) : (data?.breaches.length ?? 0) === 0 ? (
-            <div className="p-5 text-sm text-zinc-400">No live SLA breaches.</div>
-          ) : (
-            <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-              {data!.breaches.map((b) => (
-                <a
-                  key={b.halo_id}
-                  href={haloLink(data!.haloBaseUrl, b.halo_id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-white/[0.02]"
-                >
-                  <span className="font-mono text-sm font-bold text-white">#{b.halo_id}</span>
-                  <ArrowUpRight className="h-3 w-3 text-zinc-500" />
-                  <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">{b.summary}</span>
-                  <span className="text-xs text-zinc-400">{b.halo_agent ?? "Unassigned"}</span>
-                </a>
-              ))}
-            </div>
-          )}
-        </Section>
-        </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <OperationalQueue
+          title="Waiting on Tech"
+          count={m?.waitingOnTech ?? 0}
+          color="#fb923c"
+          icon={<Wrench className="h-4 w-4" />}
+          loading={loading && !data}
+          emptyLabel="No tickets are waiting on a technician."
+          haloBaseUrl={data?.haloBaseUrl ?? ""}
+          items={(data?.oldestTickets ?? []).map((ticket) => ({
+            id: ticket.halo_id,
+            client: ticket.client_name,
+            summary: ticket.summary,
+            owner: ticket.halo_agent,
+            badge: `WAITING ${durationLabel(ticket.ageMin)}`,
+          }))}
+        />
+        <OperationalQueue
+          title="Customer Replies"
+          count={m?.customerReply ?? 0}
+          color="#e879f9"
+          icon={<MessageSquareWarning className="h-4 w-4" />}
+          loading={loading && !data}
+          emptyLabel="No customer replies are waiting for a technician."
+          haloBaseUrl={data?.haloBaseUrl ?? ""}
+          items={(data?.customerReplyTickets ?? []).map((ticket) => ({
+            id: ticket.halo_id,
+            client: ticket.client_name,
+            summary: ticket.summary,
+            owner: ticket.halo_agent,
+            badge: `REPLIED ${durationLabel(ticket.ageMin)} AGO`,
+          }))}
+        />
+        <OperationalQueue
+          title="SLA Expiring <2h"
+          count={m?.atRisk ?? 0}
+          color="#f59e0b"
+          icon={<Timer className="h-4 w-4" />}
+          loading={loading && !data}
+          emptyLabel="No SLAs expire in the next two hours."
+          haloBaseUrl={data?.haloBaseUrl ?? ""}
+          items={(data?.atRisk ?? []).map((ticket) => ({
+            id: ticket.halo_id,
+            client: ticket.client_name,
+            summary: ticket.summary,
+            owner: ticket.halo_agent,
+            badge: `DUE IN ${durationLabel(ticket.dueInMin)}`,
+          }))}
+        />
+        <OperationalQueue
+          title="Currently Breaching SLA"
+          count={m?.breaching ?? 0}
+          color={RED}
+          icon={<TriangleAlert className="h-4 w-4" />}
+          loading={loading && !data}
+          emptyLabel="No live SLA breaches."
+          haloBaseUrl={data?.haloBaseUrl ?? ""}
+          items={(data?.breaches ?? []).map((ticket) => ({
+            id: ticket.halo_id,
+            client: ticket.client_name,
+            summary: ticket.summary,
+            owner: ticket.halo_agent,
+            badge: ticket.breachingForMin !== null
+              ? `BREACHED ${durationLabel(ticket.breachingForMin)}`
+              : `${ticket.alertCount}× ALERTED`,
+          }))}
+        />
       </div>
 
       {/* Tech stats */}
@@ -493,19 +517,102 @@ function Tile({
   );
 }
 
+interface OperationalQueueItem {
+  readonly id: number;
+  readonly client: string | null;
+  readonly summary: string | null;
+  readonly owner: string | null | undefined;
+  readonly badge: string;
+}
+
+function OperationalQueue({
+  title,
+  count,
+  color,
+  icon,
+  loading,
+  emptyLabel,
+  haloBaseUrl,
+  items,
+}: {
+  readonly title: string;
+  readonly count: number;
+  readonly color: string;
+  readonly icon: React.ReactNode;
+  readonly loading: boolean;
+  readonly emptyLabel: string;
+  readonly haloBaseUrl: string;
+  readonly items: ReadonlyArray<OperationalQueueItem>;
+}) {
+  const visible = items.slice(0, 3);
+  const more = Math.max(0, count - visible.length);
+  return (
+    <Section
+      title={title}
+      icon={<span style={{ color }}>{icon}</span>}
+      className="flex h-[258px] flex-col"
+      actions={(
+        <span className="rounded px-2 py-0.5 text-xs font-bold tabular-nums" style={{ color, background: `${color}18` }}>
+          {count}
+        </span>
+      )}
+    >
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {loading ? (
+          <div className="p-4 text-sm text-zinc-500">Loading…</div>
+        ) : visible.length === 0 ? (
+          <div className="p-4 text-xs leading-5 text-zinc-500">{emptyLabel}</div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+            {visible.map((item) => (
+              <a
+                key={item.id}
+                href={haloLink(haloBaseUrl, item.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="block px-3 py-2 transition hover:bg-white/[0.025]"
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0 font-mono text-[11px] font-bold text-white">#{item.id}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-300">
+                    {item.client ?? "Unknown customer"}
+                  </span>
+                  <ArrowUpRight className="h-3 w-3 shrink-0 text-zinc-600" />
+                </div>
+                <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={item.summary ?? ""}>{item.summary ?? "No summary"}</p>
+                <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+                  <span className="min-w-0 truncate text-zinc-500">{item.owner ?? "Unassigned"}</span>
+                  <span className="shrink-0 font-semibold tabular-nums" style={{ color }}>{item.badge}</span>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+      {more > 0 && (
+        <div className="border-t px-3 py-1.5 text-[10px] font-medium" style={{ borderColor: HAIRLINE, color }}>
+          +{more} more in this queue
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function Section({
   title,
   icon,
   actions,
+  className = "",
   children,
 }: {
   readonly title: string;
   readonly icon?: React.ReactNode;
   readonly actions?: React.ReactNode;
+  readonly className?: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-md border" style={{ borderColor: HAIRLINE, background: PANEL }}>
+    <section className={`overflow-hidden rounded-md border ${className}`} style={{ borderColor: HAIRLINE, background: PANEL }}>
       <div className="flex min-h-10 items-center gap-2 border-b px-4 py-2" style={{ borderColor: HAIRLINE }}>
         {icon}
         <h2 className="text-sm font-semibold text-white">{title}</h2>

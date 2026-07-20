@@ -78,7 +78,7 @@ test("shows secure QR pairing when the TV has no approved session", async ({ pag
 
   await page.goto("/tv");
 
-  await expect(page.getByText("Approve this wallboard")).toBeVisible();
+  await expect(page.getByText("Scan to approve this TV from an authenticated TriageIT admin account.")).toBeVisible();
   await expect(page.getByText("one-time access code")).toBeVisible();
   await expect(page.getByPlaceholder("ABCD-EFGH")).toHaveAttribute("type", "password");
 });
