@@ -379,8 +379,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       halo_agent: t.halo_agent,
       ageMin: Math.max(0, Math.floor((now - new Date(t.created_at).getTime()) / 60_000)),
     }))
-    .sort((a, b) => b.ageMin - a.ageMin)
-    .slice(0, 12);
+    .sort((a, b) => b.ageMin - a.ageMin);
 
   // ── Customer Reply tickets — the customer spoke last, oldest reply first ──
   const customerReplyTickets: CommandUnassigned[] = tickets
@@ -396,8 +395,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
         Math.floor((now - customerReplyAtMs(t)) / 60_000),
       ),
     }))
-    .sort((a, b) => b.ageMin - a.ageMin)
-    .slice(0, 12);
+    .sort((a, b) => b.ageMin - a.ageMin);
 
   // ── Per-tech stats ──
   interface TechAgg {

@@ -13,6 +13,7 @@ import {
   Tv,
   Timer,
   Wrench,
+  X,
 } from "lucide-react";
 import { ResponseCompliancePanel } from "@/components/dispatch/response-compliance-panel";
 import { fetchWithTimeout } from "@/lib/async-timeout";
@@ -544,57 +545,133 @@ function OperationalQueue({
   readonly haloBaseUrl: string;
   readonly items: ReadonlyArray<OperationalQueueItem>;
 }) {
+  const [showAll, setShowAll] = useState(false);
   const visible = items.slice(0, 3);
-  const more = Math.max(0, count - visible.length);
+  const more = Math.max(0, items.length - visible.length);
+
+  useEffect(() => {
+    if (!showAll) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowAll(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showAll]);
+
   return (
-    <Section
-      title={title}
-      icon={<span style={{ color }}>{icon}</span>}
-      className="flex h-[258px] flex-col"
-      actions={(
-        <span className="rounded px-2 py-0.5 text-xs font-bold tabular-nums" style={{ color, background: `${color}18` }}>
-          {count}
-        </span>
-      )}
-    >
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {loading ? (
-          <div className="p-4 text-sm text-zinc-500">Loading…</div>
-        ) : visible.length === 0 ? (
-          <div className="p-4 text-xs leading-5 text-zinc-500">{emptyLabel}</div>
-        ) : (
-          <div className="divide-y" style={{ borderColor: HAIRLINE }}>
-            {visible.map((item) => (
-              <a
-                key={item.id}
-                href={haloLink(haloBaseUrl, item.id)}
-                target="_blank"
-                rel="noreferrer"
-                className="block px-3 py-2 transition hover:bg-white/[0.025]"
-              >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 font-mono text-[11px] font-bold text-white">#{item.id}</span>
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-zinc-300">
-                    {item.client ?? "Unknown customer"}
-                  </span>
-                  <ArrowUpRight className="h-3 w-3 shrink-0 text-zinc-600" />
-                </div>
-                <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={item.summary ?? ""}>{item.summary ?? "No summary"}</p>
-                <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
-                  <span className="min-w-0 truncate text-zinc-500">{item.owner ?? "Unassigned"}</span>
-                  <span className="shrink-0 font-semibold tabular-nums" style={{ color }}>{item.badge}</span>
-                </div>
-              </a>
-            ))}
-          </div>
+    <>
+      <Section
+        title={title}
+        icon={<span style={{ color }}>{icon}</span>}
+        className="flex h-[258px] flex-col"
+        actions={(
+          <span className="rounded px-2 py-0.5 text-xs font-bold tabular-nums" style={{ color, background: `${color}18` }}>
+            {count}
+          </span>
         )}
-      </div>
-      {more > 0 && (
-        <div className="border-t px-3 py-1.5 text-[10px] font-medium" style={{ borderColor: HAIRLINE, color }}>
-          +{more} more in this queue
+      >
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {loading ? (
+            <div className="p-4 text-sm text-zinc-500">Loading…</div>
+          ) : visible.length === 0 ? (
+            <div className="p-4 text-xs leading-5 text-zinc-500">{emptyLabel}</div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: HAIRLINE }}>
+              {visible.map((item) => (
+                <OperationalQueueRow key={item.id} item={item} color={color} haloBaseUrl={haloBaseUrl} />
+              ))}
+            </div>
+          )}
+        </div>
+        {more > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="w-full cursor-pointer border-t px-3 py-1.5 text-left text-[10px] font-semibold transition hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
+            style={{ borderColor: HAIRLINE, color }}
+            aria-label={`View all ${count} tickets in ${title}`}
+          >
+            +{more} more — view full queue
+          </button>
+        )}
+      </Section>
+
+      {showAll && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`queue-dialog-${title.replace(/\W+/g, "-").toLowerCase()}`}
+            className="flex max-h-[82vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border shadow-2xl"
+            style={{ borderColor: HAIRLINE, background: "#100b0d" }}
+          >
+            <div className="flex items-center gap-3 border-b px-4 py-3" style={{ borderColor: HAIRLINE }}>
+              <span style={{ color }}>{icon}</span>
+              <div className="min-w-0 flex-1">
+                <h2 id={`queue-dialog-${title.replace(/\W+/g, "-").toLowerCase()}`} className="text-base font-semibold text-white">
+                  {title}
+                </h2>
+                <p className="text-xs text-zinc-500">{items.length} live ticket{items.length === 1 ? "" : "s"} · ordered by urgency</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAll(false)}
+                autoFocus
+                aria-label={`Close ${title}`}
+                className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-zinc-400 transition hover:bg-white/[0.04] hover:text-white"
+                style={{ borderColor: HAIRLINE }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto divide-y" style={{ borderColor: HAIRLINE }}>
+              {items.map((item) => (
+                <OperationalQueueRow key={item.id} item={item} color={color} haloBaseUrl={haloBaseUrl} expanded />
+              ))}
+            </div>
+          </section>
         </div>
       )}
-    </Section>
+    </>
+  );
+}
+
+function OperationalQueueRow({
+  item,
+  color,
+  haloBaseUrl,
+  expanded = false,
+}: {
+  readonly item: OperationalQueueItem;
+  readonly color: string;
+  readonly haloBaseUrl: string;
+  readonly expanded?: boolean;
+}) {
+  return (
+    <a
+      href={haloLink(haloBaseUrl, item.id)}
+      target="_blank"
+      rel="noreferrer"
+      className={`block transition hover:bg-white/[0.025] ${expanded ? "px-4 py-3" : "px-3 py-2"}`}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className={`shrink-0 font-mono font-bold text-white ${expanded ? "text-xs" : "text-[11px]"}`}>#{item.id}</span>
+        <span className={`min-w-0 flex-1 truncate font-medium text-zinc-300 ${expanded ? "text-sm" : "text-xs"}`}>
+          {item.client ?? "Unknown customer"}
+        </span>
+        <ArrowUpRight className="h-3 w-3 shrink-0 text-zinc-600" />
+      </div>
+      <p className={`mt-0.5 truncate text-zinc-500 ${expanded ? "text-xs" : "text-[11px]"}`} title={item.summary ?? ""}>{item.summary ?? "No summary"}</p>
+      <div className={`mt-1 flex items-center justify-between gap-2 ${expanded ? "text-xs" : "text-[10px]"}`}>
+        <span className="min-w-0 truncate text-zinc-500">{item.owner ?? "Unassigned"}</span>
+        <span className="shrink-0 font-semibold tabular-nums" style={{ color }}>{item.badge}</span>
+      </div>
+    </a>
   );
 }
 
