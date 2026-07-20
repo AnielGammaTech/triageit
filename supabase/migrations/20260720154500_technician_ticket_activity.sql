@@ -2,7 +2,7 @@
 -- Stores operational metadata only; customer message/note bodies are intentionally omitted.
 
 CREATE TABLE IF NOT EXISTS technician_ticket_activity (
-  halo_action_id bigint PRIMARY KEY,
+  halo_action_id bigint NOT NULL,
   halo_ticket_id int NOT NULL,
   technician_name text NOT NULL,
   technician_agent_id int,
@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS technician_ticket_activity (
   charged_hours numeric(10,2) NOT NULL DEFAULT 0,
   noncharge_hours numeric(10,2) NOT NULL DEFAULT 0,
   is_billable boolean,
-  synced_at timestamptz NOT NULL DEFAULT now()
+  synced_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (halo_ticket_id, halo_action_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_technician_activity_action_at

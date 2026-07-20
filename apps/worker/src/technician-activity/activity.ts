@@ -148,7 +148,7 @@ export async function storeTechnicianActions(
   if (rows.length > 0) {
     const { error } = await supabase
       .from("technician_ticket_activity")
-      .upsert(rows, { onConflict: "halo_action_id" });
+      .upsert(rows, { onConflict: "halo_ticket_id,halo_action_id" });
     if (error) throw new Error(`Technician activity upsert failed: ${error.message}`);
   }
 
