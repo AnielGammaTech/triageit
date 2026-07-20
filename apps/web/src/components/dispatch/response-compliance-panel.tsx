@@ -39,6 +39,13 @@ interface ResponseTicket {
 
 interface ResponseCompliancePayload {
   readonly generatedAt: string;
+  readonly technicianEmailPerformance: {
+    readonly periodDays: number;
+    readonly targetMinutes: number;
+    readonly schedule: string;
+    readonly team: TechnicianEmailMetric;
+    readonly technicians: ReadonlyArray<TechnicianEmailMetric & { readonly tech: string }>;
+  };
   readonly summary: {
     readonly acknowledgment: {
       readonly onTime: number;
@@ -55,6 +62,15 @@ interface ResponseCompliancePayload {
     };
   };
   readonly details: Readonly<Record<ResponseBucket, ReadonlyArray<ResponseTicket>>>;
+}
+
+interface TechnicianEmailMetric {
+  readonly measured: number;
+  readonly onTime: number;
+  readonly missed: number;
+  readonly onTimePercent: number;
+  readonly medianEmailMinutes: number | null;
+  readonly noEmail: number;
 }
 
 interface MetricDefinition {
@@ -100,6 +116,20 @@ function clockDistance(value: string | null, generatedAt: string): string {
     ? `${Math.floor(absoluteMinutes / 60)}h ${absoluteMinutes % 60}m`
     : `${absoluteMinutes}m`;
   return remainingMinutes >= 0 ? `due in ${duration}` : `overdue by ${duration}`;
+}
+
+function emailMinutes(value: number | null): string {
+  if (value === null) return "No email";
+  if (value < 60) return `${value}m`;
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+function performanceTone(percent: number): string {
+  if (percent >= 90) return "#4ade80";
+  if (percent >= 75) return "#facc15";
+  return "#f87171";
 }
 
 function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket, generatedAt: string): string {
@@ -200,6 +230,75 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
           );
         })}
       </div>
+
+      {data?.technicianEmailPerformance && (
+        <div className="border-b" style={{ borderColor: HAIRLINE }}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
+            <div>
+              <p className="text-xs font-semibold text-white">Technician email response · rolling {data.technicianEmailPerformance.periodDays} days</p>
+              <p className="mt-0.5 text-[10px] text-zinc-500">
+                Customer-visible email only · target {data.technicianEmailPerformance.targetMinutes}m · {data.technicianEmailPerformance.schedule}
+              </p>
+            </div>
+            <div className="ml-auto flex items-center gap-3 text-[11px]">
+              <span className="text-zinc-500">Team</span>
+              <strong style={{ color: performanceTone(data.technicianEmailPerformance.team.onTimePercent) }}>
+                {data.technicianEmailPerformance.team.onTimePercent}% on time
+              </strong>
+              <span className="text-zinc-500">{data.technicianEmailPerformance.team.onTime}/{data.technicianEmailPerformance.team.measured}</span>
+              <span className="text-zinc-500">Median email {emailMinutes(data.technicianEmailPerformance.team.medianEmailMinutes)}</span>
+              <span className={data.technicianEmailPerformance.team.noEmail > 0 ? "text-red-300" : "text-zinc-500"}>
+                No email {data.technicianEmailPerformance.team.noEmail}
+              </span>
+            </div>
+          </div>
+
+          {data.technicianEmailPerformance.technicians.length === 0 ? (
+            <div className="border-t px-5 py-3 text-xs text-zinc-500" style={{ borderColor: HAIRLINE }}>
+              No completed technician response clocks in the last {data.technicianEmailPerformance.periodDays} days.
+            </div>
+          ) : (
+            <div className="overflow-x-auto border-t" style={{ borderColor: HAIRLINE }}>
+              <table className="w-full min-w-[700px] text-left">
+                <thead>
+                  <tr className="text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
+                    <th className="px-5 py-1.5">Technician</th>
+                    <th className="px-3 py-1.5">On time</th>
+                    <th className="px-3 py-1.5">Median email time</th>
+                    <th className="px-3 py-1.5">Missed</th>
+                    <th className="px-5 py-1.5 text-right">No qualifying email</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.technicianEmailPerformance.technicians.map((tech) => {
+                    const tone = performanceTone(tech.onTimePercent);
+                    return (
+                      <tr key={tech.tech} className="border-t text-xs" style={{ borderColor: HAIRLINE }}>
+                        <td className="px-5 py-2 font-semibold text-white/90">{tech.tech}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <strong className="w-9 tabular-nums" style={{ color: tone }}>{tech.onTimePercent}%</strong>
+                            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.06]">
+                              <div className="h-full rounded-full" style={{ width: `${tech.onTimePercent}%`, background: tone }} />
+                            </div>
+                            <span className="text-[10px] text-zinc-600">{tech.onTime}/{tech.measured} within {data.technicianEmailPerformance.targetMinutes}m</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="font-medium text-zinc-300">{emailMinutes(tech.medianEmailMinutes)}</span>
+                          <span className="ml-1.5 text-[10px] text-zinc-600">emails eventually sent</span>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums" style={{ color: tech.missed > 0 ? "#f87171" : "#71717a" }}>{tech.missed}</td>
+                        <td className="px-5 py-2 text-right font-semibold tabular-nums" style={{ color: tech.noEmail > 0 ? "#f87171" : "#71717a" }}>{tech.noEmail}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 border-b px-5 py-2" style={{ borderColor: HAIRLINE }}>
         <p className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-300">

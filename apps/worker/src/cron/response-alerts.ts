@@ -1,6 +1,10 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import type { TeamsConfig } from "@triageit/shared";
+import {
+  isResponseBusinessTime,
+  responseBusinessMinutesBetween,
+} from "../response-compliance/business-time.js";
 
 const WARNING_HOURS = 1;
 const ESCALATION_HOURS = 2;
@@ -9,30 +13,10 @@ const ESCALATION_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /**
  * Calculate business hours between a date and now.
- * Business hours: 7 AM - 6 PM ET, Mon-Fri only.
+ * Business hours: 8 AM - 5 PM ET, Mon-Fri only.
  */
 function businessHoursSince(dateStr: string): number {
-  const start = new Date(dateStr);
-  const now = new Date();
-  let hours = 0;
-
-  const current = new Date(start);
-  while (current < now) {
-    const et = new Date(current.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const hour = et.getHours();
-    const day = et.getDay();
-
-    if (day >= 1 && day <= 5 && hour >= 7 && hour < 18) {
-      hours += 1 / 60; // minute increments
-    }
-
-    current.setMinutes(current.getMinutes() + 1);
-
-    // Safety: cap at 100 business hours to avoid infinite loops
-    if (hours > 100) break;
-  }
-
-  return hours;
+  return responseBusinessMinutesBetween(new Date(dateStr), new Date()) / 60;
 }
 
 interface AlertResult {
@@ -47,10 +31,7 @@ interface AlertResult {
 export async function scanForResponseAlerts(): Promise<AlertResult> {
   // Only run during business hours
   const now = new Date();
-  const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const hour = eastern.getHours();
-  const day = eastern.getDay();
-  if (day === 0 || day === 6 || hour < 7 || hour >= 18) {
+  if (!isResponseBusinessTime(now)) {
     return { warnings: 0, escalations: 0 };
   }
 

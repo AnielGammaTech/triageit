@@ -5,6 +5,7 @@ import { parseLlmJson } from "../parse-json.js";
 import { HaloClient } from "../../integrations/halo/client.js";
 import { isInternalStaffName, type HaloConfig } from "@triageit/shared";
 import type { TriageContext, ClassificationResult } from "../types.js";
+import { responseBusinessMinutesBetween } from "../../response-compliance/business-time.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -52,9 +53,6 @@ const RESPONSE_STANDARD_BH = 1;
 
 // ── Business Hours Utilities ─────────────────────────────────────────
 
-const BUSINESS_START_HOUR = 7;  // 7 AM ET
-const BUSINESS_END_HOUR = 18;   // 6 PM ET
-const TIMEZONE = "America/New_York";
 const MIN_TICKET_AGE_HOURS = 1; // Don't review tickets younger than 1 hour
 const NON_TECH_ASSIGNMENT_MARKERS = [
   "unassigned",
@@ -75,37 +73,13 @@ function isNonTechAssignment(name: string): boolean {
 }
 
 /**
- * Check if a given timestamp falls within business hours (Mon-Fri, 7 AM - 6 PM ET).
- */
-function isBusinessHours(date: Date): boolean {
-  const etDate = new Date(date.toLocaleString("en-US", { timeZone: TIMEZONE }));
-  const day = etDate.getDay(); // 0 = Sunday, 6 = Saturday
-  const hour = etDate.getHours();
-  return day >= 1 && day <= 5 && hour >= BUSINESS_START_HOUR && hour < BUSINESS_END_HOUR;
-}
-
-/**
  * Calculate business hours between two timestamps.
- * Only counts time during Mon-Fri 7 AM - 6 PM Eastern.
+ * Only counts time during Mon-Fri 8 AM - 5 PM Eastern.
  * Returns hours (fractional).
  */
 function calculateBusinessHoursGap(startTime: number, endTime: number): number {
   if (endTime <= startTime) return 0;
-
-  let businessMs = 0;
-  const STEP_MS = 15 * 60 * 1000; // 15-minute increments for accuracy
-
-  let cursor = startTime;
-  while (cursor < endTime) {
-    const cursorDate = new Date(cursor);
-    if (isBusinessHours(cursorDate)) {
-      const stepEnd = Math.min(cursor + STEP_MS, endTime);
-      businessMs += stepEnd - cursor;
-    }
-    cursor += STEP_MS;
-  }
-
-  return businessMs / (1000 * 60 * 60);
+  return responseBusinessMinutesBetween(new Date(startTime), new Date(endTime)) / 60;
 }
 
 // ── Eligibility Check ────────────────────────────────────────────────
@@ -311,7 +285,7 @@ export async function generateTechReview(
         `5. In suggestions, always include: "Bryanna: assign this ticket to a tech immediately."`,
         ``,
         `## BUSINESS HOURS CONTEXT`,
-        `- Business hours are **Mon-Fri, 7 AM - 6 PM Eastern** only.`,
+        `- Business hours are **Mon-Fri, 8 AM - 5 PM Eastern** only.`,
         ``,
         `## FACTS`,
         `- This ticket is ${assignmentGapDescription}.`,
@@ -382,9 +356,9 @@ export async function generateTechReview(
     `- **When in doubt about what happened off-ticket, give the tech the benefit of the doubt** and recommend they document their actions better.`,
     ``,
     `## BUSINESS HOURS CONTEXT`,
-    `- Business hours are **Mon-Fri, 7 AM - 6 PM Eastern** only.`,
+    `- Business hours are **Mon-Fri, 8 AM - 5 PM Eastern** only.`,
     `- Response gaps are measured in **business hours only** — nights, weekends, and holidays do NOT count.`,
-    `- A ticket opened at 9 PM won't start counting response time until 7 AM the next business day.`,
+    `- A ticket opened at 9 PM won't start counting response time until 8 AM the next business day.`,
     `- The max_response_gap_hours below is already calculated in business hours.`,
     ``,
     `## WHAT TO CALL OUT HARD`,

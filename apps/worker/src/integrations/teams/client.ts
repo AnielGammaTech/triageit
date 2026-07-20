@@ -1,4 +1,4 @@
-import type { TeamsConfig } from "@triageit/shared";
+import { isBusinessTime, type TeamsConfig } from "@triageit/shared";
 
 interface AdaptiveCardFact {
   readonly title: string;
@@ -59,19 +59,12 @@ function ordinal(n: number): string {
 }
 
 /**
- * Business hours for real-time alerts: 8:00am–5:15pm ET, Monday–Friday (the
- * 15-min grace past 5 covers normal staying-a-bit-late). Every reactive Teams
+ * Business hours for real-time alerts: 8:00am–5:00pm ET, Monday–Friday. Every reactive Teams
  * message is suppressed outside this window. This is the final delivery gate
  * for alerts and scheduled digests alike, including deploy catch-up runs.
  */
-const BH_START_MIN = 8 * 60; // 8:00am
-const BH_END_MIN = 17 * 60 + 15; // 5:15pm
 export function isWithinBusinessHours(now: Date = new Date()): boolean {
-  const hour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
-  const minute = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }));
-  const minsOfDay = (hour % 24) * 60 + minute;
-  const day = now.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
-  return minsOfDay >= BH_START_MIN && minsOfDay <= BH_END_MIN && !["Sat", "Sun"].includes(day);
+  return isBusinessTime(now);
 }
 
 const FLAG_LABELS: Record<string, string> = {

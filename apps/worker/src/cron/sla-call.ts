@@ -124,7 +124,7 @@ async function fetchCommunicationContext(
 
 export async function runSlaCallRequests(): Promise<{ processed: number; called: number }> {
   if (!isWithinBusinessHours()) {
-    console.log("[SLA-CALL] Outbound calls suppressed — outside business hours (8am–5:15pm ET, Mon–Fri)");
+    console.log("[SLA-CALL] Outbound calls suppressed — outside business hours (8am–5pm ET, Mon–Fri)");
     return { processed: 0, called: 0 };
   }
 

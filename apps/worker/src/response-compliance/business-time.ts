@@ -1,36 +1,9 @@
-const TIME_ZONE = "America/New_York";
-const BUSINESS_START_MINUTE = 8 * 60;
-const BUSINESS_END_MINUTE = 17 * 60 + 15;
+import { BUSINESS_TIME_ZONE, isBusinessTime } from "@triageit/shared";
+
 const MINUTE_MS = 60_000;
 
-interface EasternParts {
-  readonly weekday: string;
-  readonly minutesOfDay: number;
-}
-
-function easternParts(date: Date): EasternParts {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIME_ZONE,
-    weekday: "short",
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).formatToParts(date);
-  const value = (type: Intl.DateTimeFormatPartTypes): string =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  const hour = Number(value("hour")) % 24;
-  const minute = Number(value("minute"));
-  return {
-    weekday: value("weekday"),
-    minutesOfDay: hour * 60 + minute,
-  };
-}
-
 export function isResponseBusinessTime(date: Date = new Date()): boolean {
-  const parts = easternParts(date);
-  return !["Sat", "Sun"].includes(parts.weekday)
-    && parts.minutesOfDay >= BUSINESS_START_MINUTE
-    && parts.minutesOfDay < BUSINESS_END_MINUTE;
+  return isBusinessTime(date);
 }
 
 /** Add elapsed business minutes while pausing nights and weekends. */
@@ -60,7 +33,7 @@ export function responseBusinessMinutesBetween(start: Date, end: Date): number {
 
 export function formatResponseDeadline(date: Date): string {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: TIME_ZONE,
+    timeZone: BUSINESS_TIME_ZONE,
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -69,4 +42,3 @@ export function formatResponseDeadline(date: Date): string {
     timeZoneName: "short",
   }).format(date);
 }
-

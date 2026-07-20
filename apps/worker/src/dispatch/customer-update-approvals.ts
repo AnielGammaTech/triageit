@@ -288,7 +288,7 @@ export async function approveCustomerUpdate(
   actor: ApprovalActor,
 ): Promise<{ haloActionId: number; recipient: string }> {
   if (!isWithinBusinessHours()) {
-    throw new Error("Customer updates cannot be sent outside business hours (Monday-Friday, 8:00 AM-5:15 PM Eastern)");
+    throw new Error("Customer updates cannot be sent outside business hours (Monday-Friday, 8:00 AM-5:00 PM Eastern)");
   }
   const draftMessage = cleanMessage(draft, 4_000);
   if (draftMessage.length < 20) throw new Error("The customer update is too short to send");

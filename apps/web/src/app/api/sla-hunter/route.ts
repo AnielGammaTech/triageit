@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
+import { isBusinessTime } from "@triageit/shared";
 
 /**
  * GET /api/sla-hunter
@@ -53,11 +54,6 @@ const WEEK_MS = 7 * 24 * 3600_000;
 // due Monday morning surface before everyone leaves.
 const AT_RISK_HORIZON_MS = 96 * 3600_000;
 
-// Working window: 8:00am–5:15pm ET (the 15-min grace covers normal
-// stay-a-bit-late — a 5:00pm deadline is NOT after hours). Mon–Fri.
-const BH_START_MIN = 8 * 60; // 8:00am
-const BH_END_MIN = 17 * 60 + 15; // 5:15pm
-
 function etParts(iso: string): { minsOfDay: number; day: string } {
   const d = new Date(iso);
   const hour = Number(d.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
@@ -67,10 +63,9 @@ function etParts(iso: string): { minsOfDay: number; day: string } {
     day: d.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" }),
   };
 }
-/** Would this instant fall outside working hours (8:00am–5:15pm ET, Mon–Fri)? */
+/** Would this instant fall outside working hours (8:00am–5:00pm ET, Mon–Fri)? */
 function isAfterHoursET(iso: string): boolean {
-  const { minsOfDay, day } = etParts(iso);
-  return !(minsOfDay >= BH_START_MIN && minsOfDay <= BH_END_MIN && !["Sat", "Sun"].includes(day));
+  return !isBusinessTime(new Date(iso));
 }
 /** Does this instant fall on a Saturday or Sunday (ET)? */
 function isWeekendET(iso: string): boolean {

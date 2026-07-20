@@ -7,7 +7,7 @@ import { isWithinBusinessHours } from "../integrations/teams/client.js";
  */
 export async function scanForErrorTickets(): Promise<{ readonly found: number; readonly alerted: number }> {
   if (!isWithinBusinessHours()) {
-    console.log("[ERROR-SCAN] Alert suppressed — outside business hours (8am–5:15pm ET, Mon–Fri)");
+    console.log("[ERROR-SCAN] Alert suppressed — outside business hours (8am–5pm ET, Mon–Fri)");
     return { found: 0, alerted: 0 };
   }
 

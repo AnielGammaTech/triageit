@@ -65,4 +65,43 @@ describe("initial customer acknowledgment", () => {
 
     expect(outbound.map((item) => item.id)).toEqual([2]);
   });
+
+  it("counts only customer-visible email and excludes calls, voicemail, internal, and AI notes", () => {
+    const outbound = sortedOutboundEmails([
+      action({
+        id: 1,
+        who: "Darren Davillier",
+        who_type: 1,
+        outcome: "Outbound phone call completed",
+        actiondatecreated: "2026-07-20T15:05:00.000Z",
+      }),
+      action({
+        id: 2,
+        who: "Darren Davillier",
+        who_type: 1,
+        outcome: "Voicemail left",
+        actiondatecreated: "2026-07-20T15:10:00.000Z",
+      }),
+      action({
+        id: 3,
+        who: "TriageIT",
+        who_type: 1,
+        emaildirection: "O",
+        outcome: "Email sent",
+        hiddenfromuser: true,
+        actiondatecreated: "2026-07-20T15:15:00.000Z",
+      }),
+      action({
+        id: 4,
+        who: "Darren Davillier",
+        who_type: 1,
+        emaildirection: "O",
+        outcome: "Email sent",
+        hiddenfromuser: false,
+        actiondatecreated: "2026-07-20T15:20:00.000Z",
+      }),
+    ], Date.parse("2026-07-20T15:00:00.000Z"));
+
+    expect(outbound.map((item) => item.id)).toEqual([4]);
+  });
 });

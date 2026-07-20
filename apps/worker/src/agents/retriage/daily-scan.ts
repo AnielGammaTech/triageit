@@ -5,6 +5,7 @@ import {
   deriveWorkflowOwnerRole,
   deriveWorkflowStatusFromHalo,
   isHelpdeskTechnicianName,
+  isBusinessTime,
   isSlaTargetBreached,
   isSlaTimerBreached,
   type HaloTicket,
@@ -569,14 +570,10 @@ export async function runDailyScan(supabase: SupabaseClient): Promise<DailyScanR
   const startTime = Date.now();
   let tokensUsed = 0;
 
-  // Only run during business hours: Mon-Fri, 8:00 AM - 5:15 PM Eastern
+  // Only run during business hours: Mon-Fri, 8:00 AM - 5:00 PM Eastern
   const now = new Date();
-  const eastern = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const hour = eastern.getHours();
-  const day = eastern.getDay(); // 0=Sun, 6=Sat
-  const minsOfDay = hour * 60 + eastern.getMinutes();
-  if (day === 0 || day === 6 || minsOfDay < 8 * 60 || minsOfDay > 17 * 60 + 15) {
-    console.log(`[RETRIAGE] Outside business hours (${eastern.toLocaleString("en-US")} ET) — skipping scan`);
+  if (!isBusinessTime(now)) {
+    console.log("[RETRIAGE] Outside business hours (Monday-Friday, 8:00 AM-5:00 PM Eastern) — skipping scan");
     return {
       totalOpen: 0, scanned: 0, critical: [], warnings: [], info: [],
       processingTimeMs: Date.now() - startTime, tokensUsed: 0,

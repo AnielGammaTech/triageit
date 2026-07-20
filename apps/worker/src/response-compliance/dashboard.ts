@@ -1,6 +1,10 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { etTodayBounds } from "../dispatch/et-time.js";
 import { isCustomerResponseClient } from "./eligibility.js";
+import {
+  buildTechnicianEmailPerformance,
+  type TechnicianResponsePerformanceRow,
+} from "./performance.js";
 
 interface CurrentTicketState {
   readonly halo_is_open: boolean | null;
@@ -77,6 +81,10 @@ export async function buildResponseComplianceDashboard() {
   if (error) throw new Error(error.message);
   const rows = ((data ?? []) as ReadonlyArray<ComplianceDashboardRow>)
     .filter((row) => isCustomerResponseClient(currentClientName(row)));
+  const technicianEmailPerformance = buildTechnicianEmailPerformance(
+    rows as ReadonlyArray<ComplianceDashboardRow & TechnicianResponsePerformanceRow>,
+    now,
+  );
   const todayRows = rows.filter((row) => Date.parse(row.ticket_created_at) >= Date.parse(start));
   const openRows = rows.filter(ticketIsOpen);
   const detailRows = {
@@ -105,6 +113,7 @@ export async function buildResponseComplianceDashboard() {
 
   return {
     generatedAt: now.toISOString(),
+    technicianEmailPerformance,
     summary: {
       acknowledgment: {
         onTime: detailRows.ackOnTime.length,
