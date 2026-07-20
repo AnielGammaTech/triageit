@@ -81,24 +81,24 @@ describe("deriveDispatchAction", () => {
     ).toMatchObject({ kind: "waiting_on_tech", lane: "today" });
   });
 
-  it("does not treat a stale Customer Reply status as actionable after a tech answered", () => {
+  it("treats Halo's Customer Reply state as the authoritative queue", () => {
     expect(
       deriveDispatchAction(ticket({
         status: "Customer Reply",
         lastCustomerReplyAt: "2026-07-13T14:00:00.000Z",
         lastTechActionAt: "2026-07-13T15:00:00.000Z",
       }), NOW),
-    ).toBeNull();
+    ).toMatchObject({ kind: "customer_reply", lane: "today" });
   });
 
-  it("uses Customer Reply status only when Halo omitted action timestamps", () => {
+  it("does not infer Customer Reply from timestamps on another Halo queue", () => {
     expect(
       deriveDispatchAction(ticket({
-        status: "Customer Reply",
-        lastCustomerReplyAt: null,
-        lastTechActionAt: null,
+        status: "Waiting on Customer",
+        lastCustomerReplyAt: "2026-07-13T15:30:00.000Z",
+        lastTechActionAt: "2026-07-13T15:00:00.000Z",
       }), NOW),
-    ).toMatchObject({ kind: "customer_reply", lane: "today" });
+    ).toBeNull();
   });
 
   it("watches stale active work without flagging parked workflow states", () => {

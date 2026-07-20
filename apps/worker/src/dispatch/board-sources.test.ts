@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
 import {
   calendarSignalFromEvents,
+  fetchTicketLoads,
   isCustomerReplyStatus,
   isWaitingOnTechStatus,
 } from "./board-sources.js";
@@ -62,6 +63,40 @@ describe("Halo dispatch status matching", () => {
     expect(isCustomerReplyStatus(30, null)).toBe(true);
     expect(isCustomerReplyStatus(null, "Customer Reply")).toBe(true);
     expect(isCustomerReplyStatus(32, "Waiting on Tech")).toBe(false);
+  });
+
+  it("does not inflate Customer Reply loads from customer-last timestamps in other queues", async () => {
+    const rows = [
+      {
+        halo_id: 101,
+        summary: "Customer is still gathering details",
+        halo_agent: "David Ayala",
+        halo_status_id: 29,
+        halo_status: "Waiting on Customer",
+        sla_currently_breached: false,
+        last_customer_reply_at: "2026-07-10T15:30:00.000Z",
+        last_tech_action_at: "2026-07-10T15:00:00.000Z",
+      },
+      {
+        halo_id: 102,
+        summary: "Customer replied",
+        halo_agent: "David Ayala",
+        halo_status_id: 30,
+        halo_status: "Customer Reply",
+        sla_currently_breached: false,
+        last_customer_reply_at: "2026-07-10T15:45:00.000Z",
+        last_tech_action_at: "2026-07-10T15:15:00.000Z",
+      },
+    ];
+    const query = {
+      select: () => query,
+      eq: async () => ({ data: rows, error: null }),
+    };
+    const supabase = { from: () => query } as never;
+
+    const loads = await fetchTicketLoads(supabase);
+
+    expect(loads?.get("David Ayala")?.customerReply).toBe(1);
   });
 
   it("counts only Halo's Waiting On Tech status as WOT", () => {

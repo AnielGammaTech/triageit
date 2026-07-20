@@ -1,7 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   isCustomerReplyStatus,
-  isCustomerWaitingForTech,
   isHelpdeskTechnicianName,
   isWaitingOnTechStatus,
 } from "@triageit/shared";
@@ -155,13 +154,11 @@ export function isCustomerReplyQueue(statusId: number | null, statusName: string
   return isCustomerReplyStatus(statusId, statusName);
 }
 
-function customerIsWaiting(ticket: TicketRow): boolean {
-  return isCustomerWaitingForTech({
-    statusId: ticket.halo_status_id,
-    statusName: ticket.halo_status,
-    lastCustomerReplyAt: ticket.last_customer_reply_at,
-    lastTechActionAt: ticket.last_tech_action_at,
-  });
+function isInCustomerReplyQueue(ticket: TicketRow): boolean {
+  // The wallboard is an operational mirror of Halo's Customer Reply queue.
+  // Do not infer membership from action timestamps: production contains
+  // Waiting on Customer tickets whose imported timestamps look customer-last.
+  return isCustomerReplyQueue(ticket.halo_status_id, ticket.halo_status);
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -377,7 +374,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   // ── Customer Reply tickets — the customer spoke last, oldest reply first ──
   const customerReplyTickets: CommandUnassigned[] = tickets
-    .filter(customerIsWaiting)
+    .filter(isInCustomerReplyQueue)
     .map((t) => ({
       halo_id: t.halo_id,
       summary: t.summary,
@@ -422,7 +419,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     agg.openTickets++;
     if (t.sla_currently_breached) agg.breaching++;
     if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
-    if (customerIsWaiting(t)) {
+    if (isInCustomerReplyQueue(t)) {
       const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
       const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
       if (cust > 0 && cust > tech && now - cust >= THIRTY_MIN_MS) agg.unackedReplies++;
@@ -489,7 +486,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     atRisk: atRisk.length,
     unassigned: unassignedTickets.length,
     waitingOnTech: tickets.filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status)).length,
-    customerReply: tickets.filter(customerIsWaiting).length,
+    customerReply: tickets.filter(isInCustomerReplyQueue).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
     openedToday: openedTodayRes.count ?? 0,
     resolvedToday: haloResolvedToday ?? resolvedTodayFallbackRes.count ?? 0,

@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   isCustomerReplyStatus,
-  isCustomerWaitingForTech,
   isWaitingOnTechStatus,
   type ThreeCxConfig,
 } from "@triageit/shared";
@@ -166,12 +165,9 @@ export async function fetchTicketLoads(
       loads.set(name, {
         open: cur.open + 1,
         wot: cur.wot + (isWaitingOnTechStatus(statusId, statusName) ? 1 : 0),
-        customerReply: cur.customerReply + (isCustomerWaitingForTech({
-          statusId,
-          statusName,
-          lastCustomerReplyAt: (t.last_customer_reply_at as string | null) ?? null,
-          lastTechActionAt: (t.last_tech_action_at as string | null) ?? null,
-        }) ? 1 : 0),
+        // Match the visible Halo Customer Reply queue exactly. Timestamps are
+        // useful for response-time analysis, but they do not define this KPI.
+        customerReply: cur.customerReply + (isCustomerReplyStatus(statusId, statusName) ? 1 : 0),
         breaching: cur.breaching + (t.sla_currently_breached ? 1 : 0),
         inProgressTicket,
       });
