@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ThreeCxConfig } from "@triageit/shared";
+import {
+  isCustomerReplyStatus,
+  isCustomerWaitingForTech,
+  isWaitingOnTechStatus,
+  type ThreeCxConfig,
+} from "@triageit/shared";
 import { HaloClient } from "../integrations/halo/client.js";
 import { MsGraphClient, type MsGraphCalendarEvent } from "../integrations/msgraph/client.js";
 import {
@@ -45,17 +50,7 @@ export interface ThreeCxSnapshot {
   readonly extensions: ReadonlyArray<ThreeCxUserPresence> | null;
 }
 
-const HALO_CUSTOMER_REPLY_STATUS_ID = 30;
-const HALO_WAITING_ON_TECH_STATUS_ID = 32;
-
-export function isCustomerReplyStatus(statusId: number | null, statusName: string | null): boolean {
-  return statusId === HALO_CUSTOMER_REPLY_STATUS_ID || /customer reply/i.test(statusName ?? "");
-}
-
-export function isWaitingOnTechStatus(statusId: number | null, statusName: string | null): boolean {
-  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
-    || /waiting on tech/i.test(statusName ?? "");
-}
+export { isCustomerReplyStatus, isWaitingOnTechStatus };
 
 // ── Shared helpers ────────────────────────────────────────────────────
 // (Time formatting lives in time-format.ts — fmtEt / fmtEtDayAware.)
@@ -137,7 +132,7 @@ export async function fetchTicketLoads(
   try {
     const { data, error } = await supabase
       .from("tickets")
-      .select("halo_id, summary, halo_agent, halo_status_id, halo_status, sla_currently_breached, last_tech_action_at")
+      .select("halo_id, summary, halo_agent, halo_status_id, halo_status, sla_currently_breached, last_customer_reply_at, last_tech_action_at")
       .eq("halo_is_open", true);
     if (error) throw new Error(error.message);
 
@@ -171,7 +166,12 @@ export async function fetchTicketLoads(
       loads.set(name, {
         open: cur.open + 1,
         wot: cur.wot + (isWaitingOnTechStatus(statusId, statusName) ? 1 : 0),
-        customerReply: cur.customerReply + (isCustomerReplyStatus(statusId, statusName) ? 1 : 0),
+        customerReply: cur.customerReply + (isCustomerWaitingForTech({
+          statusId,
+          statusName,
+          lastCustomerReplyAt: (t.last_customer_reply_at as string | null) ?? null,
+          lastTechActionAt: (t.last_tech_action_at as string | null) ?? null,
+        }) ? 1 : 0),
         breaching: cur.breaching + (t.sla_currently_breached ? 1 : 0),
         inProgressTicket,
       });

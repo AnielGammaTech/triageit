@@ -81,6 +81,8 @@ export async function POST() {
     external_id: string;
     external_name: string;
   }> = [];
+  const skipped: Array<{ service: string; display_name: string; reason: string }> = [];
+  let scannedIntegrationCount = 0;
 
   for (const integration of integrations) {
     if (integration.service === "halo" || integration.service === "automapper" || integration.service === "ai-provider" || integration.service === "teams") {
@@ -92,10 +94,23 @@ export async function POST() {
     try {
       const config = integration.config as Record<string, string>;
       const fetcher = DIRECT_FETCHERS[integration.service];
-      if (!fetcher) continue; // No customer fetcher for this service
+      if (!fetcher) {
+        skipped.push({
+          service: integration.service,
+          display_name: integration.display_name,
+          reason: "This integration does not expose a customer directory to AutoMapper.",
+        });
+        continue;
+      }
       externalCustomers = await fetcher(config);
-    } catch {
-      continue; // Skip failed fetches silently
+      scannedIntegrationCount++;
+    } catch (error) {
+      skipped.push({
+        service: integration.service,
+        display_name: integration.display_name,
+        reason: error instanceof Error ? error.message : "Customer discovery failed.",
+      });
+      continue;
     }
 
     for (const ext of externalCustomers) {
@@ -133,8 +148,9 @@ export async function POST() {
   return NextResponse.json({
     suggestions,
     unmatched,
+    skipped,
     halo_customer_count: haloCustomers.length,
-    integration_count: integrations.filter((i) => i.service !== "halo" && i.service !== "automapper").length,
+    integration_count: scannedIntegrationCount,
   });
 }
 
@@ -327,7 +343,7 @@ async function fetchHuduDirect(config: Record<string, string>) {
 }
 
 async function fetchDattoDirect(config: Record<string, string>) {
-  const credentials = Buffer.from(`${config.api_key}:${config.api_secret}`).toString("base64");
+  const credentials = Buffer.from("public-client:public").toString("base64");
   const baseUrl = config.api_url.replace(/\/$/, "");
   const tokenRes = await fetch(`${baseUrl}/auth/oauth/token`, {
     method: "POST",
@@ -391,6 +407,139 @@ async function fetchUnifiDirect(config: Record<string, string>) {
   return sites.filter((s) => s.id && s.name);
 }
 
+async function fetchVultrDirect(config: Record<string, string>) {
+  const res = await fetch("https://api.vultr.com/v2/instances?per_page=500", {
+    headers: { Authorization: `Bearer ${config.api_key}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`Vultr API error: ${res.status}`);
+  const data = (await res.json()) as {
+    instances?: Array<{ id: string; label?: string; hostname?: string }>;
+  };
+  return (data.instances ?? []).map((item) => ({
+    id: item.id,
+    name: item.label || item.hostname || item.id,
+  }));
+}
+
+async function fetchUnitrendsDirect(config: Record<string, string>) {
+  const credentials = Buffer.from(`${config.client_id}:${config.client_secret}`).toString("base64");
+  const tokenRes = await fetch("https://login.backup.net/connect/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
+  });
+  if (!tokenRes.ok) throw new Error(`Unitrends auth failed: ${tokenRes.status}`);
+  const token = (await tokenRes.json()) as { access_token: string };
+  const res = await fetch("https://public-api.backup.net/v1/customers", {
+    headers: { Authorization: `Bearer ${token.access_token}`, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Unitrends API error: ${res.status}`);
+  const raw = (await res.json()) as unknown;
+  const items = extractArray<Record<string, unknown>>(raw, ["items", "data", "customers", "results"]);
+  return items
+    .map((item) => ({
+      id: (item.id ?? item.customerId ?? "") as string | number,
+      name: String(item.name ?? item.customerName ?? ""),
+    }))
+    .filter((item) => item.id !== "" && item.name);
+}
+
+async function fetchCoveDirect(config: Record<string, string>) {
+  const apiUrl = "https://api.backup.management/jsonapi";
+  const loginRes = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "Login",
+      params: {
+        partner: config.partner_name,
+        username: config.api_username,
+        password: config.api_token,
+      },
+      id: "1",
+    }),
+  });
+  if (!loginRes.ok) throw new Error(`Cove API login failed: ${loginRes.status}`);
+  const login = (await loginRes.json()) as {
+    visa?: string;
+    result?: { visa?: string; result?: { PartnerId?: number } };
+    error?: { message?: string };
+  };
+  const visa = login.visa ?? login.result?.visa;
+  const partnerId = login.result?.result?.PartnerId;
+  if (!visa || !partnerId) throw new Error(`Cove login failed: ${login.error?.message ?? "missing partner token"}`);
+  const enumRes = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "EnumeratePartners",
+      visa,
+      params: { parentPartnerId: partnerId, fields: [0, 1, 3, 8], fetchRecursively: true },
+      id: "2",
+    }),
+  });
+  if (!enumRes.ok) throw new Error(`Cove customer discovery failed: ${enumRes.status}`);
+  const data = (await enumRes.json()) as {
+    result?: { result?: Array<{ Id: number; Name: string }> };
+    error?: { message?: string };
+  };
+  if (data.error) throw new Error(`Cove API error: ${data.error.message ?? "unknown error"}`);
+  return (data.result?.result ?? []).map((item) => ({ id: item.Id, name: item.Name }));
+}
+
+async function fetchCippDirect(config: Record<string, string>) {
+  const tokenRes = await fetch(config.cippAuthTokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.cippAuthClientId,
+      client_secret: config.cippAuthClientSecret,
+      scope: config.cippAuthScope,
+    }),
+  });
+  if (!tokenRes.ok) throw new Error(`CIPP auth failed: ${tokenRes.status}`);
+  const token = (await tokenRes.json()) as { access_token: string };
+  const baseUrl = config.cippApiUrl.replace(/\/+$/, "");
+  const res = await fetch(`${baseUrl}/api/ListTenants`, {
+    headers: { Authorization: `Bearer ${token.access_token}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`CIPP ListTenants failed: ${res.status}`);
+  const data = (await res.json()) as Array<{
+    customerId?: string;
+    displayName?: string;
+    defaultDomainName?: string;
+  }>;
+  return data
+    .map((item) => ({
+      id: item.customerId ?? item.defaultDomainName ?? "",
+      name: item.displayName ?? item.defaultDomainName ?? "",
+    }))
+    .filter((item) => item.id && item.name);
+}
+
+async function fetchDattoEdrDirect(config: Record<string, string>) {
+  const baseUrl = config.api_url.replace(/\/$/, "");
+  const filter = encodeURIComponent(JSON.stringify({
+    fields: ["id", "name", "deleted", "activeAgentCount"],
+    where: { deleted: { neq: true } },
+    order: "name ASC",
+    limit: 500,
+  }));
+  const res = await fetch(
+    `${baseUrl}/api/targets?access_token=${encodeURIComponent(config.api_key)}&filter=${filter}`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!res.ok) throw new Error(`Datto EDR API error: ${res.status}`);
+  const data = (await res.json()) as Array<{ id: string; name: string; deleted?: boolean }>;
+  return data.filter((item) => !item.deleted).map((item) => ({ id: item.id, name: item.name }));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -412,9 +561,14 @@ function extractArray<T>(value: unknown, keys: ReadonlyArray<string>): T[] {
 const DIRECT_FETCHERS: Record<string, DirectFetcher> = {
   hudu: fetchHuduDirect,
   datto: fetchDattoDirect,
+  "datto-edr": fetchDattoEdrDirect,
   jumpcloud: fetchJumpCloudDirect,
   pax8: fetchPax8Direct,
   unifi: fetchUnifiDirect,
+  vultr: fetchVultrDirect,
+  unitrends: fetchUnitrendsDirect,
+  cove: fetchCoveDirect,
+  cipp: fetchCippDirect,
 };
 
 async function discoverHaloTokenEndpoint(baseUrl: string, tenant?: string): Promise<string> {

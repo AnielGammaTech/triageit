@@ -16,6 +16,7 @@ export class Pax8Client {
   private readonly clientSecret: string;
   private accessToken: string | null = null;
   private tokenExpiresAt = 0;
+  private readonly missingProductIds = new Set<string>();
 
   constructor(config: Pax8Config) {
     this.clientId = config.client_id;
@@ -161,7 +162,8 @@ export class Pax8Client {
   ): Promise<ReadonlyArray<Pax8Subscription>> {
     // Collect unique product IDs that need resolution
     const needsResolution = subs.filter((s) => !s.product?.name && s.productId);
-    const uniqueProductIds = [...new Set(needsResolution.map((s) => s.productId))];
+    const uniqueProductIds = [...new Set(needsResolution.map((s) => s.productId))]
+      .filter((id) => !this.missingProductIds.has(id));
 
     if (uniqueProductIds.length === 0) return subs;
 
@@ -173,18 +175,22 @@ export class Pax8Client {
     }
 
     for (const batch of batches) {
-      const results = await Promise.allSettled(
+      await Promise.all(
         batch.map(async (id) => {
+          try {
           const product = await this.getProduct(id);
           productMap.set(id, product);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/\(404\)/.test(message)) {
+              this.missingProductIds.add(id);
+              console.info(`[PAX8] Product ${id} is unavailable; subscription will retain its product ID.`);
+              return;
+            }
+            console.warn(`[PAX8] Failed to resolve product ${id}:`, error);
+          }
         }),
       );
-      // Log failures but don't break
-      for (const r of results) {
-        if (r.status === "rejected") {
-          console.warn(`[PAX8] Failed to resolve product:`, r.reason);
-        }
-      }
     }
 
     // Return new subscription objects with product info attached

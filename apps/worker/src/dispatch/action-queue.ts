@@ -1,4 +1,5 @@
 import type { TechStatus } from "./presence.js";
+import { isCustomerWaitingForTech, isWaitingOnTechStatus } from "@triageit/shared";
 
 export type DispatchActionKind =
   | "sla_breach"
@@ -89,8 +90,13 @@ export function deriveDispatchAction(
   const status = normalize(ticket.status);
   const assigned = normalize(ticket.assignedTo);
   const unassigned = !assigned || assigned === "unassigned";
-  const isCustomerReply = status.includes("customer reply");
-  const isWaitingOnTech = status.includes("waiting on tech");
+  const isCustomerReply = isCustomerWaitingForTech({
+    statusId: null,
+    statusName: ticket.status,
+    lastCustomerReplyAt: ticket.lastCustomerReplyAt,
+    lastTechActionAt: ticket.lastTechActionAt,
+  });
+  const isWaitingOnTech = isWaitingOnTechStatus(null, ticket.status);
   const isPastDue = status.includes("past-due") || status.includes("past due");
   const owner = ownerLabel(ticket.assignedTo);
   const bonus = priorityBonus(ticket.priority);

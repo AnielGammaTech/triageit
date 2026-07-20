@@ -16,6 +16,8 @@ dist/
 
 # debug
 npm-debug.log*
+apps/web/test-results/
+apps/web/playwright-report/
 
 # env
 .env

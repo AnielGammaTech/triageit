@@ -373,9 +373,14 @@ Respond with ONLY valid JSON:
           }),
         ]);
 
-        const upnLower = user.userPrincipalName.toLowerCase();
-        mailbox = mailboxes.find((m) => m.userPrincipalName.toLowerCase() === upnLower) ?? null;
-        devices = allDevices.filter((d) => d.userPrincipalName?.toLowerCase() === upnLower);
+        const upnLower = (user.userPrincipalName ?? "").trim().toLowerCase();
+        if (upnLower) {
+          mailbox = mailboxes.find((m) => (m.userPrincipalName ?? "").toLowerCase() === upnLower) ?? null;
+          devices = allDevices.filter((d) => d.userPrincipalName?.toLowerCase() === upnLower);
+        } else {
+          userLookupFailed = true;
+          console.warn("[DARRYL] CIPP returned a user without a userPrincipalName; skipping mailbox/device correlation");
+        }
         signInLogs = logs;
       }
 
@@ -506,4 +511,3 @@ Respond with ONLY valid JSON:
     return data ? (data.config as CippConfig) : null;
   }
 }
-

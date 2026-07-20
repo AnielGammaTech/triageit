@@ -92,7 +92,9 @@ export class ApiNinjasClient {
   /** Sentiment of ticket text: score (-1..1) + NEGATIVE/NEUTRAL/POSITIVE. */
   async sentiment(text: string): Promise<{ score: number; sentiment: string } | null> {
     const data = await this.request<{ score: number; sentiment: string }>("/sentiment", {
-      text: text.slice(0, 2000),
+      // API Ninjas rejects requests whose encoded payload reaches its stated
+      // 2,000-character ceiling. Leave safe headroom for non-ASCII input.
+      text: text.slice(0, 1000),
     });
     return data && typeof data.score === "number" ? data : null;
   }

@@ -71,6 +71,11 @@ export {
 export { INTEGRATION_DEFINITIONS } from "./constants/integrations.js";
 
 export { isSlaTargetBreached, isSlaTimerBreached } from "./constants/sla.js";
+export {
+  isCustomerReplyStatus,
+  isCustomerWaitingForTech,
+  isWaitingOnTechStatus,
+} from "./constants/action-queues.js";
 export { ACCOUNT_MANAGERS, DISPATCHER, TEAM_FACTS } from "./constants/workflow.js";
 
 export {

@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { extractResponseText } from "../llm-text.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseLlmJson } from "../parse-json.js";
+import { requestLlmJson } from "../llm-json.js";
 import { SkillLoader } from "../../memory/skill-loader.js";
 
 /**
@@ -379,9 +378,13 @@ async function refreshTechSummary(
     ].join("\n");
 
     const anthropic = new Anthropic();
-    const response = await anthropic.messages.create({
+    const { value } = await requestLlmJson<{
+      strong_categories: string[];
+      weak_categories: string[];
+      summary: string;
+    }>(anthropic, {
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+      max_tokens: 768,
       system: `You analyze IT technician performance. Identify strengths, weaknesses, and behavioral patterns. Be specific and actionable. Respond with ONLY valid JSON:
 {
   "strong_categories": ["specific ticket categories they handle well"],
@@ -389,10 +392,9 @@ async function refreshTechSummary(
   "summary": "2-3 sentence profile: work style, reliability, what they're known for, what to watch"
 }`,
       messages: [{ role: "user", content: context }],
-    });
+    }, `Toby tech profile for ${techName}`, 2_048);
 
-    const text = extractResponseText(response, "{}");
-    return parseLlmJson(text);
+    return value;
   } catch (err) {
     console.error(`[TOBY-LIVE] AI refresh failed for tech ${techName}:`, err);
     return null;
@@ -429,9 +431,13 @@ async function refreshCustomerSummary(
     ].join("\n");
 
     const anthropic = new Anthropic();
-    const response = await anthropic.messages.create({
+    const { value } = await requestLlmJson<{
+      recurring_issues: string[];
+      environment_notes: Record<string, unknown>;
+      summary: string;
+    }>(anthropic, {
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+      max_tokens: 768,
       system: `You analyze MSP client support patterns. Identify recurring issues, infrastructure patterns, and risk signals. Be specific. Respond with ONLY valid JSON:
 {
   "recurring_issues": ["specific issues that keep coming back"],
@@ -439,10 +445,9 @@ async function refreshCustomerSummary(
   "summary": "2-3 sentence profile: what kind of client they are, their pain points, how they typically submit tickets"
 }`,
       messages: [{ role: "user", content: context }],
-    });
+    }, `Toby customer profile for ${clientName}`, 2_048);
 
-    const text = extractResponseText(response, "{}");
-    return parseLlmJson(text);
+    return value;
   } catch (err) {
     console.error(`[TOBY-LIVE] AI refresh failed for client ${clientName}:`, err);
     return null;

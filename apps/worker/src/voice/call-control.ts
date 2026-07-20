@@ -58,6 +58,7 @@ export interface CallerAudioStream {
 }
 
 const RECONNECT_MAX_DELAY_MS = 60_000;
+const WS_HEARTBEAT_MS = 25_000;
 
 export class CallControlClient {
   private readonly baseUrl: string;
@@ -66,6 +67,9 @@ export class CallControlClient {
   private ws: WebSocket | null = null;
   private closedByUser = false;
   private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private awaitingPong = false;
 
   constructor(config: ThreeCxConfig) {
     this.baseUrl = config.api_url.replace(/\/$/, "");
@@ -253,6 +257,9 @@ export class CallControlClient {
     return {
       close: () => {
         this.closedByUser = true;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.stopHeartbeat();
         this.ws?.terminate();
         this.ws = null;
       },
@@ -274,6 +281,7 @@ export class CallControlClient {
 
       ws.on("open", () => {
         this.reconnectAttempts = 0;
+        this.startHeartbeat(ws);
         console.log("[VOICE] 3CX call-control websocket connected");
         onConnected?.();
       });
@@ -301,24 +309,62 @@ export class CallControlClient {
         console.warn("[VOICE] Websocket error:", error.message);
       });
 
-      ws.on("close", () => {
+      ws.on("close", (code, reason) => {
+        this.stopHeartbeat();
         if (this.closedByUser) return;
-        this.scheduleReconnect(onEvent, onConnected);
+        this.scheduleReconnect(onEvent, onConnected, code, reason.toString());
       });
     } catch (error) {
       console.warn("[VOICE] Websocket connect failed:", error instanceof Error ? error.message : error);
-      this.scheduleReconnect(onEvent, onConnected);
+      this.scheduleReconnect(onEvent, onConnected, null, "connect failed");
     }
   }
 
-  private scheduleReconnect(onEvent: (event: CallControlEvent) => void, onConnected?: () => void): void {
+  private startHeartbeat(ws: WebSocket): void {
+    this.stopHeartbeat();
+    this.awaitingPong = false;
+    ws.on("pong", () => {
+      this.awaitingPong = false;
+    });
+    this.heartbeatTimer = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (this.awaitingPong) {
+        console.warn("[VOICE] 3CX websocket heartbeat timed out; reconnecting");
+        ws.terminate();
+        return;
+      }
+      this.awaitingPong = true;
+      ws.ping();
+    }, WS_HEARTBEAT_MS);
+    this.heartbeatTimer.unref?.();
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+    this.awaitingPong = false;
+  }
+
+  private scheduleReconnect(
+    onEvent: (event: CallControlEvent) => void,
+    onConnected?: () => void,
+    closeCode: number | null = null,
+    closeReason = "",
+  ): void {
+    if (this.closedByUser || this.reconnectTimer) return;
     this.reconnectAttempts++;
     // Do NOT blanket-mint here: minting invalidates the token every REST
     // consumer in the process is using (3CX = one live token per client).
     // connectLoop force-refreshes only when the last upgrade was a 401.
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, RECONNECT_MAX_DELAY_MS);
-    console.warn(`[VOICE] Websocket disconnected — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})`);
-    const timer = setTimeout(() => void this.connectLoop(onEvent, onConnected), delay);
-    timer.unref?.();
+    const detail = closeCode === null ? closeReason : `code ${closeCode}${closeReason ? ` (${closeReason})` : ""}`;
+    const message = `[VOICE] Websocket disconnected${detail ? ` — ${detail}` : ""}; reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts})`;
+    if (closeCode !== null && (closeCode === 1000 || closeCode === 1001)) console.info(message);
+    else console.warn(message);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connectLoop(onEvent, onConnected);
+    }, delay);
+    this.reconnectTimer.unref?.();
   }
 }

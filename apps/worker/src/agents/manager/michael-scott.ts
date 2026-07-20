@@ -3,8 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HELPDESK_TECHNICIANS, isInternalStaffName, isSlaTargetBreached, isSlaTimerBreached, type Ticket, type AgentFinding } from "@triageit/shared";
 import type { TriageContext, TriageOutput } from "../types.js";
 import { classifyTicket } from "../workers/ryan-howard.js";
-import { parseLlmJson } from "../parse-json.js";
-import { extractResponseText } from "../llm-text.js";
+import { requestLlmJson } from "../llm-json.js";
 import { HaloClient, collectTicketDocuments } from "../../integrations/halo/client.js";
 import type { HaloConfig, TeamsConfig } from "@triageit/shared";
 import { TeamsClient } from "../../integrations/teams/client.js";
@@ -1090,23 +1089,7 @@ async function synthesizeFindings(
     messages: [{ role: "user" as const, content: messageContent }],
   };
 
-  let response = await client.messages.create(request);
-  logCacheUsage(`michael-synthesis:${routingDecision.model}`, response.usage);
-  let text = extractResponseText(response);
-
-  // An empty response is usually a transient API blip — one retry beats
-  // erroring the ticket with "Unexpected end of JSON input"
-  if (!text) {
-    console.warn("[MICHAEL] Empty synthesis response — retrying once");
-    response = await client.messages.create(request);
-    text = extractResponseText(response);
-  }
-  if (!text) {
-    throw new Error(
-      `Michael synthesis returned no text (stop_reason: ${response.stop_reason ?? "unknown"})`,
-    );
-  }
-  const rawResult = parseLlmJson<{
+  const { value: rawResult, response, attempts } = await requestLlmJson<{
     recommended_team: string;
     recommended_agent: string | null;
     assignment_reasoning: string | null;
@@ -1123,7 +1106,11 @@ async function synthesizeFindings(
     adjustments: string | null;
     escalation_needed: boolean;
     escalation_reason: string | null;
-  }>(text);
+  }>(client, request, `Michael synthesis for #${context.haloId}`, 8_192);
+  logCacheUsage(`michael-synthesis:${routingDecision.model}`, response.usage);
+  if (attempts > 1) {
+    console.warn(`[MICHAEL] Synthesis for #${context.haloId} recovered on retry`);
+  }
 
   return {
     ...rawResult,

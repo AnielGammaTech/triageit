@@ -1,5 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { isHelpdeskTechnicianName } from "@triageit/shared";
+import {
+  isCustomerReplyStatus,
+  isCustomerWaitingForTech,
+  isHelpdeskTechnicianName,
+  isWaitingOnTechStatus,
+} from "@triageit/shared";
 
 /**
  * Shared Command Center aggregation — consumed by the authenticated dashboard
@@ -116,8 +121,6 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
-const HALO_CUSTOMER_REPLY_STATUS_ID = 30;
-const HALO_WAITING_ON_TECH_STATUS_ID = 32;
 const HALO_UNASSIGNED_AGENT_ID = 1;
 const HALO_CLOSE_COUNT_CACHE_MS = 30_000;
 
@@ -144,14 +147,21 @@ function etDateKey(now: Date): string {
 
 /** Match Halo's Waiting on Tech queue exactly; PAST-DUE is a separate status. */
 export function isWaitingOnTechQueue(statusId: number | null, statusName: string | null): boolean {
-  return statusId === HALO_WAITING_ON_TECH_STATUS_ID
-    || /waiting on tech/i.test(statusName ?? "");
+  return isWaitingOnTechStatus(statusId, statusName);
 }
 
 /** Match Halo's Customer Reply queue exactly; this is separate from Waiting on Tech. */
 export function isCustomerReplyQueue(statusId: number | null, statusName: string | null): boolean {
-  return statusId === HALO_CUSTOMER_REPLY_STATUS_ID
-    || /customer reply/i.test(statusName ?? "");
+  return isCustomerReplyStatus(statusId, statusName);
+}
+
+function customerIsWaiting(ticket: TicketRow): boolean {
+  return isCustomerWaitingForTech({
+    statusId: ticket.halo_status_id,
+    statusName: ticket.halo_status,
+    lastCustomerReplyAt: ticket.last_customer_reply_at,
+    lastTechActionAt: ticket.last_tech_action_at,
+  });
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -367,7 +377,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   // ── Customer Reply tickets — the customer spoke last, oldest reply first ──
   const customerReplyTickets: CommandUnassigned[] = tickets
-    .filter((t) => isCustomerReplyQueue(t.halo_status_id, t.halo_status))
+    .filter(customerIsWaiting)
     .map((t) => ({
       halo_id: t.halo_id,
       summary: t.summary,
@@ -412,7 +422,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     agg.openTickets++;
     if (t.sla_currently_breached) agg.breaching++;
     if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
-    if (isCustomerReplyQueue(t.halo_status_id, t.halo_status)) {
+    if (customerIsWaiting(t)) {
       const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
       const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
       if (cust > 0 && cust > tech && now - cust >= THIRTY_MIN_MS) agg.unackedReplies++;
@@ -479,7 +489,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     atRisk: atRisk.length,
     unassigned: unassignedTickets.length,
     waitingOnTech: tickets.filter((t) => isWaitingOnTechQueue(t.halo_status_id, t.halo_status)).length,
-    customerReply: tickets.filter((t) => isCustomerReplyQueue(t.halo_status_id, t.halo_status)).length,
+    customerReply: tickets.filter(customerIsWaiting).length,
     unackedReplies: techStats.reduce((s, t) => s + t.unackedReplies, 0),
     openedToday: openedTodayRes.count ?? 0,
     resolvedToday: haloResolvedToday ?? resolvedTodayFallbackRes.count ?? 0,

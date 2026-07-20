@@ -6,6 +6,7 @@ import { DattoEdrClient } from "../integrations/datto-edr/client.js";
 import { HuduClient } from "../integrations/hudu/client.js";
 import { JumpCloudClient } from "../integrations/jumpcloud/client.js";
 import { Pax8Client } from "../integrations/pax8/client.js";
+import { ThreeCxClient } from "../integrations/threecx/client.js";
 import { decodeJwtClaimArray, requestClientCredentialsToken } from "../integrations/msgraph/auth.js";
 import { UnifiClient } from "../integrations/unifi/client.js";
 
@@ -167,6 +168,36 @@ async function checkPax8(config: Record<string, unknown>): Promise<CheckResult> 
     status: "healthy",
     message: `Pax8 returned ${companies.length} compan${companies.length === 1 ? "y" : "ies"}.`,
   };
+}
+
+async function checkThreeCx(config: Record<string, unknown>): Promise<CheckResult> {
+  const missing = required(config, ["api_url", "api_key"]);
+  if (missing) return { status: "down", message: missing };
+
+  const threeCx = new ThreeCxClient({
+    api_url: text(config, "api_url"),
+    api_key: text(config, "api_key"),
+    client_id: text(config, "client_id") || undefined,
+    client_secret: text(config, "client_secret") || undefined,
+  });
+  const status = await threeCx.getSystemStatus();
+  const summary = [
+    status.Version ? `v${status.Version}` : null,
+    typeof status.ExtensionsRegistered === "number" ? `${status.ExtensionsRegistered} extensions registered` : null,
+    typeof status.TrunksRegistered === "number" && typeof status.TrunksTotal === "number"
+      ? `${status.TrunksRegistered}/${status.TrunksTotal} trunks registered`
+      : null,
+  ].filter(Boolean).join("; ");
+
+  if (status.HasNotRunningServices || status.HasUnregisteredSystemExtensions) {
+    const warnings = [
+      status.HasNotRunningServices ? "one or more 3CX services are not running" : null,
+      status.HasUnregisteredSystemExtensions ? "one or more system extensions are unregistered" : null,
+    ].filter(Boolean).join("; ");
+    return { status: "degraded", message: `${warnings}${summary ? ` (${summary})` : ""}.` };
+  }
+
+  return { status: "healthy", message: `3CX system status is healthy${summary ? ` (${summary})` : ""}.` };
 }
 
 async function checkUnifi(config: Record<string, unknown>): Promise<CheckResult> {
@@ -419,6 +450,7 @@ const CHECKERS: Record<string, Checker> = {
   msgraph: checkMsGraph,
   pax8: checkPax8,
   teams: checkTeams,
+  threecx: checkThreeCx,
   twilio: checkTwilio,
   unifi: checkUnifi,
   unitrends: checkUnitrends,

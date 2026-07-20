@@ -24,6 +24,12 @@ interface Unmatched {
   readonly external_name: string;
 }
 
+interface SkippedIntegration {
+  readonly service: string;
+  readonly display_name: string;
+  readonly reason: string;
+}
+
 interface AutoMapperConfigProps {
   readonly item: IntegrationItem;
   readonly onBack: () => void;
@@ -34,6 +40,7 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ReadonlyArray<Suggestion>>([]);
   const [unmatched, setUnmatched] = useState<ReadonlyArray<Unmatched>>([]);
+  const [skipped, setSkipped] = useState<ReadonlyArray<SkippedIntegration>>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [approving, setApproving] = useState(false);
   const [approvedCount, setApprovedCount] = useState(0);
@@ -47,6 +54,7 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
     setError(null);
     setSuggestions([]);
     setUnmatched([]);
+    setSkipped([]);
     setSelected(new Set());
 
     try {
@@ -60,6 +68,7 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
       const data = await res.json();
       setSuggestions(data.suggestions ?? []);
       setUnmatched(data.unmatched ?? []);
+      setSkipped(data.skipped ?? []);
       setStats({
         halo_customer_count: data.halo_customer_count,
         integration_count: data.integration_count,
@@ -204,6 +213,21 @@ export function AutoMapperConfig({ item, onBack }: AutoMapperConfigProps) {
         <p className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400">
           {error}
         </p>
+      )}
+
+      {skipped.length > 0 && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium text-amber-300">
+            {skipped.length} integration{skipped.length === 1 ? " was" : "s were"} not scanned
+          </p>
+          <div className="mt-2 space-y-1 text-xs text-amber-100/70">
+            {skipped.map((entry) => (
+              <p key={`${entry.service}:${entry.display_name}`}>
+                <span className="font-medium text-amber-100">{entry.display_name}</span>: {entry.reason}
+              </p>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Stats */}

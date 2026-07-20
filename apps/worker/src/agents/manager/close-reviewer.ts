@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseLlmJson } from "../parse-json.js";
+import { requestLlmJson } from "../llm-json.js";
 import { HaloClient, type TicketImage } from "../../integrations/halo/client.js";
 import { MemoryManager } from "../../memory/memory-manager.js";
 import { TeamsClient } from "../../integrations/teams/client.js";
@@ -276,25 +276,43 @@ async function _generateCloseReview(
       ]
     : `${CLOSE_REVIEW_PROMPT}\n\n${context}`;
 
-  const response = await anthropic.messages.create({
+  const { value: parsedReview } = await requestLlmJson<Partial<CloseReviewResult>>(anthropic, {
     model: "claude-haiku-4-5-20251001",
     max_tokens: 3000,
     messages: [
       { role: "user", content: userContent },
     ],
-  });
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  const parsedReview = parseLlmJson<CloseReviewResult>(text);
+  }, `Close review for #${haloId}`, 6_000);
+  const normalizedReview: CloseReviewResult = {
+    resolution_summary: parsedReview.resolution_summary ?? "The ticket was closed without a complete AI resolution summary.",
+    tech_performance: {
+      rating: parsedReview.tech_performance?.rating ?? "needs_improvement",
+      response_time: parsedReview.tech_performance?.response_time ?? "not available",
+      communication: parsedReview.tech_performance?.communication ?? "Communication evidence was incomplete.",
+      highlights: parsedReview.tech_performance?.highlights ?? null,
+      issues: parsedReview.tech_performance?.issues ?? null,
+    },
+    documentation_action: {
+      hudu_updates_needed: Array.isArray(parsedReview.documentation_action?.hudu_updates_needed)
+        ? parsedReview.documentation_action.hudu_updates_needed
+        : [],
+      quality_score: parsedReview.documentation_action?.quality_score ?? 3,
+      notes: parsedReview.documentation_action?.notes ?? "No documentation assessment was returned.",
+    },
+    hudu_kb_drafts: Array.isArray(parsedReview.hudu_kb_drafts) ? parsedReview.hudu_kb_drafts : [],
+    onsite_visits: Array.isArray(parsedReview.onsite_visits) ? parsedReview.onsite_visits : [],
+    ticket_lifecycle: {
+      total_time: parsedReview.ticket_lifecycle?.total_time ?? "not available",
+      first_response_time: parsedReview.ticket_lifecycle?.first_response_time ?? "not available",
+      resolution_method: parsedReview.ticket_lifecycle?.resolution_method ?? "not available",
+    },
+    client_policy: parsedReview.client_policy ?? null,
+  };
   const confirmedOnsite = hasConfirmedGammaOnsiteEvidence(actions);
   const review: CloseReviewResult = confirmedOnsite
-    ? parsedReview
-    : { ...parsedReview, onsite_visits: [] };
-  if (parsedReview.onsite_visits.length > 0 && !confirmedOnsite) {
+    ? normalizedReview
+    : { ...normalizedReview, onsite_visits: [] };
+  if (normalizedReview.onsite_visits.length > 0 && !confirmedOnsite) {
     console.warn(`[CLOSE-REVIEW] #${haloId} ignored unverified onsite evidence — no Gamma staff action confirmed a visit`);
   }
 

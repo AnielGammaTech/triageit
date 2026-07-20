@@ -20,11 +20,10 @@ import type { CommandCenterPayload } from "@/lib/api/command-center-data";
 
 /**
  * /tv — TriageIT Command wallboard for the office 65" TV.
- * Key-gated (?key= → localStorage), self-refreshing (data 30s, clock 1s,
+ * Device-session-gated, self-refreshing (data 30s, clock 1s,
  * full page reload every 6h to pick up deploys), 10-foot typography.
  */
 
-const KEY_STORAGE = "triageit_tv_key";
 const REFRESH_MS = 30_000;
 const STALE_AFTER_MS = 120_000;
 const RELOAD_AFTER_MS = 6 * 3600_000;
@@ -181,10 +180,10 @@ interface TvPairingRequest {
 }
 
 export default function TvPage() {
-  const [tvKey, setTvKey] = useState<string | null>(null);
-  const [keyResolved, setKeyResolved] = useState(false);
+  const [accessResolved, setAccessResolved] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
-  const [keyInput, setKeyInput] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [redeemingCode, setRedeemingCode] = useState(false);
   const [data, setData] = useState<TvPayload | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const [accessError, setAccessError] = useState("");
@@ -192,33 +191,8 @@ export default function TvPage() {
   const [pairingQr, setPairingQr] = useState("");
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
-  const keyRef = useRef<string | null>(null);
   const pairingRequestInFlight = useRef(false);
-
-  // Resolve the key: URL param wins (and is persisted), else localStorage.
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("key");
-    if (fromUrl) {
-      try {
-        localStorage.setItem(KEY_STORAGE, fromUrl);
-      } catch {
-        /* private mode — key still usable from state */
-      }
-      setTvKey(fromUrl);
-      setKeyResolved(true);
-      return;
-    }
-    try {
-      setTvKey(localStorage.getItem(KEY_STORAGE));
-    } catch {
-      setTvKey(null);
-    }
-    setKeyResolved(true);
-  }, []);
-
-  useEffect(() => {
-    keyRef.current = tvKey;
-  }, [tvKey]);
+  const accessCheckStarted = useRef(false);
 
   const checkAutomaticSession = useCallback(async () => {
     try {
@@ -226,6 +200,34 @@ export default function TvPage() {
       return response.ok;
     } catch {
       return false;
+    }
+  }, []);
+
+  const redeemAccessCode = useCallback(async (code: string): Promise<boolean> => {
+    setRedeemingCode(true);
+    try {
+      const response = await fetch("/api/tv/session", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        setAccessError(body?.error ?? "That TV access code is invalid, expired, or already used.");
+        return false;
+      }
+      setSessionReady(true);
+      setAuthFailed(false);
+      setAccessError("");
+      setPairing(null);
+      setCodeInput("");
+      return true;
+    } catch {
+      setAccessError("TV access is temporarily unavailable. Try the code again.");
+      return false;
+    } finally {
+      setRedeemingCode(false);
     }
   }, []);
 
@@ -238,19 +240,17 @@ export default function TvPage() {
       setPairing((await response.json()) as TvPairingRequest);
       setAccessError("");
     } catch {
-      setAccessError("QR approval is temporarily unavailable. Use the emergency access key below.");
+      setAccessError("QR approval is temporarily unavailable. Enter a one-time access code below.");
     } finally {
       pairingRequestInFlight.current = false;
     }
   }, []);
 
   const load = useCallback(async () => {
-    const key = keyRef.current;
-    if (!key && !sessionReady) return;
+    if (!sessionReady) return;
     try {
       const res = await fetch("/api/tv/command", {
         cache: "no-store",
-        headers: key ? { "x-tv-key": key } : undefined,
       });
       if (res.status === 401 || res.status === 503) {
         const restored = await checkAutomaticSession();
@@ -258,8 +258,6 @@ export default function TvPage() {
           setSessionReady(true);
           setAuthFailed(false);
         } else {
-          try { localStorage.removeItem(KEY_STORAGE); } catch { /* ignore */ }
-          setTvKey(null);
           setSessionReady(false);
           setAuthFailed(true);
         }
@@ -275,22 +273,35 @@ export default function TvPage() {
   }, [checkAutomaticSession, sessionReady]);
 
   useEffect(() => {
-    if (!keyResolved || tvKey || sessionReady || pairing) return;
-    let active = true;
+    if (accessCheckStarted.current) return;
+    accessCheckStarted.current = true;
     const authorize = async () => {
+      const hashCode = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("code");
+      if (hashCode) {
+        // Fragments never reach the server, so redeem in the browser and then
+        // remove the secret from history/address bar immediately.
+        const redeemed = await redeemAccessCode(hashCode);
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        setAccessResolved(true);
+        if (redeemed) return;
+      }
+
       const automatic = await checkAutomaticSession();
-      if (!active) return;
       if (automatic) {
         setSessionReady(true);
         setAuthFailed(false);
-        return;
+      } else {
+        setAuthFailed(true);
       }
-      setAuthFailed(true);
-      await startPairing();
+      setAccessResolved(true);
     };
     void authorize();
-    return () => { active = false; };
-  }, [checkAutomaticSession, keyResolved, pairing, sessionReady, startPairing, tvKey]);
+  }, [checkAutomaticSession, redeemAccessCode]);
+
+  useEffect(() => {
+    if (!accessResolved || sessionReady || pairing || redeemingCode) return;
+    void startPairing();
+  }, [accessResolved, pairing, redeemingCode, sessionReady, startPairing]);
 
   useEffect(() => {
     if (!pairing) {
@@ -306,7 +317,7 @@ export default function TvPage() {
     }).then((url) => {
       if (active) setPairingQr(url);
     }).catch(() => {
-      if (active) setAccessError("Could not draw the QR code. Use the emergency access key below.");
+      if (active) setAccessError("Could not draw the QR code. Enter a one-time access code below.");
     });
     return () => { active = false; };
   }, [pairing]);
@@ -344,7 +355,7 @@ export default function TvPage() {
 
   // Data refresh + clock + daily self-reload
   useEffect(() => {
-    if (!tvKey && !sessionReady) return;
+    if (!sessionReady) return;
     void load();
     const dataT = setInterval(() => void load(), REFRESH_MS);
     const clockT = setInterval(() => setNowTick(Date.now()), 1000);
@@ -354,9 +365,9 @@ export default function TvPage() {
       clearInterval(clockT);
       clearTimeout(reloadT);
     };
-  }, [tvKey, sessionReady, load]);
+  }, [sessionReady, load]);
 
-  if (!keyResolved || (!tvKey && !sessionReady) || (authFailed && !data)) {
+  if (!accessResolved || !sessionReady || (authFailed && !data)) {
     return (
       <Shell>
         <div className="flex h-full flex-col items-center justify-center gap-[1.4vh] px-[4vw]">
@@ -365,7 +376,7 @@ export default function TvPage() {
             TRIAGE<span style={{ color: RED }}>IT</span> <span style={{ color: "#a1a1aa" }}>COMMAND</span>
           </h1>
           <p className="text-[1.05vw]" style={{ color: INK_DIM }}>
-            {!keyResolved ? "Checking this TV..." : "Scan to approve this TV from an authenticated TriageIT admin account."}
+            {!accessResolved ? "Checking this TV..." : "Scan to approve this TV from an authenticated TriageIT admin account."}
           </p>
 
           {pairingQr && pairing ? (
@@ -387,7 +398,7 @@ export default function TvPage() {
                 )}
               </div>
             </div>
-          ) : keyResolved ? (
+          ) : accessResolved ? (
             <div className="flex h-[13vw] w-[13vw] items-center justify-center rounded-[0.7vw] border" style={{ borderColor: HAIRLINE, background: PANEL }}>
               <div className="h-[2.2vw] w-[2.2vw] animate-spin rounded-full border-[0.25vw] border-white/10 border-t-red-500" />
             </div>
@@ -397,40 +408,34 @@ export default function TvPage() {
 
           <div className="flex items-center gap-[0.8vw]">
             <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
-            <span className="text-[0.72vw] font-semibold uppercase tracking-[0.14em]" style={{ color: INK_FAINT }}>emergency access key</span>
+            <span className="text-[0.72vw] font-semibold uppercase tracking-[0.14em]" style={{ color: INK_FAINT }}>one-time access code</span>
             <span className="h-px w-[6vw]" style={{ background: HAIRLINE }} />
           </div>
           <form
             className="flex items-center gap-[0.8vw]"
             onSubmit={(e) => {
               e.preventDefault();
-              const k = keyInput.trim();
-              if (!k) return;
-              try {
-                localStorage.setItem(KEY_STORAGE, k);
-              } catch {
-                /* ignore */
-              }
-              setAuthFailed(false);
-              setPairing(null);
-              setTvKey(k);
+              const code = codeInput.trim();
+              if (!code || redeemingCode) return;
+              void redeemAccessCode(code);
             }}
           >
             <input
               type="password"
               autoFocus
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              placeholder="Access key"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              placeholder="ABCD-EFGH"
               className="w-[24vw] rounded-[0.6vw] border px-[1vw] py-[0.7vw] text-[1.2vw] text-white outline-none"
               style={{ background: PANEL, borderColor: HAIRLINE, fontFamily: "var(--font-mono-tv), monospace" }}
             />
             <button
               type="submit"
+              disabled={redeemingCode}
               className="cursor-pointer rounded-[0.6vw] px-[1.4vw] py-[0.7vw] text-[1.2vw] font-bold text-white transition-opacity hover:opacity-85"
               style={{ background: RED }}
             >
-              Unlock
+              {redeemingCode ? "Checking…" : "Unlock"}
             </button>
           </form>
           <p className="text-[0.8vw]" style={{ color: INK_FAINT }}>

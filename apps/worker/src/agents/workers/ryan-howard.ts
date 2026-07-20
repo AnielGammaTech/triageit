@@ -1,7 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TriageContext, ClassificationResult } from "../types.js";
-import { parseLlmJson } from "../parse-json.js";
-import { extractResponseText } from "../llm-text.js";
+import { requestLlmJson } from "../llm-json.js";
 import { logCacheUsage } from "../cache-metrics.js";
 import { ApiNinjasClient } from "../../integrations/apininjas/client.js";
 
@@ -145,24 +144,16 @@ export async function classifyTicket(
     messages: [{ role: "user" as const, content: userMessage }],
   };
 
-  let response = await client.messages.create(request);
+  const { value: parsed, response, attempts } = await requestLlmJson<ClassificationResult>(
+    client,
+    request,
+    `Ryan classification for #${context.haloId}`,
+    4_096,
+  );
   logCacheUsage("ryan:claude-haiku-4-5", response.usage);
-  let text = extractResponseText(response);
-
-  // An empty response is usually a transient API blip — one retry beats
-  // erroring the ticket with "Unexpected end of JSON input"
-  if (!text) {
-    console.warn(`[RYAN] Empty classification response for #${context.haloId} — retrying once`);
-    response = await client.messages.create(request);
-    text = extractResponseText(response);
+  if (attempts > 1) {
+    console.warn(`[RYAN] Classification for #${context.haloId} recovered on retry`);
   }
-  if (!text) {
-    throw new Error(
-      `Ryan classification returned no text for #${context.haloId} (stop_reason: ${response.stop_reason ?? "unknown"})`,
-    );
-  }
-
-  const parsed = parseLlmJson<ClassificationResult>(text);
 
   // Clamp priority to 1-4 range matching Halo levels:
   // 1 = High – Severe Productivity Impact
