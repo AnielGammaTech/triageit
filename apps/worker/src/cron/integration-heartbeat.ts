@@ -171,14 +171,23 @@ async function checkPax8(config: Record<string, unknown>): Promise<CheckResult> 
 }
 
 async function checkThreeCx(config: Record<string, unknown>): Promise<CheckResult> {
-  const missing = required(config, ["api_url", "api_key"]);
-  if (missing) return { status: "down", message: missing };
+  const apiUrl = text(config, "api_url");
+  const apiKey = text(config, "api_key");
+  const clientId = text(config, "client_id");
+  const clientSecret = text(config, "client_secret");
+  if (!apiUrl) return { status: "down", message: "Missing required field: api_url" };
+  if (!apiKey && (!clientId || !clientSecret)) {
+    return {
+      status: "down",
+      message: "Configure either the 3CX OAuth client ID/secret or a legacy API key.",
+    };
+  }
 
   const threeCx = new ThreeCxClient({
-    api_url: text(config, "api_url"),
-    api_key: text(config, "api_key"),
-    client_id: text(config, "client_id") || undefined,
-    client_secret: text(config, "client_secret") || undefined,
+    api_url: apiUrl,
+    api_key: apiKey,
+    client_id: clientId || undefined,
+    client_secret: clientSecret || undefined,
   });
   const status = await threeCx.getSystemStatus();
   const summary = [
