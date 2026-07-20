@@ -8,6 +8,7 @@ import {
   isHelpdeskTechnicianName,
   type HaloTicket,
 } from "@triageit/shared";
+import { syncTechnicianActivityForTicket } from "../technician-activity/activity.js";
 
 interface TicketSyncResult {
   readonly pulled: number;
@@ -58,7 +59,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   const haloIds = openTickets.map((t) => t.id);
   const { data: existingTickets } = await supabase
     .from("tickets")
-    .select("id, halo_id, status, workflow_past_due, resolution_time_at, onsite_visit_alerted_at")
+    .select("id, halo_id, status, workflow_past_due, resolution_time_at, onsite_visit_alerted_at, last_tech_action_at")
     .in("halo_id", haloIds);
 
   const existingMap = new Map(
@@ -69,6 +70,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   let created = 0;
   let updated = 0;
   let triageEnqueued = 0;
+  const activityCandidates = new Map<number, string | null>();
 
   // Pre-resolve all agent names in one pass (fixes N+1 API calls)
   const uniqueAgentIds = [...new Set(
@@ -169,6 +171,7 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
         try {
           const original = newTickets.find((t) => t.id === row.halo_id);
           if (original) {
+            activityCandidates.set(original.id, original.lastactiondate ?? null);
             await enqueueTriageJob({
               ticketId: row.id,
               haloId: row.halo_id,
@@ -190,6 +193,9 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
   for (const ticket of existingToUpdate) {
     const workflowFields = getWorkflowFields(ticket);
     const existing = existingMap.get(ticket.id);
+    if ((ticket.lastactiondate ?? null) !== (existing?.last_tech_action_at ?? null)) {
+      activityCandidates.set(ticket.id, ticket.lastactiondate ?? null);
+    }
 
     // Preserve the workflow scan's past-due flag. getWorkflowFields derives
     // it from the Halo STATUS NAME only, so a deadline-based flag set by the
@@ -236,6 +242,27 @@ export async function syncTicketsFromHalo(): Promise<TicketSyncResult> {
       .eq("halo_id", ticket.id);
 
     if (!updateError) updated++;
+  }
+
+  // Reuse the one-minute Halo ticket sync as the live activity trigger. Only
+  // tickets whose last-action watermark changed are read, so management
+  // reporting stays current without re-fetching every ticket on every cycle.
+  if (activityCandidates.size > 0) {
+    const pending = [...activityCandidates.entries()];
+    let cursor = 0;
+    let storedActions = 0;
+    const activityWorkers = Array.from({ length: Math.min(6, pending.length) }, async () => {
+      while (cursor < pending.length) {
+        const [haloTicketId, lastActionAt] = pending[cursor++];
+        try {
+          storedActions += await syncTechnicianActivityForTicket(supabase, halo, haloTicketId, lastActionAt);
+        } catch (activityError) {
+          console.warn(`[TECH-ACTIVITY] Live sync failed #${haloTicketId}:`, activityError instanceof Error ? activityError.message : activityError);
+        }
+      }
+    });
+    await Promise.all(activityWorkers);
+    console.log(`[TECH-ACTIVITY] Live sync: ${pending.length} changed ticket(s), ${storedActions} technician action(s) stored`);
   }
 
   const closed = await reconcileClosedTickets(supabase, halo, haloIds, now, statusMap);

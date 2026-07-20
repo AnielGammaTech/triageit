@@ -5,6 +5,7 @@ import {
   buildTechnicianEmailPerformance,
   type TechnicianResponsePerformanceRow,
 } from "./performance.js";
+import { buildTechnicianActivitySummary } from "../technician-activity/activity.js";
 
 interface CurrentTicketState {
   readonly halo_is_open: boolean | null;
@@ -85,6 +86,7 @@ export async function buildResponseComplianceDashboard() {
     rows as ReadonlyArray<ComplianceDashboardRow & TechnicianResponsePerformanceRow>,
     now,
   );
+  const technicianActivity = await buildTechnicianActivitySummary(supabase, now);
   const todayRows = rows.filter((row) => Date.parse(row.ticket_created_at) >= Date.parse(start));
   const openRows = rows.filter(ticketIsOpen);
   const detailRows = {
@@ -114,6 +116,7 @@ export async function buildResponseComplianceDashboard() {
   return {
     generatedAt: now.toISOString(),
     technicianEmailPerformance,
+    technicianActivity,
     summary: {
       acknowledgment: {
         onTime: detailRows.ackOnTime.length,

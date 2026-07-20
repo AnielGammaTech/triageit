@@ -20,6 +20,7 @@ import { runAlertManager } from "./alert-manager.js";
 import { generateAlertManagerDigest } from "./alert-manager-digest.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
+import { syncTechnicianActivity } from "../technician-activity/activity.js";
 import type { TeamsConfig } from "@triageit/shared";
 
 // ── BullMQ-based cron scheduler ─────────────────────────────────────
@@ -92,6 +93,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     description: "Tracks the 30-minute customer acknowledgment and one-business-hour assigned-tech email clocks.",
     schedule: "* * * * *",
     endpoint: "/ticket-response-compliance",
+  },
+  {
+    name: "Technician Activity Sync",
+    description: "Backfills the verified Halo action ledger used for daily technician management reporting.",
+    schedule: "0 * * * *",
+    endpoint: "/technician-activity-sync",
   },
   {
     name: "Alert Manager",
@@ -266,6 +273,7 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,
   "/ticket-response-compliance": runTicketResponseCompliance,
+  "/technician-activity-sync": runTechnicianActivitySync,
   "/alert-manager": runAlertManagerCron,
   "/alert-manager-digest": runAlertManagerDigestCron,
   "/integration-heartbeat": runIntegrationHeartbeatCron,
@@ -438,6 +446,14 @@ async function runTicketResponseCompliance(): Promise<void> {
   const result = await scanTicketResponseCompliance();
   console.log(
     `[CRON] Response compliance: ${result.tracked} tracked, ${result.dispatcherMisses} dispatcher misses, ${result.ptoExemptions} PTO exemptions, ${result.technicianMisses} technician misses, ${result.approvalsStaged} approvals staged`,
+  );
+}
+
+async function runTechnicianActivitySync(): Promise<void> {
+  const supabase = createSupabaseClient();
+  const result = await syncTechnicianActivity(supabase, { lookbackDays: 7, maxTickets: 75 });
+  console.log(
+    `[CRON] Technician activity: ${result.candidates} candidates, ${result.syncedTickets} ticket(s) synced, ${result.storedActions} technician action(s) stored`,
   );
 }
 
@@ -887,6 +903,7 @@ async function registerDefaultJobs(queue: Queue<CronJobData>): Promise<void> {
   const defaults = [
     { endpoint: "/ticket-sync", name: "Halo Ticket Sync", schedule: "* * * * *" }, // Every minute
     { endpoint: "/ticket-response-compliance", name: "Ticket Response Compliance", schedule: "* * * * *" },
+    { endpoint: "/technician-activity-sync", name: "Technician Activity Sync", schedule: "0 * * * *" },
     { endpoint: "/alert-manager", name: "Alert Manager", schedule: "*/30 8-17 * * 1-5" },
     { endpoint: "/alert-manager-digest", name: "Alert Manager Digest", schedule: "0 15 * * 1-5" },
     { endpoint: "/integration-heartbeat", name: "Integration Heartbeat", schedule: "*/5 * * * *" }, // Every 5 minutes

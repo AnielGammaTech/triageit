@@ -52,6 +52,19 @@ export interface HaloAction {
   readonly who?: string;
   readonly who_type?: number;
   readonly emaildirection?: string;
+  readonly actionby_agent_id?: number;
+  readonly who_agentid?: number;
+  readonly actionby_application_id?: number;
+  readonly old_status?: string;
+  readonly new_status?: string;
+  readonly new_status_name?: string;
+  /** Halo records time taken in hours (for example, 0.5 = 30 minutes). */
+  readonly timetaken?: number;
+  readonly timetakenadjusted?: number;
+  readonly actionchargehours?: number;
+  readonly actionnonchargehours?: number;
+  readonly actiontravelchargehours?: number;
+  readonly actisbillable?: boolean;
   // Halo returns date in multiple fields depending on context.
   // `actiondatecreated` and `datetime` are the primary fields from the API.
   // `datecreated` is NOT returned by the actions endpoint despite what docs imply.

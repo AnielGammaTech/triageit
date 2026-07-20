@@ -46,6 +46,14 @@ interface ResponseCompliancePayload {
     readonly team: TechnicianEmailMetric;
     readonly technicians: ReadonlyArray<TechnicianEmailMetric & { readonly tech: string }>;
   };
+  readonly technicianActivity: {
+    readonly generatedAt: string;
+    readonly period: "today";
+    readonly timeZone: string;
+    readonly definition: string;
+    readonly team: TechnicianActivityMetric;
+    readonly technicians: ReadonlyArray<TechnicianActivityMetric>;
+  };
   readonly summary: {
     readonly acknowledgment: {
       readonly onTime: number;
@@ -71,6 +79,20 @@ interface TechnicianEmailMetric {
   readonly onTimePercent: number;
   readonly medianEmailMinutes: number | null;
   readonly noEmail: number;
+}
+
+interface TechnicianActivityMetric {
+  readonly technician: string;
+  readonly ticketsTouched: number;
+  readonly actions: number;
+  readonly customerEmails: number;
+  readonly privateNotes: number;
+  readonly statusChanges: number;
+  readonly assignmentChanges: number;
+  readonly appointments: number;
+  readonly phoneCalls: number;
+  readonly workMinutes: number;
+  readonly billableHours: number;
 }
 
 interface MetricDefinition {
@@ -130,6 +152,14 @@ function performanceTone(percent: number): string {
   if (percent >= 90) return "#4ade80";
   if (percent >= 75) return "#facc15";
   return "#f87171";
+}
+
+function workDuration(minutes: number): string {
+  const rounded = Math.round(minutes);
+  if (rounded < 60) return `${rounded}m`;
+  const hours = Math.floor(rounded / 60);
+  const remainder = rounded % 60;
+  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
 }
 
 function responseDetail(bucket: ResponseBucket, ticket: ResponseTicket, generatedAt: string): string {
@@ -297,6 +327,55 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {data?.technicianActivity && (
+        <div className="border-b" style={{ borderColor: HAIRLINE }}>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
+            <div>
+              <p className="text-xs font-semibold text-white">Verified Halo work performed today</p>
+              <p className="mt-0.5 text-[10px] text-zinc-500">
+                Distinct human ticket actions · system rules and TriageIT automation excluded
+              </p>
+            </div>
+            <div className="ml-auto flex items-center gap-3 text-[11px]">
+              <span className="text-zinc-500">Team</span>
+              <strong className="text-white">{data.technicianActivity.team.ticketsTouched} tickets touched</strong>
+              <span className="text-zinc-400">{data.technicianActivity.team.actions} actions</span>
+              <span className="text-zinc-500">{workDuration(data.technicianActivity.team.workMinutes)} recorded work</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto border-t" style={{ borderColor: HAIRLINE }}>
+            <table className="w-full min-w-[820px] text-left">
+              <thead>
+                <tr className="text-[9px] font-semibold uppercase tracking-wide text-zinc-600">
+                  <th className="px-5 py-1.5">Technician</th>
+                  <th className="px-3 py-1.5">Tickets touched</th>
+                  <th className="px-3 py-1.5">Actions</th>
+                  <th className="px-3 py-1.5">Customer emails</th>
+                  <th className="px-3 py-1.5">Private notes</th>
+                  <th className="px-3 py-1.5">Workflow changes</th>
+                  <th className="px-5 py-1.5 text-right">Recorded work</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.technicianActivity.technicians.map((tech) => (
+                  <tr key={tech.technician} className="border-t text-xs" style={{ borderColor: HAIRLINE }}>
+                    <td className="px-5 py-2 font-semibold text-white/90">{tech.technician}</td>
+                    <td className="px-3 py-2 font-semibold tabular-nums text-zinc-200">{tech.ticketsTouched}</td>
+                    <td className="px-3 py-2 tabular-nums text-zinc-300">{tech.actions}</td>
+                    <td className="px-3 py-2 tabular-nums text-zinc-300">{tech.customerEmails}</td>
+                    <td className="px-3 py-2 tabular-nums text-zinc-300">{tech.privateNotes}</td>
+                    <td className="px-3 py-2 tabular-nums text-zinc-300">
+                      {tech.statusChanges + tech.assignmentChanges + tech.appointments}
+                    </td>
+                    <td className="px-5 py-2 text-right font-medium tabular-nums text-zinc-300">{workDuration(tech.workMinutes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
