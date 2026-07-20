@@ -106,11 +106,13 @@ export function classifyTechnicianAction(action: HaloAction, syncedAt = new Date
 
   let category: TechnicianActivityCategory;
   if (outgoingEmail) category = "customer_email";
+  // Halo includes old/new status metadata on ordinary note actions. The
+  // explicit outcome is the reliable signal for what the technician did.
+  else if (action.hiddenfromuser && /note/.test(normalizedOutcome)) category = "private_note";
   else if (/call|phone/.test(normalizedOutcome)) category = "phone_call";
   else if (/schedule|appointment/.test(normalizedOutcome)) category = "appointment";
   else if (/re-?assign|assignment/.test(normalizedOutcome)) category = "assignment_change";
-  else if (action.old_status || action.new_status || /change status/.test(normalizedOutcome)) category = "status_change";
-  else if (action.hiddenfromuser && /note/.test(normalizedOutcome)) category = "private_note";
+  else if (/change status|fix status|responded/.test(normalizedOutcome)) category = "status_change";
   else if (workHours > 0 || chargedHours > 0 || nonchargeHours > 0) category = "work_log";
   else category = "other";
 

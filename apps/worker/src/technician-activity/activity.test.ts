@@ -38,6 +38,14 @@ describe("technician activity", () => {
     expect(classifyTechnicianAction(action({ who: "Bryanna Marquez", outcome: "Email User" }))).toBeNull();
   });
 
+  it("keeps private notes separate when Halo also includes status metadata", () => {
+    expect(classifyTechnicianAction(action({
+      outcome: "Private Note",
+      old_status: "In Progress",
+      new_status: "In Progress",
+    }))).toMatchObject({ category: "private_note" });
+  });
+
   it("summarizes distinct tickets and exact action types per technician", () => {
     const rows = [
       classifyTechnicianAction(action({ id: 1, ticket_id: 10, outcome: "Email User", hiddenfromuser: false, emaildirection: "O", timetaken: 0.25 }))!,
