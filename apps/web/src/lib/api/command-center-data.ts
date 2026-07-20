@@ -115,7 +115,7 @@ export interface CommandCenterPayload {
   readonly haloBaseUrl: string;
 }
 
-const THIRTY_MIN_MS = 30 * 60_000;
+const CUSTOMER_REPLY_SCORE_WINDOW_MS = 60 * 60_000;
 const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const GAMMA_DEFAULT_TYPE_ID = 31;
@@ -159,6 +159,16 @@ function isInCustomerReplyQueue(ticket: TicketRow): boolean {
   // Do not infer membership from action timestamps: production contains
   // Waiting on Customer tickets whose imported timestamps look customer-last.
   return isCustomerReplyQueue(ticket.halo_status_id, ticket.halo_status);
+}
+
+function customerReplyAtMs(ticket: TicketRow): number {
+  // Halo's open-ticket list often omits lastcustomeractiondate. While a ticket
+  // is explicitly in Customer Reply, lastactiondate is the best authoritative
+  // fallback for when that queue entry began. created_at is only a final guard
+  // for older incomplete records.
+  const raw = ticket.last_customer_reply_at ?? ticket.last_tech_action_at ?? ticket.created_at;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : Date.parse(ticket.created_at);
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -383,9 +393,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       halo_agent: t.halo_agent,
       ageMin: Math.max(
         0,
-        Math.floor(
-          (now - new Date(t.last_customer_reply_at ?? t.created_at).getTime()) / 60_000,
-        ),
+        Math.floor((now - customerReplyAtMs(t)) / 60_000),
       ),
     }))
     .sort((a, b) => b.ageMin - a.ageMin)
@@ -420,9 +428,10 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     if (t.sla_currently_breached) agg.breaching++;
     if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
     if (isInCustomerReplyQueue(t)) {
-      const cust = t.last_customer_reply_at ? new Date(t.last_customer_reply_at).getTime() : 0;
-      const tech = t.last_tech_action_at ? new Date(t.last_tech_action_at).getTime() : 0;
-      if (cust > 0 && cust > tech && now - cust >= THIRTY_MIN_MS) agg.unackedReplies++;
+      const replyAt = customerReplyAtMs(t);
+      if (replyAt > 0 && now - replyAt >= CUSTOMER_REPLY_SCORE_WINDOW_MS) {
+        agg.unackedReplies++;
+      }
     }
   }
   for (const r of reviews) {
@@ -445,7 +454,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     .map((t) => {
       const reasons: string[] = [];
       if (t.breaching > 0) reasons.push(`${t.breaching} SLA breach${t.breaching === 1 ? "" : "es"} right now`);
-      if (t.unackedReplies > 0) reasons.push(`${t.unackedReplies} customer repl${t.unackedReplies === 1 ? "y" : "ies"} unacknowledged 30m+`);
+      if (t.unackedReplies > 0) reasons.push(`${t.unackedReplies} customer repl${t.unackedReplies === 1 ? "y" : "ies"} waiting 1h+`);
       if (t.poorReviews > 0) reasons.push(`${t.poorReviews} poor review${t.poorReviews === 1 ? "" : "s"} (30d)`);
       const score = t.breaching * 3 + t.unackedReplies * 2 + t.poorReviews;
       return { tech: t.tech, score, reasons };

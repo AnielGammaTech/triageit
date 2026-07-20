@@ -167,7 +167,7 @@ function BrandMark({ size }: { readonly size: string }) {
 
 const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
-  { title: "Tech Scoreboard — 30 days", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
+  { title: "Tech Scoreboard — Live + 30 days", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
@@ -652,7 +652,7 @@ export default function TvPage() {
                         <th className="py-[0.6vh] text-center font-semibold">Open</th>
                         <th className="py-[0.6vh] text-center font-semibold">SLA Breach</th>
                         <th className="py-[0.6vh] text-center font-semibold">WOT</th>
-                        <th className="px-[1.1vw] py-[0.6vh] text-center font-semibold">Customer Reply</th>
+                        <th className="px-[1.1vw] py-[0.6vh] text-center font-semibold">Reply &gt;1h</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -678,7 +678,10 @@ export default function TvPage() {
                       if (t.good > 0) chips.push({ label: `${t.good} good`, color: "#4ade80" });
                       if (t.poor > 0) chips.push({ label: `${t.poor} poor`, color: "#f87171" });
                       if (t.breaching > 0) chips.push({ label: `${t.breaching} breaching`, color: RED });
-                      if (t.unacked > 0) chips.push({ label: `${t.unacked} unacked`, color: AMBER });
+                      if (t.unacked > 0) chips.push({
+                        label: `${t.unacked} ${t.unacked === 1 ? "reply" : "replies"} >1h`,
+                        color: AMBER,
+                      });
                       return (
                         <div key={t.tech} className="flex flex-1 items-center gap-[0.8vw] border-b px-[1.1vw] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
                           <span
