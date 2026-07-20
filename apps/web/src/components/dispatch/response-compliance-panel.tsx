@@ -235,7 +235,7 @@ export function ResponseCompliancePanel({ haloBaseUrl }: { readonly haloBaseUrl:
         <div className="border-b" style={{ borderColor: HAIRLINE }}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
             <div>
-              <p className="text-xs font-semibold text-white">Technician email response · rolling {data.technicianEmailPerformance.periodDays} days</p>
+              <p className="text-xs font-semibold text-white">Technician email response speed · last {data.technicianEmailPerformance.periodDays} days</p>
               <p className="mt-0.5 text-[10px] text-zinc-500">
                 Customer-visible email only · target {data.technicianEmailPerformance.targetMinutes}m · {data.technicianEmailPerformance.schedule}
               </p>
