@@ -12,7 +12,7 @@ The demo workspace is synthetic. No TriageIT production data is used.
 
 ## Production boundaries
 
-- Staff authentication: existing Gamma Tech Supabase/JumpCloud SSO (`NEXT_PUBLIC_SUPABASE_*`).
+- Staff authentication: Supabase email and password (`NEXT_PUBLIC_SUPABASE_*`).
 - Recruiting data: dedicated ScreenIT Supabase (`NEXT_PUBLIC_SCREENIT_SUPABASE_*` and `SCREENIT_SUPABASE_SERVICE_ROLE_KEY`).
 - Voice: server-minted OpenAI Realtime client secrets. The OpenAI API key never reaches the browser.
 - Candidate entry: opaque interview link with explicit transcription consent.
