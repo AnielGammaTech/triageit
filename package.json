@@ -12,8 +12,10 @@
     "clean": "turbo clean",
     "dev:web": "turbo dev --filter=web",
     "dev:worker": "turbo dev --filter=worker",
+    "dev:screenit": "turbo dev --filter=screenit-web",
     "build:web": "turbo build --filter=web",
-    "build:worker": "turbo build --filter=worker"
+    "build:worker": "turbo build --filter=worker",
+    "build:screenit": "turbo build --filter=screenit-web"
   },
   "devDependencies": {
     "turbo": "^2.4.0",
