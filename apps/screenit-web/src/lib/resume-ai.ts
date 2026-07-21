@@ -50,7 +50,7 @@ Return:
    - Then clarify any missing or unclear role evidence.
    - Then test the core role requirements with concrete work examples.
 
-Every question must use plain spoken English, contain one idea, and be easy to understand on a phone call. Keep it to one sentence and preferably under 24 words. Do not combine "what, how, and why" into one question. Depth should come from short follow-up questions during the conversation, not from a complicated main question. Include employer-approved questions when useful, but simplify their wording without changing their intent.
+Every question must use plain spoken English, contain one idea, and be easy to understand on a phone call. Keep it to one sentence and preferably under 24 words. Do not combine "what, how, and why" into one question. Never write a yes-or-no main question beginning with "Did," "Do," "Are," "Can," "Was," or "Have." Use an open invitation such as "Tell me," "Walk me through," "Which," or "What." Depth should come from short follow-up questions during the conversation, not from a complicated main question. Include employer-approved questions when useful, but simplify their wording without changing their intent.
 
 For an MSP, service desk, help desk, or IT technician role, make sure the complete question set gathers evidence about:
 - Supporting multiple customer environments in an MSP or similar setting.
