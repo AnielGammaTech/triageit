@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getInterviewByToken } from "@/lib/data";
 import { buildInterviewInstructions } from "@/lib/interview-safety";
+import { consumeRateLimit, requestFingerprint } from "@/lib/rate-limit";
 
 const schema = z.object({ token: z.string().min(6).max(256), consented: z.literal(true) });
 
 export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Valid consent and interview token are required" }, { status: 400 });
+  const rateLimit = consumeRateLimit(`realtime:${parsed.data.token}:${requestFingerprint(request)}`, 3, 15 * 60 * 1000);
+  if (!rateLimit.allowed) return NextResponse.json({ error: "Too many voice session attempts. Please wait and try again." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
   const interview = await getInterviewByToken(parsed.data.token);
   if (!interview) return NextResponse.json({ error: "Interview invitation not found" }, { status: 404 });
   const apiKey = process.env.OPENAI_API_KEY;

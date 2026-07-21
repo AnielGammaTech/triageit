@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getInterviewByToken } from "@/lib/data";
 import { getScreenItServiceClient, hasScreenItDatabase } from "@/lib/supabase";
 import type { CandidateReport, RequirementEvidence } from "@/lib/screenit-types";
+import { consumeRateLimit, requestFingerprint } from "@/lib/rate-limit";
 
 const schema = z.object({
   token: z.string().min(6).max(256),
@@ -32,6 +33,8 @@ async function generateReport(requirements: readonly string[], transcript: strin
 export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "A valid interview transcript is required" }, { status: 400 });
+  const rateLimit = consumeRateLimit(`complete:${parsed.data.token}:${requestFingerprint(request)}`, 5, 60 * 60 * 1000);
+  if (!rateLimit.allowed) return NextResponse.json({ error: "Too many completion attempts. Please contact the recruiter." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
   const interview = await getInterviewByToken(parsed.data.token);
   if (!interview) return NextResponse.json({ error: "Interview invitation not found" }, { status: 404 });
   const transcriptText = parsed.data.transcript.map((line) => `${line.speaker}: ${line.text}`).join("\n");
