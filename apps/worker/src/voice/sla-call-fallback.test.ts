@@ -32,4 +32,15 @@ describe("SLA call dispatch fallback", () => {
       reason: "dial_failed",
     }))).toContain("could not be connected");
   });
+
+  it("tells Dispatch when the missed call was a pre-breach warning", () => {
+    const spoken = spokenDispatcherFollowupObjective(buildDispatcherFollowupObjective({
+      haloId: 40932,
+      techName: "Jonathan Schober",
+      reason: "no_answer",
+      sourceCallType: "pre_breach",
+    }));
+    expect(spoken).toContain("about to breach");
+    expect(spoken).not.toContain("has breached its SLA");
+  });
 });

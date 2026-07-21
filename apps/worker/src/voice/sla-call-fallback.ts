@@ -17,9 +17,13 @@ export function buildDispatcherFollowupObjective(input: {
   readonly haloId: number;
   readonly techName: string | null;
   readonly reason: SlaCallFailureReason;
+  readonly sourceCallType?: "breach" | "pre_breach";
 }): string {
   const tech = input.techName?.trim() || "the assigned technician";
-  return `${DISPATCH_FOLLOWUP_PREFIX}TriageIt's SLA call to ${tech} for ticket #${input.haloId} did not reach them because ${FAILURE_LABELS[input.reason]}. Tell Bryanna what happened, ask her to contact ${tech} directly, and ask her to confirm she will make sure the ticket is handled.`;
+  const timing = input.sourceCallType === "pre_breach"
+    ? "The ticket is about to breach its SLA while the technician appears unavailable."
+    : "The ticket has breached its SLA.";
+  return `${DISPATCH_FOLLOWUP_PREFIX}TriageIt's SLA call to ${tech} for ticket #${input.haloId} did not reach them because ${FAILURE_LABELS[input.reason]}. ${timing} Tell Bryanna what happened, ask her to contact ${tech} directly, and ask her to confirm she will make sure the ticket is handled.`;
 }
 
 export function isDispatcherFollowupObjective(objective: string | null | undefined): boolean {

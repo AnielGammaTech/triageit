@@ -35,6 +35,7 @@ async function queueDispatcherFollowupCall(
     readonly haloId: number;
     readonly techName: string | null;
     readonly reason: SlaCallFailureReason;
+    readonly sourceCallType?: "breach" | "pre_breach";
   },
 ): Promise<void> {
   const objective = buildDispatcherFollowupObjective(input);
@@ -43,7 +44,7 @@ async function queueDispatcherFollowupCall(
     .select("id")
     .eq("halo_id", input.haloId)
     .eq("tech_name", DISPATCHER)
-    .like("objective", "[DISPATCH FOLLOW-UP]%")
+    .eq("call_type", "dispatch_followup")
     .in("status", ["pending", "calling"])
     .gte("created_at", new Date(Date.now() - 15 * 60_000).toISOString())
     .limit(1);
@@ -55,7 +56,10 @@ async function queueDispatcherFollowupCall(
     phone: null,
     tech_name: DISPATCHER,
     objective,
+    call_type: "dispatch_followup",
+    dedupe_key: `dispatch_followup:${input.haloId}:${Math.floor(Date.now() / (15 * 60_000))}`,
   });
+  if (error?.code === "23505") return;
   if (error) throw new Error(error.message);
   console.log(`[SLA-CALL] Queued Dispatch follow-up call to ${DISPATCHER} for #${input.haloId} (${input.reason})`);
 }
@@ -132,8 +136,9 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
 
   const { data: requests } = await supabase
     .from("sla_call_requests")
-    .select("id, halo_id, phone, tech_name, objective")
+    .select("id, halo_id, phone, tech_name, objective, call_type, due_at, availability_detail")
     .eq("status", "pending")
+    .order("due_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .limit(3);
   if (!requests || requests.length === 0) return { processed: 0, called: 0 };
@@ -177,9 +182,14 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
     try {
       const { data: ticket } = await supabase
         .from("tickets")
-        .select("id, halo_id, summary, client_name, user_name, user_email, halo_agent, last_tech_action_at")
+        .select("id, halo_id, summary, client_name, user_name, user_email, halo_agent, last_tech_action_at, halo_is_open")
         .eq("halo_id", haloId)
         .maybeSingle();
+
+      if (ticket?.halo_is_open === false) {
+        await supabase.from("sla_call_requests").update({ status: "stale" }).eq("id", req.id);
+        continue;
+      }
 
       let hoursOver: number | null = null;
       let liveTechName: string | null = null;
@@ -204,6 +214,8 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
       }
 
       const storedObjective = (req.objective as string | null) ?? null;
+      const callType = String(req.call_type ?? (storedObjective ? "info" : "breach"));
+      const preBreach = callType === "pre_breach";
       const dispatchFollowup = isDispatcherFollowupObjective(storedObjective);
       // ONE resolved name everywhere (greeting, note title, dialing). Dispatch
       // fallback rows must call Bryanna from the queued request, not the live
@@ -217,7 +229,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         console.warn(`[SLA-CALL] No phone/extension resolvable for #${haloId} (tech: ${techName ?? "?"}) — marking failed`);
         await supabase.from("sla_call_requests").update({ status: "failed" }).eq("id", req.id);
         if (!req.objective) {
-          await queueDispatcherFollowupCall(supabase, { haloId, techName, reason: "no_destination" });
+          await queueDispatcherFollowupCall(supabase, { haloId, techName, reason: "no_destination", sourceCallType: preBreach ? "pre_breach" : "breach" });
         }
         continue;
       }
@@ -239,11 +251,16 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
       const customerEmail = typeof emailCandidate === "string"
         ? emailCandidate.match(/[^\s<>,;@]+@[^\s<>,;@]+\.[^\s<>,;@]+/)?.[0] ?? null
         : null;
+      const slaDueAt = typeof req.due_at === "string" ? req.due_at : null;
+      const availabilityDetail = typeof req.availability_detail === "string" ? req.availability_detail : null;
+      const proactiveUpdateReason = preBreach
+        ? `Proactive SLA update requested because this ticket is nearing its deadline while ${techLabel} is unavailable${availabilityDetail ? ` (${availabilityDetail})` : ""}.`
+        : null;
       const objective = storedObjective ? spokenDispatcherFollowupObjective(storedObjective) : null;
       const reportUnreachable = async (reason: SlaCallFailureReason) => {
         await supabase.from("sla_call_requests").update({ status: reason }).eq("id", req.id);
         if (!storedObjective) {
-          await queueDispatcherFollowupCall(supabase, { haloId, techName, reason });
+          await queueDispatcherFollowupCall(supabase, { haloId, techName, reason, sourceCallType: preBreach ? "pre_breach" : "breach" });
         }
       };
       const cancelEscalation = registerEscalationCall(destination, {
@@ -253,13 +270,16 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         clientName: (ticket?.client_name as string) ?? null,
         techName,
         hoursOver,
+        preBreach,
+        slaDueAt,
+        ownerAvailability: availabilityDetail,
         priorCalls: priorCallCount ?? 0,
         objective,
         dispatchFollowup,
         onUnreachable: storedObjective ? undefined : reportUnreachable,
         lastCommunication,
-        customerWaitingForUpdate: customerWait.waitingForUpdate,
-        customerWaitingReason: customerWait.reason,
+        customerWaitingForUpdate: preBreach || customerWait.waitingForUpdate,
+        customerWaitingReason: proactiveUpdateReason ?? customerWait.reason,
         customerLastMessage: customerWait.latestCustomerMessage,
         customerContactMethod: customerWait.requestedContactMethod,
         customerName: (liveTicket?.user_name as string | null) ?? (ticket?.user_name as string | null) ?? null,
@@ -275,7 +295,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
               title: `Escalation call — ${techLabel}`,
               tone: "noanswer",
               meta: `Ticket #${haloId}`,
-              intro: `TriageIt called ${techLabel} (${destination}) about this ticket${req.objective ? "" : "'s SLA breach"} and got no answer.${req.objective ? "" : " Breach alerts continue."}`,
+              intro: `TriageIt called ${techLabel} (${destination}) about this ticket${req.objective ? "" : preBreach ? " approaching its SLA deadline while the owner appeared unavailable" : "'s SLA breach"} and got no answer.${req.objective ? "" : " Dispatch follow-up was queued."}`,
             }),
           ),
           reportUnreachable("no_answer"),
@@ -296,9 +316,9 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         .eq("id", req.id);
       if (ok) {
         called++;
-        console.log(`[SLA-CALL] Dialing ${destination} about #${haloId}${req.objective ? " (info request)" : " (SLA breach)"}`);
+        console.log(`[SLA-CALL] Dialing ${destination} about #${haloId}${req.objective ? " (info request)" : preBreach ? " (pre-breach availability warning)" : " (SLA breach)"}`);
       } else if (!storedObjective) {
-        await queueDispatcherFollowupCall(supabase, { haloId, techName, reason: "dial_failed" });
+        await queueDispatcherFollowupCall(supabase, { haloId, techName, reason: "dial_failed", sourceCallType: preBreach ? "pre_breach" : "breach" });
       }
     } catch (error) {
       console.error(`[SLA-CALL] Request for #${haloId} failed:`, error instanceof Error ? error.message : error);

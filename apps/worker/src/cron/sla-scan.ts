@@ -11,6 +11,7 @@ import {
 import { TeamsClient, isWithinBusinessHours } from "../integrations/teams/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
 import { runSlaCallRequests } from "./sla-call.js";
+import { queueUpcomingSlaAvailabilityCalls } from "./sla-availability-risk.js";
 
 /**
  * Last action performed by the assigned tech THEMSELVES. tickets.
@@ -222,7 +223,29 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
       .not("sla_breach_alerted_at", "is", null);
   }
 
+  // Catch the ticket BEFORE it breaches when the owner is visibly unable to
+  // act (meeting, onsite, call, away, or working a different ticket). This is
+  // intentionally presence-aware; an ordinary ticket nearing its deadline
+  // does not generate an automated phone call.
+  if (isWithinBusinessHours()) {
+    try {
+      const warning = await queueUpcomingSlaAvailabilityCalls(supabase);
+      if (warning.queued > 0) {
+        console.log(`[SLA SCAN] Queued ${warning.queued} pre-breach availability call(s) from ${warning.checked} near-deadline ticket(s)`);
+      }
+    } catch (error) {
+      console.error("[SLA SCAN] Availability-aware warning scan failed:", error instanceof Error ? error.message : error);
+    }
+  }
+
   if (breachers.length === 0) {
+    // The pre-breach scanner or a previous no-answer callback may have queued
+    // a call even though there are no currently breached tickets.
+    try {
+      await runSlaCallRequests();
+    } catch (error) {
+      console.error("[SLA SCAN] Availability warning calls failed:", error instanceof Error ? error.message : error);
+    }
     console.log(
       `[SLA SCAN] Checked ${allOpenTickets.length} open tickets — no SLA breaches found`,
     );
@@ -384,7 +407,7 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
           const lastTechAction = await lastActionByTech(halo, haloId, techForCall);
           const techIdle30m = lastTechAction == null || Date.now() - lastTechAction >= 30 * 60_000;
           if (!techIdle30m) continue;
-          await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall });
+          await supabase.from("sla_call_requests").insert({ halo_id: haloId, tech_name: techForCall, call_type: "breach" });
           callRequestsQueued++;
           console.log(`[SLA SCAN] Queued escalation CALL to ${techForCall} for #${haloId} (breached 30m+, tech idle 30m+)`);
         } catch (error) {

@@ -57,6 +57,9 @@ export interface DispatchBoardTech {
   readonly workingTicketId: number | null;
   /** Halo ticket represented by the active onsite/working status. */
   readonly statusTicketId: number | null;
+  /** Known end of the current meeting/onsite block. Null for open-ended or
+   * unknown availability states. */
+  readonly unavailableUntil: string | null;
   readonly nextCommitment: string | null; // "Onsite — Bentley Electric 2:00 PM"
   readonly aiRead: string | null; // Haiku one-liner; null until first refresh
 }
@@ -239,6 +242,7 @@ function buildTechRow(agent: RosterAgent, ctx: TechRowContext): Omit<DispatchBoa
     },
     workingTicketId: load.inProgressTicket?.haloId ?? null,
     statusTicketId: onsiteNow?.appointment.ticketId ?? load.inProgressTicket?.haloId ?? null,
+    unavailableUntil: onsiteNow?.endsAt ?? cal?.inMeetingUntil ?? null,
     // Labeled with the appointment type, e.g. "Site Visit: Jenn :: Laptop
     // Setup — Mon 1:00 PM". A current reminder or untyped appointment
     // surfaces here as context when nothing later is scheduled.

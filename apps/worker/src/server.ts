@@ -766,6 +766,7 @@ server.post<{ Body: { halo_id: number; tech_name?: string; phone?: string; objec
       phone: phone ?? null,
       tech_name: tech_name ?? null,
       objective: objective ?? null,
+      call_type: objective ? "info" : "breach",
     });
     if (error) return reply.status(500).send({ error: error.message });
     const result = await runSlaCallRequests();

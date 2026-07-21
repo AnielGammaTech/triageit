@@ -161,6 +161,64 @@ export class TeamsClient {
     });
   }
 
+  async sendCustomerUpdateApproval(input: {
+    readonly haloId: number;
+    readonly summary: string;
+    readonly clientName: string | null;
+    readonly techName: string | null;
+    readonly draftMessage: string;
+    readonly nextActionAt: string;
+    readonly dispatchUrl: string;
+  }): Promise<boolean> {
+    const nextAction = new Date(input.nextActionAt).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return this.sendCard({
+      type: "message",
+      attachments: [{
+        contentType: "application/vnd.microsoft.card.adaptive",
+        contentUrl: null,
+        content: {
+          $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+          type: "AdaptiveCard",
+          version: "1.2",
+          body: [
+            {
+              type: "TextBlock",
+              text: `Bryanna — review the customer update for ticket #${input.haloId}`,
+              weight: "Bolder",
+              color: "Warning",
+              wrap: true,
+            },
+            {
+              type: "FactSet",
+              facts: [
+                { title: "Client", value: input.clientName ?? "Unknown" },
+                { title: "Ticket", value: input.summary },
+                { title: "Technician", value: input.techName ?? "Unknown" },
+                { title: "Next action", value: `${nextAction} ET` },
+              ],
+            },
+            { type: "TextBlock", text: "Technician-approved draft", weight: "Bolder", spacing: "Medium" },
+            { type: "TextBlock", text: input.draftMessage, wrap: true, size: "Small" },
+            {
+              type: "TextBlock",
+              text: "Nothing has been sent. Review or edit the draft in Dispatch, then approve it to email the customer.",
+              wrap: true,
+              color: "Accent",
+              size: "Small",
+            },
+          ],
+          actions: [{ type: "Action.OpenUrl", title: "Review and approve", url: input.dispatchUrl }],
+        },
+      }],
+    });
+  }
+
   async sendDailySummary(summary: DailySummary): Promise<void> {
     const processingSeconds = (summary.processingTimeMs / 1000).toFixed(1);
 

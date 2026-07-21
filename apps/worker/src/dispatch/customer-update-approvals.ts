@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HaloAction, HaloConfig, HaloTicket } from "@triageit/shared";
-import { isWithinBusinessHours } from "../integrations/teams/client.js";
+import type { HaloAction, HaloConfig, HaloTicket, TeamsConfig } from "@triageit/shared";
+import { isWithinBusinessHours, TeamsClient } from "../integrations/teams/client.js";
 import { HaloClient } from "../integrations/halo/client.js";
 import { haloActionTimestamp, isInboundCustomerAction } from "../voice/customer-wait-state.js";
 
@@ -165,6 +165,43 @@ function requesterBlocksEmail(ticket: HaloTicket): boolean {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+function dispatchApprovalUrl(): string {
+  const base = process.env.TRIAGEIT_WEB_URL ?? "https://triageit.gtools.io";
+  try {
+    return new URL("/dispatch#customer-email-approvals", base).toString();
+  } catch {
+    return "https://triageit.gtools.io/dispatch#customer-email-approvals";
+  }
+}
+
+async function notifyDispatchApproval(
+  supabase: SupabaseClient,
+  input: StageCustomerUpdateInput,
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "teams")
+      .eq("is_active", true)
+      .maybeSingle();
+    if (!data?.config) return;
+    await new TeamsClient(data.config as TeamsConfig).sendCustomerUpdateApproval({
+      haloId: input.haloId,
+      summary: input.ticketSummary,
+      clientName: input.clientName,
+      techName: input.techName,
+      draftMessage: input.draftMessage,
+      nextActionAt: input.nextActionAt,
+      dispatchUrl: dispatchApprovalUrl(),
+    });
+  } catch (error) {
+    // The approval row is the durable source of truth. A Teams delivery issue
+    // must not discard a technician-approved draft.
+    console.warn(`[DISPATCH] Customer update queued for #${input.haloId}, but Bryanna's Teams approval notice failed:`, error instanceof Error ? error.message : error);
+  }
+}
+
 export async function stageCustomerUpdate(
   supabase: SupabaseClient,
   input: StageCustomerUpdateInput,
@@ -212,6 +249,7 @@ export async function stageCustomerUpdate(
     : supabase.from("dispatch_customer_updates").insert(payload);
   const { data, error } = await query.select("id").single();
   if (error || !data) throw new Error(error?.message ?? "Could not queue the customer update");
+  await notifyDispatchApproval(supabase, input);
   return { id: String(data.id), replacedExisting: Boolean(existing) };
 }
 

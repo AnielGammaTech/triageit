@@ -65,6 +65,10 @@ export interface EscalationContext {
   readonly clientName: string | null;
   readonly techName: string | null;
   readonly hoursOver: number | null;
+  /** True when presence + deadline risk triggered the call before breach. */
+  readonly preBreach?: boolean;
+  readonly slaDueAt?: string | null;
+  readonly ownerAvailability?: string | null;
   /** How many times TriageIt has ALREADY called about this ticket — drives
    *  the manager tone ("this is the third call about this ticket"). */
   readonly priorCalls?: number;
@@ -134,6 +138,8 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           instructions: this.escalation
             ? (this.escalation.dispatchFollowup
                 ? `The dispatcher just answered. Greet Bryanna by name, identify yourself as the TriageIt assistant, and clearly deliver this operational alert: ${this.escalation.objective} Keep it brief, then stop and wait for her response.`
+                : this.escalation.preBreach
+                ? `The technician just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech, and say this is about ticket ${this.escalation.haloId}, "${this.escalation.summary}". Explain that ${this.preBreachTiming()} and the availability board shows ${this.escalation.ownerAvailability ?? "they may be unavailable"}. Ask whether they can still act before the deadline or want you to prepare a customer update for Dispatch approval. Two or three short sentences, then stop and listen.`
                 : this.escalation.objective
                 ? `The tech just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech calling on behalf of management, and say this is in regards to ticket ${this.escalation.haloId}, "${this.escalation.summary}". ${this.escalation.lastCommunication ? `Mention the last communication on file: ${this.escalation.lastCommunication}. ` : ""}Then ask your question. Two or three short sentences, then stop and listen.`
                 : `The tech just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech, and say this is in regards to ticket ${this.escalation.haloId}, "${this.escalation.summary}", which has breached its SLA.${(this.escalation.priorCalls ?? 0) > 0 ? ` This is the ${ordinalWord((this.escalation.priorCalls ?? 0) + 1)} time you have had to call about this ticket — say so plainly, like a manager would ("this is the ${ordinalWord((this.escalation.priorCalls ?? 0) + 1)} time I'm calling you about this one — it keeps getting pushed back, and we need you to get better about staying ahead of it").` : ""} ${this.escalation.lastCommunication ? `Then say the last communication you see on file: ${this.escalation.lastCommunication}. ` : ""}Then ask why it breached. Two or three short sentences, then stop and listen.`)
@@ -209,7 +215,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           this.escalation.haloId,
           buildEscalationCallNote({
             title: `Escalation call — ${this.escalation.techName ?? "tech"}`,
-            tone: "breach",
+            tone: this.escalation.preBreach ? "info" : "breach",
             meta: this.noteMeta(),
             intro: this.agentCallNotes.join(" ") || undefined,
             fields: this.noteFields(),
@@ -590,16 +596,20 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           // 2026-07-10). Resolved by name from the live status map, id 32
           // only as fallback.
           try {
-            const statusMap = await this.deps.halo.getStatusNameMap();
-            let waitingOnTechId = 32;
-            for (const [id, name] of statusMap) {
-              if (name.trim().toLowerCase() === "waiting on tech") {
-                waitingOnTechId = id;
-                break;
+            if (this.escalation.preBreach) {
+              console.log(`[VOICE] Pre-breach reminder: #${this.escalation.haloId} next-action target confirmed without changing ticket status`);
+            } else {
+              const statusMap = await this.deps.halo.getStatusNameMap();
+              let waitingOnTechId = 32;
+              for (const [id, name] of statusMap) {
+                if (name.trim().toLowerCase() === "waiting on tech") {
+                  waitingOnTechId = id;
+                  break;
+                }
               }
+              await this.deps.halo.updateTicketStatus(this.escalation.haloId, waitingOnTechId);
+              this.statusSetTo = "Waiting on Tech";
             }
-            await this.deps.halo.updateTicketStatus(this.escalation.haloId, waitingOnTechId);
-            this.statusSetTo = "Waiting on Tech";
           } catch (statusError) {
             console.warn(`[VOICE] Status change to Waiting on Tech failed for #${this.escalation.haloId}:`, statusError instanceof Error ? statusError.message : statusError);
           }
@@ -793,10 +803,21 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
 
   private noteFields(): Array<{ label: string; value: string }> | undefined {
     const fields: Array<{ label: string; value: string }> = [];
+    if (this.escalation?.preBreach && this.escalation.ownerAvailability) fields.push({ label: "Availability signal", value: this.escalation.ownerAvailability });
     if (this.agreedTarget) fields.push({ label: "Reason given", value: this.agreedTarget.reason });
     if (this.statusSetTo) fields.push({ label: "Status", value: `Moved to ${this.statusSetTo} — no longer past due` });
     if (this.stagedCustomerUpdate) fields.push({ label: "Customer update", value: "Exact draft approved by the tech and queued for human review in Dispatch — not sent on the call" });
     return fields.length > 0 ? fields : undefined;
+  }
+
+  private preBreachTiming(): string {
+    const raw = this.escalation?.slaDueAt;
+    const due = raw ? Date.parse(raw) : NaN;
+    if (!Number.isFinite(due)) return "the ticket is close to its SLA deadline";
+    const minutes = Math.ceil((due - Date.now()) / 60_000);
+    if (minutes > 1) return `the ticket will reach its SLA deadline in about ${minutes} minutes`;
+    if (minutes === 1) return "the ticket will reach its SLA deadline in about one minute";
+    return "the ticket has just reached its SLA deadline";
   }
 
   private buildInstructions(briefing: string): string {
@@ -806,16 +827,19 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
       const priorCalls = e.priorCalls ?? 0;
       return [
         e.dispatchFollowup
-          ? `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND operational call to Bryanna Marquez, the dispatcher. A technician was not reached about an SLA-breached ticket. Deliver the alert clearly and ask Bryanna to take ownership of contacting the technician.`
-          : `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND call to ${e.techName ?? "the assigned technician"} — a Gamma Tech technician — about a ticket that has breached its SLA. You are professional, direct, and respectful: a firm colleague, not a scold.`,
+          ? `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND operational call to Bryanna Marquez, the dispatcher. A technician was not reached about an urgent SLA ticket. Deliver the alert clearly and ask Bryanna to take ownership of contacting the technician.`
+          : e.preBreach
+            ? `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND preventive call to ${e.techName ?? "the assigned technician"}. Their ticket is about to breach while the live availability board shows they may be unable to act. You are helpful and concise, not punitive.`
+            : `You are the TriageIt assistant from Gamma Tech Services, making an OUTBOUND call to ${e.techName ?? "the assigned technician"} — a Gamma Tech technician — about a ticket that has breached its SLA. You are professional, direct, and respectful: a firm colleague, not a scold.`,
         e.dispatchFollowup
           ? `The person you are calling is Bryanna Marquez. Address her as Bryanna. Do not call her a technician.`
           : e.techName ? `The technician you are calling is named ${e.techName}. That is the ONLY name you may address them by — never guess or substitute a different name.` : `You do not know the technician's name — do not guess one; just say "hi, this is the TriageIt assistant".`,
         ``,
         `THE SITUATION`,
         `- Ticket ${e.haloId}: "${e.summary}" for ${e.clientName ?? "a client"}.`,
-        e.objective ? `- Purpose of this call: ${e.objective}` : `- It is ${over} past its SLA.`,
-        ...(priorCalls > 0 && !e.objective
+        e.objective ? `- Purpose of this call: ${e.objective}` : e.preBreach ? `- ${this.preBreachTiming()}.` : `- It is ${over} past its SLA.`,
+        ...(e.preBreach && e.ownerAvailability ? [`- Live owner availability: ${e.ownerAvailability}.`] : []),
+        ...(priorCalls > 0 && !e.objective && !e.preBreach
           ? [
               `- REPEAT OFFENSE: TriageIt has already called about this ticket ${priorCalls === 1 ? "once" : `${priorCalls} times`} and the next-action date keeps getting pushed back. This is call number ${priorCalls + 1}.`,
               `- Because of that, take the tone a manager would: point out early in the call that this is the ${ordinalWord(priorCalls + 1)} call about this ticket, that it has been pushed back ${priorCalls === 1 ? "before" : `${priorCalls} times`}, and that we need them to get better about keeping this moving instead of letting it breach again. Firm and accountable — never insulting, never shouting.`,
@@ -823,7 +847,9 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           : []),
         `- The last communication on file: ${e.lastCommunication ?? e.lastTechUpdate ?? "none on record"}.`,
         e.customerWaitingForUpdate
-          ? `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""} Prepare an EMAIL update now. The promised next contact in that email must be: ${e.customerContactMethod === "call" ? "CALL the customer" : "EMAIL the customer another update"}.`
+          ? e.preBreach
+            ? `- PROACTIVE CUSTOMER UPDATE: Offer to prepare an email so the customer is updated before the SLA is missed. Use only facts the technician gives you. The promised next contact in that email must be: ${e.customerContactMethod === "call" ? "CALL the customer" : "EMAIL the customer another update"}.`
+            : `- CUSTOMER WAITING: ${e.customerWaitingReason ?? "The latest customer message has not received a newer customer-facing reply."}${e.customerLastMessage ? ` Their latest message was: "${e.customerLastMessage}"` : ""} Prepare an EMAIL update now. The promised next contact in that email must be: ${e.customerContactMethod === "call" ? "CALL the customer" : "EMAIL the customer another update"}.`
           : `- The ticket review did not find an unanswered customer call or message. Do not offer to draft a customer update unless this flag says CUSTOMER WAITING.`,
         ``,
         `ABOUT THE "RESOLUTION TARGET" / NEXT-ACTION DATE`,
@@ -837,7 +863,19 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
               `${e.objective}`,
               `Ask about it conversationally, capture what the tech says, then use post_note to document their answer on the ticket. Do NOT change the resolution target on this call unless your mission explicitly asks you to negotiate or change the next-action date.`,
             ]
-          : [
+          : e.preBreach
+            ? [
+                `YOUR GOALS, IN ORDER`,
+                `1. Explain that ticket ${e.haloId}, "${e.summary}", is nearing its SLA deadline and that the live availability board shows: ${e.ownerAvailability ?? "the owner may be unavailable"}. This is a practical warning, not discipline.`,
+                `2. Ask whether they can still take the required next action before the deadline. Get a direct answer and the real ticket status. Never assume the meeting, call, or calendar entry means the ticket was neglected.`,
+                `3. If they can meet it, document the commitment with post_note and ask whether a proactive customer email is still useful. If they cannot meet it, ask for the exact next-action date and Eastern time. Confirm it back clearly, then use set_resolution_target.`,
+                `4. If they want a customer update, ask exactly what the customer should be told. Use only those facts. The email MUST state the exact next-action calendar date and Eastern time, say Gamma Tech will ${e.customerContactMethod === "call" ? "call the customer" : "email the customer another update"}, and ask whether that time works.`,
+                `5. Read the COMPLETE polished draft back word for word. After the technician explicitly approves that exact wording, use stage_customer_update. If no next-action target has been confirmed yet, confirm it and use set_resolution_target first.`,
+                `6. Tell the technician the draft is queued for Bryanna in Dispatch to review and has NOT been sent. Only Bryanna or another signed-in approver can send it.`,
+                `7. If they decline, cannot answer, or say it is no longer their ticket, use post_note with exactly what they said. Do not invent a customer update.`,
+                `8. If voicemail answers, say: "This is the Gamma Tech assistant about ticket ${e.haloId}. It is close to its SLA deadline and Dispatch needs your update. Please call the office." Then use report_unreachable and end_call. Never create a customer draft from voicemail.`,
+              ]
+            : [
         `YOUR GOALS, IN ORDER`,
         `1. Open by saying this is about ticket ${e.haloId}, "${e.summary}", and read the last communication on file so the tech knows exactly which ticket and where it stands.`,
         `2. Ask directly: why did this ticket breach its SLA / why wasn't the next step taken in time? Get their reason on record — listen, don't argue.`,
