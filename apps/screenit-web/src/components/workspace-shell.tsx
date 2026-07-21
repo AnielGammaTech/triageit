@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { BarChart3, BriefcaseBusiness, FileCheck2, LayoutDashboard, Users } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { BarChart3, BriefcaseBusiness, FileCheck2, LayoutDashboard, LogOut, Users } from "lucide-react";
 import { ScreenItLogo } from "@/components/screenit-logo";
 
 const items = [
@@ -19,6 +19,13 @@ function isActive(pathname: string, href: string): boolean {
 
 export function WorkspaceShell({ children }: { readonly children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <div className="min-h-screen">
@@ -54,6 +61,15 @@ export function WorkspaceShell({ children }: { readonly children: React.ReactNod
               Structured review mode
             </div>
             <div className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/10 text-xs font-bold text-white">AR</div>
+            <button
+              type="button"
+              onClick={signOut}
+              aria-label="Sign out"
+              title="Sign out"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 text-slate-300 transition hover:bg-white/10 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto border-t border-white/[0.06] px-3 py-2 md:hidden">

@@ -3,7 +3,6 @@
 import { FormEvent, useState } from "react";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { createAuthClient } from "@/lib/auth/client";
 
 export function PasswordLogin() {
   const router = useRouter();
@@ -17,10 +16,10 @@ export function PasswordLogin() {
     event.preventDefault();
     setLoading(true);
     setError(null);
-    const supabase = createAuthClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
-    if (authError) {
-      setError(authError.message === "Invalid login credentials" ? "The email or password is incorrect." : authError.message);
+    const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ error: "Sign in failed." })) as { error?: string };
+      setError(payload.error ?? "Sign in failed.");
       setLoading(false);
       return;
     }
