@@ -3,6 +3,27 @@ import { getWorkspaceSnapshot } from "@/lib/data";
 import { analyzeResume } from "@/lib/resume-ai";
 import { getScreenItServiceClient, hasScreenItDatabase } from "@/lib/supabase";
 
+export async function GET(_request: Request, { params }: { readonly params: Promise<{ candidateId: string }> }) {
+  if (!hasScreenItDatabase()) return NextResponse.json({ error: "Candidate storage is not configured" }, { status: 503 });
+  const { candidateId } = await params;
+  const result = await getScreenItServiceClient()
+    .from("screenit_candidates")
+    .select("resume_highlights,resume_clarifications,screening_questions")
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (result.error || !result.data) return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
+  const questions = Array.isArray(result.data.screening_questions) ? result.data.screening_questions : [];
+  return NextResponse.json({
+    ready: questions.length > 0,
+    analysis: {
+      highlights: Array.isArray(result.data.resume_highlights) ? result.data.resume_highlights : [],
+      clarifications: Array.isArray(result.data.resume_clarifications) ? result.data.resume_clarifications : [],
+      questions,
+    },
+  });
+}
+
 export async function POST(_request: Request, { params }: { readonly params: Promise<{ candidateId: string }> }) {
   if (!hasScreenItDatabase()) return NextResponse.json({ error: "Candidate storage is not configured" }, { status: 503 });
   const { candidateId } = await params;
