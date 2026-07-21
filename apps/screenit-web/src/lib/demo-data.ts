@@ -147,6 +147,11 @@ export const demoWorkspace: WorkspaceSnapshot = {
       recommendation: "recruiter_review",
       roleAlignment: "partial_alignment",
       fitRationale: "The interview demonstrates the core Microsoft 365 and customer communication requirements. A deeper Windows troubleshooting example is still needed.",
+      statedMotivation: "Jordan said they enjoy solving user-impacting problems and keep learning through hands-on lab work.",
+      conversationSignals: [
+        { signal: "Ownership", evidence: "Described personally carrying a customer escalation through follow-up and resolution." },
+        { signal: "Clear handoff", evidence: "Explained what another technician would need in the ticket notes to continue the work." },
+      ],
       generatedAt: "2026-07-21T14:56:00.000Z",
     },
   ],

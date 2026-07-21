@@ -20,7 +20,7 @@ function questionsFrom(value: unknown): ScreeningCallContext["questions"] {
     if (!prompt) return [];
     const reason = typeof row.reason === "string" ? row.reason.trim() : "";
     return [{ prompt, ...(reason ? { reason } : {}) }];
-  }).slice(0, 8);
+  }).slice(0, 4);
 }
 
 export async function runScreeningCallRequests(): Promise<{ processed: number; called: number }> {

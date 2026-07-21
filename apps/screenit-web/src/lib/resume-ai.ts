@@ -45,23 +45,16 @@ export async function analyzeResume(resume: File, position: Position): Promise<R
 Return:
 1. Up to six explicit, job-related resume facts relevant to the role. Preserve the employer name, job title, named tool, and stated responsibility when they appear so the interviewer can sound like it actually read the resume.
 2. Neutral clarifications for missing or unclear job-related evidence, including unexplained timeline gaps only when the dates are explicitly present. Never assume why a gap exists.
-3. Three to six concise interview questions in this order:
-   - Begin with two or three questions that explicitly reference an employer, job title, tool, project, or responsibility written on this resume, starting with the most recent role-related work.
-   - Then clarify any missing or unclear role evidence.
-   - Then test the core role requirements with concrete work examples.
+3. Three to four concise interview prompts that the live interviewer may use only when the topic has not already been answered:
+   - Begin with one question that references the most recent relevant employer or job title written on this resume.
+   - Include at most one additional resume-specific detail or clarification.
+   - Use the remaining prompts only for the most important role evidence gaps.
 
 Every question must use plain spoken English, contain one idea, and be easy to understand on a phone call. Keep it to one sentence and preferably under 24 words. Do not combine "what, how, and why" into one question. Never write a yes-or-no main question beginning with "Did," "Do," "Are," "Can," "Was," or "Have." Use an open invitation such as "Tell me," "Walk me through," "Which," or "What." Depth should come from short follow-up questions during the conversation, not from a complicated main question. Include employer-approved questions when useful, but simplify their wording without changing their intent.
 
-For an MSP, service desk, help desk, or IT technician role, make sure the complete question set gathers evidence about:
-- Supporting multiple customer environments in an MSP or similar setting.
-- Hands-on use of RMM tools and what the candidate actually did in them.
-- PSA or ticketing systems, ticket ownership, prioritization, escalation, and closure.
-- Clear ticket notes, technical documentation, and customer-facing updates.
-- A real remote troubleshooting example from first report through resolution.
-- What first drew the candidate into IT and what currently keeps them learning.
-- A real time they did not know the answer, how they sought help, and what they learned.
+For an MSP, service desk, help desk, or IT technician role, prioritize the strongest evidence gaps among multi-customer support, remote-management tools, support-request tracking, documentation, remote troubleshooting, IT motivation, and learning behavior. Do not create one separate question for every category; the live conversation will cover the core topics and avoid repetition.
 
-Ask for tool names when relevant, but accept comparable tools and workflows. If the resume does not state MSP, RMM, PSA, documentation, or ticketing experience, ask neutrally instead of treating it as absent.
+Ask for tool names when relevant, but accept comparable tools and workflows. Do not assume the candidate knows acronyms such as RMM or PSA. If the resume does not state that experience, use plain language such as "software used to manage computers remotely" or "a system used to track support requests."
 
 Resume questions should sound like a recruiter who read the document. For example: "I see on your resume that you supported multiple clients at Acme MSP; what did you handle there day to day?" Never invent a company, title, tool, or responsibility that is not explicitly in the resume.
 
@@ -92,7 +85,7 @@ ${position.questions.map((item) => `- ${item.prompt}`).join("\n") || "None provi
                 questions: {
                   type: "array",
                   minItems: 3,
-                  maxItems: 6,
+                  maxItems: 4,
                   items: {
                     type: "object",
                     additionalProperties: false,
@@ -111,7 +104,7 @@ ${position.questions.map((item) => `- ${item.prompt}`).join("\n") || "None provi
     const highlights = Array.isArray(parsed.highlights) ? parsed.highlights.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 6) : [];
     const clarifications = Array.isArray(parsed.clarifications) ? parsed.clarifications.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4) : [];
     const questions = Array.isArray(parsed.questions)
-      ? parsed.questions.filter((item) => item && typeof item.prompt === "string" && typeof item.reason === "string").slice(0, 6).map((item, index) => ({ id: `candidate-q${index + 1}`, prompt: item.prompt, reason: item.reason, required: true }))
+      ? parsed.questions.filter((item) => item && typeof item.prompt === "string" && typeof item.reason === "string").slice(0, 4).map((item, index) => ({ id: `candidate-q${index + 1}`, prompt: item.prompt, reason: item.reason, required: true }))
       : [];
     return { highlights, clarifications, questions };
   } catch (error) {

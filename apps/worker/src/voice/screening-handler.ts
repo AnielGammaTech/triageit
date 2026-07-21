@@ -4,14 +4,19 @@ import { pcm16ToUlaw, ulawToPcm16 } from "./ulaw.js";
 import type { VoiceCallContext, VoiceCallHandler } from "./session.js";
 
 const REALTIME_URL = "wss://api.openai.com/v1/realtime";
-const MODEL = process.env.VOICE_REALTIME_MODEL ?? "gpt-realtime";
-const VOICE = process.env.VOICE_REALTIME_VOICE ?? "marin";
+const MODEL = process.env.SCREENIT_REALTIME_MODEL ?? process.env.VOICE_REALTIME_MODEL ?? "gpt-realtime";
+const VOICE = process.env.SCREENIT_REALTIME_VOICE ?? process.env.VOICE_REALTIME_VOICE ?? "marin";
 const INPUT_CHUNK_BYTES = 1600;
 const MAX_CALL_MS = 20 * 60_000;
+const WRAP_UP_LEAD_MS = 30_000;
+const VAD_MODE = process.env.SCREENIT_VAD_MODE === "server_vad" ? "server_vad" : "semantic_vad";
+const VAD_EAGERNESS = ["low", "medium", "high", "auto"].includes(process.env.SCREENIT_VAD_EAGERNESS ?? "")
+  ? process.env.SCREENIT_VAD_EAGERNESS
+  : "low";
 const VAD_THRESHOLD = Number(process.env.SCREENIT_VAD_THRESHOLD ?? "0.92");
 const VAD_SILENCE_MS = Number(process.env.SCREENIT_VAD_SILENCE_MS ?? "1000");
 const VAD_PREFIX_MS = Number(process.env.SCREENIT_VAD_PREFIX_MS ?? "300");
-const BARGE_IN_MIN_MS = Number(process.env.SCREENIT_BARGE_IN_MIN_MS ?? "900");
+const BARGE_IN_MIN_MS = Number(process.env.SCREENIT_BARGE_IN_MIN_MS ?? "1800");
 
 export interface ScreeningCallContext {
   readonly requestId: string;
@@ -31,6 +36,8 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   private transcript: Array<{ speaker: "ScreenIT" | "Candidate"; text: string }> = [];
   private ended = false;
   private maxCallTimer: ReturnType<typeof setTimeout> | null = null;
+  private wrapUpTimer: ReturnType<typeof setTimeout> | null = null;
+  private hangupTimer: ReturnType<typeof setTimeout> | null = null;
   private bargeInTimer: ReturnType<typeof setTimeout> | null = null;
   private candidateSpeechActive = false;
   private speechStartedDuringAssistant = false;
@@ -38,6 +45,8 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   private assistantResponseActive = false;
   private assistantAudibleUntil = 0;
   private pendingResponseAfterBargeIn = false;
+  private wrapUpPending = false;
+  private finishRequested = false;
 
   constructor(
     private readonly supabase: SupabaseClient,
@@ -56,6 +65,8 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
           instructions: `The candidate just answered. Speak warmly and naturally, with a small pause between sentences. Say: "Hi ${this.firstName()}, this is ScreenIT calling for Gamma Tech about the ${this.screening.positionTitle} role. I'm an AI interviewer, and I'll transcribe our conversation for a recruiter to review. Is now a good time to continue?" Then stop completely and listen.`,
         },
       });
+      this.wrapUpTimer = setTimeout(() => this.requestTimeLimitWrapUp(), MAX_CALL_MS - WRAP_UP_LEAD_MS);
+      this.wrapUpTimer.unref?.();
       this.maxCallTimer = setTimeout(() => void this.hangup(), MAX_CALL_MS);
       this.maxCallTimer.unref?.();
       console.log(`[SCREENIT-CALL] Live screening call for ${this.screening.candidateName} (${ctx.callerNumber})`);
@@ -82,6 +93,8 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
     if (this.ended) return;
     this.ended = true;
     if (this.maxCallTimer) clearTimeout(this.maxCallTimer);
+    if (this.wrapUpTimer) clearTimeout(this.wrapUpTimer);
+    if (this.hangupTimer) clearTimeout(this.hangupTimer);
     if (this.bargeInTimer) clearTimeout(this.bargeInTimer);
     this.ws?.close();
     this.ws = null;
@@ -134,9 +147,9 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
             noise_reduction: { type: "far_field" },
             transcription: { model: "gpt-4o-mini-transcribe" },
             // ScreenIT owns barge-in instead of letting a breath or brief line
-            // noise cancel a response immediately. VAD still commits the turn;
-            // response.create is sent after a valid candidate turn below.
-            turn_detection: { type: "server_vad", threshold: VAD_THRESHOLD, prefix_padding_ms: VAD_PREFIX_MS, silence_duration_ms: VAD_SILENCE_MS, interrupt_response: false, create_response: false },
+            // noise cancel a response immediately. Low-eagerness semantic VAD
+            // waits for a completed thought rather than a short natural pause.
+            turn_detection: this.turnDetection(),
           },
           output: { format: { type: "audio/pcmu" }, voice: VOICE },
         },
@@ -147,46 +160,34 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   }
 
   private instructions(): string {
-    const questions = this.screening.questions.map((question, index) => `${index + 1}. ${question.prompt}${question.reason ? `\nWhy this is asked: ${question.reason}` : ""}`).join("\n\n");
+    const questions = this.screening.questions.map((question) => `- ${question.prompt}${question.reason ? ` (${question.reason})` : ""}`).join("\n");
     const resumeFacts = this.screening.resumeFacts.map((fact) => `- ${fact}`).join("\n") || "- No reliable resume facts were extracted; ask the candidate to summarize their most recent role.";
     const resumeClarifications = this.screening.resumeClarifications.map((item) => `- ${item}`).join("\n") || "- None identified.";
     return `You are ScreenIT, a warm, natural phone interviewer calling ${this.screening.candidateName} about the ${this.screening.positionTitle} role.
 
-CONVERSATION STYLE:
-- The human candidate should speak about 80 percent of the call. Your job is to ask and listen.
-- Ask exactly one easy-to-understand question at a time, using one short sentence whenever possible.
-- Never give a long speech, restate their whole answer, or stack multiple questions.
-- Use brief natural acknowledgements such as "Got it" or "Thank you," then move to the next question.
-- Allow pauses and never rush to fill silence. ScreenIT's audio gate handles genuine sustained interruptions; do not react to breaths, coughs, or brief line noise.
-- Go deeper through short follow-ups, not complicated wording. Useful follow-ups include "What did you personally do?", "What made that difficult?", and "What was the result?"
-- Ask no more than two follow-ups for one main question, and ask each follow-up separately.
-- Sound conversational and respectful, not like you are reading a form.
-- Listen to the substance of each answer and ask one smart, neutral follow-up when it would verify a resume claim, clarify a gap, or produce a concrete work example.
-- Do not announce question numbers, categories, or that you are moving through a list. Use natural transitions tied to what the candidate just said.
-- Speak like a recruiter who has the resume open, not like a survey bot. When the resume gives an employer, title, tool, or responsibility, name it naturally: "I see on your resume that at Acme you worked with Datto RMM. What did you handle there day to day?"
-- Never invent a company, job title, date, tool, or responsibility. Only reference details listed under EXPLICIT RESUME FACTS.
-- Use contractions and plain conversational phrasing. Vary transitions instead of saying "Got it" or "Thank you" after every answer.
-- Briefly connect a follow-up to the candidate's own words, such as "You mentioned onboarding users—what part of that did you own?" Do not repeat their entire answer.
-- If an answer already covers a later question, skip that question. Never make the candidate repeat themselves just to satisfy the list.
-- A short thoughtful pause is normal. Wait for the candidate to finish and never speak over the end of their answer.
+YOUR JOB:
+- Make this feel like a calm conversation, not a questionnaire. The candidate should speak most of the time.
+- Ask no more than five primary questions in the entire call and no more than two adaptive follow-ups total.
+- The topics below are a coverage guide, not a rigid order. Follow the candidate's answers, transition naturally, and reorder or skip topics when the conversation has already supplied the evidence.
+- Ask exactly one short, plain-English question at a time. Never stack questions or give a long speech.
+- Let the candidate finish the full thought. A pause, breath, cough, or moment of thinking is not an interruption.
+- Use brief, varied acknowledgements only when useful. Do not summarize every answer back to them.
+- Before asking anything, check the conversation so far. If the topic or evidence was already covered, skip it. Never paraphrase and re-ask the same question.
+- Keep a silent topic ledger for: resume work, IT motivation, tools/workflow, troubleshooting/learning, and final addition. Cover each at most once.
 
-INTERVIEW ORDER:
-1. After consent, start with the resume—not generic role questions. Say you reviewed it, mention the most recent relevant employer or role from the explicit facts below, and ask what the candidate personally handled there day to day.
-2. Clarify resume items below naturally. Do not accuse the candidate of having a gap or mistake.
-3. Spend the first part of the call on two or three specific resume details before moving into broader MSP questions.
-4. Ask "What first got you interested in working in IT?" Then, after listening, ask one simple follow-up about what keeps them learning now.
-5. Later, ask for a real time they did not know how to solve something at work. Follow up separately about how they sought help and what they learned.
-6. Continue through the prepared screening questions in order. Do not repeat a question the candidate already answered while discussing the resume.
-7. Finish by asking if there is job-related experience on the resume that you did not cover and that they want management to know.
+FIVE-TOPIC CONVERSATION:
+1. RESUME WORK: Start with the most recent relevant employer or role only when it appears verbatim in EXPLICIT RESUME FACTS. Ask what the candidate personally handled there. If no employer is explicitly listed, ask them to describe their most recent relevant role without naming a company.
+2. ONE RESUME DETAIL: Ask at most one follow-up about a specific responsibility, tool, project, or neutral clarification from the resume. Never introduce an employer name that is not in EXPLICIT RESUME FACTS. If the candidate introduces another employer, you may discuss it, but never claim it was on the resume.
+3. IT MOTIVATION: Ask what first got them interested in IT. Capture the reasons and examples they actually state; do not infer excitement or passion from their voice.
+4. TOOLS AND WORKFLOW: First ask what tools or systems they have used to support people or computers. Do not assume they know the terms RMM, PSA, ticketing, or Microsoft 365. Only after their answer, ask one plain-language follow-up about the most important missing area. Explain unfamiliar shorthand briefly, for example "software used to monitor or manage computers remotely" or "a system used to track support requests." Do not quiz them on several tool categories.
+5. PROBLEM SOLVING: Ask for one real time they did not know how to solve a work problem and what they did next. This one example may cover troubleshooting, asking for help, documentation, escalation, and learning. Do not separately re-ask those topics if the example already covers them.
 
-MSP DEPTH TO LISTEN FOR:
-- Whether they supported multiple customer environments, not only one internal company.
-- Which RMM tools they used and the real tasks they performed in those tools.
-- Which PSA or ticketing tools they used and how they owned, prioritized, escalated, documented, and closed tickets.
-- Whether their notes would let another technician understand the problem, work performed, result, and next step.
-- A specific remote troubleshooting example from intake through resolution and customer communication.
-- Do not reward a product name by itself. Ask what they actually did. Treat equivalent tools and transferable workflows fairly.
-- Motivation and learning matter, but never infer passion, humility, personality, or enthusiasm from voice, accent, tone, or speaking style. Capture what the candidate says and the concrete examples they provide for human review.
+DEPTH WITHOUT REPETITION:
+- Use at most two follow-ups across the whole call, selected only when an answer needs one concrete detail such as what they personally did or what the result was.
+- The prepared questions below are optional evidence prompts, not a checklist. Use at most one prepared question, only if it covers a role-critical gap that remains after the five topics.
+- Accept equivalent tools and transferable workflows. A product name alone is not evidence; one short follow-up may ask what they actually did with it.
+- Ask one final invitation: "Is there any job-related experience you want the recruiting team to know that we didn't cover?"
+- Listen for job-relevant working signals in the candidate's examples: ownership, clarity, customer awareness, documentation habits, help-seeking, learning, and explicitly stated interest. Gather evidence through the conversation; do not label their personality.
 
 EXPLICIT RESUME FACTS:
 ${resumeFacts}
@@ -204,15 +205,15 @@ CONSENT:
 - Before any screening question, disclose that you are an AI assistant, the call is transcribed, and a human recruiter reviews the report.
 - Get a clear yes. If they decline or it is a bad time, thank them, say a recruiter can follow up, and call finish_screening.
 
-SCREENING QUESTIONS:
-${questions || "Ask the candidate to describe the most relevant job experience for this role."}
+OPTIONAL PREPARED EVIDENCE PROMPTS:
+${questions || "- None. Use the five-topic conversation above."}
 
 BOUNDARIES:
 - Discuss only job duties, skills, explicit resume experience, work examples, and role logistics.
 - Never ask about or infer protected traits, medical history, family status, age, nationality, religion, disability, or other sensitive information.
-- Never score accent, emotion, personality, honesty, enthusiasm, or culture fit.
+- Never score accent, emotion, personality, honesty, enthusiasm, or culture fit. A report may capture only interest or motivation the candidate explicitly states in words.
 - Do not make a hiring decision or tell the candidate whether they passed.
-- After the questions, ask whether they want to add job-related context. Then thank them in one short sentence and call finish_screening.`;
+- After the final invitation, wait for the full answer. Then say a natural goodbye that thanks them and says the recruiting team will review the conversation. Only after the goodbye is spoken, call finish_screening.`;
   }
 
   private handleServerEvent(raw: string): void {
@@ -242,6 +243,14 @@ BOUNDARIES:
     }
     if (type === "response.done") {
       this.assistantResponseActive = false;
+      if (this.finishRequested) {
+        this.scheduleHangupAfterAudio();
+        return;
+      }
+      if (this.wrapUpPending && !this.candidateSpeechActive) {
+        this.sendTimeLimitWrapUp();
+        return;
+      }
       if (this.pendingResponseAfterBargeIn) {
         this.pendingResponseAfterBargeIn = false;
         this.send({ type: "response.create" });
@@ -266,6 +275,7 @@ BOUNDARIES:
       const shouldAnswer = !this.speechStartedDuringAssistant || this.bargeInAccepted || !this.isAssistantAudible();
       if (shouldAnswer) {
         if (this.assistantResponseActive) this.pendingResponseAfterBargeIn = true;
+        else if (this.wrapUpPending) this.sendTimeLimitWrapUp();
         else this.send({ type: "response.create" });
       }
       this.speechStartedDuringAssistant = false;
@@ -273,8 +283,13 @@ BOUNDARIES:
       return;
     }
     if (type === "response.function_call_arguments.done" && event.name === "finish_screening") {
+      this.finishRequested = true;
       this.send({ type: "conversation.item.create", item: { type: "function_call_output", call_id: String(event.call_id ?? ""), output: JSON.stringify({ ok: true }) } });
-      setTimeout(() => void this.hangup(), 2_500).unref?.();
+      // response.done normally follows this event. Keep a conservative fallback
+      // so a lost completion event cannot leave the phone call open forever.
+      if (this.hangupTimer) clearTimeout(this.hangupTimer);
+      this.hangupTimer = setTimeout(() => void this.hangup(), 12_000);
+      this.hangupTimer.unref?.();
       return;
     }
     if (type === "error") console.error("[SCREENIT-CALL] Realtime error:", JSON.stringify(event.error ?? event).slice(0, 300));
@@ -290,6 +305,38 @@ BOUNDARIES:
 
   private isAssistantAudible(): boolean {
     return this.assistantResponseActive || Date.now() < this.assistantAudibleUntil;
+  }
+
+  private turnDetection(): Record<string, unknown> {
+    if (VAD_MODE === "server_vad") {
+      return { type: "server_vad", threshold: VAD_THRESHOLD, prefix_padding_ms: VAD_PREFIX_MS, silence_duration_ms: VAD_SILENCE_MS, interrupt_response: false, create_response: false };
+    }
+    return { type: "semantic_vad", eagerness: VAD_EAGERNESS, interrupt_response: false, create_response: false };
+  }
+
+  private requestTimeLimitWrapUp(): void {
+    if (this.ended || this.finishRequested) return;
+    this.wrapUpPending = true;
+    if (!this.candidateSpeechActive && !this.assistantResponseActive) this.sendTimeLimitWrapUp();
+  }
+
+  private sendTimeLimitWrapUp(): void {
+    if (this.ended || this.finishRequested) return;
+    this.wrapUpPending = false;
+    this.send({
+      type: "response.create",
+      response: {
+        instructions: "The twenty-minute call limit is approaching. Ask no new question. Briefly thank the candidate, say the recruiting team will review the conversation, say goodbye, and then call finish_screening only after the goodbye is spoken.",
+      },
+    });
+  }
+
+  private scheduleHangupAfterAudio(): void {
+    if (this.hangupTimer) clearTimeout(this.hangupTimer);
+    const remainingAudioMs = Math.max(0, this.assistantAudibleUntil - Date.now());
+    const delayMs = Math.min(10_000, Math.max(1_200, remainingAudioMs + 900));
+    this.hangupTimer = setTimeout(() => void this.hangup(), delayMs);
+    this.hangupTimer.unref?.();
   }
 
   private acceptBargeIn(): void {

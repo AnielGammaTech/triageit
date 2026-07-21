@@ -47,6 +47,11 @@ export interface RequirementEvidence {
   readonly evidence: string;
 }
 
+export interface ConversationSignal {
+  readonly signal: string;
+  readonly evidence: string;
+}
+
 export interface CandidateReport {
   readonly id: string;
   readonly candidateId: string;
@@ -56,6 +61,8 @@ export interface CandidateReport {
   readonly recommendation: "recruiter_review" | "follow_up" | "incomplete";
   readonly roleAlignment: "strong_alignment" | "partial_alignment" | "limited_alignment" | "insufficient_evidence";
   readonly fitRationale: string;
+  readonly statedMotivation: string;
+  readonly conversationSignals: readonly ConversationSignal[];
   readonly generatedAt: string;
 }
 

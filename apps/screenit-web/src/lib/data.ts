@@ -56,6 +56,8 @@ export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
       recommendation: row.recommendation as CandidateReport["recommendation"],
       roleAlignment: (row.role_alignment as CandidateReport["roleAlignment"]) ?? "insufficient_evidence",
       fitRationale: String(row.fit_rationale ?? "Human recruiter review required."),
+      statedMotivation: String(row.stated_motivation ?? "Not discussed."),
+      conversationSignals: Array.isArray(row.conversation_signals) ? row.conversation_signals : [],
       generatedAt: String(row.generated_at),
     }));
 
