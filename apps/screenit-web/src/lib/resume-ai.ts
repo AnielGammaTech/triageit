@@ -43,9 +43,25 @@ export async function analyzeResume(resume: File, position: Position): Promise<R
               text: `Prepare a structured screening plan for the ${position.title} role.
 
 Return:
-1. Up to six explicit, job-related resume facts relevant to the role.
+1. Up to six explicit, job-related resume facts relevant to the role. Preserve the employer name, job title, named tool, and stated responsibility when they appear so the interviewer can sound like it actually read the resume.
 2. Neutral clarifications for missing or unclear job-related evidence, including unexplained timeline gaps only when the dates are explicitly present. Never assume why a gap exists.
-3. Three to six concise interview questions that test the role requirements, validate resume claims with concrete examples, and clarify missing evidence. Include the employer-approved questions when useful.
+3. Three to six concise interview questions in this order:
+   - Begin with two or three questions that explicitly reference an employer, job title, tool, project, or responsibility written on this resume, starting with the most recent role-related work.
+   - Then clarify any missing or unclear role evidence.
+   - Then test the core role requirements with concrete work examples.
+
+Every question must use plain spoken English, contain one idea, and be easy to understand on a phone call. Keep it to one sentence and preferably under 24 words. Do not combine "what, how, and why" into one question. Depth should come from short follow-up questions during the conversation, not from a complicated main question. Include employer-approved questions when useful, but simplify their wording without changing their intent.
+
+For an MSP, service desk, help desk, or IT technician role, make sure the complete question set gathers evidence about:
+- Supporting multiple customer environments in an MSP or similar setting.
+- Hands-on use of RMM tools and what the candidate actually did in them.
+- PSA or ticketing systems, ticket ownership, prioritization, escalation, and closure.
+- Clear ticket notes, technical documentation, and customer-facing updates.
+- A real remote troubleshooting example from first report through resolution.
+
+Ask for tool names when relevant, but accept comparable tools and workflows. If the resume does not state MSP, RMM, PSA, documentation, or ticketing experience, ask neutrally instead of treating it as absent.
+
+Resume questions should sound like a recruiter who read the document. For example: "I see on your resume that you supported multiple clients at Acme MSP; what did you handle there day to day?" Never invent a company, title, tool, or responsibility that is not explicitly in the resume.
 
 Use only explicit resume content. Do not include or infer age, race, ethnicity, nationality, religion, sex, gender, disability, health, family status, photo details, or other protected information.
 

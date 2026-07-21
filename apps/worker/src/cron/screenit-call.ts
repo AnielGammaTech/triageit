@@ -50,7 +50,7 @@ export async function runScreeningCallRequests(): Promise<{ processed: number; c
     try {
       const { data: candidate, error: candidateError } = await supabase
         .from("screenit_candidates")
-        .select("id, position_id, full_name, public_invite_token, screening_questions")
+        .select("id, position_id, full_name, public_invite_token, resume_highlights, resume_clarifications, screening_questions")
         .eq("id", request.candidate_id)
         .maybeSingle();
       if (candidateError || !candidate) throw new Error(candidateError?.message ?? "Candidate not found");
@@ -75,6 +75,8 @@ export async function runScreeningCallRequests(): Promise<{ processed: number; c
         inviteToken: String(candidate.public_invite_token),
         candidateName: String(candidate.full_name),
         positionTitle: String(position.title),
+        resumeFacts: Array.isArray(candidate.resume_highlights) ? candidate.resume_highlights.filter((item): item is string => typeof item === "string").slice(0, 6) : [],
+        resumeClarifications: Array.isArray(candidate.resume_clarifications) ? candidate.resume_clarifications.filter((item): item is string => typeof item === "string").slice(0, 4) : [],
         questions,
       }, () => {
         void supabase.from("screenit_call_requests").update({
