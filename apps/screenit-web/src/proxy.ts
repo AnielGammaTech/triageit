@@ -9,7 +9,7 @@ function isPublic(pathname: string) {
 
 export async function proxy(request: NextRequest) {
   if (isPublic(request.nextUrl.pathname)) return NextResponse.next({ request });
-  if (process.env.SCREENIT_DEMO_MODE === "true") return NextResponse.next({ request });
+  if (process.env.NODE_ENV !== "production" && process.env.SCREENIT_DEMO_MODE === "true") return NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return NextResponse.json({ error: "ScreenIT staff authentication is not configured" }, { status: 503 });
