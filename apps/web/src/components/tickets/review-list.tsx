@@ -323,6 +323,17 @@ function TechReviewRow({ review: r, expandedId, setExpandedId, onSelectTicket, h
             <span>Comm: <span className="text-white/70 font-medium">{r.communication_score}/5</span></span>
             <span>Status: <span className="text-white/70">{r.tickets.halo_status ?? "?"}</span></span>
           </div>
+          <details className="rounded-lg border border-sky-500/15 bg-sky-500/[0.04]">
+            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold text-sky-300/80">
+              How TriageIT calculated this tech review
+            </summary>
+            <div className="space-y-2 border-t border-sky-500/10 px-3 py-2.5 text-xs leading-relaxed text-white/55">
+              <p><span className="font-semibold text-sky-300">Measured:</span> customer-visible reply gaps in business hours (Monday–Friday, 8 AM–5 PM ET). Nights and weekends are excluded.</p>
+              <p><span className="font-semibold text-emerald-300">Anchors:</span> all replies within 1 business hour starts at Good/Great; any gap over 4 hours or an unanswered message caps the grade at Needs Improvement; over 8 hours or no engagement is Poor.</p>
+              <p><span className="font-semibold text-amber-300">AI judgment:</span> the complete action history is checked for helpfulness, frustration, communication, and forward progress. Internal work counts as effort, but only a customer-visible reply stops the response clock.</p>
+              <p><span className="font-semibold text-violet-300">Not scored:</span> optional Hudu suggestions and note length for a routine task.</p>
+            </div>
+          </details>
           {(r.strengths || r.improvement_areas) && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {r.strengths && (

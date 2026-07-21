@@ -7,40 +7,12 @@ import { TeamsClient } from "../../integrations/teams/client.js";
 import { hasConfirmedGammaOnsiteEvidence } from "./onsite-evidence.js";
 import type { TeamsConfig } from "@triageit/shared";
 import type { HaloConfig } from "@triageit/shared";
+import {
+  calibrateCloseReview,
+  type CloseReviewResult,
+} from "./close-review-calibration.js";
 
 // ── Types ────────────────────────────────────────────────────────────
-
-interface HuduKbDraft {
-  readonly title: string;
-  readonly category: "procedure" | "troubleshooting" | "environment" | "contact" | "network" | "password" | "general";
-  readonly content: string;
-  readonly hudu_section: string;
-}
-
-interface CloseReviewResult {
-  readonly resolution_summary: string;
-  readonly tech_performance: {
-    readonly rating: "great" | "good" | "needs_improvement" | "poor";
-    readonly response_time: string;
-    readonly communication: string;
-    readonly highlights: string | null;
-    readonly issues: string | null;
-  };
-  readonly documentation_action: {
-    readonly hudu_updates_needed: ReadonlyArray<string>;
-    readonly quality_score: 1 | 2 | 3 | 4 | 5;
-    readonly notes: string;
-  };
-  readonly hudu_kb_drafts: ReadonlyArray<HuduKbDraft>;
-  readonly onsite_visits: ReadonlyArray<string>;
-  readonly ticket_lifecycle: {
-    readonly total_time: string;
-    readonly first_response_time: string;
-    readonly resolution_method: string;
-  };
-  /** Standing client-specific handling rule this ticket established, or null. */
-  readonly client_policy?: string | null;
-}
 
 // ── Close Review Generator ───────────────────────────────────────────
 
@@ -49,14 +21,21 @@ Analyze the full ticket lifecycle and produce a close-out review.
 
 ## What you're reviewing:
 - How the tech handled the ticket from open to close
-- Whether documentation needs updating in Hudu (the IT documentation platform)
+- Whether this ticket's close-out note is complete and whether durable client documentation truly needs updating in Hudu
 - A brief factual summary of what happened and how it was resolved
 - What KB articles, procedures, or environment docs should be created/updated in Hudu based on what was learned
 
 ## Rules:
 - ALL times must be in Eastern Time (ET). Never use UTC. Convert any timestamps to ET before displaying.
 - Be factual — only state what the ticket history shows
-- Hudu updates should ONLY be permanent environment documentation: network configs, device inventories, passwords, procedures, contact info, DNS records. NOT ticket-specific details.
+- Score documentation based ONLY on whether the TICKET records the issue, action taken, and outcome. Never use one ticket to grade the completeness of the client's entire Hudu environment.
+- Documentation score: 5 = issue/action/outcome/customer confirmation are clear; 4 = issue/action/outcome are clear and confirmation is absent or unnecessary; 3 = outcome is known but steps are vague; 2 = partial work with unclear outcome; 1 = no usable resolution record.
+- A concise note is sufficient for a simple task. A routine password reset, account unlock, or MFA reset with the action and resolved outcome documented should normally score 4 or 5.
+- Hudu updates should ONLY be permanent environment documentation: network configs, device inventories, shared credentials, non-obvious procedures, lasting contacts, DNS records, or standing client policies. NOT ticket-specific details.
+- Do NOT request a Hudu user/contact/inventory update merely because an existing user had a password reset, account unlock, or MFA reset.
+- Hudu suggestions are optional documentation opportunities and MUST NOT lower the tech rating or ticket-documentation score.
+- Missing a separate customer confirmation after an action that directly completed the request may be a follow-up suggestion, but MUST NOT by itself lower a resolved ticket below GOOD.
+- Do not contradict an existing tech review unless the close-out actions reveal new material evidence such as an unresolved outcome, customer frustration, an unsafe action, or a major response failure.
 - Rate the tech honestly — great/good/needs_improvement/poor
 - ONSITE DETECTION IS CRITICAL (unbilled onsite = lost revenue), but it must be high confidence: only report a Gamma staff onsite visit when a note authored by Gamma staff explicitly confirms that Gamma performed work at the client location. Customer, user, or vendor personnel checking/resetting equipment is NOT a Gamma onsite visit. A Scheduled status or appointment proves intent only, not that the visit occurred. For each confirmed Gamma onsite visit, include the staff-authored EVIDENCE QUOTE in onsite_visits. Otherwise return an empty array.
 - Keep everything concise
@@ -92,6 +71,11 @@ Analyze the full ticket lifecycle and produce a close-out review.
     "resolution_method": "<remote|onsite|vendor|automated|escalated>"
   },
   "client_policy": "<STANDING client-specific handling rule this ticket ESTABLISHED — approval chains ('all work needs a PO from X first'), contact-first requirements, billing rules, scheduled-access windows. One clear sentence stating the rule and who it comes from. null unless the ticket explicitly sets a lasting rule for how this client must be handled — a one-off request is NOT a policy>"
+  ,"review_basis": {
+    "evidence_reviewed": ["<brief list of the actual evidence used>"],
+    "rating_drivers": ["<facts that materially affected the rating>"],
+    "not_counted_against_rating": ["<optional suggestions or unavailable evidence that did not lower the grade>"]
+  }
 }`;
 
 // In-memory lock to prevent concurrent close reviews for the same ticket
@@ -307,14 +291,33 @@ async function _generateCloseReview(
       resolution_method: parsedReview.ticket_lifecycle?.resolution_method ?? "not available",
     },
     client_policy: parsedReview.client_policy ?? null,
+    review_basis: {
+      evidence_reviewed: Array.isArray(parsedReview.review_basis?.evidence_reviewed)
+        ? parsedReview.review_basis.evidence_reviewed
+        : [],
+      rating_drivers: Array.isArray(parsedReview.review_basis?.rating_drivers)
+        ? parsedReview.review_basis.rating_drivers
+        : [],
+      not_counted_against_rating: Array.isArray(parsedReview.review_basis?.not_counted_against_rating)
+        ? parsedReview.review_basis.not_counted_against_rating
+        : [],
+    },
   };
   const confirmedOnsite = hasConfirmedGammaOnsiteEvidence(actions);
-  const review: CloseReviewResult = confirmedOnsite
+  const onsiteCalibratedReview: CloseReviewResult = confirmedOnsite
     ? normalizedReview
     : { ...normalizedReview, onsite_visits: [] };
   if (normalizedReview.onsite_visits.length > 0 && !confirmedOnsite) {
     console.warn(`[CLOSE-REVIEW] #${haloId} ignored unverified onsite evidence — no Gamma staff action confirmed a visit`);
   }
+  const review = calibrateCloseReview({
+    review: onsiteCalibratedReview,
+    actions,
+    ticketSummary: String(ticket.summary ?? ""),
+    ticketDetails: ticket.details ? String(ticket.details) : null,
+    priorTechRating: techReview?.rating ? String(techReview.rating) : null,
+    imageCount: allImages.length,
+  });
 
   // Build Halo note HTML
   const noteHtml = buildCloseReviewNote(review, ticket.halo_agent ?? "Unknown Tech", haloId);
@@ -498,16 +501,37 @@ function buildCloseReviewNote(
     );
   }
 
-  // Documentation
+  // Ticket documentation + optional durable Hudu follow-up
   const docColor = review.documentation_action.quality_score >= 4 ? "#4ade80" : review.documentation_action.quality_score >= 3 ? "#fbbf24" : "#f87171";
   const huduUpdates = review.documentation_action.hudu_updates_needed;
   rows.push(
-    `<tr style="background:#1a2332;"><td style="${lbl}${border}color:${docColor};">📝 Docs</td>` +
+    `<tr style="background:#1a2332;"><td style="${lbl}${border}color:${docColor};">📝 Ticket notes</td>` +
     `<td style="${val}${border}">` +
     `Quality: <strong style="color:${docColor};font-size:15px;">${review.documentation_action.quality_score}/5</strong> · ${review.documentation_action.notes}` +
-    `${huduUpdates.length > 0 ? `<br/><strong>Update Hudu:</strong> ${huduUpdates.join(", ")}` : ""}` +
+    `${huduUpdates.length > 0 ? `<br/><strong>Optional Hudu opportunity (not scored):</strong> ${huduUpdates.join(", ")}` : ""}` +
     `</td></tr>`,
   );
+
+  const basis = review.review_basis;
+  const basisSections = [
+    basis.evidence_reviewed.length > 0
+      ? `<div><strong style="color:#93c5fd;">Evidence reviewed:</strong> ${basis.evidence_reviewed.join(" · ")}</div>`
+      : "",
+    basis.rating_drivers.length > 0
+      ? `<div style="margin-top:5px;"><strong style="color:#86efac;">Counted in the grade:</strong> ${basis.rating_drivers.join(" · ")}</div>`
+      : "",
+    basis.not_counted_against_rating.length > 0
+      ? `<div style="margin-top:5px;"><strong style="color:#fde68a;">Not counted against the grade:</strong> ${basis.not_counted_against_rating.join(" · ")}</div>`
+      : "",
+  ].filter(Boolean).join("");
+  if (basisSections) {
+    rows.push(
+      `<tr style="background:#1E2028;"><td colspan="2" style="padding:0;${border}">` +
+      `<details><summary style="cursor:pointer;padding:7px 14px;color:#94a3b8;font-size:11.5px;font-weight:600;">How TriageIT graded this review</summary>` +
+      `<div style="padding:8px 14px;border-top:1px solid #3a3f4b;color:#cbd5e1;font-size:11.5px;line-height:1.5;">${basisSections}</div></details>` +
+      `</td></tr>`,
+    );
+  }
 
   // Footer
   rows.push(

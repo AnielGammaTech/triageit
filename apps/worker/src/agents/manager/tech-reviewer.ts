@@ -368,7 +368,9 @@ export async function generateTechReview(
     `- Customer is visibly frustrated or repeating the same request = the tech is failing.`,
     `- Tech closed/resolved without actually fixing the issue = call it out.`,
     `- Tech gave a generic canned response that doesn't address the specific situation = call it out.`,
-    `- Ticket resolved but no documentation of HOW it was resolved → POOR. Say: "Ticket resolved but no resolution steps documented. Without documentation, Hudu can't learn from this and the team can't reference it for similar issues."`,
+    `- Ticket resolved with no usable record of the action or outcome → at best NEEDS IMPROVEMENT. Use POOR only when the outcome is also unclear/failed, the customer was harmed, or the ticket shows a major response failure.`,
+    `- A simple routine task only needs a concise issue/action/outcome note. Do not demand a runbook, Hudu update, or lengthy narrative for password resets, account unlocks, MFA resets, or similarly standard work.`,
+    `- Hudu opportunities are not part of this tech-performance grade. Judge the response and handling shown on the ticket.`,
     `- Ticket was resolved then reopened with no explanation in the notes → flag it. Say: "This ticket was reopened after being resolved, but there's no note explaining why. What changed?"`,
     `- Tech is doing internal work but hasn't communicated with the customer at all → flag it even if work is happening. Say: "There's internal activity on this ticket but the customer hasn't been updated. Even a quick 'we're working on it' goes a long way."`,
     ``,
@@ -510,6 +512,16 @@ function buildCoachingNote(
     // always visible regardless of rating
     `<tr style="background:#1E2028;"><td style="padding:6px 12px;border-bottom:1px solid #3a3f4b;font-size:11.5px;color:#cbd5e1;">${responseFactsLine}</td></tr>`;
 
+  const gradingBasis =
+    `<tr style="background:#1E2028;"><td style="padding:0;border-bottom:1px solid #3a3f4b;">` +
+    `<details><summary style="cursor:pointer;padding:6px 12px;font-size:11.5px;font-weight:600;color:#94a3b8;">How this tech review was scored</summary>` +
+    `<div style="padding:8px 12px;border-top:1px solid #3a3f4b;color:#cbd5e1;font-size:11.5px;line-height:1.55;">` +
+    `<div><strong style="color:#93c5fd;">Measured by code:</strong> customer-visible reply gaps during Mon–Fri, 8 AM–5 PM ET. Nights and weekends do not count.</div>` +
+    `<div style="margin-top:4px;"><strong style="color:#86efac;">Rating anchors:</strong> every reply within 1 business hour starts at Good/Great; a gap over 4 hours or an unanswered message caps the review at Needs Improvement; over 8 hours or no engagement is Poor.</div>` +
+    `<div style="margin-top:4px;"><strong style="color:#fde68a;">AI judgment:</strong> the full action history is used for helpfulness, customer frustration, communication, and whether the work moved forward. Internal work is considered, but only visible replies stop the customer-response clock.</div>` +
+    `<div style="margin-top:4px;"><strong style="color:#c4b5fd;">Not part of this grade:</strong> optional Hudu ideas and the length of notes for routine work.</div>` +
+    `</div></details></td></tr>`;
+
   const strengthsRow = feedback.strengths
     ? `<div style="margin-bottom:7px;"><span style="color:#4ade80;font-weight:600;font-size:11px;">STRENGTHS</span><br/><span style="color:#bbf7d0;">${feedback.strengths}</span></div>`
     : "";
@@ -549,6 +561,7 @@ function buildCoachingNote(
   return (
     `<table style="font-family:'Segoe UI',Roboto,Arial,sans-serif;width:100%;max-width:100%;border-collapse:collapse;background:#1E2028;border:1px solid #3a3f4b;border-radius:8px;overflow:hidden;">` +
     header +
+    gradingBasis +
     body +
     `<tr style="background:#1E2028;"><td style="padding:4px 12px;color:#64748b;font-size:9.5px;text-align:right;">Toby Flenderson · TriageIt AI · Employee Feedback · Private Note</td></tr>` +
     `</table>`
