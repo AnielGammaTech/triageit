@@ -85,7 +85,12 @@ export function InterviewRoom({ candidate, position }: { readonly candidate: Can
     streamRef.current?.getTracks().forEach((track) => track.stop());
     setPhase("connecting");
     const response = await fetch("/api/interviews/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: candidate.inviteToken, transcript }) });
-    const payload = await response.json() as { report?: CandidateReport };
+    const payload = await response.json() as { report?: CandidateReport; error?: string };
+    if (!response.ok || !payload.report) {
+      console.error(payload.error ?? "Interview could not be completed");
+      setPhase("error");
+      return;
+    }
     setReport(payload.report ?? null);
     setPhase("complete");
   }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BriefcaseBusiness, FileCheck2, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { BarChart3, BriefcaseBusiness, FileCheck2, LayoutDashboard, LogOut, Settings, Users } from "lucide-react";
 import { ScreenItLogo } from "@/components/screenit-logo";
 
 const items = [
@@ -10,6 +10,7 @@ const items = [
   { href: "/positions", label: "Positions", icon: BriefcaseBusiness },
   { href: "/candidates", label: "Candidates", icon: Users },
   { href: "/reports", label: "Reports", icon: FileCheck2 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {

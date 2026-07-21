@@ -16,6 +16,7 @@ async function generateReport(requirements: readonly string[], transcript: strin
   try {
     const response = await fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({
       model: process.env.SCREENIT_REPORT_MODEL ?? "gpt-5-mini",
+      store: false,
       input: `Create a structured recruiter evidence report. Use only explicit job-related statements in the transcript. Never infer protected traits, personality, emotion, accent, honesty, culture fit, or a hiring recommendation. Requirements:\n${requirements.map((item) => `- ${item}`).join("\n")}\n\nTranscript:\n${transcript}`,
       text: { format: { type: "json_schema", name: "candidate_evidence_report", strict: true, schema: { type: "object", additionalProperties: false, required: ["summary", "evidence", "clarifications"], properties: { summary: { type: "string" }, evidence: { type: "array", items: { type: "object", additionalProperties: false, required: ["requirement", "level", "evidence"], properties: { requirement: { type: "string" }, level: { type: "string", enum: ["demonstrated", "partial", "unclear", "not_demonstrated"] }, evidence: { type: "string" } } } }, clarifications: { type: "array", items: { type: "string" } } } } } },
     }) });
@@ -37,15 +38,20 @@ export async function POST(request: NextRequest) {
   if (!rateLimit.allowed) return NextResponse.json({ error: "Too many completion attempts. Please contact the recruiter." }, { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } });
   const interview = await getInterviewByToken(parsed.data.token);
   if (!interview) return NextResponse.json({ error: "Interview invitation not found" }, { status: 404 });
+  if (!hasScreenItDatabase()) return NextResponse.json({ error: "Candidate storage is not configured" }, { status: 503 });
   const transcriptText = parsed.data.transcript.map((line) => `${line.speaker}: ${line.text}`).join("\n");
   const generated = await generateReport(interview.position.requirements, transcriptText);
   const report: CandidateReport = { id: crypto.randomUUID(), candidateId: interview.candidate.id, ...generated, recommendation: "recruiter_review", generatedAt: new Date().toISOString() };
-  if (hasScreenItDatabase()) {
-    const supabase = getScreenItServiceClient();
-    const { error } = await supabase.from("screenit_reports").upsert({ id: report.id, candidate_id: report.candidateId, summary: report.summary, requirement_evidence: report.evidence, clarifications: report.clarifications, recommendation: report.recommendation, generated_at: report.generatedAt }, { onConflict: "candidate_id" });
-    if (error) console.error("[ScreenIT] Report persistence failed", error);
-    await supabase.from("screenit_candidates").update({ stage: "review", completed_at: report.generatedAt }).eq("id", report.candidateId);
-    await supabase.from("screenit_interviews").upsert({ candidate_id: report.candidateId, consented_at: new Date().toISOString(), transcript: parsed.data.transcript, completed_at: report.generatedAt }, { onConflict: "candidate_id" });
+  const supabase = getScreenItServiceClient();
+  const [reportResult, candidateResult, interviewResult] = await Promise.all([
+    supabase.from("screenit_reports").upsert({ id: report.id, candidate_id: report.candidateId, summary: report.summary, requirement_evidence: report.evidence, clarifications: report.clarifications, recommendation: report.recommendation, generated_at: report.generatedAt }, { onConflict: "candidate_id" }),
+    supabase.from("screenit_candidates").update({ stage: "review", completed_at: report.generatedAt }).eq("id", report.candidateId),
+    supabase.from("screenit_interviews").upsert({ candidate_id: report.candidateId, consented_at: new Date().toISOString(), transcript: parsed.data.transcript, completed_at: report.generatedAt }, { onConflict: "candidate_id" }),
+  ]);
+  const persistenceError = reportResult.error ?? candidateResult.error ?? interviewResult.error;
+  if (persistenceError) {
+    console.error("[ScreenIT] Interview persistence failed", persistenceError);
+    return NextResponse.json({ error: "The report was created but could not be saved. Please retry." }, { status: 500 });
   }
   return NextResponse.json({ report });
 }

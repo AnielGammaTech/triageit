@@ -1,6 +1,6 @@
 # ScreenIT
 
-ScreenIT is a separate candidate-screening application inside the TriageIT monorepo. It deploys as its own Railway service, has its own logo and domain, and uses a dedicated Supabase project for recruiting data.
+ScreenIT is a separate candidate-screening application inside the TriageIT monorepo. It deploys as its own Railway service, has its own logo and domain, and uses isolated Supabase tables for recruiting data.
 
 ## Local preview
 
@@ -13,13 +13,13 @@ The demo workspace is synthetic. No TriageIT production data is used.
 ## Production boundaries
 
 - Staff authentication: dedicated ScreenIT email/password credentials with an eight-hour signed, HTTP-only session.
-- Recruiting data: dedicated ScreenIT Supabase (`NEXT_PUBLIC_SCREENIT_SUPABASE_*` and `SCREENIT_SUPABASE_SERVICE_ROLE_KEY`).
+- Recruiting data: isolated ScreenIT Supabase tables (`NEXT_PUBLIC_SCREENIT_SUPABASE_*` and `SCREENIT_SUPABASE_SERVICE_ROLE_KEY`).
 - Voice: server-minted OpenAI Realtime client secrets. The OpenAI API key never reaches the browser.
 - Candidate entry: opaque interview link with explicit transcription consent.
 - Audio: not retained by default. Transcript and evidence report are retained.
 - Decision: ScreenIT does not accept/reject candidates or produce a hidden candidate score.
 
-Apply `supabase/migrations/0001_screenit_initial.sql` only to the dedicated ScreenIT Supabase project.
+Apply the migrations in `supabase/migrations/` to the Supabase project used for ScreenIT storage.
 
 ## Railway service
 

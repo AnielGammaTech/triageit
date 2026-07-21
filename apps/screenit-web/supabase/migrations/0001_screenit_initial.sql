@@ -1,4 +1,4 @@
--- ScreenIT owns this schema in a dedicated Supabase project.
+-- ScreenIT owns these isolated, namespaced tables in Supabase.
 -- The application reads and writes through its server-side service role only.
 
 create extension if not exists pgcrypto;
