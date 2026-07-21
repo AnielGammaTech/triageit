@@ -37,6 +37,8 @@ export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
       stage: row.stage as Candidate["stage"],
       resumeFileName: String(row.resume_file_name ?? "Resume"),
       resumeHighlights: asStringArray(row.resume_highlights),
+      resumeClarifications: asStringArray(row.resume_clarifications),
+      screeningQuestions: Array.isArray(row.screening_questions) ? row.screening_questions : [],
       interviewMode: (row.interview_mode as Candidate["interviewMode"]) ?? null,
       scheduledAt: row.scheduled_at ? String(row.scheduled_at) : null,
       completedAt: row.completed_at ? String(row.completed_at) : null,
@@ -52,6 +54,8 @@ export async function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
       evidence: Array.isArray(row.requirement_evidence) ? row.requirement_evidence : [],
       clarifications: asStringArray(row.clarifications),
       recommendation: row.recommendation as CandidateReport["recommendation"],
+      roleAlignment: (row.role_alignment as CandidateReport["roleAlignment"]) ?? "insufficient_evidence",
+      fitRationale: String(row.fit_rationale ?? "Human recruiter review required."),
       generatedAt: String(row.generated_at),
     }));
 
@@ -93,5 +97,9 @@ export async function getInterviewByToken(token: string) {
   if (!candidate) return null;
   if (candidate.inviteExpiresAt && new Date(candidate.inviteExpiresAt).getTime() < Date.now()) return null;
   const position = workspace.positions.find((item) => item.id === candidate.positionId) ?? null;
-  return position ? { candidate, position } : null;
+  if (!position) return null;
+  const personalizedPosition = candidate.screeningQuestions.length
+    ? { ...position, questions: candidate.screeningQuestions }
+    : position;
+  return { candidate, position: personalizedPosition };
 }

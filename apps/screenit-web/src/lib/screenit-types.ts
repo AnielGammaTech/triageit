@@ -31,6 +31,8 @@ export interface Candidate {
   readonly stage: CandidateStage;
   readonly resumeFileName: string;
   readonly resumeHighlights: readonly string[];
+  readonly resumeClarifications: readonly string[];
+  readonly screeningQuestions: readonly InterviewQuestion[];
   readonly interviewMode: "browser" | "phone" | null;
   readonly scheduledAt: string | null;
   readonly completedAt: string | null;
@@ -52,6 +54,8 @@ export interface CandidateReport {
   readonly evidence: readonly RequirementEvidence[];
   readonly clarifications: readonly string[];
   readonly recommendation: "recruiter_review" | "follow_up" | "incomplete";
+  readonly roleAlignment: "strong_alignment" | "partial_alignment" | "limited_alignment" | "insufficient_evidence";
+  readonly fitRationale: string;
   readonly generatedAt: string;
 }
 

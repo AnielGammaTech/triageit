@@ -31,6 +31,7 @@ import { runTobyAnalysis } from "./agents/workers/toby-flenderson.js";
 import { investigateWithWorker } from "./agents/investigate.js";
 import { generateCloseReview } from "./agents/manager/close-reviewer.js";
 import { runSlaCallRequests } from "./cron/sla-call.js";
+import { runScreeningCallRequests } from "./cron/screenit-call.js";
 import { getCachedHaloConfig } from "./integrations/get-config.js";
 import {
   startMsGraphSetup,
@@ -773,6 +774,42 @@ server.post<{ Body: { halo_id: number; tech_name?: string; phone?: string; objec
     return { status: "ok", ...result };
   },
 );
+
+// ScreenIT creates the durable request; this endpoint asks the co-located
+// 3CX voice listener to originate it so call registration cannot race across
+// processes.
+server.post("/screenit-call-requests", async (_request, reply) => {
+  try {
+    return { status: "ok", ...(await runScreeningCallRequests()) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[SCREENIT-CALL] Queue processing failed:", message);
+    return reply.status(500).send({ error: message });
+  }
+});
+
+server.get("/screenit-call-status", async (_request, reply) => {
+  try {
+    const supabase = createSupabaseClient();
+    const { data: integration, error } = await supabase
+      .from("integrations")
+      .select("config")
+      .eq("service", "threecx")
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const config = integration?.config as Partial<ThreeCxConfig> | undefined;
+    const threeCxReady = Boolean(config?.api_url && config?.client_id && config?.client_secret);
+    return {
+      state: threeCxReady && Boolean(process.env.OPENAI_API_KEY) ? "connected" : "degraded",
+      threeCxReady,
+      realtimeReady: Boolean(process.env.OPENAI_API_KEY),
+      routePoint: process.env.VOICE_ROUTE_POINT_DN ?? "triageit",
+    };
+  } catch (error) {
+    return reply.status(500).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 // ── Close review endpoint ─────────────────────────────────────────────
 // Generate a close-out review for a resolved ticket

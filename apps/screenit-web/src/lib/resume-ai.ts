@@ -1,9 +1,11 @@
 import "server-only";
 
-import type { Position } from "@/lib/screenit-types";
+import type { InterviewQuestion, Position } from "@/lib/screenit-types";
 
-interface ResumeAnalysis {
+export interface ResumeAnalysis {
   readonly highlights: readonly string[];
+  readonly clarifications: readonly string[];
+  readonly questions: readonly InterviewQuestion[];
 }
 
 function outputText(payload: unknown): string | null {
@@ -17,8 +19,10 @@ function outputText(payload: unknown): string | null {
   return null;
 }
 
-export async function extractResumeHighlights(resume: File, position: Position): Promise<readonly string[]> {
-  if (!process.env.OPENAI_API_KEY) return [];
+const emptyAnalysis: ResumeAnalysis = { highlights: [], clarifications: [], questions: [] };
+
+export async function analyzeResume(resume: File, position: Position): Promise<ResumeAnalysis> {
+  if (!process.env.OPENAI_API_KEY) return emptyAnalysis;
   const mimeType = resume.type || "application/octet-stream";
   const fileData = `data:${mimeType};base64,${Buffer.from(await resume.arrayBuffer()).toString("base64")}`;
   const model = process.env.SCREENIT_RESUME_MODEL ?? process.env.SCREENIT_REPORT_MODEL ?? "gpt-5-mini";
@@ -36,7 +40,20 @@ export async function extractResumeHighlights(resume: File, position: Position):
             { type: "input_file", filename: resume.name, file_data: fileData },
             {
               type: "input_text",
-              text: `Extract up to six concise, job-related resume facts relevant to the ${position.title} role. Use only explicit resume content. Do not include or infer age, race, ethnicity, nationality, religion, sex, gender, disability, health, family status, photo details, or other protected information. Role requirements:\n${position.requirements.map((item) => `- ${item}`).join("\n")}`,
+              text: `Prepare a structured screening plan for the ${position.title} role.
+
+Return:
+1. Up to six explicit, job-related resume facts relevant to the role.
+2. Neutral clarifications for missing or unclear job-related evidence, including unexplained timeline gaps only when the dates are explicitly present. Never assume why a gap exists.
+3. Three to six concise interview questions that test the role requirements, validate resume claims with concrete examples, and clarify missing evidence. Include the employer-approved questions when useful.
+
+Use only explicit resume content. Do not include or infer age, race, ethnicity, nationality, religion, sex, gender, disability, health, family status, photo details, or other protected information.
+
+Role requirements:
+${position.requirements.map((item) => `- ${item}`).join("\n")}
+
+Employer-approved questions:
+${position.questions.map((item) => `- ${item.prompt}`).join("\n") || "None provided"}`,
             },
           ],
         }],
@@ -48,8 +65,22 @@ export async function extractResumeHighlights(resume: File, position: Position):
             schema: {
               type: "object",
               additionalProperties: false,
-              required: ["highlights"],
-              properties: { highlights: { type: "array", maxItems: 6, items: { type: "string" } } },
+              required: ["highlights", "clarifications", "questions"],
+              properties: {
+                highlights: { type: "array", maxItems: 6, items: { type: "string" } },
+                clarifications: { type: "array", maxItems: 4, items: { type: "string" } },
+                questions: {
+                  type: "array",
+                  minItems: 3,
+                  maxItems: 6,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["prompt", "reason"],
+                    properties: { prompt: { type: "string" }, reason: { type: "string" } },
+                  },
+                },
+              },
             },
           },
         },
@@ -57,11 +88,14 @@ export async function extractResumeHighlights(resume: File, position: Position):
     });
     if (!response.ok) throw new Error(`Resume model returned ${response.status}`);
     const parsed = JSON.parse(outputText(await response.json()) ?? "{}") as ResumeAnalysis;
-    return Array.isArray(parsed.highlights)
-      ? parsed.highlights.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 6)
+    const highlights = Array.isArray(parsed.highlights) ? parsed.highlights.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 6) : [];
+    const clarifications = Array.isArray(parsed.clarifications) ? parsed.clarifications.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4) : [];
+    const questions = Array.isArray(parsed.questions)
+      ? parsed.questions.filter((item) => item && typeof item.prompt === "string" && typeof item.reason === "string").slice(0, 6).map((item, index) => ({ id: `candidate-q${index + 1}`, prompt: item.prompt, reason: item.reason, required: true }))
       : [];
+    return { highlights, clarifications, questions };
   } catch (error) {
     console.error("[ScreenIT] Resume analysis failed", error);
-    return [];
+    return emptyAnalysis;
   }
 }

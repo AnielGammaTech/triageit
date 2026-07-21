@@ -18,6 +18,14 @@ export interface AiConnectionStatus {
   readonly message: string;
 }
 
+export interface VoiceBridgeStatus {
+  readonly state: "connected" | "degraded" | "not_configured";
+  readonly threeCxReady: boolean;
+  readonly realtimeReady: boolean;
+  readonly routePoint: string | null;
+  readonly message: string;
+}
+
 export function getAiConfiguration(): AiConfiguration {
   const reportModel = process.env.SCREENIT_REPORT_MODEL ?? "gpt-5-mini";
   return {
@@ -88,5 +96,20 @@ export async function testAiConnection(): Promise<AiConnectionStatus> {
       realtimeReady: false,
       message: "ScreenIT could not reach OpenAI. Try the connection test again.",
     };
+  }
+}
+
+export async function testVoiceBridge(): Promise<VoiceBridgeStatus> {
+  const url = process.env.WORKER_URL?.replace(/\/$/, "");
+  const secret = process.env.WORKER_SHARED_SECRET ?? process.env.TRIAGEIT_WORKER_SECRET;
+  if (!url || !secret) return { state: "not_configured", threeCxReady: false, realtimeReady: false, routePoint: null, message: "Add the worker URL and shared secret to enable outbound calls." };
+  try {
+    const response = await fetch(`${url}/screenit-call-status`, { headers: { Authorization: `Bearer ${secret}` }, cache: "no-store", signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) throw new Error(`Worker returned ${response.status}`);
+    const payload = await response.json() as { state?: string; threeCxReady?: boolean; realtimeReady?: boolean; routePoint?: string };
+    const connected = payload.state === "connected" && payload.threeCxReady === true && payload.realtimeReady === true;
+    return { state: connected ? "connected" : "degraded", threeCxReady: payload.threeCxReady === true, realtimeReady: payload.realtimeReady === true, routePoint: payload.routePoint ?? null, message: connected ? "3CX outbound AI screening calls are ready." : "The phone worker is online, but 3CX or Realtime AI needs attention." };
+  } catch (error) {
+    return { state: "degraded", threeCxReady: false, realtimeReady: false, routePoint: null, message: `The ScreenIT phone worker could not be reached: ${error instanceof Error ? error.message : "unknown error"}` };
   }
 }
