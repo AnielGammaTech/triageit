@@ -38,7 +38,7 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
   const [resumeHighlights, setResumeHighlights] = useState(candidate.resumeHighlights);
   const [resumeClarifications, setResumeClarifications] = useState(candidate.resumeClarifications);
   const [screeningQuestions, setScreeningQuestions] = useState(candidate.screeningQuestions);
-  const [checkingPlan, setCheckingPlan] = useState(candidate.screeningQuestions.length === 0);
+  const [checkingPlan, setCheckingPlan] = useState(candidate.screeningQuestions.length === 0 && !report);
   const router = useRouter();
   const inviteUrl = typeof window === "undefined" ? `/interview/${candidate.inviteToken}` : `${window.location.origin}/interview/${candidate.inviteToken}`;
 
@@ -63,7 +63,7 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
   }, [candidate.id, router]);
 
   useEffect(() => {
-    if (screeningQuestions.length > 0) return;
+    if (screeningQuestions.length > 0 || report) return;
 
     let cancelled = false;
     let attempts = 0;
@@ -92,7 +92,7 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
 
     timer = window.setTimeout(checkPlan, 500);
     return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
-  }, [candidate.id, screeningQuestions.length]);
+  }, [candidate.id, report, screeningQuestions.length]);
 
   async function copyInvite() {
     await navigator.clipboard.writeText(inviteUrl);
@@ -142,8 +142,8 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
   return (
     <div className="screenit-rise space-y-5">
       <Link href="/candidates" className="text-sm font-medium text-slate-500 hover:text-teal-700">← Back to candidates</Link>
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-5 bg-[#172521] p-5 text-white lg:flex-row lg:items-center lg:justify-between lg:p-6">
+      <section className="screenit-panel overflow-hidden rounded-[22px]">
+        <div className="screenit-dot-grid relative flex flex-col gap-5 overflow-hidden bg-[linear-gradient(115deg,#112820,#17473d)] p-5 text-white lg:flex-row lg:items-center lg:justify-between lg:p-6">
           <div className="flex min-w-0 items-center gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-teal-400/15 text-lg font-bold text-teal-200">{candidate.name.split(" ").map((part) => part[0]).join("")}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h1 className="truncate text-2xl font-bold">{candidate.name}</h1><span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold capitalize text-teal-200">{candidate.stage}</span></div><p className="mt-1 text-sm text-slate-300">{position?.title ?? "Unassigned position"}</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400"><span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" />{candidate.email}</span>{candidate.phone && <span className="flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{candidate.phone}</span>}</div></div></div>
           <div className="flex flex-wrap gap-2"><button onClick={copyInvite} className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-semibold hover:bg-white/10"><Send className="h-4 w-4" />{copied ? "Copied" : "Copy invite"}</button><Link href={`/interview/${candidate.inviteToken}`} className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-500 px-4 text-sm font-semibold text-slate-950 hover:bg-teal-400"><Video className="h-4 w-4" />Open interview</Link></div>
         </div>
@@ -151,29 +151,31 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(330px,.75fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="screenit-panel rounded-2xl">
           <div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold text-slate-900">Evidence report</h2><p className="mt-0.5 text-xs text-slate-500">Job-related evidence only. Recruiter decision required.</p></div>{report && <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Ready</span>}</div>
           {report ? <div className="p-5"><div className={`mb-5 rounded-xl border p-4 ${alignmentStyle[report.roleAlignment]}`}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wider">Role alignment</p><span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold capitalize">{report.roleAlignment.replaceAll("_", " ")}</span></div><p className="mt-2 text-sm leading-5">{report.fitRationale}</p><p className="mt-2 text-[10px] font-semibold uppercase tracking-wide opacity-70">Evidence aid only · Human decision required</p></div><p className="text-sm leading-6 text-slate-700">{report.summary}</p><div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/50 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Candidate-stated motivation</p><p className="mt-2 text-sm leading-5 text-slate-700">{report.statedMotivation}</p><p className="mt-2 text-[10px] text-slate-500">Based on the candidate&apos;s words, not voice or tone.</p></div>{report.conversationSignals.length > 0 && <div className="mt-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Working style signals</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{report.conversationSignals.map((item) => <article key={`${item.signal}-${item.evidence}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-800">{item.signal}</p><p className="mt-1 text-xs leading-5 text-slate-600">{item.evidence}</p></article>)}</div><p className="mt-2 text-[10px] text-slate-500">Observable job-related evidence only; not a personality score.</p></div>}<div className="mt-5 space-y-3">{report.evidence.map((item) => <article key={item.requirement} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><h3 className="text-sm font-semibold text-slate-900">{item.requirement}</h3><span className={`rounded-full border px-2 py-1 text-[10px] font-bold capitalize ${evidenceStyle[item.level]}`}>{item.level.replace("_", " ")}</span></div><p className="mt-2 text-sm leading-5 text-slate-600">{item.evidence}</p></article>)}</div></div> : <div className="grid min-h-64 place-items-center p-8 text-center"><div><CalendarClock className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-800">Interview not complete</p><p className="mt-1 text-xs text-slate-500">The evidence report appears after the structured interview.</p></div></div>}
         </section>
         <aside className="space-y-5">
-          <section className="rounded-2xl border border-teal-200 bg-teal-50/40 p-5 shadow-sm">
+          {report ? <section className="screenit-panel rounded-2xl border-emerald-200 bg-emerald-50/50 p-5">
+            <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700"><CheckCircle2 className="h-5 w-5" /></span><div><h2 className="text-sm font-bold text-slate-900">Screening complete</h2><p className="mt-1 text-xs leading-5 text-slate-500">The interview is closed and the recruiter evidence report is ready. The original screening record is preserved.</p>{candidate.completedAt && <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-emerald-700">Completed {new Date(candidate.completedAt).toLocaleString()}</p>}</div></div>
+          </section> : <section className="screenit-panel rounded-2xl border-teal-200 bg-teal-50/50 p-5">
             <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-900">Phone screening</h2><p className="mt-0.5 text-xs leading-5 text-slate-500">ScreenIT calls through 3CX, listens, asks one question at a time, and saves the recruiter report.</p></div><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-100 text-teal-700"><PhoneCall className="h-4 w-4" /></span></div>
             <label className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-slate-500">Candidate phone</label>
             <div className="mt-1.5 flex gap-2"><input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" placeholder="(239) 555-0123" className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100" /><button type="button" onClick={callCandidate} disabled={placingCall || !screeningQuestions.length || ["pending", "calling", "connected"].includes(callState?.status ?? "")} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#164e63] px-4 text-xs font-bold text-white shadow-sm hover:bg-[#0e3e50] disabled:cursor-not-allowed disabled:opacity-50">{placingCall ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <PhoneCall className="h-3.5 w-3.5" />}{placingCall ? "Calling…" : "Call"}</button></div>
-            {!screeningQuestions.length && <p className="mt-2 text-xs text-amber-700">{checkingPlan ? "Preparing the résumé screening plan…" : "Generate the résumé screening plan before calling."}</p>}
+            {!screeningQuestions.length && !report && <p className="mt-2 text-xs text-amber-700">{checkingPlan ? "Preparing the résumé screening plan…" : "Generate the résumé screening plan before calling."}</p>}
             {callState && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${callState.status === "completed" ? "bg-emerald-100 text-emerald-800" : callState.status === "failed" || callState.status === "no_answer" ? "bg-rose-100 text-rose-800" : "bg-blue-100 text-blue-800"}`}>Call status: <span className="capitalize">{callState.status.replaceAll("_", " ")}</span>{callState.error ? ` · ${callState.error}` : ""}</p>}
             {callError && <p className="mt-2 rounded-lg bg-rose-100 p-2 text-xs text-rose-800">{callError}</p>}
-          </section>
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          </section>}
+          <section className="screenit-panel rounded-2xl">
             <button onClick={() => setShowResume((current) => !current)} className="flex w-full items-center justify-between p-5 text-left"><span><span className="block text-sm font-bold text-slate-900">Resume evidence</span><span className="mt-0.5 block text-xs text-slate-500">{candidate.resumeFileName}</span></span><ChevronDown className={`h-4 w-4 text-slate-400 transition ${showResume ? "rotate-180" : ""}`} /></button>
             {showResume && <div className="border-t border-slate-100 p-5"><div className="space-y-3">{resumeHighlights.map((highlight) => <p key={highlight} className="flex gap-2 text-sm leading-5 text-slate-700"><FileText className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />{highlight}</p>)}{!resumeHighlights.length && <p className="text-sm text-slate-400">Résumé analysis is still processing or no explicit evidence was found.</p>}</div>{resumeClarifications.length > 0 && <div className="mt-4 border-t border-slate-100 pt-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Items to clarify</p><div className="mt-2 space-y-2">{resumeClarifications.map((item) => <p key={item} className="flex gap-2 text-sm leading-5 text-amber-800"><CircleHelp className="mt-0.5 h-4 w-4 shrink-0" />{item}</p>)}</div></div>}</div>}
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          {!report && <section className="screenit-panel rounded-2xl p-5">
             <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-900">AI screening plan</h2><p className="mt-0.5 text-xs text-slate-500">Résumé-specific questions used by the voice interview.</p></div><span className="shrink-0 rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-700">{checkingPlan && !screeningQuestions.length ? "Preparing…" : `${screeningQuestions.length} questions`}</span></div>
             <button type="button" onClick={generateScreeningPlan} disabled={analyzing || checkingPlan} className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:border-teal-300 hover:text-teal-700 disabled:cursor-wait disabled:opacity-60">{analyzing || checkingPlan ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{analyzing ? "Reading résumé and drafting questions…" : checkingPlan ? "Checking résumé analysis…" : screeningQuestions.length ? "Regenerate from résumé" : "Generate from résumé"}</button>
             {analysisError && <p className="mt-2 rounded-lg bg-rose-50 p-2 text-xs text-rose-700">{analysisError}</p>}
             <div className="mt-4 space-y-3">{screeningQuestions.map((question, index) => <div key={question.id} className="rounded-xl bg-slate-50 p-3"><p className="text-sm font-semibold leading-5 text-slate-800">{index + 1}. {question.prompt}</p><p className="mt-1 text-xs leading-4 text-slate-500">{question.reason}</p></div>)}</div>
-          </section>
+          </section>}
           {report && <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5"><h2 className="text-sm font-bold text-amber-950">Recruiter clarifications</h2><div className="mt-3 space-y-2.5">{report.clarifications.map((item) => <p key={item} className="flex gap-2 text-sm leading-5 text-amber-900"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{item}</p>)}</div></section>}
         </aside>
       </div>

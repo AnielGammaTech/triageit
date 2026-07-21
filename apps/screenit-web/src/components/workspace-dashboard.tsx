@@ -8,9 +8,12 @@ import {
   CalendarClock,
   CheckCircle2,
   FileCheck2,
+  Headphones,
   MapPin,
   Phone,
   Plus,
+  ScanLine,
+  ShieldCheck,
   Sparkles,
   Upload,
   UserRoundSearch,
@@ -121,15 +124,21 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
         </div>
       )}
 
-      <section className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between lg:p-6">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">Interview operations</p>
-          <h1 className="mt-1.5 text-2xl font-bold tracking-[-0.03em] text-slate-950 lg:text-[28px]">Screening dashboard</h1>
-          <p className="mt-1 text-sm text-slate-500">Work from the review queue, then prepare the next interviews.</p>
+      <section className="screenit-dot-grid relative isolate overflow-hidden rounded-[24px] border border-emerald-950/20 bg-[linear-gradient(118deg,#112720_0%,#174b40_68%,#0f766e_140%)] p-5 text-white shadow-[0_26px_62px_-42px_rgba(6,59,50,.95)] lg:p-7">
+        <span className="screenit-hero-orb pointer-events-none absolute -right-10 -top-20 h-56 w-56 rounded-full border border-teal-100/15 bg-teal-300/10" />
+        <div className="relative z-10 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-xl border border-teal-200/15 bg-teal-300/10 text-teal-200"><ScanLine className="h-4 w-4" /></span><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-teal-200">Interview operations</p></div>
+            <h1 className="mt-4 text-2xl font-bold tracking-[-0.04em] text-white lg:text-[32px]">The next hiring decision,<br className="hidden sm:block" /> backed by better evidence.</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Start with the review queue, prepare upcoming interviews, and keep every candidate conversation consistent without losing the human judgment.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/candidates" className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-4 text-sm font-semibold text-white shadow-sm backdrop-blur transition hover:bg-white/[0.13]"><Upload className="h-4 w-4 text-teal-200" />Add candidate</Link>
+            <button onClick={() => setShowPositionDialog(true)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-300 px-4 text-sm font-bold text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:bg-teal-200"><Plus className="h-4 w-4" />New position</button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/candidates" className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"><Upload className="h-4 w-4" />Add candidate</Link>
-          <button onClick={() => setShowPositionDialog(true)} className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white shadow-sm shadow-teal-900/20 hover:bg-teal-800"><Plus className="h-4 w-4" />New position</button>
+        <div className="relative z-10 mt-6 grid gap-2 border-t border-white/10 pt-4 sm:grid-cols-3">
+          {[{ icon: Upload, label: "Resume intake", detail: "Role-specific evidence" }, { icon: Headphones, label: "Natural screening", detail: "Candidate-led conversation" }, { icon: ShieldCheck, label: "Recruiter report", detail: "Human decision required" }].map((step, index) => { const Icon = step.icon; return <div key={step.label} className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.045] px-3 py-2.5"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-teal-300/10 text-teal-200"><Icon className="h-3.5 w-3.5" /></span><span><span className="block text-xs font-semibold text-white"><span className="mr-1.5 text-teal-300">0{index + 1}</span>{step.label}</span><span className="mt-0.5 block text-[10px] text-slate-400">{step.detail}</span></span></div>; })}
         </div>
       </section>
 
@@ -138,7 +147,8 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
           const Icon = metric.icon;
           const tone = metric.tone === "teal" ? "bg-teal-50 text-teal-700" : metric.tone === "blue" ? "bg-blue-50 text-blue-700" : metric.tone === "amber" ? "bg-amber-50 text-amber-700" : "bg-violet-50 text-violet-700";
           return (
-            <article key={metric.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <article key={metric.label} className="screenit-panel screenit-panel-hover relative overflow-hidden rounded-2xl p-4">
+              <span className={`absolute inset-y-0 left-0 w-0.5 ${metric.tone === "teal" ? "bg-teal-500" : metric.tone === "blue" ? "bg-blue-500" : metric.tone === "amber" ? "bg-amber-500" : "bg-violet-500"}`} />
               <div className="flex items-start justify-between"><span className={`grid h-9 w-9 place-items-center rounded-xl ${tone}`}><Icon className="h-4.5 w-4.5" /></span><span className="text-2xl font-bold tracking-[-0.03em] text-slate-950">{metric.value}</span></div>
               <p className="mt-4 text-sm font-semibold text-slate-800">{metric.label}</p>
               <p className="mt-0.5 text-xs text-slate-500">{metric.detail}</p>
@@ -148,7 +158,7 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(330px,.75fr)]">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="screenit-panel overflow-hidden rounded-2xl">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <div><h2 className="text-sm font-bold text-slate-900">Recruiter review queue</h2><p className="mt-0.5 text-xs text-slate-500">Reports with evidence ready for a human decision.</p></div>
             <Link href="/reports" className="text-xs font-semibold text-teal-700 hover:text-teal-900">View all</Link>
@@ -158,9 +168,9 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
               {reviewCandidates.map((candidate) => {
                 const position = positions.find((item) => item.id === candidate.positionId);
                 return (
-                  <Link key={candidate.id} href={`/candidates/${candidate.id}`} className="group grid gap-3 px-5 py-4 transition hover:bg-slate-50 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <Link key={candidate.id} href={`/candidates/${candidate.id}`} className="group grid gap-3 px-5 py-4 transition hover:bg-teal-50/45 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-900 text-xs font-bold text-white">{candidate.name.split(" ").map((part) => part[0]).join("")}</span>
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-950 to-teal-700 text-xs font-bold text-white shadow-sm">{candidate.name.split(" ").map((part) => part[0]).join("")}</span>
                       <span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-900">{candidate.name}</span><span className="block truncate text-xs text-slate-500">{position?.title ?? "Position"}</span></span>
                     </div>
                     <span className="text-xs text-slate-500">Completed {friendlyDate(candidate.completedAt)}</span>
@@ -174,7 +184,7 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
           )}
         </div>
 
-        <aside className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <aside className="screenit-panel rounded-2xl">
           <div className="border-b border-slate-100 px-5 py-4"><h2 className="text-sm font-bold text-slate-900">Upcoming interviews</h2><p className="mt-0.5 text-xs text-slate-500">The next scheduled candidate contacts.</p></div>
           <div className="space-y-3 p-4">
             {upcoming.map((candidate) => (
@@ -188,11 +198,11 @@ export function WorkspaceDashboard({ initial }: { readonly initial: WorkspaceSna
         </aside>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="screenit-panel rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-bold text-slate-900">Positions</h2><p className="mt-0.5 text-xs text-slate-500">Role rubrics and candidate coverage.</p></div><Link href="/positions" className="text-xs font-semibold text-teal-700">Manage positions</Link></div>
         <div className="grid gap-3 p-4 lg:grid-cols-2">
           {positions.map((position) => (
-            <Link key={position.id} href="/positions" className="rounded-xl border border-slate-200 p-4 transition hover:border-teal-300 hover:shadow-sm">
+            <Link key={position.id} href="/positions" className="screenit-panel-hover rounded-xl border border-slate-200 bg-white/70 p-4">
               <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-900">{position.title}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5" />{position.location}</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${position.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{position.status}</span></div>
               <div className="mt-4 flex items-center gap-5 text-xs text-slate-500"><span><strong className="text-slate-800">{position.candidateCount}</strong> candidates</span><span><strong className="text-slate-800">{position.reviewCount}</strong> ready to review</span><span><strong className="text-slate-800">{position.requirements.length}</strong> requirements</span></div>
             </Link>

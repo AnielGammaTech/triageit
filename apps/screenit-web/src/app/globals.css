@@ -1,14 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --screenit-ink: #17211f;
-  --screenit-muted: #64746f;
-  --screenit-border: #dfe8e4;
+  --screenit-ink: #14211e;
+  --screenit-muted: #667872;
+  --screenit-border: #d9e5e0;
   --screenit-surface: #ffffff;
-  --screenit-canvas: #f4f7f6;
-  --screenit-primary: #0f766e;
-  --screenit-primary-dark: #115e59;
+  --screenit-canvas: #f3f7f5;
+  --screenit-primary: #0f8a7d;
+  --screenit-primary-dark: #0b625b;
   --screenit-accent: #ccfbf1;
+  --screenit-night: #11231e;
 }
 
 * {
@@ -19,12 +20,16 @@
 
 html {
   background: var(--screenit-canvas);
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
+  min-height: 100vh;
   background:
-    radial-gradient(circle at 8% -12%, rgb(15 118 110 / 8%), transparent 28rem),
+    radial-gradient(circle at 8% -8%, rgb(13 148 136 / 11%), transparent 27rem),
+    radial-gradient(circle at 94% 2%, rgb(125 211 196 / 8%), transparent 23rem),
+    linear-gradient(rgb(255 255 255 / 36%), rgb(255 255 255 / 36%)),
     var(--screenit-canvas);
   color: var(--screenit-ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -43,6 +48,16 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+::selection {
+  background: rgb(45 212 191 / 28%);
+  color: #0f2d28;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(13 148 136 / 70%);
+  outline-offset: 2px;
+}
+
 @keyframes screenit-pulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgb(20 184 166 / 28%); }
   50% { transform: scale(1.04); box-shadow: 0 0 0 10px rgb(20 184 166 / 0%); }
@@ -53,10 +68,62 @@ a {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes screenit-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(8px, -7px, 0); }
+}
+
 .screenit-rise {
   animation: screenit-rise 280ms ease-out both;
 }
 
 .screenit-voice-pulse {
   animation: screenit-pulse 1.7s ease-in-out infinite;
+}
+
+.screenit-panel {
+  border: 1px solid rgb(210 225 219 / 92%);
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%), 0 16px 42px -36px rgb(15 67 59 / 42%);
+  backdrop-filter: blur(16px);
+}
+
+.screenit-panel-hover {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.screenit-panel-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgb(94 234 212 / 70%);
+  box-shadow: 0 16px 38px -27px rgb(15 118 110 / 40%);
+}
+
+.screenit-dot-grid {
+  position: relative;
+}
+
+.screenit-dot-grid::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgb(153 246 228 / 20%) 0.75px, transparent 0.75px);
+  background-size: 17px 17px;
+  content: "";
+}
+
+.screenit-hero-orb {
+  animation: screenit-drift 8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .screenit-rise,
+  .screenit-voice-pulse,
+  .screenit-hero-orb {
+    animation: none;
+  }
+  .screenit-panel-hover {
+    transition: none;
+  }
 }
