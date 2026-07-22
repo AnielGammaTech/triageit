@@ -65,11 +65,13 @@ EVIDENCE LEVELS:
 
 ANSWER QUALITY:
 - Assess only the content of the candidate's answers: whether they addressed the question, explained their own actions, supplied understandable specifics, stayed internally consistent, and described an outcome.
+- Keep answer quality separate from skill coverage. A direct, understandable admission such as "I have not used that tool" is a clear answer, not an answer-quality concern; score the missing experience only under the relevant requirement.
 - strong: consistently direct, specific, coherent answers with concrete examples.
 - mixed: useful evidence exists, but several answers are vague or incomplete.
 - weak: repeated non-answers, very vague or confusing explanations, contradictions, explicit refusals to answer, or inability to explain actions/results materially limit the evidence.
 - insufficient: too little usable candidate speech to assess.
 - In answerConcerns, list at most five concise observable concerns and quote or closely paraphrase the relevant answer. Do not diagnose the person.
+- Do not list missing RMM, PSA, ticketing, documentation, or Microsoft 365 experience as an answer concern by itself. List it only when the response was also vague, contradictory, confusing, or did not address the question. Prefer concerns such as a repeated non-answer, a generic slogan instead of the requested example, an explanation with no identifiable action/outcome, or a claim that conflicts with another answer.
 - Do not penalize the candidate for the interviewer's repetition, poor questions, or transcription errors.
 - Do not criticize missing employer names, employment dates, totals, or history unless the role requirements explicitly ask for them. If the interviewer asked for information that was not on the resume and was unrelated to a requirement, omit it from the summary, clarifications, rationale, and answerConcerns.
 
@@ -119,7 +121,7 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
 
   const requirementsText = requirements.join(" ").toLowerCase();
   const employmentHistoryIsRequired = /(employment history|employer names?|employment dates?|work history)/.test(requirementsText);
-  const unrelatedEmploymentHistory = /(employment history|employer names?|earlier employers?|prior employers?|employment dates?|employers? and dates)/i;
+  const unrelatedEmploymentHistory = /(employment history|employer names?|earlier employers?|prior employers?|employment dates?|employers? and dates|if i don'?t have (?:him|them|it) on my resume[^.]*don'?t remember)/i;
   const clarifications = employmentHistoryIsRequired ? report.clarifications : report.clarifications.filter((item) => !unrelatedEmploymentHistory.test(item));
   const answerConcerns = employmentHistoryIsRequired ? report.answerConcerns : report.answerConcerns.filter((item) => !unrelatedEmploymentHistory.test(item));
   const answerQualityRationale = employmentHistoryIsRequired
