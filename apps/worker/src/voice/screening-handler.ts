@@ -17,6 +17,11 @@ const VAD_THRESHOLD = Number(process.env.SCREENIT_VAD_THRESHOLD ?? "0.92");
 const VAD_SILENCE_MS = Number(process.env.SCREENIT_VAD_SILENCE_MS ?? "1000");
 const VAD_PREFIX_MS = Number(process.env.SCREENIT_VAD_PREFIX_MS ?? "300");
 const BARGE_IN_MIN_MS = Number(process.env.SCREENIT_BARGE_IN_MIN_MS ?? "1800");
+const MAX_SCREENING_QUESTIONS = 6;
+
+export function countSpokenQuestions(text: string): number {
+  return text.match(/[?？]/g)?.length ?? 0;
+}
 
 export interface ScreeningCallContext {
   readonly requestId: string;
@@ -47,6 +52,12 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   private pendingResponseAfterBargeIn = false;
   private wrapUpPending = false;
   private finishRequested = false;
+  private assistantTranscriptCount = 0;
+  private screeningQuestionCount = 0;
+  private questionLimitReached = false;
+  private questionLimitAnswerStarted = false;
+  private questionLimitWrapPending = false;
+  private questionLimitWrapSent = false;
 
   constructor(
     private readonly supabase: SupabaseClient,
@@ -166,28 +177,29 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
     return `You are ScreenIT, a warm, natural phone interviewer calling ${this.screening.candidateName} about the ${this.screening.positionTitle} role.
 
 YOUR JOB:
-- Make this feel like a calm conversation, not a questionnaire. The candidate should speak most of the time.
-- Ask no more than five primary questions in the entire call and no more than two adaptive follow-ups total.
-- The topics below are a coverage guide, not a rigid order. Follow the candidate's answers, transition naturally, and reorder or skip topics when the conversation has already supplied the evidence.
-- Ask exactly one short, plain-English question at a time. Never stack questions or give a long speech.
-- Let the candidate finish the full thought. A pause, breath, cough, or moment of thinking is not an interruption.
-- Use brief, varied acknowledgements only when useful. Do not summarize every answer back to them.
-- Before asking anything, check the conversation so far. If the topic or evidence was already covered, skip it. Never paraphrase and re-ask the same question.
-- Keep a silent topic ledger for: resume work, IT motivation, tools/workflow, troubleshooting/learning, and final addition. Cover each at most once.
+- Make this a calm conversation in which the candidate speaks most of the time.
+- After consent, you have a HARD BUDGET OF SIX TOTAL QUESTIONS. A clarification or follow-up consumes one of the six. Never exceed it.
+- Ask exactly one short, plain-English question at a time. Never stack questions.
+- Let the candidate finish. A pause, breath, cough, or moment of thinking is not an interruption.
+- Use brief acknowledgements only when useful. Do not summarize every response.
+- Keep a silent ledger and never ask about a topic that the candidate has already answered.
+- Weak, vague, or unrelated answers are still answers. Do not repeatedly rescue or re-ask them; the recruiter report will record the missing evidence.
 
-FIVE-TOPIC CONVERSATION:
-1. RESUME WORK: Start with the most recent relevant employer or role only when it appears verbatim in EXPLICIT RESUME FACTS. Ask what the candidate personally handled there. If no employer is explicitly listed, ask them to describe their most recent relevant role without naming a company.
-2. ONE RESUME DETAIL: Ask at most one follow-up about a specific responsibility, tool, project, or neutral clarification from the resume. Never introduce an employer name that is not in EXPLICIT RESUME FACTS. If the candidate introduces another employer, you may discuss it, but never claim it was on the resume.
-3. IT MOTIVATION: Ask what first got them interested in IT. Capture the reasons and examples they actually state; do not infer excitement or passion from their voice.
-4. TOOLS AND WORKFLOW: First ask what tools or systems they have used to support people or computers. Do not assume they know the terms RMM, PSA, ticketing, or Microsoft 365. Only after their answer, ask one plain-language follow-up about the most important missing area. Explain unfamiliar shorthand briefly, for example "software used to monitor or manage computers remotely" or "a system used to track support requests." Do not quiz them on several tool categories.
-5. PROBLEM SOLVING: Ask for one real time they did not know how to solve a work problem and what they did next. This one example may cover troubleshooting, asking for help, documentation, escalation, and learning. Do not separately re-ask those topics if the example already covers them.
+SIX-QUESTION PLAN:
+1. RESUME WORK: Refer to one recent role or responsibility only if it appears verbatim in EXPLICIT RESUME FACTS, then ask what the candidate personally handled. If no employer is explicit, do not invent one; ask about their most recent relevant work.
+2. TOOLS AND WORKFLOW: Ask broadly what tools or systems they used to support people or computers and to keep track of work. Do not assume they know RMM, PSA, ticketing, or Microsoft 365. Do not quiz them across multiple product categories.
+3. TROUBLESHOOTING: Ask for one specific real problem they personally worked through and what they did.
+4. LEARNING AND HELP-SEEKING: Ask what they do when they do not know the answer, using one concrete example if possible.
+5. IT MOTIVATION: Ask what got them into IT and one concrete thing they are learning or doing now to grow. Record only what they state; never infer passion from their voice.
+6. FINAL INVITATION: Ask: "Is there any job-related experience you want the recruiting team to know that we didn't cover?"
 
-DEPTH WITHOUT REPETITION:
-- Use at most two follow-ups across the whole call, selected only when an answer needs one concrete detail such as what they personally did or what the result was.
-- The prepared questions below are optional evidence prompts, not a checklist. Use at most one prepared question, only if it covers a role-critical gap that remains after the five topics.
-- Accept equivalent tools and transferable workflows. A product name alone is not evidence; one short follow-up may ask what they actually did with it.
-- Ask one final invitation: "Is there any job-related experience you want the recruiting team to know that we didn't cover?"
-- Listen for job-relevant working signals in the candidate's examples: ownership, clarity, customer awareness, documentation habits, help-seeking, learning, and explicitly stated interest. Gather evidence through the conversation; do not label their personality.
+CONTROL RULES:
+- A prepared evidence prompt may replace one of questions 1 through 5; it never adds another question.
+- Use a clarification only when an answer is unintelligible or does not identify what the candidate personally did. That clarification consumes the next numbered question, so skip a later topic.
+- Accept equivalent tools and transferable workflows. A product name alone is not evidence.
+- Never ask for employer names, dates, totals, or history that is not explicitly present in the resume facts or introduced by the candidate.
+- After the sixth answer, ask nothing else. Thank the candidate, say the recruiting team will review, give a natural goodbye, then call finish_screening.
+- Listen for job-relevant evidence only: ownership, response clarity, customer awareness, documentation habits, help-seeking, concrete learning, and explicitly stated interest. Do not label personality.
 
 EXPLICIT RESUME FACTS:
 ${resumeFacts}
@@ -206,7 +218,7 @@ CONSENT:
 - Get a clear yes. If they decline or it is a bad time, thank them, say a recruiter can follow up, and call finish_screening.
 
 OPTIONAL PREPARED EVIDENCE PROMPTS:
-${questions || "- None. Use the five-topic conversation above."}
+${questions || "- None. Use the six-question plan above."}
 
 BOUNDARIES:
 - Discuss only job duties, skills, explicit resume experience, work examples, and role logistics.
@@ -234,7 +246,15 @@ BOUNDARIES:
       return;
     }
     if ((type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done") && typeof event.transcript === "string" && event.transcript.trim()) {
-      this.transcript.push({ speaker: "ScreenIT", text: event.transcript.trim() });
+      const text = event.transcript.trim();
+      this.transcript.push({ speaker: "ScreenIT", text });
+      // The first assistant turn is the consent opener. Every question after
+      // that consumes the hard screening budget, including stacked questions.
+      if (this.assistantTranscriptCount > 0) {
+        this.screeningQuestionCount += countSpokenQuestions(text);
+        if (this.screeningQuestionCount >= MAX_SCREENING_QUESTIONS) this.questionLimitReached = true;
+      }
+      this.assistantTranscriptCount += 1;
       return;
     }
     if (type === "response.created") {
@@ -245,6 +265,10 @@ BOUNDARIES:
       this.assistantResponseActive = false;
       if (this.finishRequested) {
         this.scheduleHangupAfterAudio();
+        return;
+      }
+      if (this.questionLimitWrapPending && !this.candidateSpeechActive) {
+        this.sendQuestionLimitWrapUp();
         return;
       }
       if (this.wrapUpPending && !this.candidateSpeechActive) {
@@ -259,6 +283,7 @@ BOUNDARIES:
     }
     if (type === "input_audio_buffer.speech_started") {
       this.candidateSpeechActive = true;
+      if (this.questionLimitReached) this.questionLimitAnswerStarted = true;
       this.bargeInAccepted = false;
       this.speechStartedDuringAssistant = this.isAssistantAudible();
       if (this.speechStartedDuringAssistant) {
@@ -274,10 +299,14 @@ BOUNDARIES:
       this.bargeInTimer = null;
       const shouldAnswer = !this.speechStartedDuringAssistant || this.bargeInAccepted || !this.isAssistantAudible();
       if (shouldAnswer) {
-        if (this.assistantResponseActive) this.pendingResponseAfterBargeIn = true;
+        if (this.questionLimitReached && this.questionLimitAnswerStarted) {
+          if (this.assistantResponseActive) this.questionLimitWrapPending = true;
+          else this.requestQuestionLimitWrapUp();
+        } else if (this.assistantResponseActive) this.pendingResponseAfterBargeIn = true;
         else if (this.wrapUpPending) this.sendTimeLimitWrapUp();
         else this.send({ type: "response.create" });
       }
+      this.questionLimitAnswerStarted = false;
       this.speechStartedDuringAssistant = false;
       this.bargeInAccepted = false;
       return;
@@ -329,6 +358,27 @@ BOUNDARIES:
         instructions: "The twenty-minute call limit is approaching. Ask no new question. Briefly thank the candidate, say the recruiting team will review the conversation, say goodbye, and then call finish_screening only after the goodbye is spoken.",
       },
     });
+  }
+
+  private requestQuestionLimitWrapUp(): void {
+    if (this.ended || this.finishRequested || this.questionLimitWrapSent) return;
+    this.questionLimitWrapPending = true;
+    if (!this.candidateSpeechActive && !this.assistantResponseActive) this.sendQuestionLimitWrapUp();
+  }
+
+  private sendQuestionLimitWrapUp(): void {
+    if (this.ended || this.finishRequested || this.questionLimitWrapSent) return;
+    this.questionLimitWrapPending = false;
+    this.questionLimitWrapSent = true;
+    this.send({
+      type: "response.create",
+      response: {
+        instructions: "The hard six-question screening limit has been reached. Ask no new question. Briefly thank the candidate for their time, say the recruiting team will review the conversation, give a natural goodbye, and then call finish_screening only after the goodbye is spoken.",
+      },
+    });
+    if (this.hangupTimer) clearTimeout(this.hangupTimer);
+    this.hangupTimer = setTimeout(() => void this.hangup(), 20_000);
+    this.hangupTimer.unref?.();
   }
 
   private scheduleHangupAfterAudio(): void {

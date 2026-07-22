@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CalendarClock, CheckCircle2, ChevronDown, CircleHelp, FileText, LoaderCircle, Mail, Phone, PhoneCall, RefreshCw, Send, ShieldCheck, Video } from "lucide-react";
+import { CalendarClock, CheckCircle2, ChevronDown, CircleAlert, CircleHelp, FileText, LoaderCircle, Mail, Phone, PhoneCall, RefreshCw, Send, ShieldCheck, Video } from "lucide-react";
 import type { Candidate, CandidateReport, InterviewQuestion, Position } from "@/lib/screenit-types";
 
 interface ScreeningPlanPayload {
@@ -24,6 +24,14 @@ const alignmentStyle = {
   partial_alignment: "border-blue-200 bg-blue-50 text-blue-700",
   limited_alignment: "border-amber-200 bg-amber-50 text-amber-700",
   insufficient_evidence: "border-slate-200 bg-slate-50 text-slate-600",
+};
+
+const answerQualityStyle: Record<CandidateReport["answerQuality"], string> = {
+  strong: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  mixed: "border-blue-200 bg-blue-50 text-blue-800",
+  weak: "border-rose-200 bg-rose-50 text-rose-800",
+  insufficient: "border-amber-200 bg-amber-50 text-amber-800",
+  not_assessed: "border-slate-200 bg-slate-50 text-slate-700",
 };
 
 export function CandidateDetail({ candidate, position, report }: { readonly candidate: Candidate; readonly position: Position | null; readonly report: CandidateReport | null }) {
@@ -153,6 +161,12 @@ export function CandidateDetail({ candidate, position, report }: { readonly cand
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(330px,.75fr)]">
         <section className="screenit-panel rounded-2xl">
           <div className="flex items-center justify-between border-b border-slate-100 p-5"><div><h2 className="text-sm font-bold text-slate-900">Evidence report</h2><p className="mt-0.5 text-xs text-slate-500">Job-related evidence only. Recruiter decision required.</p></div>{report && <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Ready</span>}</div>
+          {report && <div className={`mx-5 mt-5 rounded-xl border p-4 ${answerQualityStyle[report.answerQuality]}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><CircleAlert className="h-4 w-4" /><p className="text-xs font-bold uppercase tracking-wider">Answer quality</p></div><span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold capitalize">{report.answerQuality.replaceAll("_", " ")}</span></div>
+            <p className="mt-2 text-sm leading-5">{report.answerQualityRationale}</p>
+            {report.answerConcerns.length > 0 && <div className="mt-3 space-y-2 border-t border-current/15 pt-3">{report.answerConcerns.map((concern) => <p key={concern} className="flex gap-2 text-xs leading-5"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />{concern}</p>)}</div>}
+            <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide opacity-70">Based on response relevance, specificity, consistency, and concrete examples—not voice, accent, or personality.</p>
+          </div>}
           {report ? <div className="p-5"><div className={`mb-5 rounded-xl border p-4 ${alignmentStyle[report.roleAlignment]}`}><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wider">Role alignment</p><span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold capitalize">{report.roleAlignment.replaceAll("_", " ")}</span></div><p className="mt-2 text-sm leading-5">{report.fitRationale}</p><p className="mt-2 text-[10px] font-semibold uppercase tracking-wide opacity-70">Evidence aid only · Human decision required</p></div><p className="text-sm leading-6 text-slate-700">{report.summary}</p><div className="mt-4 rounded-xl border border-teal-100 bg-teal-50/50 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-teal-700">Candidate-stated motivation</p><p className="mt-2 text-sm leading-5 text-slate-700">{report.statedMotivation}</p><p className="mt-2 text-[10px] text-slate-500">Based on the candidate&apos;s words, not voice or tone.</p></div>{report.conversationSignals.length > 0 && <div className="mt-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Working style signals</p><div className="mt-2 grid gap-2 sm:grid-cols-2">{report.conversationSignals.map((item) => <article key={`${item.signal}-${item.evidence}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-bold text-slate-800">{item.signal}</p><p className="mt-1 text-xs leading-5 text-slate-600">{item.evidence}</p></article>)}</div><p className="mt-2 text-[10px] text-slate-500">Observable job-related evidence only; not a personality score.</p></div>}<div className="mt-5 space-y-3">{report.evidence.map((item) => <article key={item.requirement} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-2"><h3 className="text-sm font-semibold text-slate-900">{item.requirement}</h3><span className={`rounded-full border px-2 py-1 text-[10px] font-bold capitalize ${evidenceStyle[item.level]}`}>{item.level.replace("_", " ")}</span></div><p className="mt-2 text-sm leading-5 text-slate-600">{item.evidence}</p></article>)}</div></div> : <div className="grid min-h-64 place-items-center p-8 text-center"><div><CalendarClock className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-3 text-sm font-semibold text-slate-800">Interview not complete</p><p className="mt-1 text-xs text-slate-500">The evidence report appears after the structured interview.</p></div></div>}
         </section>
         <aside className="space-y-5">

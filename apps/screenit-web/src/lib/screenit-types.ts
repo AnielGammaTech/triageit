@@ -1,6 +1,7 @@
 export type PositionStatus = "draft" | "active" | "paused" | "closed";
 export type CandidateStage = "new" | "invited" | "interviewing" | "review" | "advanced" | "closed";
 export type EvidenceLevel = "demonstrated" | "partial" | "unclear" | "not_demonstrated";
+export type AnswerQuality = "strong" | "mixed" | "weak" | "insufficient" | "not_assessed";
 
 export interface InterviewQuestion {
   readonly id: string;
@@ -63,6 +64,9 @@ export interface CandidateReport {
   readonly fitRationale: string;
   readonly statedMotivation: string;
   readonly conversationSignals: readonly ConversationSignal[];
+  readonly answerQuality: AnswerQuality;
+  readonly answerQualityRationale: string;
+  readonly answerConcerns: readonly string[];
   readonly generatedAt: string;
 }
 
