@@ -72,6 +72,7 @@ ANSWER QUALITY:
 - insufficient: too little usable candidate speech to assess.
 - In answerConcerns, list at most five concise observable concerns and quote or closely paraphrase the relevant answer. Do not diagnose the person.
 - Do not list missing RMM, PSA, ticketing, documentation, or Microsoft 365 experience as an answer concern by itself. List it only when the response was also vague, contradictory, confusing, or did not address the question. Prefer concerns such as a repeated non-answer, a generic slogan instead of the requested example, an explanation with no identifiable action/outcome, or a claim that conflicts with another answer.
+- Use neutral descriptions. Never label a candidate defensive, evasive, dismissive, unmotivated, rude, or similar. Describe only the observable response content.
 - Do not penalize the candidate for the interviewer's repetition, poor questions, or transcription errors.
 - Do not criticize missing employer names, employment dates, totals, or history unless the role requirements explicitly ask for them. If the interviewer asked for information that was not on the resume and was unrelated to a requirement, omit it from the summary, clarifications, rationale, and answerConcerns.
 
@@ -123,11 +124,14 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
   const employmentHistoryIsRequired = /(employment history|employer names?|employment dates?|work history)/.test(requirementsText);
   const unrelatedEmploymentHistory = /(employment history|employer names?|earlier employers?|prior employers?|employment dates?|employers? and dates|if i don'?t have (?:him|them|it) on my resume[^.]*don'?t remember)/i;
   const clarifications = employmentHistoryIsRequired ? report.clarifications : report.clarifications.filter((item) => !unrelatedEmploymentHistory.test(item));
-  const answerConcerns = employmentHistoryIsRequired ? report.answerConcerns : report.answerConcerns.filter((item) => !unrelatedEmploymentHistory.test(item));
+  const experienceGapOnly = /^(?:minimal or no documentation|no formal ticketing|no (?:hands-on )?rmm|no microsoft 365|limited microsoft 365|defensive\s*\/\s*unclear answer about microsoft 365)/i;
+  const answerConcerns = (employmentHistoryIsRequired ? report.answerConcerns : report.answerConcerns.filter((item) => !unrelatedEmploymentHistory.test(item)))
+    .filter((item) => !experienceGapOnly.test(item));
   const answerQualityRationale = employmentHistoryIsRequired
     ? report.answerQualityRationale
     : report.answerQualityRationale
       .replace(/,?\s*(?:and\s+)?(?:could not|did not|refused to)\s+(?:provide|recall|name)[^.]*?(?:employers?|employment history|employment dates?)[^.]*\.?/gi, ".")
+      .replace(/,?\s*(?:and\s+)?(?:an?\s+)?(?:inability|failure)\s+to\s+(?:provide|recall|name)[^.]*?(?:employers?|employment history|employment dates?|employer\/dates?)[^.]*\.?/gi, ".")
       .replace(/\.{2,}/g, ".")
       .trim();
   const motivationEvidence = evidence.find((item) => item.requirement.toLowerCase().includes("motivation") && item.requirement.toLowerCase().includes("continued learning"));
