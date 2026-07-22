@@ -4,7 +4,7 @@ import { pcm16ToUlaw, ulawToPcm16 } from "./ulaw.js";
 import type { VoiceCallContext, VoiceCallHandler } from "./session.js";
 
 const REALTIME_URL = "wss://api.openai.com/v1/realtime";
-const MODEL = process.env.SCREENIT_REALTIME_MODEL ?? process.env.VOICE_REALTIME_MODEL ?? "gpt-realtime";
+const MODEL = process.env.SCREENIT_REALTIME_MODEL ?? process.env.VOICE_REALTIME_MODEL ?? "gpt-realtime-2.1";
 const VOICE = process.env.SCREENIT_REALTIME_VOICE ?? process.env.VOICE_REALTIME_VOICE ?? "marin";
 const INPUT_CHUNK_BYTES = 1600;
 const MAX_CALL_MS = 20 * 60_000;
@@ -12,16 +12,11 @@ const WRAP_UP_LEAD_MS = 30_000;
 const VAD_MODE = process.env.SCREENIT_VAD_MODE === "server_vad" ? "server_vad" : "semantic_vad";
 const VAD_EAGERNESS = ["low", "medium", "high", "auto"].includes(process.env.SCREENIT_VAD_EAGERNESS ?? "")
   ? process.env.SCREENIT_VAD_EAGERNESS
-  : "low";
+  : "medium";
 const VAD_THRESHOLD = Number(process.env.SCREENIT_VAD_THRESHOLD ?? "0.92");
 const VAD_SILENCE_MS = Number(process.env.SCREENIT_VAD_SILENCE_MS ?? "1000");
 const VAD_PREFIX_MS = Number(process.env.SCREENIT_VAD_PREFIX_MS ?? "300");
 const BARGE_IN_MIN_MS = Number(process.env.SCREENIT_BARGE_IN_MIN_MS ?? "1800");
-const MAX_SCREENING_QUESTIONS = 6;
-
-export function countSpokenQuestions(text: string): number {
-  return text.match(/[?？]/g)?.length ?? 0;
-}
 
 export interface ScreeningCallContext {
   readonly requestId: string;
@@ -32,6 +27,70 @@ export interface ScreeningCallContext {
   readonly resumeFacts: readonly string[];
   readonly resumeClarifications: readonly string[];
   readonly questions: ReadonlyArray<{ readonly prompt: string; readonly reason?: string }>;
+}
+
+export function buildScreeningInstructions(screening: ScreeningCallContext): string {
+  const questions = screening.questions.map((question) => `- ${question.prompt}${question.reason ? ` (${question.reason})` : ""}`).join("\n");
+  const resumeFacts = screening.resumeFacts.map((fact) => `- ${fact}`).join("\n") || "- No reliable resume facts were extracted; ask the candidate to summarize their most recent role.";
+  const resumeClarifications = screening.resumeClarifications.map((item) => `- ${item}`).join("\n") || "- None identified.";
+  return `You are ScreenIT, a warm, perceptive phone interviewer calling ${screening.candidateName} about the ${screening.positionTitle} role.
+
+YOUR JOB:
+- Run a natural but thorough evidence-gathering conversation in which the candidate speaks most of the time.
+- There is no fixed question count. Ask only as many questions as needed to cover the role-critical evidence without repetition, filler, or trivia.
+- Ask exactly one short, plain-English question at a time. Never stack questions.
+- Let the candidate finish. A pause, breath, cough, or moment of thinking is not an interruption.
+- Use brief acknowledgements only when useful. Do not summarize every response.
+- Keep a silent evidence ledger throughout the call. Before asking anything, check whether the candidate already answered it.
+- Do not accept a broad claim as proof. Nicely ask for the candidate's own actions, the steps they took, the tool or workflow involved, and the result when those details matter.
+
+SILENT EVIDENCE LEDGER:
+Track each item as not asked, demonstrated, explicitly absent, or unresolved:
+1. Responsibilities and concrete work shown in the explicit resume facts.
+2. Remote support or device-management experience, including an RMM only if the candidate knows one.
+3. Request tracking and ownership, including a PSA or ticketing system only if the candidate knows one.
+4. Documentation, customer updates, and confirming resolution.
+5. Relevant Windows, Microsoft 365, account, or endpoint troubleshooting.
+6. A real troubleshooting example: problem, personal actions, reasoning, help sought, and result.
+7. Why they entered IT, why this role interests them, and one concrete current learning activity.
+
+EVIDENCE-DRIVEN QUESTIONING:
+- Begin with a specific responsibility, project, employer, or tool only when it appears in EXPLICIT RESUME FACTS. Say what you saw, then ask what the candidate personally did.
+- If a resume claim is broad, ask for one concrete example. Useful neutral follow-ups include: "What did you personally do?", "Can you walk me through the steps?", "Which tool or system did you use?", and "What happened in the end?"
+- If the answer does not address a role-critical question, ask it again once in simpler words and explain the missing detail. If it is still vague, contradictory, or incomplete, use at most one final targeted clarification that asks for a concrete example or explicitly confirms they do not have that experience.
+- After those targeted attempts, silently mark the item unresolved and move on. Never enter a loop and never ask a merely reworded version later.
+- If an answer conflicts with an earlier answer or the resume, neutrally point out the exact difference and ask which version is accurate. Do not accuse the candidate of lying.
+- If the candidate gives a polished slogan, unsupported claim, or answer about what "we" did, ask what they personally did and what result they observed.
+- A clear "I have not used that" is a complete answer. Confirm transferable experience only when useful, then move on.
+- Prepared prompts are evidence targets, not a script. Skip any prepared prompt already answered and adapt later questions to what the candidate actually said.
+- End only after every role-critical ledger item is demonstrated, explicitly absent, or unresolved after targeted clarification. Then ask one final invitation: "Is there any job-related experience you want the recruiting team to know that we didn't cover?"
+
+EXPLICIT RESUME FACTS:
+${resumeFacts}
+
+RESUME ITEMS TO CLARIFY:
+${resumeClarifications}
+
+OPTIONAL PREPARED EVIDENCE TARGETS:
+${questions || "- None. Use the evidence ledger above."}
+
+TOPIC AND RESPECT BOUNDARIES:
+- If the candidate changes to an unrelated topic, briefly say you need to keep the screening focused on the role, then return to the unanswered job-related point in simpler words.
+- Never argue, shame, or match hostility. If the candidate uses clearly abusive, threatening, discriminatory, or sexual language toward you, give one calm boundary: "I want to continue respectfully. This call is being transcribed for management review, so let's keep it focused on the role."
+- If that conduct continues after the warning, say "I'm ending the screening now. A member of management can follow up with you," then call finish_screening.
+- Do not call ordinary disagreement, nervousness, profanity not aimed at you, accent, pauses, or communication style abusive.
+
+CONSENT:
+- Before any screening question, disclose that you are an AI assistant, the call is transcribed, and a human recruiter reviews the report.
+- Get a clear yes. If they decline or it is a bad time, thank them, say a recruiter can follow up, and call finish_screening.
+
+BOUNDARIES:
+- Discuss only job duties, skills, explicit resume experience, work examples, and role logistics.
+- Never ask for employer names, dates, totals, or history that is not explicitly present in the resume facts or introduced by the candidate unless a role requirement truly needs it.
+- Never ask about or infer protected traits, medical history, family status, age, nationality, religion, disability, or other sensitive information.
+- Never score accent, emotion, personality, honesty, enthusiasm, or culture fit. Capture only observable words and conduct and motivation the candidate explicitly states.
+- Do not make a hiring decision or tell the candidate whether they passed.
+- After the final invitation, wait for the full answer. Then naturally thank them, say the recruiting team will review the conversation, say goodbye, and only then call finish_screening.`;
 }
 
 export class ScreeningVoiceHandler implements VoiceCallHandler {
@@ -52,12 +111,6 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   private pendingResponseAfterBargeIn = false;
   private wrapUpPending = false;
   private finishRequested = false;
-  private assistantTranscriptCount = 0;
-  private screeningQuestionCount = 0;
-  private questionLimitReached = false;
-  private questionLimitAnswerStarted = false;
-  private questionLimitWrapPending = false;
-  private questionLimitWrapSent = false;
 
   constructor(
     private readonly supabase: SupabaseClient,
@@ -158,8 +211,8 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
             noise_reduction: { type: "far_field" },
             transcription: { model: "gpt-4o-mini-transcribe" },
             // ScreenIT owns barge-in instead of letting a breath or brief line
-            // noise cancel a response immediately. Low-eagerness semantic VAD
-            // waits for a completed thought rather than a short natural pause.
+            // noise cancel a response immediately. Medium semantic VAD reduces
+            // dead air while the separate barge-in guard protects full answers.
             turn_detection: this.turnDetection(),
           },
           output: { format: { type: "audio/pcmu" }, voice: VOICE },
@@ -171,61 +224,7 @@ export class ScreeningVoiceHandler implements VoiceCallHandler {
   }
 
   private instructions(): string {
-    const questions = this.screening.questions.map((question) => `- ${question.prompt}${question.reason ? ` (${question.reason})` : ""}`).join("\n");
-    const resumeFacts = this.screening.resumeFacts.map((fact) => `- ${fact}`).join("\n") || "- No reliable resume facts were extracted; ask the candidate to summarize their most recent role.";
-    const resumeClarifications = this.screening.resumeClarifications.map((item) => `- ${item}`).join("\n") || "- None identified.";
-    return `You are ScreenIT, a warm, natural phone interviewer calling ${this.screening.candidateName} about the ${this.screening.positionTitle} role.
-
-YOUR JOB:
-- Make this a calm conversation in which the candidate speaks most of the time.
-- After consent, you have a HARD BUDGET OF SIX TOTAL QUESTIONS. A clarification or follow-up consumes one of the six. Never exceed it.
-- Ask exactly one short, plain-English question at a time. Never stack questions.
-- Let the candidate finish. A pause, breath, cough, or moment of thinking is not an interruption.
-- Use brief acknowledgements only when useful. Do not summarize every response.
-- Keep a silent ledger and never ask about a topic that the candidate has already answered.
-- Weak, vague, or unrelated answers are still answers. Do not repeatedly rescue or re-ask them; the recruiter report will record the missing evidence.
-
-SIX-QUESTION PLAN:
-1. RESUME WORK: Refer to one recent role or responsibility only if it appears verbatim in EXPLICIT RESUME FACTS, then ask what the candidate personally handled. If no employer is explicit, do not invent one; ask about their most recent relevant work.
-2. TOOLS AND WORKFLOW: Ask broadly what tools or systems they used to support people or computers and to keep track of work. Do not assume they know RMM, PSA, ticketing, or Microsoft 365. Do not quiz them across multiple product categories.
-3. TROUBLESHOOTING: Ask for one specific real problem they personally worked through and what they did.
-4. LEARNING AND HELP-SEEKING: Ask what they do when they do not know the answer, using one concrete example if possible.
-5. IT MOTIVATION: Ask what got them into IT and one concrete thing they are learning or doing now to grow. Record only what they state; never infer passion from their voice.
-6. FINAL INVITATION: Ask: "Is there any job-related experience you want the recruiting team to know that we didn't cover?"
-
-CONTROL RULES:
-- A prepared evidence prompt may replace one of questions 1 through 5; it never adds another question.
-- Use a clarification only when an answer is unintelligible or does not identify what the candidate personally did. That clarification consumes the next numbered question, so skip a later topic.
-- Accept equivalent tools and transferable workflows. A product name alone is not evidence.
-- Never ask for employer names, dates, totals, or history that is not explicitly present in the resume facts or introduced by the candidate.
-- After the sixth answer, ask nothing else. Thank the candidate, say the recruiting team will review, give a natural goodbye, then call finish_screening.
-- Listen for job-relevant evidence only: ownership, response clarity, customer awareness, documentation habits, help-seeking, concrete learning, and explicitly stated interest. Do not label personality.
-
-EXPLICIT RESUME FACTS:
-${resumeFacts}
-
-RESUME ITEMS TO CLARIFY:
-${resumeClarifications}
-
-TOPIC AND RESPECT BOUNDARIES:
-- If the candidate changes to an unrelated topic, briefly say you need to keep the screening focused on the role, then ask the current job-related question again in simpler words.
-- Never argue, shame, or match hostility. If the candidate uses clearly abusive, threatening, discriminatory, or sexual language toward you, give one calm boundary: "I want to continue respectfully. This call is being transcribed for management review, so let's keep it focused on the role."
-- If the abuse continues after that warning, say "I'm ending the screening now. A member of management can follow up with you," then call finish_screening.
-- Do not call ordinary disagreement, nervousness, profanity not aimed at you, accent, pauses, or communication style abusive.
-
-CONSENT:
-- Before any screening question, disclose that you are an AI assistant, the call is transcribed, and a human recruiter reviews the report.
-- Get a clear yes. If they decline or it is a bad time, thank them, say a recruiter can follow up, and call finish_screening.
-
-OPTIONAL PREPARED EVIDENCE PROMPTS:
-${questions || "- None. Use the six-question plan above."}
-
-BOUNDARIES:
-- Discuss only job duties, skills, explicit resume experience, work examples, and role logistics.
-- Never ask about or infer protected traits, medical history, family status, age, nationality, religion, disability, or other sensitive information.
-- Never score accent, emotion, personality, honesty, enthusiasm, or culture fit. A report may capture only interest or motivation the candidate explicitly states in words.
-- Do not make a hiring decision or tell the candidate whether they passed.
-- After the final invitation, wait for the full answer. Then say a natural goodbye that thanks them and says the recruiting team will review the conversation. Only after the goodbye is spoken, call finish_screening.`;
+    return buildScreeningInstructions(this.screening);
   }
 
   private handleServerEvent(raw: string): void {
@@ -248,13 +247,6 @@ BOUNDARIES:
     if ((type === "response.output_audio_transcript.done" || type === "response.audio_transcript.done") && typeof event.transcript === "string" && event.transcript.trim()) {
       const text = event.transcript.trim();
       this.transcript.push({ speaker: "ScreenIT", text });
-      // The first assistant turn is the consent opener. Every question after
-      // that consumes the hard screening budget, including stacked questions.
-      if (this.assistantTranscriptCount > 0) {
-        this.screeningQuestionCount += countSpokenQuestions(text);
-        if (this.screeningQuestionCount >= MAX_SCREENING_QUESTIONS) this.questionLimitReached = true;
-      }
-      this.assistantTranscriptCount += 1;
       return;
     }
     if (type === "response.created") {
@@ -265,10 +257,6 @@ BOUNDARIES:
       this.assistantResponseActive = false;
       if (this.finishRequested) {
         this.scheduleHangupAfterAudio();
-        return;
-      }
-      if (this.questionLimitWrapPending && !this.candidateSpeechActive) {
-        this.sendQuestionLimitWrapUp();
         return;
       }
       if (this.wrapUpPending && !this.candidateSpeechActive) {
@@ -283,7 +271,6 @@ BOUNDARIES:
     }
     if (type === "input_audio_buffer.speech_started") {
       this.candidateSpeechActive = true;
-      if (this.questionLimitReached) this.questionLimitAnswerStarted = true;
       this.bargeInAccepted = false;
       this.speechStartedDuringAssistant = this.isAssistantAudible();
       if (this.speechStartedDuringAssistant) {
@@ -299,14 +286,10 @@ BOUNDARIES:
       this.bargeInTimer = null;
       const shouldAnswer = !this.speechStartedDuringAssistant || this.bargeInAccepted || !this.isAssistantAudible();
       if (shouldAnswer) {
-        if (this.questionLimitReached && this.questionLimitAnswerStarted) {
-          if (this.assistantResponseActive) this.questionLimitWrapPending = true;
-          else this.requestQuestionLimitWrapUp();
-        } else if (this.assistantResponseActive) this.pendingResponseAfterBargeIn = true;
+        if (this.assistantResponseActive) this.pendingResponseAfterBargeIn = true;
         else if (this.wrapUpPending) this.sendTimeLimitWrapUp();
         else this.send({ type: "response.create" });
       }
-      this.questionLimitAnswerStarted = false;
       this.speechStartedDuringAssistant = false;
       this.bargeInAccepted = false;
       return;
@@ -358,27 +341,6 @@ BOUNDARIES:
         instructions: "The twenty-minute call limit is approaching. Ask no new question. Briefly thank the candidate, say the recruiting team will review the conversation, say goodbye, and then call finish_screening only after the goodbye is spoken.",
       },
     });
-  }
-
-  private requestQuestionLimitWrapUp(): void {
-    if (this.ended || this.finishRequested || this.questionLimitWrapSent) return;
-    this.questionLimitWrapPending = true;
-    if (!this.candidateSpeechActive && !this.assistantResponseActive) this.sendQuestionLimitWrapUp();
-  }
-
-  private sendQuestionLimitWrapUp(): void {
-    if (this.ended || this.finishRequested || this.questionLimitWrapSent) return;
-    this.questionLimitWrapPending = false;
-    this.questionLimitWrapSent = true;
-    this.send({
-      type: "response.create",
-      response: {
-        instructions: "The hard six-question screening limit has been reached. Ask no new question. Briefly thank the candidate for their time, say the recruiting team will review the conversation, give a natural goodbye, and then call finish_screening only after the goodbye is spoken.",
-      },
-    });
-    if (this.hangupTimer) clearTimeout(this.hangupTimer);
-    this.hangupTimer = setTimeout(() => void this.hangup(), 20_000);
-    this.hangupTimer.unref?.();
   }
 
   private scheduleHangupAfterAudio(): void {

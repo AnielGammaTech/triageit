@@ -1,16 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { countSpokenQuestions } from "./screening-handler.js";
+import { buildScreeningInstructions, type ScreeningCallContext } from "./screening-handler.js";
 
-describe("countSpokenQuestions", () => {
-  it("counts every question in a stacked interviewer turn", () => {
-    expect(countSpokenQuestions("Which tools did you use? And how did you track requests?")).toBe(2);
+const screening: ScreeningCallContext = {
+  requestId: "request-1",
+  candidateId: "candidate-1",
+  inviteToken: "invite-1",
+  candidateName: "Jordan Example",
+  positionTitle: "Service Desk Technician",
+  resumeFacts: ["Worked at Example School supporting Windows endpoints."],
+  resumeClarifications: ["Clarify how support requests were tracked."],
+  questions: [{ prompt: "Tell me about a difficult support issue you personally resolved.", reason: "Tests troubleshooting ownership" }],
+};
+
+describe("buildScreeningInstructions", () => {
+  it("uses resume evidence without imposing a fixed question cap", () => {
+    const prompt = buildScreeningInstructions(screening);
+
+    expect(prompt).toContain("Worked at Example School supporting Windows endpoints.");
+    expect(prompt).toContain("There is no fixed question count");
+    expect(prompt).not.toContain("HARD BUDGET");
+    expect(prompt).not.toContain("SIX-QUESTION");
   });
 
-  it("does not consume the question budget for statements or acknowledgements", () => {
-    expect(countSpokenQuestions("Thank you. The recruiting team will review this conversation.")).toBe(0);
+  it("requires targeted clarification without repeat loops", () => {
+    const prompt = buildScreeningInstructions(screening);
+
+    expect(prompt).toContain("at most one final targeted clarification");
+    expect(prompt).toContain("Never enter a loop");
+    expect(prompt).toContain("check whether the candidate already answered it");
   });
 
-  it("recognizes full-width question marks in transcripts", () => {
-    expect(countSpokenQuestions("What did you handle？")).toBe(1);
+  it("challenges unsupported claims without accusing the candidate", () => {
+    const prompt = buildScreeningInstructions(screening);
+
+    expect(prompt).toContain("what they personally did and what result they observed");
+    expect(prompt).toContain("Do not accuse the candidate of lying");
+    expect(prompt).toContain("explicitly confirms they do not have that experience");
   });
 });

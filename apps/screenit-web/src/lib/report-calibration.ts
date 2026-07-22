@@ -51,7 +51,7 @@ export const generatedReportJsonSchema = {
 } as const;
 
 export function buildEvidenceReportPrompt(requirements: readonly string[], transcript: string): string {
-  return `Create a candid recruiter evidence report from this interview. Do not soften, polish, or repair weak candidate answers. Use only the words and concrete job-related examples in the transcript. Do not count interviewer hints, leading questions, or repeated prompts as candidate evidence.
+  return `Create a candid recruiter evidence report from this interview. Write like a careful human recruiter reviewing evidence, not like a polite marketing summary. Do not soften, polish, rescue, or repair weak candidate answers. Use only the words and concrete job-related examples in the transcript. Do not count interviewer hints, leading questions, or repeated prompts as candidate evidence.
 
 EVIDENCE LEVELS:
 - demonstrated: the candidate gave a relevant, specific example showing their own actions and a result for the whole requirement.
@@ -70,9 +70,11 @@ ANSWER QUALITY:
 - mixed: useful evidence exists, but several answers are vague or incomplete.
 - weak: repeated non-answers, very vague or confusing explanations, contradictions, explicit refusals to answer, or inability to explain actions/results materially limit the evidence.
 - insufficient: too little usable candidate speech to assess.
-- In answerConcerns, list at most five concise observable concerns and quote or closely paraphrase the relevant answer. Do not diagnose the person.
+- In answerConcerns, list at most five concise, recruiter-useful concerns. Name the question or claim, describe exactly what happened, and quote or closely paraphrase the relevant answer.
+- Be direct when the transcript supports it. Examples: the candidate did not answer after a clear clarification; used "we" but could not identify their own action; made a broad claim but supplied no example, steps, tool, or result; contradicted an earlier answer or the resume; blamed another person without explaining their own response; refused a reasonable job-related question; or used insulting, threatening, discriminatory, sexual, or clearly disrespectful words.
+- Never call an answer "BS" and never accuse the candidate of lying. Instead say that a claim was unsupported, internally inconsistent, contradicted by another statement, or remained unresolved after clarification, and show the evidence.
 - Do not list missing RMM, PSA, ticketing, documentation, or Microsoft 365 experience as an answer concern by itself. List it only when the response was also vague, contradictory, confusing, or did not address the question. Prefer concerns such as a repeated non-answer, a generic slogan instead of the requested example, an explanation with no identifiable action/outcome, or a claim that conflicts with another answer.
-- Use neutral descriptions. Never label a candidate defensive, evasive, dismissive, unmotivated, rude, or similar. Describe only the observable response content.
+- Use precise descriptions. Never label the candidate arrogant, unfriendly, defensive, evasive, dismissive, unmotivated, rude, dishonest, or similar. Describe only observable words and response behavior. "Did not answer after two direct attempts" is useful; "seemed arrogant" is not.
 - Do not penalize the candidate for the interviewer's repetition, poor questions, or transcription errors.
 - Do not criticize missing employer names, employment dates, totals, or history unless the role requirements explicitly ask for them. If the interviewer asked for information that was not on the resume and was unrelated to a requirement, omit it from the summary, clarifications, rationale, and answerConcerns.
 
@@ -86,6 +88,7 @@ MOTIVATION AND SIGNALS:
 - Capture motivation only when the candidate states a concrete reason for wanting IT work, this role, or continued learning. General phrases such as "I have always liked IT," "I am interested in tech," or naming news topics without a learning action are weak evidence; say exactly that rather than presenting strong motivation.
 - Never infer motivation, enthusiasm, emotion, personality, honesty, engagement, or culture fit from voice, tone, accent, speed, pauses, grammar, or speaking style.
 - conversationSignals may include at most five evidence-backed job behaviors such as ownership, customer awareness, documentation, appropriate help-seeking, or learning. Do not invent a positive signal to balance a concern.
+- If the candidate used explicitly hostile or disrespectful language, report the exact words or a close paraphrase and the context. Do not generalize that incident into a personality judgment.
 - Never issue a hire or reject recommendation and never infer protected traits.
 
 Return one evidence item for every requirement, in the same order and using the exact requirement text.
