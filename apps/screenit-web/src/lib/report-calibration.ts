@@ -109,6 +109,11 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
     if (item.level === "demonstrated" && requiresMultipleCustomers && onlyShowsInternalLocations) {
       return { ...item, requirement, level: "partial" as const };
     }
+    const requiresMotivationAndLearning = requirementText.includes("motivation") && requirementText.includes("continued learning");
+    const showsConcreteOngoingLearning = /(course|certif|training|lab|home lab|project|class|stud(y|ying)|workshop|book|documentation|practic(e|ing)|build(ing)?)/.test(evidenceText);
+    if (item.level === "demonstrated" && requiresMotivationAndLearning && !showsConcreteOngoingLearning) {
+      return { ...item, requirement, level: "partial" as const };
+    }
     return { ...item, requirement };
   });
 
@@ -117,6 +122,16 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
   const unrelatedEmploymentHistory = /(employment history|employer names?|earlier employers?|prior employers?|employment dates?|employers? and dates)/i;
   const clarifications = employmentHistoryIsRequired ? report.clarifications : report.clarifications.filter((item) => !unrelatedEmploymentHistory.test(item));
   const answerConcerns = employmentHistoryIsRequired ? report.answerConcerns : report.answerConcerns.filter((item) => !unrelatedEmploymentHistory.test(item));
+  const answerQualityRationale = employmentHistoryIsRequired
+    ? report.answerQualityRationale
+    : report.answerQualityRationale
+      .replace(/,?\s*(?:and\s+)?(?:could not|did not|refused to)\s+(?:provide|recall|name)[^.]*?(?:employers?|employment history|employment dates?)[^.]*\.?/gi, ".")
+      .replace(/\.{2,}/g, ".")
+      .trim();
+  const motivationEvidence = evidence.find((item) => item.requirement.toLowerCase().includes("motivation") && item.requirement.toLowerCase().includes("continued learning"));
+  const statedMotivation = motivationEvidence?.level === "partial" && !/(course|certif|training|lab|home lab|project|class|stud(y|ying)|workshop|book|documentation|practic(e|ing)|build(ing)?)/i.test(motivationEvidence.evidence)
+    ? `${report.statedMotivation} This was a general statement of interest; the interview did not establish a concrete current learning activity.`
+    : report.statedMotivation;
 
   const demonstrated = evidence.filter((item) => item.level === "demonstrated").length;
   const partial = evidence.filter((item) => item.level === "partial").length;
@@ -136,6 +151,8 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
     evidence,
     clarifications,
     roleAlignment,
+    answerQualityRationale,
+    statedMotivation,
     answerConcerns: [...new Set(answerConcerns.map((item) => item.trim()).filter(Boolean))].slice(0, 5),
   };
 }
