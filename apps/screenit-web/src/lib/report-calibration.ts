@@ -71,6 +71,7 @@ ANSWER QUALITY:
 - insufficient: too little usable candidate speech to assess.
 - In answerConcerns, list at most five concise observable concerns and quote or closely paraphrase the relevant answer. Do not diagnose the person.
 - Do not penalize the candidate for the interviewer's repetition, poor questions, or transcription errors.
+- Do not criticize missing employer names, employment dates, totals, or history unless the role requirements explicitly ask for them. If the interviewer asked for information that was not on the resume and was unrelated to a requirement, omit it from the summary, clarifications, rationale, and answerConcerns.
 
 ROLE ALIGNMENT:
 - strong_alignment requires concrete evidence for nearly all core requirements, no material explicit gaps, and strong or mixed answer quality.
@@ -95,11 +96,27 @@ ${transcript}`;
 
 export function calibrateGeneratedReport(report: GeneratedReport, requirements: readonly string[]): GeneratedReport {
   const byRequirement = new Map(report.evidence.map((item) => [item.requirement.trim().toLowerCase(), item]));
-  const evidence: RequirementEvidence[] = requirements.map((requirement) => byRequirement.get(requirement.trim().toLowerCase()) ?? {
-    requirement,
-    level: "unclear",
-    evidence: "The interview did not provide reliable evidence for this requirement.",
+  const evidence: RequirementEvidence[] = requirements.map((requirement) => {
+    const item = byRequirement.get(requirement.trim().toLowerCase()) ?? {
+      requirement,
+      level: "unclear" as const,
+      evidence: "The interview did not provide reliable evidence for this requirement.",
+    };
+    const requirementText = requirement.toLowerCase();
+    const evidenceText = item.evidence.toLowerCase();
+    const requiresMultipleCustomers = /multiple (customer|client) environments/.test(requirementText);
+    const onlyShowsInternalLocations = /(school|site|location|branch|department)/.test(evidenceText) && !/(msp|multiple customers|multiple clients|separate customers|separate clients)/.test(evidenceText);
+    if (item.level === "demonstrated" && requiresMultipleCustomers && onlyShowsInternalLocations) {
+      return { ...item, requirement, level: "partial" as const };
+    }
+    return { ...item, requirement };
   });
+
+  const requirementsText = requirements.join(" ").toLowerCase();
+  const employmentHistoryIsRequired = /(employment history|employer names?|employment dates?|work history)/.test(requirementsText);
+  const unrelatedEmploymentHistory = /(employment history|employer names?|earlier employers?|prior employers?|employment dates?|employers? and dates)/i;
+  const clarifications = employmentHistoryIsRequired ? report.clarifications : report.clarifications.filter((item) => !unrelatedEmploymentHistory.test(item));
+  const answerConcerns = employmentHistoryIsRequired ? report.answerConcerns : report.answerConcerns.filter((item) => !unrelatedEmploymentHistory.test(item));
 
   const demonstrated = evidence.filter((item) => item.level === "demonstrated").length;
   const partial = evidence.filter((item) => item.level === "partial").length;
@@ -117,7 +134,8 @@ export function calibrateGeneratedReport(report: GeneratedReport, requirements: 
   return {
     ...report,
     evidence,
+    clarifications,
     roleAlignment,
-    answerConcerns: [...new Set(report.answerConcerns.map((item) => item.trim()).filter(Boolean))].slice(0, 5),
+    answerConcerns: [...new Set(answerConcerns.map((item) => item.trim()).filter(Boolean))].slice(0, 5),
   };
 }
