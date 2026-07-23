@@ -15,8 +15,10 @@ import {
   ShieldCheck,
   Users,
   WifiOff,
+  ExternalLink,
+  X,
 } from "lucide-react";
-import type { CommandCenterPayload } from "@/lib/api/command-center-data";
+import type { CommandCenterPayload, CommandScore } from "@/lib/api/command-center-data";
 
 /**
  * /tv — TriageIT Command wallboard for the office 65" TV.
@@ -191,6 +193,7 @@ export default function TvPage() {
   const [pairingQr, setPairingQr] = useState("");
   const [lastOkAt, setLastOkAt] = useState<number>(0);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [selectedScoreTech, setSelectedScoreTech] = useState<string | null>(null);
   const pairingRequestInFlight = useRef(false);
   const accessCheckStarted = useRef(false);
 
@@ -460,6 +463,9 @@ export default function TvPage() {
   const breachCap = Math.min(data?.breaches.length ?? 0, 3);
   const unassignedCap = Math.min(data?.unassignedTickets.length ?? 0, 3);
   const ownerQueueCap = Math.max(2, Math.floor((10 - breachCap - unassignedCap) / 2));
+  const selectedScore = selectedScoreTech
+    ? data?.scoreboard.find((score) => score.tech === selectedScoreTech) ?? null
+    : null;
 
   return (
     <Shell>
@@ -674,25 +680,26 @@ export default function TvPage() {
                   <div className="flex h-full flex-col">
                     {data.scoreboard.slice(0, 7).map((t, i, arr) => {
                       const worst = i === arr.length - 1 && t.score < 0;
-                      const chips: Array<{ label: string; color: string }> = [];
-                      if (t.emails > 0) chips.push({ label: `${t.emails} customer emails`, color: "#38bdf8" });
-                      if (t.good > 0) chips.push({ label: `${t.good} good`, color: "#4ade80" });
-                      if (t.needs > 0) chips.push({ label: `${t.needs} coaching`, color: "#fbbf24" });
-                      if (t.poor > 0) chips.push({ label: `${t.poor} poor`, color: "#f87171" });
-                      if (t.breaching > 0) chips.push({
-                        label: `${t.breaching} breaching${t.livePenaltyDeferred > 0 ? " · deferred" : ""}`,
-                        color: t.livePenaltyDeferred > 0 ? INK_DIM : RED,
-                      });
-                      if (t.unacked > 0) chips.push({
-                        label: `${t.unacked} ${t.unacked === 1 ? "reply" : "replies"} >1 business hr${t.livePenaltyDeferred > 0 ? " · deferred" : ""}`,
-                        color: t.livePenaltyDeferred > 0 ? INK_DIM : AMBER,
-                      });
-                      if (t.livePenaltyDeferred > 0 && t.scheduleState) chips.push({
-                        label: `scheduled: ${presenceLabel(t.scheduleState)}`,
-                        color: "#a1a1aa",
-                      });
+                      const appliedLivePenalty = t.livePenaltyDeferred > 0
+                        ? 0
+                        : t.slaPenaltyPoints + t.replyPenaltyPoints;
+                      const formula = [
+                        `+${t.emailPoints} email`,
+                        `+${t.positiveReviewPoints} reviews`,
+                        `−${t.responsePenaltyPoints} delays`,
+                        ...(appliedLivePenalty > 0 ? [`−${appliedLivePenalty} live`] : []),
+                        ...(t.livePenaltyDeferred > 0 ? [`${t.livePenaltyDeferred} deferred`] : []),
+                      ];
                       return (
-                        <div key={t.tech} className="flex flex-1 items-center gap-[0.8vw] border-b px-[1.1vw] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
+                        <button
+                          key={t.tech}
+                          type="button"
+                          onClick={() => setSelectedScoreTech(t.tech)}
+                          data-testid={`score-row-${t.tech.replace(/\s+/g, "-")}`}
+                          className="grid flex-1 cursor-pointer grid-cols-[2vw_minmax(7vw,1fr)_minmax(0,2.3fr)_3vw] items-center gap-[0.7vw] border-b px-[1.1vw] text-left transition-colors last:border-b-0 hover:bg-white/[0.04]"
+                          style={{ borderColor: "#1f0d11" }}
+                          title={`Open the complete score audit for ${t.tech}`}
+                        >
                           <span
                             className="flex h-[1.9vw] w-[1.9vw] shrink-0 items-center justify-center rounded-full text-[0.95vw] font-black"
                             style={{
@@ -703,13 +710,16 @@ export default function TvPage() {
                           >
                             {i + 1}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-[1.15vw] font-black text-white">{t.tech}</span>
-                          <span className="flex shrink-0 items-center gap-[0.5vw]">
-                            {chips.map((c) => (
-                              <span key={c.label} className="rounded-full border px-[0.55vw] py-[0.2vh] text-[0.75vw] font-bold" style={{ borderColor: c.color, color: c.color }}>
-                                {c.label}
-                              </span>
-                            ))}
+                          <span className="min-w-0 truncate text-[1.05vw] font-black text-white">{t.tech}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[0.75vw] font-bold" style={{ color: "#d4d4d8" }}>
+                              {formula.join(" · ")}
+                            </span>
+                            <span className="mt-[0.18vh] block truncate text-[0.66vw] font-semibold" style={{ color: INK_DIM }}>
+                              {t.needs} coaching · {t.poor} poor
+                              {t.livePenaltyDeferred > 0 && t.scheduleState ? ` · scheduled ${presenceLabel(t.scheduleState)}` : ""}
+                              {" · click to audit"}
+                            </span>
                           </span>
                           <span
                             className="w-[3vw] shrink-0 text-right text-[1.3vw] font-black"
@@ -717,7 +727,7 @@ export default function TvPage() {
                           >
                             {t.score > 0 ? `+${t.score}` : t.score}
                           </span>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -749,7 +759,164 @@ export default function TvPage() {
           </div>
         </div>
       </div>
+      {selectedScore && (
+        <ScoreAudit
+          score={selectedScore}
+          haloBaseUrl={data?.haloBaseUrl ?? ""}
+          onClose={() => setSelectedScoreTech(null)}
+        />
+      )}
     </Shell>
+  );
+}
+
+function scoreSign(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function reviewScoreLabel(review: CommandScore["evidence"]["reviews"][number]): string {
+  const parts: string[] = [];
+  if (review.positivePoints > 0) parts.push(`+${review.positivePoints} review`);
+  if (review.delayPenaltyPoints > 0) parts.push(`−${review.delayPenaltyPoints} delay`);
+  if (parts.length === 0) return "0 points";
+  return `${parts.join(" ")} = ${scoreSign(review.points)}`;
+}
+
+function ScoreAudit({
+  score,
+  haloBaseUrl,
+  onClose,
+}: {
+  readonly score: CommandScore;
+  readonly haloBaseUrl: string;
+  readonly onClose: () => void;
+}) {
+  const liveDeferred = score.livePenaltyDeferred > 0;
+  const components = [
+    { label: "Customer emails today", value: score.emailPoints, color: "#38bdf8" },
+    { label: "Positive reviews (30d)", value: score.positiveReviewPoints, color: "#4ade80" },
+    { label: "Verified response delays (30d)", value: -score.responsePenaltyPoints, color: "#f87171" },
+    {
+      label: `Current SLA breaches${liveDeferred ? " (deferred)" : ""}`,
+      value: liveDeferred ? 0 : -score.slaPenaltyPoints,
+      color: liveDeferred ? INK_DIM : RED,
+    },
+    {
+      label: `Customer replies >1 business hour${liveDeferred ? " (deferred)" : ""}`,
+      value: liveDeferred ? 0 : -score.replyPenaltyPoints,
+      color: liveDeferred ? INK_DIM : AMBER,
+    },
+  ];
+  const ticketHref = (haloId: number): string | null =>
+    haloBaseUrl ? `${haloBaseUrl}/tickets?id=${haloId}` : null;
+  const reviews = [...score.evidence.reviews].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  const emails = [...score.evidence.emails].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex cursor-default items-center justify-center bg-black/80 p-[3vw] backdrop-blur-sm"
+      data-testid="score-audit"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${score.tech} score audit`}
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div className="flex max-h-[88vh] w-[72vw] flex-col overflow-hidden rounded-[1vw] border shadow-2xl" style={{ borderColor: "#5b2029", background: PANEL }}>
+        <div className="flex items-center justify-between border-b px-[1.4vw] py-[1.2vh]" style={{ borderColor: HAIRLINE, background: PANEL_2 }}>
+          <div>
+            <p className="text-[0.72vw] font-bold uppercase tracking-[0.16em]" style={{ color: "#facc15" }}>Score audit</p>
+            <h2 className="text-[1.55vw] font-black text-white">{score.tech}</h2>
+          </div>
+          <div className="flex items-center gap-[1.2vw]">
+            <span className="text-[2.2vw] font-black" style={{ color: score.score >= 0 ? "#4ade80" : RED, fontFamily: "var(--font-mono-tv), monospace" }}>
+              {scoreSign(score.score)}
+            </span>
+            <button type="button" onClick={onClose} aria-label="Close score audit" className="cursor-pointer rounded-[0.5vw] border p-[0.55vw] text-white hover:bg-white/10" style={{ borderColor: HAIRLINE }}>
+              <X className="h-[1.2vw] w-[1.2vw]" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid shrink-0 grid-cols-5 gap-[0.7vw] border-b p-[1vw]" style={{ borderColor: HAIRLINE }}>
+          {components.map((component) => (
+            <div key={component.label} className="rounded-[0.55vw] border p-[0.75vw]" style={{ borderColor: HAIRLINE, background: "#090406" }}>
+              <p className="text-[0.68vw] font-semibold leading-tight" style={{ color: INK_DIM }}>{component.label}</p>
+              <p className="mt-[0.4vh] text-[1.35vw] font-black" style={{ color: component.color, fontFamily: "var(--font-mono-tv), monospace" }}>
+                {scoreSign(component.value)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-2 gap-[0.8vw] overflow-hidden p-[1vw]">
+          <section className="min-h-0 overflow-y-auto rounded-[0.6vw] border" style={{ borderColor: HAIRLINE }}>
+            <h3 className="sticky top-0 border-b px-[0.9vw] py-[0.7vh] text-[0.82vw] font-bold uppercase tracking-[0.1em] text-white" style={{ borderColor: HAIRLINE, background: PANEL_2 }}>
+              Reviews used · {reviews.length}
+            </h3>
+            {reviews.length === 0 ? (
+              <p className="p-[0.9vw] text-[0.8vw]" style={{ color: INK_DIM }}>No reviews in the 30-day scoring window.</p>
+            ) : reviews.map((review) => {
+              const href = ticketHref(review.halo_id);
+              return (
+                <div key={`${review.halo_id}-${review.occurredAt}`} className="border-b px-[0.9vw] py-[0.65vh] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
+                  <div className="flex items-center gap-[0.55vw]">
+                    {href ? (
+                      <a href={href} target="_blank" rel="noreferrer" className="cursor-pointer font-mono text-[0.78vw] font-bold text-sky-400 hover:underline">
+                        #{review.halo_id} <ExternalLink className="inline h-[0.7vw] w-[0.7vw]" />
+                      </a>
+                    ) : <span className="font-mono text-[0.78vw] font-bold text-white">#{review.halo_id}</span>}
+                    <span className="rounded-full border px-[0.45vw] py-[0.1vh] text-[0.68vw] font-bold" style={{ borderColor: review.points < 0 ? RED : review.points > 0 ? "#4ade80" : INK_FAINT, color: review.points < 0 ? "#f87171" : review.points > 0 ? "#4ade80" : INK_DIM }}>
+                      {review.rating.replace(/_/g, " ")} · {reviewScoreLabel(review)}
+                    </span>
+                    <span className="ml-auto text-[0.68vw]" style={{ color: INK_DIM }}>{review.maxGapHours.toFixed(1)} business h max</span>
+                  </div>
+                  {review.summary && <p className="mt-[0.3vh] line-clamp-2 text-[0.72vw] leading-snug text-zinc-400">{review.summary}</p>}
+                </div>
+              );
+            })}
+          </section>
+
+          <section className="min-h-0 overflow-y-auto rounded-[0.6vw] border" style={{ borderColor: HAIRLINE }}>
+            <h3 className="sticky top-0 border-b px-[0.9vw] py-[0.7vh] text-[0.82vw] font-bold uppercase tracking-[0.1em] text-white" style={{ borderColor: HAIRLINE, background: PANEL_2 }}>
+              Today and live evidence
+            </h3>
+            {score.evidence.live.map((item) => {
+              const href = ticketHref(item.halo_id);
+              return (
+                <div key={`live-${item.halo_id}-${item.label}`} className="border-b px-[0.9vw] py-[0.65vh]" style={{ borderColor: "#1f0d11" }}>
+                  <div className="flex items-start gap-[0.55vw]">
+                    {href ? <a href={href} target="_blank" rel="noreferrer" className="cursor-pointer font-mono text-[0.78vw] font-bold text-sky-400 hover:underline">#{item.halo_id}</a> : <span className="font-mono text-[0.78vw] text-white">#{item.halo_id}</span>}
+                    <p className="min-w-0 flex-1 text-[0.72vw] leading-snug text-zinc-300">{item.label}</p>
+                    <span className="font-mono text-[0.78vw] font-black" style={{ color: liveDeferred ? INK_DIM : RED }}>{liveDeferred ? "deferred" : item.points}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {emails.map((email) => {
+              const href = ticketHref(email.halo_id);
+              return (
+                <div key={`${email.halo_id}-${email.occurredAt}`} className="border-b px-[0.9vw] py-[0.65vh] last:border-b-0" style={{ borderColor: "#1f0d11" }}>
+                  <div className="flex items-center gap-[0.55vw]">
+                    {href ? <a href={href} target="_blank" rel="noreferrer" className="cursor-pointer font-mono text-[0.78vw] font-bold text-sky-400 hover:underline">#{email.halo_id}</a> : <span className="font-mono text-[0.78vw] text-white">#{email.halo_id}</span>}
+                    <span className="min-w-0 flex-1 truncate text-[0.72vw] text-zinc-300">{email.label}</span>
+                    <span className="font-mono text-[0.78vw] font-black text-sky-400">+1</span>
+                  </div>
+                </div>
+              );
+            })}
+            {score.evidence.live.length === 0 && emails.length === 0 && (
+              <p className="p-[0.9vw] text-[0.8vw]" style={{ color: INK_DIM }}>No email or live-ticket score events today.</p>
+            )}
+          </section>
+        </div>
+
+        <p className="shrink-0 border-t px-[1.2vw] py-[0.8vh] text-[0.7vw]" style={{ borderColor: HAIRLINE, color: INK_DIM }}>
+          Formula: customer emails today + positive reviews from the latest 30 days − verified response delays − live SLA/reply penalties. Coaching labels with no verified delay remain visible but score 0.
+        </p>
+      </div>
+    </div>
   );
 }
 

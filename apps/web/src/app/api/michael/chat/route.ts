@@ -11,6 +11,11 @@ import {
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { workerFetch } from "@/lib/api/worker";
+import {
+  applyScheduleAwareScoring,
+  buildCommandCenterPayload,
+  type CommandAvailabilityTech,
+} from "@/lib/api/command-center-data";
 
 // Built per-request (not a module const) so "today's date" inside the prompt
 // is the actual request date, not the date the Railway process booted
@@ -37,6 +42,7 @@ You are the admin/owner's AI operations manager — a supercomputer that can pul
 - For simple lookups, use the tool and respond concisely
 - For complex questions, chain multiple tools but only load what's needed
 - Don't call get_dashboard unless the question specifically needs aggregate stats
+- For any question about the Command scoreboard, a technician's points, or why someone has a score, call **explain_tech_score**. Never reconstruct or guess the formula from review counts.
 
 ## Your Team (specialist agents you manage):
 - **Ryan Howard** — Classifier. Categorizes tickets by type/subtype, urgency, and security flags.
@@ -509,6 +515,17 @@ export async function POST(request: NextRequest) {
           },
         },
         required: [],
+      },
+    },
+    {
+      name: "explain_tech_score",
+      description: "Return the exact Command scoreboard formula and ticket-level evidence for one technician. This is the authoritative tool for questions like 'why does Ryan have +1?' or 'how is Raul's score calculated?'. Never infer a score from generic review counts.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          tech_name: { type: "string", description: "Technician name, full or partial" },
+        },
+        required: ["tech_name"],
       },
     },
   ];
@@ -1149,6 +1166,85 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      case "explain_tech_score": {
+        const requestedName = String(input.tech_name ?? "").trim();
+        if (!requestedName) return "A technician name is required.";
+
+        let commandPayload = await buildCommandCenterPayload();
+        try {
+          const dispatchResponse = await workerFetch("/dispatch/board", {
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (dispatchResponse.ok) {
+            const dispatch = (await dispatchResponse.json()) as {
+              techs?: ReadonlyArray<CommandAvailabilityTech>;
+            };
+            if (Array.isArray(dispatch.techs)) {
+              commandPayload = applyScheduleAwareScoring(commandPayload, dispatch.techs);
+            }
+          }
+        } catch {
+          // The base score is still authoritative; only live schedule deferrals
+          // are unavailable when the dispatch board cannot be reached.
+        }
+
+        const normalized = requestedName.toLowerCase();
+        const requestedTokens = normalized.split(/[^a-z]+/).filter((token) => token.length >= 2);
+        const score = commandPayload.scoreboard.find((candidate) => {
+          const candidateName = candidate.tech.toLowerCase();
+          return candidateName === normalized ||
+            candidateName.includes(normalized) ||
+            requestedTokens.every((token) => candidateName.includes(token));
+        });
+        if (!score) {
+          return `No Command score matched "${requestedName}". Available technicians: ${commandPayload.scoreboard.map((item) => item.tech).join(", ")}.`;
+        }
+
+        const liveDeferred = score.livePenaltyDeferred > 0;
+        const appliedSla = liveDeferred ? 0 : score.slaPenaltyPoints;
+        const appliedReplies = liveDeferred ? 0 : score.replyPenaltyPoints;
+        const lines = [
+          `## ${score.tech} — Command score ${score.score >= 0 ? "+" : ""}${score.score}`,
+          `Authoritative formula: +${score.emailPoints} customer-email points +${score.positiveReviewPoints} positive-review points -${score.responsePenaltyPoints} verified response-delay points -${appliedSla} live SLA points -${appliedReplies} overdue-customer-reply points = ${score.score >= 0 ? "+" : ""}${score.score}.`,
+          `Windows: emails and live queues are today/current; reviews and verified response gaps use the latest review per ticket from the last 30 days.`,
+          `Review labels visible on the board: ${score.good} positive, ${score.needs} coaching, ${score.poor} poor. A coaching/poor label is context, not automatically a deduction; only its deterministic max business-hour gap can subtract points.`,
+        ];
+        if (liveDeferred) {
+          lines.push(`Schedule deferral: ${score.livePenaltyDeferred} live penalty point(s) are currently deferred because ${score.tech} is ${score.scheduleReason ?? score.scheduleState ?? "not scheduled to respond"}.`);
+        }
+
+        lines.push("\n### Customer emails scored today");
+        if (score.evidence.emails.length === 0) {
+          lines.push("- None.");
+        } else {
+          for (const email of score.evidence.emails) {
+            lines.push(`- #${email.halo_id}: +1 — ${email.label} at ${new Date(email.occurredAt).toLocaleString("en-US", { timeZone: "America/New_York" })}.`);
+          }
+        }
+
+        lines.push("\n### Reviews used");
+        if (score.evidence.reviews.length === 0) {
+          lines.push("- None in the 30-day window.");
+        } else {
+          for (const review of score.evidence.reviews) {
+            const positive = review.positivePoints > 0 ? `+${review.positivePoints} review` : "";
+            const delay = review.delayPenaltyPoints > 0 ? `-${review.delayPenaltyPoints} verified delay` : "";
+            const impact = [positive, delay].filter(Boolean).join(" ") || "0 points";
+            lines.push(`- #${review.halo_id}: ${impact} = ${review.points >= 0 ? "+" : ""}${review.points} — ${review.rating.replace(/_/g, " ")}, verified max gap ${review.maxGapHours.toFixed(2)} business hours${review.summary ? `; ${review.summary}` : ""}.`);
+          }
+        }
+
+        lines.push("\n### Live ticket deductions");
+        if (score.evidence.live.length === 0) {
+          lines.push("- None.");
+        } else {
+          for (const item of score.evidence.live) {
+            lines.push(`- #${item.halo_id}: ${liveDeferred ? "0 right now (deferred)" : item.points} — ${item.label}.`);
+          }
+        }
+        return lines.join("\n");
+      }
+
       case "get_dashboard": {
         const sections = (input.sections as string[] | undefined) ?? ["tech_workload", "tech_profiles", "customer_insights", "trends", "reviews"];
         let result = "";
@@ -1279,6 +1375,8 @@ export async function POST(request: NextRequest) {
     const first = t.split(" ")[0]?.toLowerCase();
     return first && first.length > 2 && lastUserText.toLowerCase().includes(first);
   });
+  const asksScoreQuestion = referencesTech &&
+    /\b(score|scores|scoring|scoreboard|points?|rank|ranking)\b/i.test(lastUserText);
   const mustUseTool = referencesTicket || referencesTech;
 
   const encoder = new TextEncoder();
@@ -1302,9 +1400,11 @@ export async function POST(request: NextRequest) {
             system: buildCachedSystem(systemPrompt, dynamicPrompt),
             messages: withMessageCacheBreakpoint(currentMessages),
             tools,
-            ...(mustUseTool && iteration === 1
-              ? { tool_choice: { type: "any" as const } }
-              : {}),
+            ...(iteration === 1 && asksScoreQuestion
+              ? { tool_choice: { type: "tool" as const, name: "explain_tech_score" } }
+              : mustUseTool && iteration === 1
+                ? { tool_choice: { type: "any" as const } }
+                : {}),
           });
 
           let hasToolUse = false;
@@ -1359,6 +1459,7 @@ export async function POST(request: NextRequest) {
               search_halo: `Searching Halo${parsedInput.search ? ` for "${parsedInput.search}"` : ""}...`,
               post_halo_note: `Posting note to ticket #${parsedInput.halo_id}...`,
               get_dashboard: "Loading dashboard data...",
+              explain_tech_score: `Auditing ${parsedInput.tech_name}'s Command score...`,
             };
             const toolLabel = toolLabels[tool.name] ?? `Running ${tool.name}...`;
 
@@ -1375,6 +1476,7 @@ export async function POST(request: NextRequest) {
               search_halo: "Halo PSA",
               post_halo_note: "Halo PSA",
               get_dashboard: "Dashboard",
+              explain_tech_score: "Command scoreboard",
             };
             const workerName = workerNames[tool.name] ?? tool.name;
 

@@ -82,3 +82,89 @@ test("shows secure QR pairing when the TV has no approved session", async ({ pag
   await expect(page.getByText("one-time access code")).toBeVisible();
   await expect(page.getByPlaceholder("ABCD-EFGH")).toHaveAttribute("type", "password");
 });
+
+test("opens an auditable technician score with formula and ticket evidence", async ({ page }) => {
+  await page.addInitScript(() => {
+    Date.now = () => 10_000;
+  });
+  await page.route("**/api/tv/session", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+      return;
+    }
+    await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "approval required" }) });
+  });
+  await page.route("**/api/tv/command", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...tvPayload,
+        scoreboard: [{
+          tech: "Ryan Fitzpatrick",
+          score: 1,
+          good: 2,
+          needs: 4,
+          poor: 0,
+          emails: 5,
+          breaching: 0,
+          unacked: 0,
+          reviewPoints: -4,
+          emailPoints: 5,
+          positiveReviewPoints: 2,
+          responsePenaltyPoints: 6,
+          slaPenaltyPoints: 0,
+          replyPenaltyPoints: 0,
+          livePenaltyDeferred: 0,
+          scheduleState: "available",
+          scheduleReason: null,
+          evidence: {
+            emails: [{
+              halo_id: 41570,
+              occurredAt: "2026-07-23T14:25:00Z",
+              label: "Customer email sent",
+              points: 1,
+            }],
+            reviews: [{
+              halo_id: 41570,
+              occurredAt: "2026-07-23T15:00:00Z",
+              rating: "good",
+              maxGapHours: 1.35,
+              summary: "Customer-visible response timing verified.",
+              positivePoints: 1,
+              delayPenaltyPoints: 0,
+              points: 1,
+            }, {
+              halo_id: 40999,
+              occurredAt: "2026-07-22T15:00:00Z",
+              rating: "needs_improvement",
+              maxGapHours: 11.3,
+              summary: "Verified response delay.",
+              positivePoints: 0,
+              delayPenaltyPoints: 3,
+              points: -3,
+            }],
+            live: [],
+          },
+        }],
+      }),
+    });
+  });
+
+  await page.goto("/tv#code=ABCD-EFGH");
+
+  const scoreRow = page.getByTestId("score-row-Ryan-Fitzpatrick");
+  await expect(scoreRow).toBeVisible();
+  await expect(scoreRow).toContainText("+5 email · +2 reviews · −6 delays");
+  await scoreRow.click();
+
+  const audit = page.getByTestId("score-audit");
+  await expect(audit).toBeVisible();
+  await expect(audit).toContainText("Ryan Fitzpatrick");
+  await expect(audit).toContainText("#41570");
+  await expect(audit).toContainText("#40999");
+  await expect(audit).toContainText("Verified response delays (30d)");
+
+  await page.getByRole("button", { name: "Close score audit" }).click();
+  await expect(audit).toBeHidden();
+});
