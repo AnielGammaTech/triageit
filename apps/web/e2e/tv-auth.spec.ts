@@ -83,7 +83,7 @@ test("shows secure QR pairing when the TV has no approved session", async ({ pag
   await expect(page.getByPlaceholder("ABCD-EFGH")).toHaveAttribute("type", "password");
 });
 
-test("opens an auditable technician score with formula and ticket evidence", async ({ page }) => {
+test("shows a read-only technician score equation on the wallboard", async ({ page }) => {
   await page.addInitScript(() => {
     Date.now = () => 10_000;
   });
@@ -153,18 +153,10 @@ test("opens an auditable technician score with formula and ticket evidence", asy
 
   await page.goto("/tv#code=ABCD-EFGH");
 
-  const scoreRow = page.getByTestId("score-row-Ryan-Fitzpatrick");
+  const scoreRow = page.getByTestId("tv-score-row-Ryan-Fitzpatrick");
   await expect(scoreRow).toBeVisible();
   await expect(scoreRow).toContainText("+5 email · +2 reviews · −6 delays");
-  await scoreRow.click();
-
-  const audit = page.getByTestId("score-audit");
-  await expect(audit).toBeVisible();
-  await expect(audit).toContainText("Ryan Fitzpatrick");
-  await expect(audit).toContainText("#41570");
-  await expect(audit).toContainText("#40999");
-  await expect(audit).toContainText("Verified response delays (30d)");
-
-  await page.getByRole("button", { name: "Close score audit" }).click();
-  await expect(audit).toBeHidden();
+  await expect(scoreRow).not.toHaveAttribute("role", "button");
+  await expect(page.getByText("click to audit")).toHaveCount(0);
+  await expect(page.getByTestId("command-score-audit")).toHaveCount(0);
 });
