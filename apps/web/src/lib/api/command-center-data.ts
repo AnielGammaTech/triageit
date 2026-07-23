@@ -167,7 +167,10 @@ const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const NEEDS_RESPONSE_REVIEW_HOURS = 4;
 const POOR_RESPONSE_REVIEW_HOURS = 8;
-const SCHEDULE_EXEMPT_STATES = new Set(["off", "meeting", "onsite", "on_call", "after_hours"]);
+// Only true non-working time pauses personal live penalties. Meetings, calls,
+// and onsite work are scheduled work, so the technician must still stay ahead
+// of their SLA and customer-reply queues.
+const SCHEDULE_EXEMPT_STATES = new Set(["off", "after_hours"]);
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
 const HALO_UNASSIGNED_AGENT_ID = 1;
