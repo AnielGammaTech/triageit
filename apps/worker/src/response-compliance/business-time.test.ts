@@ -29,4 +29,11 @@ describe("response business time", () => {
       new Date("2026-07-20T12:15:00Z"),
     )).toBe(30);
   });
+
+  it("does not start an overnight customer-reply clock until 8 AM Eastern", () => {
+    expect(responseBusinessMinutesBetween(
+      new Date("2026-07-23T03:08:00Z"), // Jul 22, 11:08 PM ET
+      new Date("2026-07-23T12:32:00Z"), // Jul 23, 8:32 AM ET
+    )).toBe(32);
+  });
 });

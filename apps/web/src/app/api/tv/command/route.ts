@@ -1,5 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
+import {
+  applyScheduleAwareScoring,
+  buildCommandCenterPayload,
+} from "@/lib/api/command-center-data";
 import {
   createTvSessionToken,
   isValidTvSessionToken,
@@ -115,8 +118,11 @@ export async function GET(request: NextRequest) {
       fetchDispatchSchedule(),
       isTrustedTvIp(clientIp),
     ]);
+    const scoredPayload = dispatch
+      ? applyScheduleAwareScoring(payload, dispatch.techs)
+      : payload;
     const response = NextResponse.json({
-      ...payload,
+      ...scoredPayload,
       ...(dispatch ? { dispatch } : {}),
       ...(schedule ? { schedule } : {}),
     });

@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   isCustomerReplyStatus,
+  isBusinessTime,
   isHelpdeskTechnicianName,
   isWaitingOnTechStatus,
 } from "@triageit/shared";
@@ -31,10 +32,15 @@ interface TicketRow {
 }
 
 interface ReviewRow {
+  readonly halo_id: number;
   readonly tech_name: string | null;
   readonly rating: string | null;
   readonly max_gap_hours: number | null;
   readonly created_at: string;
+}
+
+interface TechnicianEmailRow {
+  readonly technician_name: string;
 }
 
 export interface CommandBreach {
@@ -71,6 +77,9 @@ export interface CommandTechStat {
   readonly unackedReplies: number;
   readonly poorReviews: number;
   readonly goodReviews: number;
+  readonly needsImprovementReviews: number;
+  readonly greatReviews: number;
+  readonly customerEmailsToday: number;
   readonly worstGapHours: number;
 }
 
@@ -84,9 +93,15 @@ export interface CommandScore {
   readonly tech: string;
   readonly score: number;
   readonly good: number;
+  readonly needs: number;
   readonly poor: number;
+  readonly emails: number;
   readonly breaching: number;
   readonly unacked: number;
+  readonly reviewPoints: number;
+  readonly livePenaltyDeferred: number;
+  readonly scheduleState: string | null;
+  readonly scheduleReason: string | null;
 }
 
 export interface CommandCenterPayload {
@@ -115,9 +130,12 @@ export interface CommandCenterPayload {
   readonly haloBaseUrl: string;
 }
 
-const CUSTOMER_REPLY_SCORE_WINDOW_MS = 60 * 60_000;
+const CUSTOMER_REPLY_SCORE_WINDOW_MINUTES = 60;
 const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
+const NEEDS_RESPONSE_REVIEW_HOURS = 4;
+const POOR_RESPONSE_REVIEW_HOURS = 8;
+const SCHEDULE_EXEMPT_STATES = new Set(["off", "meeting", "onsite", "on_call", "after_hours"]);
 const GAMMA_DEFAULT_TYPE_ID = 31;
 const HALO_RESOLVED_STATUS_ID = 9;
 const HALO_UNASSIGNED_AGENT_ID = 1;
@@ -169,6 +187,22 @@ function customerReplyAtMs(ticket: TicketRow): number {
   const raw = ticket.last_customer_reply_at ?? ticket.last_tech_action_at ?? ticket.created_at;
   const parsed = Date.parse(raw);
   return Number.isFinite(parsed) ? parsed : Date.parse(ticket.created_at);
+}
+
+/** True after N elapsed Gamma Tech business minutes, pausing 5 PM-8 AM and weekends. */
+export function hasElapsedBusinessMinutes(
+  startMs: number,
+  endMs: number,
+  thresholdMinutes: number,
+): boolean {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return false;
+  let elapsed = 0;
+  let cursor = startMs;
+  while (cursor < endMs && elapsed < thresholdMinutes) {
+    if (isBusinessTime(new Date(cursor))) elapsed++;
+    cursor += 60_000;
+  }
+  return elapsed >= thresholdMinutes;
 }
 
 async function getHaloToken(config: HaloIntegrationConfig): Promise<string> {
@@ -279,7 +313,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     haloBaseUrl = "";
   }
 
-  const [ticketRes, reviewRes, openedTodayRes, resolvedTodayFallbackRes] = await Promise.all([
+  const [ticketRes, reviewRes, emailTodayRes, openedTodayRes, resolvedTodayFallbackRes] = await Promise.all([
     supabase
       .from("tickets")
       .select(
@@ -289,8 +323,16 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       .eq("tickettype_id", GAMMA_DEFAULT_TYPE_ID),
     supabase
       .from("tech_reviews")
-      .select("tech_name, rating, max_gap_hours, created_at")
-      .gte("created_at", new Date(now - MONTH_MS).toISOString()),
+      .select("halo_id, tech_name, rating, max_gap_hours, created_at")
+      .gte("created_at", new Date(now - MONTH_MS).toISOString())
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("technician_ticket_activity")
+      .select("technician_name")
+      .eq("category", "customer_email")
+      .gte("action_at", midnightIso)
+      .order("action_at", { ascending: false })
+      .range(0, 9_999),
     supabase
       .from("tickets")
       .select("halo_id", { count: "exact", head: true })
@@ -305,7 +347,14 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
   ]);
 
   const tickets = (ticketRes.data ?? []) as TicketRow[];
-  const reviews = (reviewRes.data ?? []) as ReviewRow[];
+  // Defensive latest-only selection protects scoring before/while the unique
+  // review-per-ticket migration reaches production.
+  const latestReviewByTicket = new Map<number, ReviewRow>();
+  for (const review of (reviewRes.data ?? []) as ReviewRow[]) {
+    if (!latestReviewByTicket.has(review.halo_id)) latestReviewByTicket.set(review.halo_id, review);
+  }
+  const reviews = [...latestReviewByTicket.values()];
+  const emailsToday = (emailTodayRes.data ?? []) as TechnicianEmailRow[];
   const haloResolvedToday = haloConfig ? await fetchHaloClosedToday(haloConfig, nowDate) : null;
 
   // ── Status breakdown ──
@@ -406,13 +455,30 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     unackedReplies: number;
     poorReviews: number;
     goodReviews: number;
+    needsImprovementReviews: number;
+    greatReviews: number;
+    customerEmailsToday: number;
+    reviewPenaltyPoints: number;
     worstGapHours: number;
   }
   const techs = new Map<string, TechAgg>();
   const getTech = (name: string): TechAgg => {
     let t = techs.get(name);
     if (!t) {
-      t = { tech: name, openTickets: 0, breaching: 0, waitingOnTech: 0, unackedReplies: 0, poorReviews: 0, goodReviews: 0, worstGapHours: 0 };
+      t = {
+        tech: name,
+        openTickets: 0,
+        breaching: 0,
+        waitingOnTech: 0,
+        unackedReplies: 0,
+        poorReviews: 0,
+        goodReviews: 0,
+        needsImprovementReviews: 0,
+        greatReviews: 0,
+        customerEmailsToday: 0,
+        reviewPenaltyPoints: 0,
+        worstGapHours: 0,
+      };
       techs.set(name, t);
     }
     return t;
@@ -427,22 +493,39 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     if (isWaitingOnTechQueue(t.halo_status_id, t.halo_status)) agg.waitingOnTech++;
     if (isInCustomerReplyQueue(t)) {
       const replyAt = customerReplyAtMs(t);
-      if (replyAt > 0 && now - replyAt >= CUSTOMER_REPLY_SCORE_WINDOW_MS) {
+      if (
+        replyAt > 0 &&
+        hasElapsedBusinessMinutes(replyAt, now, CUSTOMER_REPLY_SCORE_WINDOW_MINUTES)
+      ) {
         agg.unackedReplies++;
       }
     }
+  }
+  for (const email of emailsToday) {
+    const name = (email.technician_name ?? "").trim();
+    if (!name || !isHelpdeskTechnicianName(name)) continue;
+    getTech(name).customerEmailsToday++;
   }
   for (const r of reviews) {
     const name = (r.tech_name ?? "").trim();
     if (!name || name.toUpperCase() === "UNASSIGNED") continue;
     const rating = (r.rating ?? "").toLowerCase();
     const agg = getTech(name);
-    if (rating === "poor" || rating === "needs_improvement") {
+    if (rating === "poor") {
       agg.poorReviews++;
-      if ((r.max_gap_hours ?? 0) > agg.worstGapHours) agg.worstGapHours = r.max_gap_hours ?? 0;
-    } else if (rating === "good" || rating === "great") {
+    } else if (rating === "needs_improvement") {
+      agg.needsImprovementReviews++;
+    } else if (rating === "great") {
+      agg.greatReviews++;
+    } else if (rating === "good") {
       agg.goodReviews++;
     }
+    const verifiedGap = r.max_gap_hours ?? 0;
+    if (verifiedGap > agg.worstGapHours) agg.worstGapHours = verifiedGap;
+    // AI wording alone never subtracts points. A penalty needs the stored,
+    // deterministic business-hours evidence that supports it.
+    if (verifiedGap > POOR_RESPONSE_REVIEW_HOURS) agg.reviewPenaltyPoints += 3;
+    else if (verifiedGap > NEEDS_RESPONSE_REVIEW_HOURS) agg.reviewPenaltyPoints += 1;
   }
 
   const techStats = [...techs.values()].sort((a, b) => b.openTickets - a.openTickets);
@@ -453,8 +536,9 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       const reasons: string[] = [];
       if (t.breaching > 0) reasons.push(`${t.breaching} SLA breach${t.breaching === 1 ? "" : "es"} right now`);
       if (t.unackedReplies > 0) reasons.push(`${t.unackedReplies} customer repl${t.unackedReplies === 1 ? "y" : "ies"} waiting 1h+`);
-      if (t.poorReviews > 0) reasons.push(`${t.poorReviews} poor review${t.poorReviews === 1 ? "" : "s"} (30d)`);
-      const score = t.breaching * 3 + t.unackedReplies * 2 + t.poorReviews;
+      const negativeReviews = t.poorReviews + t.needsImprovementReviews;
+      if (negativeReviews > 0) reasons.push(`${negativeReviews} coaching review${negativeReviews === 1 ? "" : "s"} (30d)`);
+      const score = t.breaching * 3 + t.unackedReplies * 2 + t.reviewPenaltyPoints;
       return { tech: t.tech, score, reasons };
     })
     .filter((t) => t.score > 0)
@@ -465,9 +549,14 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     .map((t) => {
       const clean = t.breaching === 0 && t.unackedReplies === 0;
       const reasons: string[] = [];
-      if (t.goodReviews > 0) reasons.push(`${t.goodReviews} good review${t.goodReviews === 1 ? "" : "s"} (30d)`);
+      const positiveReviews = t.goodReviews + t.greatReviews;
+      if (positiveReviews > 0) reasons.push(`${positiveReviews} positive review${positiveReviews === 1 ? "" : "s"} (30d)`);
       if (clean && t.openTickets > 0) reasons.push(`clean board — ${t.openTickets} open, zero breaches`);
-      const score = t.goodReviews * 2 + (clean && t.openTickets > 0 ? 3 : 0) - t.poorReviews * 2;
+      const score =
+        t.greatReviews * 2 +
+        t.goodReviews +
+        (clean && t.openTickets > 0 ? 3 : 0) -
+        t.reviewPenaltyPoints;
       return { tech: t.tech, score, reasons };
     })
     .filter((t) => t.score > 0 && t.reasons.length > 0)
@@ -477,14 +566,27 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
   // real helpdesk techs only, net score = credits minus live problems.
   const scoreboard: CommandScore[] = techStats
     .filter((t) => isHelpdeskTechnicianName(t.tech))
-    .map((t) => ({
-      tech: t.tech,
-      score: t.goodReviews * 2 - t.poorReviews * 2 - t.breaching * 3 - t.unackedReplies * 2,
-      good: t.goodReviews,
-      poor: t.poorReviews,
-      breaching: t.breaching,
-      unacked: t.unackedReplies,
-    }))
+    .map((t) => {
+      const reviewPoints = t.greatReviews * 2 + t.goodReviews - t.reviewPenaltyPoints;
+      return {
+        tech: t.tech,
+        score:
+          t.customerEmailsToday +
+          reviewPoints -
+          t.breaching * 3 -
+          t.unackedReplies * 2,
+        good: t.goodReviews + t.greatReviews,
+        needs: t.needsImprovementReviews,
+        poor: t.poorReviews,
+        emails: t.customerEmailsToday,
+        breaching: t.breaching,
+        unacked: t.unackedReplies,
+        reviewPoints,
+        livePenaltyDeferred: 0,
+        scheduleState: null,
+        scheduleReason: null,
+      };
+    })
     .sort((a, b) => b.score - a.score);
 
   const metrics = {
@@ -514,4 +616,57 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     scoreboard,
     haloBaseUrl,
   };
+}
+
+export interface CommandAvailabilityTech {
+  readonly tech: string;
+  readonly status: {
+    readonly state: string;
+    readonly detail: string | null;
+  };
+}
+
+function normalizedNameTokens(name: string): ReadonlySet<string> {
+  return new Set(name.toLowerCase().split(/[^a-z]+/).filter((token) => token.length >= 3));
+}
+
+function commandNamesMatch(a: string, b: string): boolean {
+  const want = normalizedNameTokens(a);
+  const have = normalizedNameTokens(b);
+  if (want.size === 0 || have.size === 0) return false;
+  let overlap = 0;
+  for (const token of want) if (have.has(token)) overlap++;
+  return overlap >= Math.min(2, want.size, have.size);
+}
+
+/**
+ * Operational problems remain visible, but a live personal deduction is
+ * deferred while the schedule says the technician is not expected to respond.
+ */
+export function applyScheduleAwareScoring(
+  payload: CommandCenterPayload,
+  availability: ReadonlyArray<CommandAvailabilityTech>,
+): CommandCenterPayload {
+  const scoreboard = payload.scoreboard
+    .map((score) => {
+      const presence = availability.find((item) => commandNamesMatch(item.tech, score.tech));
+      const state = presence?.status.state ?? null;
+      if (!state || !SCHEDULE_EXEMPT_STATES.has(state)) {
+        return {
+          ...score,
+          scheduleState: state,
+          scheduleReason: presence?.status.detail ?? null,
+        };
+      }
+      const deferred = score.breaching * 3 + score.unacked * 2;
+      return {
+        ...score,
+        score: score.score + deferred,
+        livePenaltyDeferred: deferred,
+        scheduleState: state,
+        scheduleReason: presence?.status.detail ?? state.replace(/_/g, " "),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+  return { ...payload, scoreboard };
 }

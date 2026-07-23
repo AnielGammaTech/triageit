@@ -1,7 +1,27 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/require-auth";
 import { checkRateLimit } from "@/lib/api/rate-limit";
-import { buildCommandCenterPayload } from "@/lib/api/command-center-data";
+import {
+  applyScheduleAwareScoring,
+  buildCommandCenterPayload,
+  type CommandAvailabilityTech,
+} from "@/lib/api/command-center-data";
+import { workerFetch } from "@/lib/api/worker";
+
+async function fetchAvailability(): Promise<ReadonlyArray<CommandAvailabilityTech>> {
+  try {
+    const response = await workerFetch("/dispatch/board", {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as {
+      readonly techs?: ReadonlyArray<CommandAvailabilityTech>;
+    };
+    return Array.isArray(payload.techs) ? payload.techs : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * GET /api/command-center — authenticated dashboard variant.
@@ -14,8 +34,15 @@ export async function GET() {
   if (rl) return rl;
 
   try {
-    const payload = await buildCommandCenterPayload();
-    return NextResponse.json(payload);
+    const [payload, availability] = await Promise.all([
+      buildCommandCenterPayload(),
+      fetchAvailability(),
+    ]);
+    return NextResponse.json(
+      availability.length > 0
+        ? applyScheduleAwareScoring(payload, availability)
+        : payload,
+    );
   } catch (err) {
     console.error("[COMMAND-CENTER] Failed to build payload:", (err as Error).message);
     return NextResponse.json({ error: "Failed to load command center data" }, { status: 500 });

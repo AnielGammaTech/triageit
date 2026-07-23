@@ -6,10 +6,11 @@ import { HaloClient } from "../../integrations/halo/client.js";
 import { isInternalStaffName, type HaloConfig } from "@triageit/shared";
 import type { TriageContext, ClassificationResult } from "../types.js";
 import { responseBusinessMinutesBetween } from "../../response-compliance/business-time.js";
+import { namesMatch } from "../../dispatch/board-sources.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface TechFeedback {
+export interface TechFeedback {
   readonly rating: string;
   readonly communication_score: number;
   readonly response_time_assessment: string;
@@ -39,9 +40,10 @@ export interface ResponseFacts {
   readonly currentlyWaitingBh: number | null;
 }
 
-interface ReviewEligibility {
+export interface ReviewEligibility {
   readonly eligible: boolean;
   readonly ticketAgeHours: number;
+  readonly accountableBusinessHours: number;
   readonly maxResponseGapHours: number;
   readonly responseFacts: ResponseFacts;
   readonly customerActions: ReadonlyArray<TriageContext["actions"] extends ReadonlyArray<infer T> | undefined ? T : never>;
@@ -50,6 +52,17 @@ interface ReviewEligibility {
 
 /** Universal response standard: 1 business hour after a customer reply. */
 const RESPONSE_STANDARD_BH = 1;
+const NEEDS_IMPROVEMENT_BH = 4;
+const POOR_RESPONSE_BH = 8;
+
+export interface ReviewTimingContext {
+  /** When the current technician became accountable for this ticket. */
+  readonly assignedAt?: string | null;
+  /** Current assignment owner from the compliance ledger, when available. */
+  readonly assignedTech?: string | null;
+  /** Test hook and deterministic review timestamp. */
+  readonly now?: Date;
+}
 
 // ── Business Hours Utilities ─────────────────────────────────────────
 
@@ -89,10 +102,19 @@ export function checkReviewEligibility(
   _classification: ClassificationResult,
   haloConfig: HaloConfig | null,
   ticketCreatedAt: string,
+  timing: ReviewTimingContext = {},
 ): ReviewEligibility {
-  const ticketAgeMs = Date.now() - new Date(ticketCreatedAt).getTime();
+  const nowMs = timing.now?.getTime() ?? Date.now();
+  const ticketAgeMs = nowMs - new Date(ticketCreatedAt).getTime();
   const ticketAgeHours = ticketAgeMs / (1000 * 60 * 60);
   const actions = context.actions ?? [];
+  const assignedTech = timing.assignedTech?.trim() || context.assignedTechName?.trim() || null;
+  const assignmentStartMs = timing.assignedAt
+    ? new Date(timing.assignedAt).getTime()
+    : new Date(ticketCreatedAt).getTime();
+  const reviewStartMs = Number.isFinite(assignmentStartMs)
+    ? assignmentStartMs
+    : new Date(ticketCreatedAt).getTime();
 
   // Identify customer vs staff actions by WHO sent them, not by visibility.
   // A tech replying to a customer sends a PUBLIC (non-internal) action —
@@ -122,14 +144,17 @@ export function checkReviewEligibility(
   };
 
   const customerActions = actions.filter(isCustomerAction);
-  const techActions = actions.filter((a) => !isCustomerAction(a));
+  const techActions = actions.filter((a) =>
+    !isCustomerAction(a) &&
+    (!assignedTech || namesMatch(a.who, assignedTech)),
+  );
 
   // Customer-visible staff replies — internal notes don't count, the
   // customer only sees public replies.
   const visibleTechActions = actions.filter((a) => {
     if (a.isInternal) return false;
     if (isCustomerAction(a)) return false;
-    return true;
+    return !assignedTech || namesMatch(a.who, assignedTech);
   });
 
   // Deterministic response timeline: each customer message paired with the
@@ -142,8 +167,12 @@ export function checkReviewEligibility(
       .filter((t) => t.date && new Date(t.date).getTime() > custTime)
       .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
 
-    const endTime = nextVisible?.date ? new Date(nextVisible.date).getTime() : Date.now();
-    const gapBusinessHours = calculateBusinessHoursGap(custTime, endTime);
+    const endTime = nextVisible?.date ? new Date(nextVisible.date).getTime() : nowMs;
+    // A technician is not accountable for time before the ticket was assigned
+    // to them. A customer message that predates assignment starts this tech's
+    // clock at assignment.
+    const responseStart = Math.max(custTime, reviewStartMs);
+    const gapBusinessHours = calculateBusinessHoursGap(responseStart, endTime);
     exchanges.push({
       customerAt: custAction.date,
       repliedAt: nextVisible?.date ?? null,
@@ -157,10 +186,10 @@ export function checkReviewEligibility(
 
   // First response: ticket creation → first customer-visible staff reply
   const firstVisibleReply = visibleTechActions
-    .filter((t) => t.date)
+    .filter((t) => t.date && new Date(t.date).getTime() >= reviewStartMs)
     .sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime())[0];
   const firstResponseBh = firstVisibleReply?.date
-    ? calculateBusinessHoursGap(new Date(ticketCreatedAt).getTime(), new Date(firstVisibleReply.date).getTime())
+    ? calculateBusinessHoursGap(reviewStartMs, new Date(firstVisibleReply.date).getTime())
     : null;
 
   const lastUnanswered = [...exchanges].reverse().find((e) => e.repliedAt === null);
@@ -173,12 +202,11 @@ export function checkReviewEligibility(
   };
 
   // Check if ticket has an assigned tech or if it's unassigned (dispatch issue)
-  const techName = context.assignedTechName?.trim().toLowerCase() ?? "";
-  const isUnassigned = !context.assignedTechName || isNonTechAssignment(techName);
+  const techName = assignedTech?.toLowerCase() ?? "";
+  const isUnassigned = !assignedTech || isNonTechAssignment(techName);
 
   // Must have at least 1 business hour of ticket age before reviewing
-  const ticketCreatedTime = new Date(ticketCreatedAt).getTime();
-  const businessAgeHours = calculateBusinessHoursGap(ticketCreatedTime, Date.now());
+  const businessAgeHours = calculateBusinessHoursGap(reviewStartMs, nowMs);
   const hasMinimumAge = businessAgeHours >= MIN_TICKET_AGE_HOURS;
 
   // Always eligible as long as Halo is configured and ticket is old enough.
@@ -196,10 +224,96 @@ export function checkReviewEligibility(
   return {
     eligible,
     ticketAgeHours,
+    accountableBusinessHours: businessAgeHours,
     maxResponseGapHours,
     responseFacts,
     customerActions,
     techActions,
+  };
+}
+
+/**
+ * The language model may assess tone and helpfulness, but it cannot override
+ * the deterministic response clock. This prevents invented wall-clock claims
+ * from becoming a technician rating or a stored coaching fact.
+ */
+export function calibrateTechFeedback(
+  raw: TechFeedback,
+  facts: ResponseFacts,
+  assignedTech: string,
+  accountableBusinessHours: number,
+): TechFeedback {
+  const firstResponse = facts.firstResponseBh;
+  const exchangeGap = facts.exchanges.reduce(
+    (largest, exchange) => Math.max(largest, exchange.gapBusinessHours),
+    0,
+  );
+  const currentWait = facts.currentlyWaitingBh ?? 0;
+  const evidenceGap = Math.max(firstResponse ?? 0, exchangeGap, currentWait);
+  const noVisibleResponse = firstResponse === null;
+
+  let rating: TechFeedback["rating"];
+  if (
+    evidenceGap > POOR_RESPONSE_BH ||
+    (noVisibleResponse && accountableBusinessHours > POOR_RESPONSE_BH)
+  ) {
+    rating = "poor";
+  } else if (
+    evidenceGap > NEEDS_IMPROVEMENT_BH ||
+    (noVisibleResponse && accountableBusinessHours > NEEDS_IMPROVEMENT_BH)
+  ) {
+    rating = "needs_improvement";
+  } else if (
+    raw.rating === "great" &&
+    evidenceGap <= RESPONSE_STANDARD_BH &&
+    facts.unanswered === 0
+  ) {
+    rating = "great";
+  } else {
+    // A small 1-4 business-hour miss is coaching, not a negative score.
+    // Qualitative AI concerns remain visible in the full review but cannot
+    // manufacture a timing failure unsupported by the evidence.
+    rating = "good";
+  }
+
+  const fmt = (hours: number): string => `${hours.toFixed(1)} business hour${Math.abs(hours - 1) < 0.05 ? "" : "s"}`;
+  let summary: string;
+  let timingImprovement: string | null = null;
+  if (noVisibleResponse) {
+    const elapsed = Math.max(accountableBusinessHours, currentWait);
+    summary = `${assignedTech} has not sent a customer-visible email after ${fmt(elapsed)} of accountable time.`;
+    if (elapsed > RESPONSE_STANDARD_BH) {
+      timingImprovement = `Send a customer-visible update; the current wait is ${fmt(elapsed)} against the 1-business-hour standard.`;
+    }
+  } else {
+    const longestCustomerGap = Math.max(exchangeGap, currentWait);
+    summary = `${assignedTech}'s first customer-visible reply was ${fmt(firstResponse)} after assignment; the longest customer-message gap was ${fmt(longestCustomerGap)}.`;
+    if (evidenceGap > RESPONSE_STANDARD_BH) {
+      timingImprovement = `The longest verified response interval was ${fmt(evidenceGap)}, ${fmt(evidenceGap - RESPONSE_STANDARD_BH)} beyond the 1-business-hour standard.`;
+    } else {
+      summary += " The verified response timing met the 1-business-hour standard.";
+    }
+  }
+
+  return {
+    ...raw,
+    rating,
+    communication_score: Math.max(1, Math.min(5, Math.round(raw.communication_score))),
+    response_time_assessment:
+      noVisibleResponse
+        ? "no_response"
+        : evidenceGap <= RESPONSE_STANDARD_BH
+          ? "fast"
+          : evidenceGap <= NEEDS_IMPROVEMENT_BH
+            ? "adequate"
+            : "slow",
+    max_response_gap_hours: Math.round(evidenceGap * 100) / 100,
+    improvement_areas: timingImprovement ?? (
+      /\b(?:hour|minute|response|reply|gap|delay)\b/i.test(raw.improvement_areas ?? "")
+        ? null
+        : raw.improvement_areas
+    ),
+    summary,
   };
 }
 
@@ -209,7 +323,7 @@ function formatResponseFacts(facts: ResponseFacts): string {
   lines.push(
     facts.firstResponseBh === null
       ? "First response: NONE — no customer-visible staff reply yet"
-      : `First response: ${facts.firstResponseBh.toFixed(1)} business hrs after creation ${facts.firstResponseBh <= RESPONSE_STANDARD_BH ? "✓ within standard" : `✗ standard is ${RESPONSE_STANDARD_BH}h`}`,
+      : `First response: ${facts.firstResponseBh.toFixed(1)} business hrs after assignment ${facts.firstResponseBh <= RESPONSE_STANDARD_BH ? "✓ within standard" : `✗ standard is ${RESPONSE_STANDARD_BH}h`}`,
   );
   if (facts.exchanges.length > 0) {
     lines.push(`Customer messages answered: ${facts.answered}/${facts.exchanges.length}${facts.unanswered > 0 ? ` — ${facts.unanswered} UNANSWERED` : ""}`);
@@ -245,7 +359,7 @@ export async function generateTechReview(
   const actions = context.actions ?? [];
 
   const assignedTech = context.assignedTechName ?? null;
-  const { ticketAgeHours, maxResponseGapHours } = eligibility;
+  const { ticketAgeHours, accountableBusinessHours, maxResponseGapHours } = eligibility;
 
   // Check if ticket is unassigned
   const techNameLower = assignedTech?.trim().toLowerCase() ?? "";
@@ -423,7 +537,15 @@ export async function generateTechReview(
   });
 
   const feedbackText = extractResponseText(feedbackResponse);
-  const feedback = parseLlmJson<TechFeedback>(feedbackText);
+  const rawFeedback = parseLlmJson<TechFeedback>(feedbackText);
+  const feedback = isUnassigned
+    ? rawFeedback
+    : calibrateTechFeedback(
+        rawFeedback,
+        eligibility.responseFacts,
+        assignedTech ?? "The assigned technician",
+        accountableBusinessHours,
+      );
 
   // Build the private coaching note — response facts rendered from the
   // deterministic timeline, not the LLM's restatement of it
@@ -449,19 +571,20 @@ export async function generateTechReview(
   if (postNote) await halo.addInternalNote(context.haloId, coachingNote);
 
   // Store in tech_reviews table for the Review tab
-  await supabase.from("tech_reviews").insert({
+  await supabase.from("tech_reviews").upsert({
     ticket_id: context.ticketId,
     halo_id: context.haloId,
     tech_name: isUnassigned ? "UNASSIGNED" : (context.assignedTechName ?? null),
     rating: feedback.rating,
     communication_score: feedback.communication_score,
     response_time: feedback.response_time_assessment,
-    max_gap_hours: maxResponseGapHours,
+    max_gap_hours: feedback.max_response_gap_hours,
     strengths: feedback.strengths ?? null,
     improvement_areas: feedback.improvement_areas ?? null,
     suggestions: feedback.suggestions ?? [],
     summary: feedback.summary,
-  });
+    created_at: new Date().toISOString(),
+  }, { onConflict: "halo_id" });
 
   await supabase.from("agent_logs").insert({
     ticket_id: context.ticketId,

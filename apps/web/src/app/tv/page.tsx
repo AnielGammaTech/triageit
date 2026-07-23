@@ -167,7 +167,7 @@ function BrandMark({ size }: { readonly size: string }) {
 
 const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
-  { title: "Tech Scoreboard — Live + 30 days", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
+  { title: "Tech Scoreboard — Today + latest 30d reviews", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
@@ -675,12 +675,21 @@ export default function TvPage() {
                     {data.scoreboard.slice(0, 7).map((t, i, arr) => {
                       const worst = i === arr.length - 1 && t.score < 0;
                       const chips: Array<{ label: string; color: string }> = [];
+                      if (t.emails > 0) chips.push({ label: `${t.emails} customer emails`, color: "#38bdf8" });
                       if (t.good > 0) chips.push({ label: `${t.good} good`, color: "#4ade80" });
+                      if (t.needs > 0) chips.push({ label: `${t.needs} coaching`, color: "#fbbf24" });
                       if (t.poor > 0) chips.push({ label: `${t.poor} poor`, color: "#f87171" });
-                      if (t.breaching > 0) chips.push({ label: `${t.breaching} breaching`, color: RED });
+                      if (t.breaching > 0) chips.push({
+                        label: `${t.breaching} breaching${t.livePenaltyDeferred > 0 ? " · deferred" : ""}`,
+                        color: t.livePenaltyDeferred > 0 ? INK_DIM : RED,
+                      });
                       if (t.unacked > 0) chips.push({
-                        label: `${t.unacked} ${t.unacked === 1 ? "reply" : "replies"} >1h`,
-                        color: AMBER,
+                        label: `${t.unacked} ${t.unacked === 1 ? "reply" : "replies"} >1 business hr${t.livePenaltyDeferred > 0 ? " · deferred" : ""}`,
+                        color: t.livePenaltyDeferred > 0 ? INK_DIM : AMBER,
+                      });
+                      if (t.livePenaltyDeferred > 0 && t.scheduleState) chips.push({
+                        label: `scheduled: ${presenceLabel(t.scheduleState)}`,
+                        color: "#a1a1aa",
                       });
                       return (
                         <div key={t.tech} className="flex flex-1 items-center gap-[0.8vw] border-b px-[1.1vw] last:border-b-0" style={{ borderColor: "#1f0d11" }}>

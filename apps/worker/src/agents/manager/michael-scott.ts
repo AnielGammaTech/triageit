@@ -633,7 +633,21 @@ export async function runTriage(
   // to Halo (user: keep the ticket clean). A short good/bad recap is posted on
   // Halo only when the ticket CLOSES (see close-reviewer).
   if (haloConfig) {
-    const eligibility = checkReviewEligibility(context, classification, haloConfig, ticket.created_at);
+    const { data: responseCompliance } = await supabase
+      .from("ticket_response_compliance")
+      .select("assigned_tech, assigned_at")
+      .eq("halo_id", ticket.halo_id)
+      .maybeSingle();
+    const eligibility = checkReviewEligibility(
+      context,
+      classification,
+      haloConfig,
+      ticket.created_at,
+      {
+        assignedAt: responseCompliance?.assigned_at ?? null,
+        assignedTech: responseCompliance?.assigned_tech ?? context.assignedTechName ?? null,
+      },
+    );
     if (eligibility.eligible) {
       try {
         await generateTechReview(context, classification, haloConfig, eligibility, supabase, false);
