@@ -32,6 +32,18 @@ describe("technician activity", () => {
     expect(row).not.toHaveProperty("note");
   });
 
+  it("counts Carter as a helpdesk technician", () => {
+    expect(classifyTechnicianAction(action({
+      who: "Carter Zimny",
+      outcome: "Email User",
+      hiddenfromuser: false,
+      emaildirection: "O",
+    }))).toMatchObject({
+      technician_name: "Carter Zimny",
+      category: "customer_email",
+    });
+  });
+
   it("excludes system and automated/non-technician actions", () => {
     expect(classifyTechnicianAction(action({ outcome: "Rule Applied" }))).toBeNull();
     expect(classifyTechnicianAction(action({ who: "TriageIT", outcome: "Private Note" }))).toBeNull();

@@ -26,6 +26,7 @@ export const HELPDESK_TECHNICIANS = [
   "Matthew Lawyer",
   "Ryan Fitzpatrick",
   "Darren Davillier",
+  "Carter Zimny",
 ] as const;
 
 // Calls are operationally useful only when a helpdesk tech, the dispatcher,
@@ -47,7 +48,7 @@ export const ACCOUNT_MANAGERS = ["Todd Cassetty", "Roman Hernandez"] as const;
 export const CALL_AUDIT_STAFF = [...SUPPORT_CALL_STAFF, ...ACCOUNT_MANAGERS] as const;
 export const DISPATCHER = "Bryanna Marquez";
 export const TEAM_FACTS = `Gamma Tech roles — use these EXACTLY, never invent teams or roles:
-- Helpdesk techs (handle ALL technical work, no specialty teams exist): Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier.
+- Helpdesk techs (handle ALL technical work, no specialty teams exist): Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier, Carter Zimny.
 - Account managers (own billing, licensing, cancellations, renewals, account requests): Todd Cassetty, Roman Hernandez.
 - Dispatcher: Bryanna Marquez. Management: Aniel (owner) and David Ayala.
 There is no "Cloud team", "Network team", or any other specialty team.`;

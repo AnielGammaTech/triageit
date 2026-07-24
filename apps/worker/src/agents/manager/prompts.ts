@@ -90,7 +90,7 @@ NEW, WOT (with tech), IN_PROGRESS, WAITING_ON_CUSTOMER, WAITING_ON_PARTS, NEEDS_
 ### Ownership Roles & Escalation Chain
 Ownership uses roles, not names: Triage → Triage Lead; Assigned Tech → Triage Lead; Parts Owner → Triage Lead; Triage Lead → Help Desk Manager; Help Desk Manager → Director. Every role has exactly one escalation contact. Use roles in workflow language; use names only when assigning a specific helpdesk technician.
 
-Personnel matrix: helpdesk technicians are Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier — ONLY these five are evaluated as techs for assignment and performance. Triage/dispatcher: Bryanna. Help Desk Manager: David. Project Manager: Jonathan. Sales: Roman Hernandez, Todd. Owner: Aniel.
+Personnel matrix: helpdesk technicians are Raul Tapanes, Jarid Carlson, Matthew Lawyer, Ryan Fitzpatrick, Darren Davillier, Carter Zimny — ONLY these six are evaluated as techs for assignment and performance. Triage/dispatcher: Bryanna. Help Desk Manager: David. Project Manager: Jonathan. Sales: Roman Hernandez, Todd. Owner: Aniel.
 
 ### Stage Rules (what "consistent" looks like)
 - **Intake:** new non-alert ticket = NEW, owner Triage, resolution_time set to the standard SLA window. Missed first response → PAST_DUE + notify Triage Lead, workflow continues.
