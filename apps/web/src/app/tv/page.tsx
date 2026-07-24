@@ -214,49 +214,47 @@ function SaturdaySupportCard({
   return (
     <div
       data-testid="saturday-support-card"
-      className="relative flex min-w-[33vw] items-center gap-[0.85vw] overflow-hidden rounded-[0.65vw] border px-[0.85vw] py-[0.65vh]"
+      className="relative flex min-w-[31vw] items-center gap-[0.7vw] overflow-hidden rounded-[0.5vw] border px-[0.75vw] py-[0.5vh]"
       style={{
-        borderColor: "#4a3518",
+        borderColor: HAIRLINE,
         background: PANEL_2,
-        boxShadow: "0 0.35vw 0.9vw rgba(0,0,0,0.28)",
+        boxShadow: "0 0.2vw 0.55vw rgba(0,0,0,0.2)",
       }}
     >
       <div
-        className="absolute inset-x-0 top-0 h-[0.16vw]"
+        className="absolute inset-y-0 left-0 w-[0.16vw]"
         style={{ background: AMBER }}
       />
       <div
-        className="flex h-[2.35vw] w-[2.35vw] shrink-0 items-center justify-center rounded-[0.45vw] border"
+        className="ml-[0.1vw] flex h-[1.9vw] w-[1.9vw] shrink-0 items-center justify-center rounded-[0.42vw]"
         style={{
           color: AMBER,
-          borderColor: "#503716",
-          background: "#1c1108",
+          background: "rgba(245, 158, 11, 0.1)",
         }}
       >
-        <CalendarClock className="h-[1.25vw] w-[1.25vw]" strokeWidth={2.3} />
+        <CalendarClock className="h-[1.05vw] w-[1.05vw]" strokeWidth={2.1} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-[0.5vw]">
-          <span className="h-[0.38vw] w-[0.38vw] rounded-full" style={{ background: AMBER }} />
-          <span className="text-[0.68vw] font-bold uppercase tracking-[0.16em]" style={{ color: "#d6a958" }}>
+        <div className="flex items-center gap-[0.42vw]">
+          <span className="text-[0.61vw] font-bold uppercase tracking-[0.14em]" style={{ color: "#d5a75a" }}>
             Saturday Support
           </span>
           <span
-            className="rounded-[0.25vw] border px-[0.38vw] py-[0.08vw] text-[0.58vw] font-black tracking-[0.11em]"
-            style={{ borderColor: "#76531d", color: "#fbbf24", background: "#1d1409" }}
+            className="rounded-[0.22vw] px-[0.34vw] py-[0.07vw] text-[0.53vw] font-black tracking-[0.1em]"
+            style={{ color: "#fbbf24", background: "rgba(245, 158, 11, 0.12)" }}
           >
             {supportUrgencyLabel(assignment.startsAt, nowMs)}
           </span>
         </div>
-        <div className="mt-[0.2vh] truncate text-[1.35vw] font-black leading-none text-white">
+        <div className="mt-[0.15vh] truncate text-[1.1vw] font-extrabold leading-none text-white">
           {assignment.technician}
         </div>
       </div>
-      <div className="shrink-0 border-l pl-[0.9vw] text-right" style={{ borderColor: HAIRLINE }}>
-        <div className="text-[0.72vw] font-bold tracking-[0.1em]" style={{ color: INK_DIM }}>
+      <div className="shrink-0 text-right">
+        <div className="text-[0.61vw] font-bold tracking-[0.09em]" style={{ color: INK_DIM }}>
           {supportDateLabel(assignment.startsAt)}
         </div>
-        <div className="mt-[0.15vh] text-[0.88vw] font-black text-white">
+        <div className="mt-[0.1vh] text-[0.76vw] font-bold text-white">
           {supportTimeLabel(assignment.startsAt, assignment.endsAt)}
         </div>
       </div>
