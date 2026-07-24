@@ -44,6 +44,12 @@ interface TvScheduleEvent {
 
 interface TvSchedule {
   readonly start: string;
+  readonly saturdaySupport: {
+    readonly technician: string;
+    readonly subject: string;
+    readonly startsAt: string;
+    readonly endsAt: string;
+  } | null;
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{
     readonly tech: string;

@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Users,
   WifiOff,
+  Headphones,
 } from "lucide-react";
 import type { CommandCenterPayload } from "@/lib/api/command-center-data";
 
@@ -57,8 +58,19 @@ interface TvPresenceTech {
   readonly status: { readonly state: string; readonly detail: string | null };
   readonly nextCommitment: string | null;
 }
+
+interface TvSaturdaySupportAssignment {
+  readonly technician: string;
+  readonly subject: string;
+  readonly startsAt: string;
+  readonly endsAt: string;
+}
+
 type TvPayload = CommandCenterPayload & {
   readonly dispatch?: { readonly techs: ReadonlyArray<TvPresenceTech> };
+  readonly schedule?: {
+    readonly saturdaySupport?: TvSaturdaySupportAssignment | null;
+  };
 };
 
 const PRESENCE_COLOR: Record<string, string> = {
@@ -156,6 +168,98 @@ function TeamBand({ techs }: { readonly techs: ReadonlyArray<TvPresenceTech> }) 
             </span>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function supportDateLabel(startsAt: string): string {
+  return new Date(startsAt).toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).toUpperCase();
+}
+
+function supportTimeLabel(startsAt: string, endsAt: string): string {
+  const format = (value: string) =>
+    new Date(value).toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  return `${format(startsAt)}–${format(endsAt)} ET`;
+}
+
+function supportUrgencyLabel(startsAt: string, nowMs: number): string {
+  const date = (value: number) =>
+    new Date(value).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const today = date(nowMs);
+  const tomorrow = date(nowMs + 86_400_000);
+  const shift = date(Date.parse(startsAt));
+  if (shift === today) return "TODAY";
+  if (shift === tomorrow) return "TOMORROW";
+  return "NEXT UP";
+}
+
+function SaturdaySupportCard({
+  assignment,
+  nowMs,
+}: {
+  readonly assignment: TvSaturdaySupportAssignment;
+  readonly nowMs: number;
+}) {
+  return (
+    <div
+      data-testid="saturday-support-card"
+      className="relative flex min-w-[35vw] items-center gap-[1vw] overflow-hidden rounded-[0.8vw] border-2 px-[1vw] py-[0.75vh]"
+      style={{
+        borderColor: "#fb923c",
+        background: "linear-gradient(120deg, #3a0908 0%, #241006 48%, #120a0d 100%)",
+        boxShadow: "0 0 1.4vw rgba(249,115,22,0.42), inset 0 0 1.2vw rgba(239,68,68,0.12)",
+      }}
+    >
+      <div
+        className="absolute inset-y-0 left-0 w-[0.35vw]"
+        style={{ background: "linear-gradient(#facc15, #f97316, #ef4444)" }}
+      />
+      <div
+        className="flex h-[2.8vw] w-[2.8vw] shrink-0 items-center justify-center rounded-full border"
+        style={{
+          color: "#facc15",
+          borderColor: "#fb923c",
+          background: "#3b1208",
+          boxShadow: "0 0 1vw rgba(250,204,21,0.45)",
+        }}
+      >
+        <Headphones className="h-[1.45vw] w-[1.45vw]" strokeWidth={2.6} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-[0.55vw]">
+          <span className="relative flex h-[0.55vw] w-[0.55vw]">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-70" />
+            <span className="relative inline-flex h-full w-full rounded-full bg-yellow-300" />
+          </span>
+          <span className="text-[0.78vw] font-black uppercase tracking-[0.15em]" style={{ color: "#fdba74" }}>
+            Saturday Support
+          </span>
+          <span className="rounded-[0.3vw] px-[0.45vw] py-[0.1vw] text-[0.62vw] font-black tracking-[0.12em] text-black" style={{ background: "#facc15" }}>
+            {supportUrgencyLabel(assignment.startsAt, nowMs)}
+          </span>
+        </div>
+        <div className="mt-[0.1vh] truncate text-[1.55vw] font-black leading-none text-white">
+          {assignment.technician}
+        </div>
+      </div>
+      <div className="shrink-0 border-l pl-[1vw] text-right" style={{ borderColor: "#7c2d12" }}>
+        <div className="text-[0.9vw] font-black tracking-[0.08em]" style={{ color: "#fde68a" }}>
+          {supportDateLabel(assignment.startsAt)}
+        </div>
+        <div className="mt-[0.2vh] text-[0.82vw] font-bold text-white">
+          {supportTimeLabel(assignment.startsAt, assignment.endsAt)}
+        </div>
       </div>
     </div>
   );
@@ -473,7 +577,7 @@ export default function TvPage() {
     <Shell>
       <div className="flex h-full flex-col gap-[1.2vh] p-[1.2vw]">
         {/* ── Header ── */}
-        <header className="flex items-center justify-between">
+        <header className="grid grid-cols-[auto_1fr_auto] items-center gap-[1.5vw]">
           <div className="flex items-center gap-[1vw]">
             <BrandMark size="3.4vw" />
             <div>
@@ -497,6 +601,14 @@ export default function TvPage() {
                 )}
               </div>
             </div>
+          </div>
+          <div className="flex justify-center">
+            {data?.schedule?.saturdaySupport && (
+              <SaturdaySupportCard
+                assignment={data.schedule.saturdaySupport}
+                nowMs={nowTick}
+              />
+            )}
           </div>
           <div className="text-right">
             <div className="text-[2.4vw] font-bold leading-none text-white" style={{ fontFamily: "var(--font-mono-tv), monospace" }}>

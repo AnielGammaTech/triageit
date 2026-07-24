@@ -25,6 +25,14 @@ const tvPayload = {
   scoreboard: [],
   haloBaseUrl: "https://example.invalid",
   dispatch: { techs: [] },
+  schedule: {
+    saturdaySupport: {
+      technician: "Jonathan",
+      subject: "Saturday Support - Jonathan",
+      startsAt: "2026-07-25T12:00:00Z",
+      endsAt: "2026-07-25T21:00:00Z",
+    },
+  },
 };
 
 test("redeems a fragment code without exposing it to the command API", async ({ page }) => {
@@ -47,6 +55,12 @@ test("redeems a fragment code without exposing it to the command API", async ({ 
   await page.goto("/tv#code=ABCD-EFGH");
 
   await expect(page.getByText("Open Tickets")).toBeVisible();
+  const saturdaySupport = page.getByTestId("saturday-support-card");
+  await expect(saturdaySupport).toBeVisible();
+  await expect(saturdaySupport).toContainText("Saturday Support");
+  await expect(saturdaySupport).toContainText("Jonathan");
+  await expect(saturdaySupport).toContainText("SAT, JUL 25");
+  await expect(saturdaySupport).toContainText("8:00 AM–5:00 PM ET");
   await expect(page).toHaveURL(/\/tv$/);
   expect(sessionBodies).toEqual([{ code: "ABCD-EFGH" }]);
   expect(commandUrls).toHaveLength(1);

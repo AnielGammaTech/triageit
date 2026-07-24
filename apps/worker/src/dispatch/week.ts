@@ -10,7 +10,12 @@ import {
   namesMatch,
   type RosterAgent,
 } from "./board-sources.js";
-import { fetchSharedPtoEvents, techsMatchingOffSubject } from "./pto-calendar.js";
+import { fetchSharedCalendarEvents, techsMatchingOffSubject } from "./pto-calendar.js";
+import {
+  nextSaturdaySupportAssignment,
+  SATURDAY_SUPPORT_CALENDAR_NAME,
+  type SaturdaySupportAssignment,
+} from "./saturday-support.js";
 
 /**
  * Daily schedule data for the dispatch page: per tech, per ET day — Halo
@@ -34,6 +39,8 @@ export interface WeekData {
   readonly start: string;
   /** Halo web base URL (no trailing slash) for ticket links; "" when Halo isn't configured. */
   readonly haloBaseUrl: string;
+  /** Active or next upcoming assignment from Saturday Support Schedule V2. */
+  readonly saturdaySupport: SaturdaySupportAssignment | null;
   readonly days: ReadonlyArray<string>;
   readonly techs: ReadonlyArray<{
     readonly tech: string;
@@ -167,13 +174,22 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
   const rosterAgents = roster ?? [];
 
   let ptoEvents: ReadonlyArray<MsGraphCalendarEvent> | null = null;
+  let saturdaySupport: SaturdaySupportAssignment | null = null;
   const personalCalendars = new Map<string, ReadonlyArray<MsGraphCalendarEvent>>();
   if (msgraph) {
     const withEmail = rosterAgents.filter(
       (agent): agent is RosterAgent & { email: string } => agent.email !== null,
     );
-    const [sharedPto, personalResults] = await Promise.all([
-      fetchSharedPtoEvents(msgraph.graph, rosterAgents, msgraph.ptoCalendarName, startUtc, endUtc),
+    const saturdayWindowEnd = new Date(now.getTime() + 90 * DAY_MS).toISOString();
+    const [sharedPto, saturdayEvents, personalResults] = await Promise.all([
+      fetchSharedCalendarEvents(msgraph.graph, rosterAgents, msgraph.ptoCalendarName, startUtc, endUtc),
+      fetchSharedCalendarEvents(
+        msgraph.graph,
+        rosterAgents,
+        SATURDAY_SUPPORT_CALENDAR_NAME,
+        now.toISOString(),
+        saturdayWindowEnd,
+      ),
       Promise.all(
         withEmail.map(async (agent) => ({
           tech: agent.name,
@@ -182,6 +198,9 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
       ),
     ]);
     ptoEvents = sharedPto;
+    saturdaySupport = saturdayEvents
+      ? nextSaturdaySupportAssignment(saturdayEvents, now)
+      : null;
     for (const result of personalResults) {
       if (result.events !== null) personalCalendars.set(result.tech, result.events);
     }
@@ -223,10 +242,10 @@ export async function buildWeekData(startParam?: string | null): Promise<WeekDat
     return { tech: agent.name, events };
   });
 
-  const data: WeekData = { start, haloBaseUrl, days, techs };
+  const data: WeekData = { start, haloBaseUrl, saturdaySupport, days, techs };
   cache = { key: start, at: Date.now(), data };
   console.log(
-    `[DISPATCH] Day built ${start}: ${techs.length} techs, ${techs.reduce((n, t) => n + t.events.length, 0)} events (halo=${appointments !== null}, personalCalendars=${personalCalendars.size}, pto=${ptoEvents !== null})`,
+    `[DISPATCH] Day built ${start}: ${techs.length} techs, ${techs.reduce((n, t) => n + t.events.length, 0)} events (halo=${appointments !== null}, personalCalendars=${personalCalendars.size}, pto=${ptoEvents !== null}, saturdaySupport=${saturdaySupport?.technician ?? "none"})`,
   );
   return data;
 }

@@ -64,29 +64,33 @@ export function techsOffFromSharedCalendar(
   return off;
 }
 
-// ── Locate + cache the shared calendar ────────────────────────────────
-// The calendar lives as a shared calendar in tech mailboxes; probe roster
-// emails until one exposes it, then cache (email, calendarId) module-wide
-// so subsequent board builds skip the probe. Invalidated on read failure.
+// ── Locate + cache shared calendars ───────────────────────────────────
+// Shared calendars live in tech mailboxes. Cache each calendar name
+// independently so PTO and Saturday Support can be read side by side.
 
-let locatedCalendar: { readonly email: string; readonly calendarId: string } | null = null;
+const locatedCalendars = new Map<string, {
+  readonly email: string;
+  readonly calendarId: string;
+}>();
 
 /** Test hook — clears the module-level location cache. */
 export function resetPtoCalendarCache(): void {
-  locatedCalendar = null;
+  locatedCalendars.clear();
 }
 
 /**
- * Raw events from the shared PTO calendar for a window. Null = the
+ * Raw events from a named shared calendar for a window. Null = the
  * calendar could not be located/read (lookupFailed).
  */
-export async function fetchSharedPtoEvents(
+export async function fetchSharedCalendarEvents(
   graph: MsGraphClient,
   roster: ReadonlyArray<RosterAgent>,
   calendarName: string,
   startIso: string,
   endIso: string,
 ): Promise<ReadonlyArray<MsGraphCalendarEvent> | null> {
+  const cacheKey = calendarName.trim().toLowerCase();
+  const locatedCalendar = locatedCalendars.get(cacheKey) ?? null;
   if (locatedCalendar) {
     const events = await graph.getCalendarViewForCalendar(
       locatedCalendar.email,
@@ -96,9 +100,9 @@ export async function fetchSharedPtoEvents(
     );
     if (events !== null) return events;
     console.warn(
-      `[DISPATCH] Shared PTO calendar read via ${locatedCalendar.email} failed — invalidating cache and re-probing`,
+      `[DISPATCH] Shared calendar "${calendarName}" read via ${locatedCalendar.email} failed — invalidating cache and re-probing`,
     );
-    locatedCalendar = null;
+    locatedCalendars.delete(cacheKey);
   }
 
   const emails = roster
@@ -109,12 +113,12 @@ export async function fetchSharedPtoEvents(
     if (calendarId === null) continue;
     const events = await graph.getCalendarViewForCalendar(email, calendarId, startIso, endIso);
     if (events === null) continue;
-    locatedCalendar = { email, calendarId };
-    console.log(`[DISPATCH] Shared PTO calendar "${calendarName}" located via ${email}`);
+    locatedCalendars.set(cacheKey, { email, calendarId });
+    console.log(`[DISPATCH] Shared calendar "${calendarName}" located via ${email}`);
     return events;
   }
 
-  console.warn(`[DISPATCH] Shared PTO calendar "${calendarName}" not found on any tech mailbox`);
+  console.warn(`[DISPATCH] Shared calendar "${calendarName}" not found on any tech mailbox`);
   return null;
 }
 
@@ -129,6 +133,6 @@ export async function fetchSharedPtoOffTechs(
   startIso: string,
   endIso: string,
 ): Promise<ReadonlySet<string> | null> {
-  const events = await fetchSharedPtoEvents(graph, roster, calendarName, startIso, endIso);
+  const events = await fetchSharedCalendarEvents(graph, roster, calendarName, startIso, endIso);
   return events === null ? null : techsOffFromSharedCalendar(events, roster);
 }
