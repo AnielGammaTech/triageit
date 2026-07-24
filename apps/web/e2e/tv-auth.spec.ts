@@ -102,7 +102,7 @@ test("shows a read-only technician score equation on the wallboard", async ({ pa
         ...tvPayload,
         scoreboard: [{
           tech: "Ryan Fitzpatrick",
-          score: 1,
+          score: -1.5,
           good: 2,
           needs: 4,
           poor: 0,
@@ -110,11 +110,12 @@ test("shows a read-only technician score equation on the wallboard", async ({ pa
           breaching: 0,
           unacked: 0,
           reviewPoints: -4,
-          emailPoints: 5,
+          emailPoints: 2.5,
           positiveReviewPoints: 2,
           responsePenaltyPoints: 6,
           slaPenaltyPoints: 0,
           replyPenaltyPoints: 0,
+          scheduleDeferrablePenaltyPoints: 0,
           livePenaltyDeferred: 0,
           scheduleState: "available",
           scheduleReason: null,
@@ -123,7 +124,7 @@ test("shows a read-only technician score equation on the wallboard", async ({ pa
               halo_id: 41570,
               occurredAt: "2026-07-23T14:25:00Z",
               label: "Customer email sent",
-              points: 1,
+              points: 0.5,
             }],
             reviews: [{
               halo_id: 41570,
@@ -155,7 +156,7 @@ test("shows a read-only technician score equation on the wallboard", async ({ pa
 
   const scoreRow = page.getByTestId("tv-score-row-Ryan-Fitzpatrick");
   await expect(scoreRow).toBeVisible();
-  await expect(scoreRow).toContainText("+5 email · +2 reviews · −6 delays");
+  await expect(scoreRow).toContainText("+2.5 email (5 sent) · +2 reviews · −6 delays");
   await expect(scoreRow).not.toHaveAttribute("role", "button");
   await expect(page.getByText("click to audit")).toHaveCount(0);
   await expect(page.getByTestId("command-score-audit")).toHaveCount(0);

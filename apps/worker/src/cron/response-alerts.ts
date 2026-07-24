@@ -1,10 +1,13 @@
 import { createSupabaseClient } from "../db/supabase.js";
 import { TeamsClient } from "../integrations/teams/client.js";
-import type { TeamsConfig } from "@triageit/shared";
+import { isHelpdeskTechnicianName, type TeamsConfig } from "@triageit/shared";
 import {
   isResponseBusinessTime,
   responseBusinessMinutesBetween,
 } from "../response-compliance/business-time.js";
+import { recordWeeklyScoreEvent } from "../scoring/weekly-score-events.js";
+import { buildDispatchBoard } from "../dispatch/board.js";
+import { namesMatch } from "../dispatch/board-sources.js";
 
 const WARNING_HOURS = 1;
 const ESCALATION_HOURS = 2;
@@ -66,6 +69,35 @@ export async function scanForResponseAlerts(): Promise<AlertResult> {
 
   if (needsResponse.length === 0) {
     return { warnings: 0, escalations: 0 };
+  }
+
+  // The weekly deduction is an incident record, not a reflection of the live
+  // queue. Persist it once the one-business-hour threshold is crossed so it
+  // remains after the technician replies or the ticket is resolved.
+  let schedule: Awaited<ReturnType<typeof buildDispatchBoard>> | null = null;
+  try {
+    schedule = await buildDispatchBoard();
+  } catch {
+    // A missing schedule signal must not erase an otherwise verified incident.
+  }
+  for (const ticket of needsResponse) {
+    const hoursSince = businessHoursSince(ticket.last_customer_reply_at);
+    if (hoursSince < WARNING_HOURS || !isHelpdeskTechnicianName(ticket.halo_agent)) continue;
+    const state = schedule?.techs.find((tech) => namesMatch(tech.tech, ticket.halo_agent))?.status.state;
+    if (state === "off" || state === "after_hours") continue;
+    await recordWeeklyScoreEvent(supabase, {
+      eventKey: `overdue_customer_reply:${ticket.halo_id}:${Date.parse(ticket.last_customer_reply_at)}`,
+      eventType: "overdue_customer_reply",
+      haloTicketId: ticket.halo_id,
+      technicianName: ticket.halo_agent,
+      points: -2,
+      occurredAt: new Date().toISOString(),
+      summary: ticket.summary,
+      metadata: {
+        customer_reply_at: ticket.last_customer_reply_at,
+        business_hours_waited_when_recorded: Math.round(hoursSince * 100) / 100,
+      },
+    });
   }
 
   // Get Teams config

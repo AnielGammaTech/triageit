@@ -1201,12 +1201,12 @@ export async function POST(request: NextRequest) {
         }
 
         const liveDeferred = score.livePenaltyDeferred > 0;
-        const appliedSla = liveDeferred ? 0 : score.slaPenaltyPoints;
-        const appliedReplies = liveDeferred ? 0 : score.replyPenaltyPoints;
+        const weeklyOperationalPenalty =
+          score.slaPenaltyPoints + score.replyPenaltyPoints;
         const lines = [
           `## ${score.tech} — Command score ${score.score >= 0 ? "+" : ""}${score.score}`,
-          `Authoritative formula: +${score.emailPoints} customer-email points +${score.positiveReviewPoints} positive-review points -${score.responsePenaltyPoints} verified response-delay points -${appliedSla} live SLA points -${appliedReplies} overdue-customer-reply points = ${score.score >= 0 ? "+" : ""}${score.score}.`,
-          `Window: the scoreboard runs Monday through the current time and resets every Monday at 12:00 AM Eastern. Live SLA and reply queues reflect the current state.`,
+          `Authoritative formula: ${score.emails} customer emails x 0.5 = +${score.emailPoints} customer-email points; +${score.positiveReviewPoints} positive-review points -${score.responsePenaltyPoints} verified response-delay points -${weeklyOperationalPenalty} weekly SLA/overdue-reply incident points${liveDeferred ? ` +${score.livePenaltyDeferred} current-live points deferred by schedule` : ""} = ${score.score >= 0 ? "+" : ""}${score.score}.`,
+          `Window: the scoreboard runs Monday through the current time and resets every Monday at 12:00 AM Eastern. Once an SLA breach or overdue customer reply occurs, that deduction remains for the rest of that scoring week even after the ticket recovers.`,
           `Review labels visible on the board: ${score.good} positive, ${score.needs} coaching, ${score.poor} poor. A coaching/poor label is context, not automatically a deduction; only its deterministic max business-hour gap can subtract points.`,
         ];
         if (liveDeferred) {
@@ -1218,7 +1218,7 @@ export async function POST(request: NextRequest) {
           lines.push("- None.");
         } else {
           for (const email of score.evidence.emails) {
-            lines.push(`- #${email.halo_id}: +1 — ${email.label} at ${new Date(email.occurredAt).toLocaleString("en-US", { timeZone: "America/New_York" })}.`);
+            lines.push(`- #${email.halo_id}: +0.5 — ${email.label} at ${new Date(email.occurredAt).toLocaleString("en-US", { timeZone: "America/New_York" })}.`);
           }
         }
 

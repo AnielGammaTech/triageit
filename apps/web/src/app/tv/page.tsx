@@ -683,14 +683,15 @@ export default function TvPage() {
                     {data.scoreboard.slice(0, 7).map((t, i, arr) => {
                       const weeklyWinner = i === 0 && weeklyWinnerIsVisible(data.generatedAt);
                       const worst = i === arr.length - 1 && t.score < 0;
-                      const appliedLivePenalty = t.livePenaltyDeferred > 0
-                        ? 0
-                        : t.slaPenaltyPoints + t.replyPenaltyPoints;
+                      const appliedLivePenalty =
+                        t.slaPenaltyPoints +
+                        t.replyPenaltyPoints -
+                        t.livePenaltyDeferred;
                       const formula = [
-                        `+${t.emailPoints} email`,
+                        `+${t.emailPoints} email (${t.emails} sent)`,
                         `+${t.positiveReviewPoints} reviews`,
                         `−${t.responsePenaltyPoints} delays`,
-                        ...(appliedLivePenalty > 0 ? [`−${appliedLivePenalty} live`] : []),
+                        ...(appliedLivePenalty > 0 ? [`−${appliedLivePenalty} incidents`] : []),
                         ...(t.livePenaltyDeferred > 0 ? [`${t.livePenaltyDeferred} deferred`] : []),
                       ];
                       return (

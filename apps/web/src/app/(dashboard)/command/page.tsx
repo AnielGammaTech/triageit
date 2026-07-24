@@ -585,9 +585,10 @@ function ScoreboardSection({
               </thead>
               <tbody>
                 {scores.map((score, index) => {
-                  const liveApplied = score.livePenaltyDeferred > 0
-                    ? 0
-                    : score.slaPenaltyPoints + score.replyPenaltyPoints;
+                  const liveApplied =
+                    score.slaPenaltyPoints +
+                    score.replyPenaltyPoints -
+                    score.livePenaltyDeferred;
                   return (
                     <tr
                       key={score.tech}
@@ -615,7 +616,7 @@ function ScoreboardSection({
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs">
-                          <ScoreChip value={score.emailPoints} label="emails" tone="positive" />
+                          <ScoreChip value={score.emailPoints} label={`email pts (${score.emails} sent)`} tone="positive" />
                           <span className="text-zinc-600">+</span>
                           <ScoreChip value={score.positiveReviewPoints} label="reviews" tone="positive" />
                           <span className="text-zinc-600">−</span>
@@ -623,7 +624,7 @@ function ScoreboardSection({
                           {liveApplied > 0 && (
                             <>
                               <span className="text-zinc-600">−</span>
-                              <ScoreChip value={liveApplied} label="live" tone="negative" />
+                              <ScoreChip value={liveApplied} label="weekly incidents" tone="negative" />
                             </>
                           )}
                           {score.livePenaltyDeferred > 0 && (
@@ -707,19 +708,24 @@ function CommandScoreAudit({
   const emails = [...score.evidence.emails].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   const ticketHref = (haloId: number): string => haloLink(haloBaseUrl, haloId);
   const components = [
-    { label: "Customer emails this week", value: score.emailPoints, color: "#38bdf8" },
+    { label: `${score.emails} customer emails × 0.5`, value: score.emailPoints, color: "#38bdf8" },
     { label: "Positive reviews", value: score.positiveReviewPoints, color: "#4ade80" },
     { label: "Verified delays", value: -score.responsePenaltyPoints, color: "#f87171" },
     {
-      label: `Live SLA${liveDeferred ? " · deferred" : ""}`,
-      value: liveDeferred ? 0 : -score.slaPenaltyPoints,
-      color: liveDeferred ? "#71717a" : "#f87171",
+      label: "Weekly SLA incidents",
+      value: -score.slaPenaltyPoints,
+      color: "#f87171",
     },
     {
-      label: `Replies >1h${liveDeferred ? " · deferred" : ""}`,
-      value: liveDeferred ? 0 : -score.replyPenaltyPoints,
-      color: liveDeferred ? "#71717a" : "#f59e0b",
+      label: "Weekly replies >1h",
+      value: -score.replyPenaltyPoints,
+      color: "#f59e0b",
     },
+    ...(score.livePenaltyDeferred > 0 ? [{
+      label: "Current live penalty deferred by schedule",
+      value: score.livePenaltyDeferred,
+      color: "#a1a1aa",
+    }] : []),
   ];
 
   return (
@@ -845,7 +851,7 @@ function CommandScoreAudit({
         </div>
 
         <footer className="shrink-0 border-t px-5 py-3 text-xs leading-5 text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          Formula: customer emails this week + this week&apos;s positive reviews − this week&apos;s verified business-hour response delays − applicable live SLA/reply penalties.
+          Formula: 0.5 point per customer email sent this week + this week&apos;s positive reviews − this week&apos;s verified business-hour response delays − applicable live SLA/reply penalties.
           Coaching and poor labels are context only until deterministic evidence verifies a deduction.
         </footer>
       </div>

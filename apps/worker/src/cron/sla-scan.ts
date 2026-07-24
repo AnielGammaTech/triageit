@@ -10,6 +10,12 @@ import {
 } from "@triageit/shared";
 import { TeamsClient, isWithinBusinessHours } from "../integrations/teams/client.js";
 import { enqueueTriageJob } from "../queue/producer.js";
+import { buildDispatchBoard } from "../dispatch/board.js";
+import { namesMatch } from "../dispatch/board-sources.js";
+import {
+  easternScoreWeekKey,
+  recordWeeklyScoreEvent,
+} from "../scoring/weekly-score-events.js";
 import { runSlaCallRequests } from "./sla-call.js";
 import { queueUpcomingSlaAvailabilityCalls } from "./sla-availability-risk.js";
 
@@ -210,6 +216,44 @@ export async function scanForSlaBreaches(): Promise<SlaScanResult> {
     }
   } catch (error) {
     console.error("[SLA SCAN] Failed to update live breach flags:", error instanceof Error ? error.message : error);
+  }
+
+  // Preserve one weekly deduction per breached ticket. The live flag is
+  // intentionally cleared on recovery, but the weekly competition must retain
+  // the incident. Off-hours do not create a personal deduction; if the breach
+  // remains at 8 AM, the first business-hours scan records it.
+  if (breacherIds.length > 0 && isWithinBusinessHours()) {
+    const { data: breachedRows, error: breachedRowsError } = await supabase
+      .from("tickets")
+      .select("halo_id, halo_agent, summary")
+      .in("halo_id", breacherIds);
+    if (breachedRowsError) {
+      console.warn("[SCOREBOARD] Could not load breached ticket owners:", breachedRowsError.message);
+    } else {
+      const occurredAt = new Date().toISOString();
+      const weekKey = easternScoreWeekKey(new Date(occurredAt));
+      let schedule: Awaited<ReturnType<typeof buildDispatchBoard>> | null = null;
+      try {
+        schedule = await buildDispatchBoard();
+      } catch {
+        // A missing schedule signal must not erase an otherwise verified incident.
+      }
+      for (const ticket of breachedRows ?? []) {
+        if (!isHelpdeskTechnicianName(ticket.halo_agent)) continue;
+        const state = schedule?.techs.find((tech) => namesMatch(tech.tech, ticket.halo_agent))?.status.state;
+        if (state === "off" || state === "after_hours") continue;
+        await recordWeeklyScoreEvent(supabase, {
+          eventKey: `sla_breach:${weekKey}:${ticket.halo_id}`,
+          eventType: "sla_breach",
+          haloTicketId: ticket.halo_id,
+          technicianName: ticket.halo_agent,
+          points: -3,
+          occurredAt,
+          summary: ticket.summary,
+          metadata: { source: "confirmed_halo_sla_scan" },
+        });
+      }
+    }
   }
 
   // A ticket confirmed no-longer-breached (SLA extended / resolved-reopened)
