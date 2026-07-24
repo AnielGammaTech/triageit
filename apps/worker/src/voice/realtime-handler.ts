@@ -9,6 +9,7 @@ import { DtmfMenuHandler, type VoiceCallContext, type VoiceCallHandler } from ".
 import { buildEscalationCallNote } from "./escalation-note.js";
 import { stageCustomerUpdate } from "../dispatch/customer-update-approvals.js";
 import type { SlaCallFailureReason } from "./sla-call-fallback.js";
+import type { SaturdaySupportCallObjective } from "./saturday-support-call.js";
 
 /**
  * Stage 2 voice: conversational assistant on the OpenAI Realtime API.
@@ -86,6 +87,13 @@ export interface EscalationContext {
   readonly customerEmail?: string | null;
   /** Dispatch fallback calls use a direct front-desk script, not the tech SLA workflow. */
   readonly dispatchFollowup?: boolean;
+  /** Non-ticket operational verification for the live Saturday support assignment. */
+  readonly saturdaySupport?: SaturdaySupportCallObjective;
+  /** Persists a clear yes/no verification or manager-alert delivery result. */
+  readonly onSaturdaySupportResult?: (
+    confirmed: boolean,
+    details: string,
+  ) => Promise<void> | void;
   /** Called once when a standard SLA call reaches voicemail or another non-human endpoint. */
   readonly onUnreachable?: (reason: SlaCallFailureReason) => Promise<void> | void;
 }
@@ -111,6 +119,7 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private statusSetTo: string | null = null;
   private stagedCustomerUpdate: { id: string; draft: string } | null = null;
   private unreachableReported = false;
+  private saturdaySupportResultReported = false;
 
   constructor(
     private readonly deps: VoicemailDeps,
@@ -136,7 +145,11 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
         type: "response.create",
         response: {
           instructions: this.escalation
-            ? (this.escalation.dispatchFollowup
+            ? (this.escalation.saturdaySupport?.kind === "manager_escalation"
+                ? `Aniel just answered. Greet him by name, identify yourself as the TriageIt assistant, and say: "${this.escalation.saturdaySupport.reason ?? `${this.escalation.saturdaySupport.technician} did not confirm Saturday support duty.`}" Ask him to verify coverage for the ${this.escalation.saturdaySupport.shift} shift. Keep it brief, confirm he heard the alert, then say goodbye.`
+                : this.escalation.saturdaySupport
+                ? `The Saturday support technician just answered. Greet them by first name — the calendar assignment is ${this.escalation.saturdaySupport.technician}. Identify yourself as the TriageIt assistant from Gamma Tech and say: "I am calling to confirm you are on duty for Saturday support today from ${this.escalation.saturdaySupport.shift}. Can you confirm you are working the shift?" Stop and wait for a clear answer.`
+                : this.escalation.dispatchFollowup
                 ? `The dispatcher just answered. Greet Bryanna by name, identify yourself as the TriageIt assistant, and clearly deliver this operational alert: ${this.escalation.objective} Keep it brief, then stop and wait for her response.`
                 : this.escalation.preBreach
                 ? `The technician just answered. Greet them by first name${this.escalation.techName ? ` — their name is ${this.escalation.techName}, use THAT name and no other` : ""}, identify yourself as the TriageIt assistant from Gamma Tech, and say this is about ticket ${this.escalation.haloId}, "${this.escalation.summary}". Explain that ${this.preBreachTiming()} and the availability board shows ${this.escalation.ownerAvailability ?? "they may be unavailable"}. Ask whether they can still act before the deadline or want you to prepare a customer update for Dispatch approval. Two or three short sentences, then stop and listen.`
@@ -205,6 +218,23 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     }
     this.ws?.close();
     this.ws = null;
+
+    // Saturday-duty verification is an operational call, not a Halo ticket.
+    // Persist its outcome through the workflow callback and never manufacture
+    // a ticket note against the sentinel haloId used by the call queue.
+    if (this.escalation?.saturdaySupport) {
+      if (!this.saturdaySupportResultReported && !this.unreachableReported) {
+        this.saturdaySupportResultReported = true;
+        const managerAlert = this.escalation.saturdaySupport.kind === "manager_escalation";
+        await this.escalation.onSaturdaySupportResult?.(
+          false,
+          managerAlert
+            ? "The manager escalation call ended without a clear acknowledgement."
+            : "The call ended without a clear duty confirmation.",
+        );
+      }
+      return;
+    }
 
     // Escalation calls leave ONE consolidated note on the ticket: what the
     // assistant documented (post_note / agreed target) + the verbatim
@@ -437,6 +467,52 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
 
   private toolDefinitions(): ReadonlyArray<Record<string, unknown>> {
     if (this.escalation) {
+      if (this.escalation.saturdaySupport) {
+        const managerAlert = this.escalation.saturdaySupport.kind === "manager_escalation";
+        return [
+          {
+            type: "function",
+            name: "report_saturday_support_status",
+            description: managerAlert
+              ? "Record that Aniel heard the Saturday coverage alert and what he said he would do."
+              : "Record whether the assigned technician clearly confirmed they are working today's Saturday support shift. Use only after receiving a direct answer.",
+            parameters: {
+              type: "object",
+              properties: {
+                confirmed: {
+                  type: "boolean",
+                  description: managerAlert
+                    ? "True when Aniel heard and acknowledged the coverage alert"
+                    : "True only for a clear confirmation that the technician is working the shift",
+                },
+                details: {
+                  type: "string",
+                  description: "The person's exact answer or a concise faithful summary",
+                },
+              },
+              required: ["confirmed", "details"],
+            },
+          },
+          {
+            type: "function",
+            name: "report_unreachable",
+            description: "Report that this call reached voicemail. Leave one brief message first, then use this exactly once.",
+            parameters: {
+              type: "object",
+              properties: {
+                reason: { type: "string", enum: ["voicemail"] },
+              },
+              required: ["reason"],
+            },
+          },
+          {
+            type: "function",
+            name: "end_call",
+            description: "Say goodbye and hang up after recording the result, or after leaving the voicemail.",
+            parameters: { type: "object", properties: {} },
+          },
+        ];
+      }
       if (this.escalation.dispatchFollowup) {
         return [
           {
@@ -576,6 +652,29 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
     let output: Record<string, unknown>;
     try {
       switch (call.name) {
+        case "report_saturday_support_status": {
+          if (!this.escalation?.saturdaySupport) {
+            output = { error: "Not available on this call" };
+            break;
+          }
+          if (this.saturdaySupportResultReported) {
+            output = { ok: true, already_recorded: true };
+            break;
+          }
+          const confirmed = call.args.confirmed === true;
+          const details = String(call.args.details ?? "").trim().slice(0, 800) ||
+            (confirmed ? "Duty confirmed." : "Duty was not confirmed.");
+          this.saturdaySupportResultReported = true;
+          await this.escalation.onSaturdaySupportResult?.(confirmed, details);
+          output = {
+            ok: true,
+            duty_confirmed: confirmed,
+            ...(confirmed
+              ? {}
+              : { manager_escalation_queued: this.escalation.saturdaySupport.kind === "verification" }),
+          };
+          break;
+        }
         case "set_resolution_target": {
           if (!this.escalation) {
             output = { error: "Not available on this call" };
@@ -678,16 +777,25 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
           break;
         }
         case "report_unreachable": {
-          if (!this.escalation || this.escalation.objective) {
+          if (
+            !this.escalation ||
+            (this.escalation.objective && !this.escalation.saturdaySupport)
+          ) {
             output = { error: "Not available on this call" };
             break;
           }
           if (!this.unreachableReported) {
             this.unreachableReported = true;
-            this.agentCallNotes.push("The call reached the assigned technician's voicemail; the technician did not answer.");
+            if (this.escalation.saturdaySupport) {
+              this.saturdaySupportResultReported = true;
+            } else {
+              this.agentCallNotes.push("The call reached the assigned technician's voicemail; the technician did not answer.");
+            }
             await this.escalation.onUnreachable?.("voicemail");
           }
-          output = { ok: true, dispatch_followup_queued: true };
+          output = this.escalation.saturdaySupport
+            ? { ok: true, saturday_support_followup_queued: true }
+            : { ok: true, dispatch_followup_queued: true };
           break;
         }
         case "lookup_ticket":
@@ -823,6 +931,29 @@ export class RealtimeVoiceHandler implements VoiceCallHandler {
   private buildInstructions(briefing: string): string {
     if (this.escalation) {
       const e = this.escalation;
+      if (e.saturdaySupport) {
+        const support = e.saturdaySupport;
+        const managerAlert = support.kind === "manager_escalation";
+        return [
+          managerAlert
+            ? `You are the TriageIt assistant from Gamma Tech Services making an OUTBOUND Saturday coverage escalation call to Aniel Reyes.`
+            : `You are the TriageIt assistant from Gamma Tech Services making an OUTBOUND duty-verification call to ${support.technician}, the technician assigned to Saturday support.`,
+          managerAlert
+            ? `Tell Aniel: ${support.reason ?? `${support.technician} did not confirm the Saturday support shift.`}`
+            : `The shared calendar assigns ${support.technician} to Saturday support on ${support.date}, ${support.shift}.`,
+          ``,
+          managerAlert
+            ? `YOUR GOAL: Make sure Aniel hears that coverage could not be verified. Ask him to confirm he heard the alert and will verify coverage, then use report_saturday_support_status with his exact response.`
+            : `YOUR GOAL: Ask ${support.technician} for a direct yes or no: are they working today's Saturday support shift from ${support.shift}? If yes, use report_saturday_support_status with confirmed true. If no, uncertain, unavailable, or they say someone else is covering, use it with confirmed false and accurately summarize what they said so Aniel can be called.`,
+          `Do not discuss tickets, SLAs, customer information, or unrelated work. Keep the call warm, brief, and direct.`,
+          `If voicemail answers, leave this message: "${
+            managerAlert
+              ? `Hi Aniel, this is the TriageIt assistant. Saturday support coverage for ${support.technician} could not be confirmed after two attempts. Please verify coverage as soon as possible.`
+              : `Hi ${support.technician.split(/\s+/)[0]}, this is the TriageIt assistant from Gamma Tech. I am calling to confirm today's Saturday support shift. Please call the office to confirm.`
+          }" Then use report_unreachable and end_call.`,
+          `When the conversation is complete, say goodbye and use end_call.`,
+        ].join("\n");
+      }
       const over = e.hoursOver != null ? (e.hoursOver >= 1 ? `${e.hoursOver.toFixed(1)} hours` : `${Math.round(e.hoursOver * 60)} minutes`) : "recently";
       const priorCalls = e.priorCalls ?? 0;
       return [

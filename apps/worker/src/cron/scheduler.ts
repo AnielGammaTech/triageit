@@ -21,6 +21,7 @@ import { generateAlertManagerDigest } from "./alert-manager-digest.js";
 import { runTobyAnalysis } from "../agents/workers/toby-flenderson.js";
 import { TeamsClient } from "../integrations/teams/client.js";
 import { syncTechnicianActivity } from "../technician-activity/activity.js";
+import { runSaturdaySupportVerification } from "./saturday-support-verification.js";
 import type { TeamsConfig } from "@triageit/shared";
 
 // ── BullMQ-based cron scheduler ─────────────────────────────────────
@@ -155,6 +156,12 @@ const REQUIRED_SYSTEM_CRON_JOBS: RequiredCronJob[] = [
     endpoint: "/weekly-report",
   },
   {
+    name: "Saturday Support Verification",
+    description: "At Saturday shift start, calls the shared-calendar assignee, retries once after voicemail/no answer, then calls management if coverage is still unconfirmed.",
+    schedule: "* 8 * * 6",
+    endpoint: "/saturday-support-verification",
+  },
+  {
     name: "Memory Eviction",
     description: "Nightly cleanup of stale agent memories to keep recall sharp.",
     schedule: "0 3 * * *",
@@ -269,6 +276,12 @@ const ENDPOINT_HANDLERS: Record<string, () => Promise<void>> = {
   "/sla-scan": runSlaScan,
   "/sla-call-requests": async () => {
     await runSlaCallRequests();
+  },
+  "/saturday-support-verification": async () => {
+    const result = await runSaturdaySupportVerification();
+    console.log(
+      `[CRON] Saturday support verification: ${result.reason}; queued=${result.queued}; called=${result.called}`,
+    );
   },
   "/toby/analyze": runTobyAnalysisCron,
   "/ticket-sync": runTicketSync,

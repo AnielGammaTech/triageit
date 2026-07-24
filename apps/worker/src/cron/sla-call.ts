@@ -13,6 +13,15 @@ import {
   spokenDispatcherFollowupObjective,
   type SlaCallFailureReason,
 } from "../voice/sla-call-fallback.js";
+import {
+  buildSaturdaySupportObjective,
+  parseSaturdaySupportObjective,
+  SATURDAY_SUPPORT_MANAGER_PHONE,
+  SATURDAY_SUPPORT_RETRY_MS,
+  saturdaySupportDedupeKey,
+  saturdaySupportEscalationDedupeKey,
+  type SaturdaySupportCallObjective,
+} from "../voice/saturday-support-call.js";
 import { DISPATCHER, type HaloAction, type ThreeCxConfig } from "@triageit/shared";
 
 /**
@@ -62,6 +71,101 @@ async function queueDispatcherFollowupCall(
   if (error?.code === "23505") return;
   if (error) throw new Error(error.message);
   console.log(`[SLA-CALL] Queued Dispatch follow-up call to ${DISPATCHER} for #${input.haloId} (${input.reason})`);
+}
+
+async function queueSaturdaySupportManagerEscalation(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  support: SaturdaySupportCallObjective,
+  reason: string,
+): Promise<void> {
+  const objective = buildSaturdaySupportObjective({
+    kind: "manager_escalation",
+    technician: support.technician,
+    date: support.date,
+    shift: support.shift,
+    attempt: 3,
+    reason,
+  });
+  const { error } = await supabase.from("sla_call_requests").insert({
+    halo_id: 0,
+    phone: SATURDAY_SUPPORT_MANAGER_PHONE,
+    tech_name: "Aniel Reyes",
+    objective,
+    call_type: "info",
+    due_at: new Date().toISOString(),
+    availability_detail: reason,
+    dedupe_key: saturdaySupportEscalationDedupeKey(support.date),
+  });
+  if (error?.code === "23505") return;
+  if (error) throw new Error(error.message);
+  console.log(`[SATURDAY-SUPPORT] Queued manager escalation to Aniel: ${reason}`);
+}
+
+async function handleSaturdaySupportUnreachable(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  requestId: string,
+  support: SaturdaySupportCallObjective,
+  reason: SlaCallFailureReason,
+): Promise<void> {
+  await supabase
+    .from("sla_call_requests")
+    .update({
+      status: reason,
+      availability_detail: `${support.technician} was not reached (${reason}), attempt ${support.attempt}.`,
+    })
+    .eq("id", requestId);
+
+  if (support.kind === "manager_escalation") return;
+  if (support.attempt < 2) {
+    const nextAttempt = support.attempt + 1;
+    const { error } = await supabase.from("sla_call_requests").insert({
+      halo_id: 0,
+      phone: null,
+      tech_name: support.technician,
+      objective: buildSaturdaySupportObjective({
+        ...support,
+        kind: "verification",
+        attempt: nextAttempt,
+      }),
+      call_type: "info",
+      due_at: new Date(Date.now() + SATURDAY_SUPPORT_RETRY_MS).toISOString(),
+      availability_detail: `Retry ${nextAttempt} scheduled after ${reason}.`,
+      dedupe_key: saturdaySupportDedupeKey(support.date, support.technician, nextAttempt),
+    });
+    if (error?.code !== "23505" && error) throw new Error(error.message);
+    console.log(`[SATURDAY-SUPPORT] ${support.technician} unreachable; retry ${nextAttempt} queued in 5 minutes`);
+    return;
+  }
+
+  await queueSaturdaySupportManagerEscalation(
+    supabase,
+    support,
+    `${support.technician} did not answer two Saturday-duty verification calls; the latest result was ${reason}. Please verify coverage for ${support.shift}.`,
+  );
+}
+
+async function handleSaturdaySupportResult(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  requestId: string,
+  support: SaturdaySupportCallObjective,
+  confirmed: boolean,
+  details: string,
+): Promise<void> {
+  await supabase
+    .from("sla_call_requests")
+    .update({
+      status: confirmed ? "confirmed" : "not_confirmed",
+      availability_detail: details,
+    })
+    .eq("id", requestId);
+
+  if (support.kind === "verification" && !confirmed) {
+    await queueSaturdaySupportManagerEscalation(
+      supabase,
+      support,
+      `${support.technician} did not confirm the ${support.shift} Saturday support shift. Response: ${details}`,
+    );
+  }
 }
 
 // TriageIt's own AI-generated notes — skip these when finding the last real
@@ -127,20 +231,26 @@ async function fetchCommunicationContext(
 }
 
 export async function runSlaCallRequests(): Promise<{ processed: number; called: number }> {
-  if (!isWithinBusinessHours()) {
-    console.log("[SLA-CALL] Outbound calls suppressed — outside business hours (8am–5pm ET, Mon–Fri)");
-    return { processed: 0, called: 0 };
-  }
-
+  const withinBusinessHours = isWithinBusinessHours();
   const supabase = createSupabaseClient();
 
-  const { data: requests } = await supabase
+  const { data: pendingRequests } = await supabase
     .from("sla_call_requests")
-    .select("id, halo_id, phone, tech_name, objective, call_type, due_at, availability_detail")
+    .select("id, halo_id, phone, tech_name, objective, call_type, due_at, availability_detail, dedupe_key")
     .eq("status", "pending")
+    .or(`due_at.is.null,due_at.lte.${new Date().toISOString()}`)
     .order("due_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
-    .limit(3);
+    .limit(25);
+  const requests = (pendingRequests ?? [])
+    .filter((request) =>
+      withinBusinessHours ||
+      parseSaturdaySupportObjective(request.objective as string | null) !== null,
+    )
+    .slice(0, 3);
+  if (!withinBusinessHours && requests.length === 0) {
+    console.log("[SLA-CALL] Standard outbound calls suppressed outside Mon–Fri business hours; no due Saturday verification calls");
+  }
   if (!requests || requests.length === 0) return { processed: 0, called: 0 };
 
   const [{ data: tcxIntegration }, haloConfig] = await Promise.all([
@@ -180,11 +290,95 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
   for (const req of requests) {
     const haloId = Number(req.halo_id);
     try {
-      const { data: ticket } = await supabase
+      const storedObjective = (req.objective as string | null) ?? null;
+      const saturdaySupport = parseSaturdaySupportObjective(storedObjective);
+
+      // Saturday coverage checks are operational calls, not Halo ticket
+      // escalations. Keep the entire path separate so halo_id=0 can never
+      // create a fake ticket lookup or internal note.
+      if (saturdaySupport) {
+        const techName = saturdaySupport.kind === "manager_escalation"
+          ? "Aniel Reyes"
+          : saturdaySupport.technician;
+        const destination = req.phone
+          ? String(req.phone)
+          : extensionFor(saturdaySupport.technician);
+
+        if (!destination) {
+          console.warn(
+            `[SATURDAY-SUPPORT] No 3CX extension found for ${saturdaySupport.technician}; applying attempt ${saturdaySupport.attempt} fallback`,
+          );
+          await handleSaturdaySupportUnreachable(
+            supabase,
+            req.id as string,
+            saturdaySupport,
+            "no_destination",
+          );
+          continue;
+        }
+
+        const reportResult = async (confirmed: boolean, details: string) => {
+          await handleSaturdaySupportResult(
+            supabase,
+            req.id as string,
+            saturdaySupport,
+            confirmed,
+            details,
+          );
+        };
+        const reportUnreachable = async (reason: SlaCallFailureReason) => {
+          await handleSaturdaySupportUnreachable(
+            supabase,
+            req.id as string,
+            saturdaySupport,
+            reason,
+          );
+        };
+        const cancelEscalation = registerEscalationCall(destination, {
+          ticketId: null,
+          haloId: 0,
+          summary: "Saturday support duty verification",
+          clientName: null,
+          techName,
+          hoursOver: null,
+          objective: storedObjective,
+          saturdaySupport,
+          onSaturdaySupportResult: reportResult,
+          onUnreachable: reportUnreachable,
+          lastTechUpdate: null,
+        }, () => {
+          void reportUnreachable("no_answer").catch((error: unknown) => {
+            console.error(
+              `[SATURDAY-SUPPORT] No-answer fallback failed for ${techName}:`,
+              error instanceof Error ? error.message : error,
+            );
+          });
+        });
+
+        const ok = await cc.makecall(ROUTE_POINT_DN, destination);
+        if (!ok) {
+          cancelEscalation();
+          await reportUnreachable("dial_failed");
+        } else {
+          await supabase
+            .from("sla_call_requests")
+            .update({ status: "calling" })
+            .eq("id", req.id);
+          called++;
+          console.log(
+            `[SATURDAY-SUPPORT] Dialing ${techName} at ${destination} (${saturdaySupport.kind}, attempt ${saturdaySupport.attempt})`,
+          );
+        }
+        continue;
+      }
+
+      let ticket: Record<string, unknown> | null = null;
+      const { data } = await supabase
         .from("tickets")
         .select("id, halo_id, summary, client_name, user_name, user_email, halo_agent, last_tech_action_at, halo_is_open")
         .eq("halo_id", haloId)
         .maybeSingle();
+      ticket = data as Record<string, unknown> | null;
 
       if (ticket?.halo_is_open === false) {
         await supabase.from("sla_call_requests").update({ status: "stale" }).eq("id", req.id);
@@ -203,8 +397,7 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
           : null;
         if (timeLeft != null && timeLeft < 0) hoursOver = Math.abs(timeLeft);
         // The CURRENT assignee straight from Halo — the local tickets row and
-        // the queued request can both be stale after a reassignment (a call
-        // greeted "Tony" on Matthew's ticket, user report 2026-07-10).
+        // the queued request can both be stale after a reassignment.
         liveTechName = await halo.resolveAgentName(
           (full.agent_name as string | undefined) ?? null,
           typeof full.agent_id === "number" ? full.agent_id : null,
@@ -213,7 +406,6 @@ export async function runSlaCallRequests(): Promise<{ processed: number; called:
         // call proceeds without the exact figure
       }
 
-      const storedObjective = (req.objective as string | null) ?? null;
       const callType = String(req.call_type ?? (storedObjective ? "info" : "breach"));
       const preBreach = callType === "pre_breach";
       const dispatchFollowup = isDispatcherFollowupObjective(storedObjective);
