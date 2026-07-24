@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Users,
   WifiOff,
-  Headphones,
+  CalendarClock,
 } from "lucide-react";
 import type { CommandCenterPayload } from "@/lib/api/command-center-data";
 
@@ -214,50 +214,49 @@ function SaturdaySupportCard({
   return (
     <div
       data-testid="saturday-support-card"
-      className="relative flex min-w-[35vw] items-center gap-[1vw] overflow-hidden rounded-[0.8vw] border-2 px-[1vw] py-[0.75vh]"
+      className="relative flex min-w-[33vw] items-center gap-[0.85vw] overflow-hidden rounded-[0.65vw] border px-[0.85vw] py-[0.65vh]"
       style={{
-        borderColor: "#fb923c",
-        background: "linear-gradient(120deg, #3a0908 0%, #241006 48%, #120a0d 100%)",
-        boxShadow: "0 0 1.4vw rgba(249,115,22,0.42), inset 0 0 1.2vw rgba(239,68,68,0.12)",
+        borderColor: "#4a3518",
+        background: PANEL_2,
+        boxShadow: "0 0.35vw 0.9vw rgba(0,0,0,0.28)",
       }}
     >
       <div
-        className="absolute inset-y-0 left-0 w-[0.35vw]"
-        style={{ background: "linear-gradient(#facc15, #f97316, #ef4444)" }}
+        className="absolute inset-x-0 top-0 h-[0.16vw]"
+        style={{ background: AMBER }}
       />
       <div
-        className="flex h-[2.8vw] w-[2.8vw] shrink-0 items-center justify-center rounded-full border"
+        className="flex h-[2.35vw] w-[2.35vw] shrink-0 items-center justify-center rounded-[0.45vw] border"
         style={{
-          color: "#facc15",
-          borderColor: "#fb923c",
-          background: "#3b1208",
-          boxShadow: "0 0 1vw rgba(250,204,21,0.45)",
+          color: AMBER,
+          borderColor: "#503716",
+          background: "#1c1108",
         }}
       >
-        <Headphones className="h-[1.45vw] w-[1.45vw]" strokeWidth={2.6} />
+        <CalendarClock className="h-[1.25vw] w-[1.25vw]" strokeWidth={2.3} />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-[0.55vw]">
-          <span className="relative flex h-[0.55vw] w-[0.55vw]">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-70" />
-            <span className="relative inline-flex h-full w-full rounded-full bg-yellow-300" />
-          </span>
-          <span className="text-[0.78vw] font-black uppercase tracking-[0.15em]" style={{ color: "#fdba74" }}>
+        <div className="flex items-center gap-[0.5vw]">
+          <span className="h-[0.38vw] w-[0.38vw] rounded-full" style={{ background: AMBER }} />
+          <span className="text-[0.68vw] font-bold uppercase tracking-[0.16em]" style={{ color: "#d6a958" }}>
             Saturday Support
           </span>
-          <span className="rounded-[0.3vw] px-[0.45vw] py-[0.1vw] text-[0.62vw] font-black tracking-[0.12em] text-black" style={{ background: "#facc15" }}>
+          <span
+            className="rounded-[0.25vw] border px-[0.38vw] py-[0.08vw] text-[0.58vw] font-black tracking-[0.11em]"
+            style={{ borderColor: "#76531d", color: "#fbbf24", background: "#1d1409" }}
+          >
             {supportUrgencyLabel(assignment.startsAt, nowMs)}
           </span>
         </div>
-        <div className="mt-[0.1vh] truncate text-[1.55vw] font-black leading-none text-white">
+        <div className="mt-[0.2vh] truncate text-[1.35vw] font-black leading-none text-white">
           {assignment.technician}
         </div>
       </div>
-      <div className="shrink-0 border-l pl-[1vw] text-right" style={{ borderColor: "#7c2d12" }}>
-        <div className="text-[0.9vw] font-black tracking-[0.08em]" style={{ color: "#fde68a" }}>
+      <div className="shrink-0 border-l pl-[0.9vw] text-right" style={{ borderColor: HAIRLINE }}>
+        <div className="text-[0.72vw] font-bold tracking-[0.1em]" style={{ color: INK_DIM }}>
           {supportDateLabel(assignment.startsAt)}
         </div>
-        <div className="mt-[0.2vh] text-[0.82vw] font-bold text-white">
+        <div className="mt-[0.15vh] text-[0.88vw] font-black text-white">
           {supportTimeLabel(assignment.startsAt, assignment.endsAt)}
         </div>
       </div>
