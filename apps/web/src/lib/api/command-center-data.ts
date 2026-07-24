@@ -83,7 +83,7 @@ export interface CommandTechStat {
   readonly goodReviews: number;
   readonly needsImprovementReviews: number;
   readonly greatReviews: number;
-  readonly customerEmailsToday: number;
+  readonly customerEmailsThisWeek: number;
   readonly worstGapHours: number;
 }
 
@@ -138,6 +138,7 @@ export interface CommandScore {
 
 export interface CommandCenterPayload {
   readonly generatedAt: string;
+  readonly scoreWindowStart: string;
   readonly metrics: {
     readonly open: number;
     readonly breaching: number;
@@ -163,7 +164,6 @@ export interface CommandCenterPayload {
 }
 
 const CUSTOMER_REPLY_SCORE_WINDOW_MINUTES = 60;
-const MONTH_MS = 30 * 24 * 3600_000;
 const AT_RISK_WINDOW_MS = 2 * 3600_000;
 const NEEDS_RESPONSE_REVIEW_HOURS = 4;
 const POOR_RESPONSE_REVIEW_HOURS = 8;
@@ -332,11 +332,56 @@ function etMidnightIso(now: Date): string {
   return new Date(etMidnight.getTime() + offsetMs).toISOString();
 }
 
+/** Monday 12:00 AM Eastern for the current scoreboard week. */
+export function scoreWeekStartIso(now: Date): string {
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(dateParts.find((part) => part.type === type)?.value ?? 0);
+  const etDate = new Date(Date.UTC(value("year"), value("month") - 1, value("day")));
+  const daysSinceMonday = (etDate.getUTCDay() + 6) % 7;
+  etDate.setUTCDate(etDate.getUTCDate() - daysSinceMonday);
+  const targetWallClock = etDate.getTime();
+
+  // Resolve the Eastern wall-clock midnight to UTC. Iterating also handles the
+  // two weeks each year that cross a daylight-saving boundary.
+  let utcCandidate = targetWallClock;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wallParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(utcCandidate));
+    const wallValue = (type: Intl.DateTimeFormatPartTypes): number =>
+      Number(wallParts.find((part) => part.type === type)?.value ?? 0);
+    const representedWallClock = Date.UTC(
+      wallValue("year"),
+      wallValue("month") - 1,
+      wallValue("day"),
+      wallValue("hour"),
+      wallValue("minute"),
+      wallValue("second"),
+    );
+    utcCandidate += targetWallClock - representedWallClock;
+  }
+  return new Date(utcCandidate).toISOString();
+}
+
 export async function buildCommandCenterPayload(): Promise<CommandCenterPayload> {
   const supabase = await createServiceClient();
   const nowDate = new Date();
   const now = nowDate.getTime();
   const midnightIso = etMidnightIso(nowDate);
+  const scoreWindowStart = scoreWeekStartIso(nowDate);
 
   let haloBaseUrl = "";
   let haloConfig: HaloIntegrationConfig | null = null;
@@ -348,7 +393,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     haloBaseUrl = "";
   }
 
-  const [ticketRes, reviewRes, emailTodayRes, openedTodayRes, resolvedTodayFallbackRes] = await Promise.all([
+  const [ticketRes, reviewRes, emailWeekRes, openedTodayRes, resolvedTodayFallbackRes] = await Promise.all([
     supabase
       .from("tickets")
       .select(
@@ -359,13 +404,13 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     supabase
       .from("tech_reviews")
       .select("halo_id, tech_name, rating, max_gap_hours, summary, created_at")
-      .gte("created_at", new Date(now - MONTH_MS).toISOString())
+      .gte("created_at", scoreWindowStart)
       .order("created_at", { ascending: false }),
     supabase
       .from("technician_ticket_activity")
       .select("technician_name, halo_ticket_id, action_at, outcome")
       .eq("category", "customer_email")
-      .gte("action_at", midnightIso)
+      .gte("action_at", scoreWindowStart)
       .order("action_at", { ascending: false })
       .range(0, 9_999),
     supabase
@@ -389,7 +434,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     if (!latestReviewByTicket.has(review.halo_id)) latestReviewByTicket.set(review.halo_id, review);
   }
   const reviews = [...latestReviewByTicket.values()];
-  const emailsToday = (emailTodayRes.data ?? []) as TechnicianEmailRow[];
+  const emailsThisWeek = (emailWeekRes.data ?? []) as TechnicianEmailRow[];
   const haloResolvedToday = haloConfig ? await fetchHaloClosedToday(haloConfig, nowDate) : null;
 
   // ── Status breakdown ──
@@ -492,7 +537,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
     goodReviews: number;
     needsImprovementReviews: number;
     greatReviews: number;
-    customerEmailsToday: number;
+    customerEmailsThisWeek: number;
     reviewPenaltyPoints: number;
     worstGapHours: number;
     scoreEmails: Array<CommandScore["evidence"]["emails"][number]>;
@@ -513,7 +558,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
         goodReviews: 0,
         needsImprovementReviews: 0,
         greatReviews: 0,
-        customerEmailsToday: 0,
+        customerEmailsThisWeek: 0,
         reviewPenaltyPoints: 0,
         worstGapHours: 0,
         scoreEmails: [],
@@ -554,11 +599,11 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       }
     }
   }
-  for (const email of emailsToday) {
+  for (const email of emailsThisWeek) {
     const name = (email.technician_name ?? "").trim();
     if (!name || !isHelpdeskTechnicianName(name)) continue;
     const agg = getTech(name);
-    agg.customerEmailsToday++;
+    agg.customerEmailsThisWeek++;
     agg.scoreEmails.push({
       halo_id: email.halo_ticket_id,
       occurredAt: email.action_at,
@@ -613,7 +658,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       if (t.breaching > 0) reasons.push(`${t.breaching} SLA breach${t.breaching === 1 ? "" : "es"} right now`);
       if (t.unackedReplies > 0) reasons.push(`${t.unackedReplies} customer repl${t.unackedReplies === 1 ? "y" : "ies"} waiting 1h+`);
       const negativeReviews = t.poorReviews + t.needsImprovementReviews;
-      if (negativeReviews > 0) reasons.push(`${negativeReviews} coaching review${negativeReviews === 1 ? "" : "s"} (30d)`);
+      if (negativeReviews > 0) reasons.push(`${negativeReviews} coaching review${negativeReviews === 1 ? "" : "s"} (this week)`);
       const score = t.breaching * 3 + t.unackedReplies * 2 + t.reviewPenaltyPoints;
       return { tech: t.tech, score, reasons };
     })
@@ -626,7 +671,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
       const clean = t.breaching === 0 && t.unackedReplies === 0;
       const reasons: string[] = [];
       const positiveReviews = t.goodReviews + t.greatReviews;
-      if (positiveReviews > 0) reasons.push(`${positiveReviews} positive review${positiveReviews === 1 ? "" : "s"} (30d)`);
+      if (positiveReviews > 0) reasons.push(`${positiveReviews} positive review${positiveReviews === 1 ? "" : "s"} (this week)`);
       if (clean && t.openTickets > 0) reasons.push(`clean board — ${t.openTickets} open, zero breaches`);
       const score =
         t.greatReviews * 2 +
@@ -643,7 +688,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
   const scoreboard: CommandScore[] = techStats
     .filter((t) => isHelpdeskTechnicianName(t.tech))
     .map((t) => {
-      const emailPoints = t.customerEmailsToday;
+      const emailPoints = t.customerEmailsThisWeek;
       const positiveReviewPoints = t.greatReviews * 2 + t.goodReviews;
       const responsePenaltyPoints = t.reviewPenaltyPoints;
       const slaPenaltyPoints = t.breaching * 3;
@@ -660,7 +705,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
         good: t.goodReviews + t.greatReviews,
         needs: t.needsImprovementReviews,
         poor: t.poorReviews,
-        emails: t.customerEmailsToday,
+        emails: t.customerEmailsThisWeek,
         breaching: t.breaching,
         unacked: t.unackedReplies,
         reviewPoints,
@@ -695,6 +740,7 @@ export async function buildCommandCenterPayload(): Promise<CommandCenterPayload>
 
   return {
     generatedAt: nowDate.toISOString(),
+    scoreWindowStart,
     metrics,
     statusCounts,
     breaches,

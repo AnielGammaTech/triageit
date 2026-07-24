@@ -57,6 +57,8 @@ interface QueueTicket {
   readonly ageMin: number;
 }
 interface Payload {
+  readonly generatedAt: string;
+  readonly scoreWindowStart: string;
   readonly metrics: {
     readonly open: number;
     readonly breaching: number;
@@ -102,6 +104,24 @@ function durationLabel(minutes: number): string {
   if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`;
   if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   return `${minutes}m`;
+}
+
+function scoreWeekLabel(start: string | null): string {
+  if (!start) return "Current week";
+  return `Week of ${new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(start))}`;
+}
+
+function weeklyWinnerIsVisible(generatedAt: string | null): boolean {
+  if (!generatedAt) return false;
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(new Date(generatedAt));
+  return weekday === "Fri" || weekday === "Sat" || weekday === "Sun";
 }
 
 // ── Team presence (worker dispatch board via /api/dispatch/board) ──
@@ -373,6 +393,8 @@ export default function CommandPage() {
         scores={data?.scoreboard ?? []}
         haloBaseUrl={data?.haloBaseUrl ?? ""}
         loading={loading && !data}
+        scoreWindowStart={data?.scoreWindowStart ?? null}
+        generatedAt={data?.generatedAt ?? null}
       />
 
       {/* Tech stats */}
@@ -389,7 +411,7 @@ export default function CommandPage() {
                   <th className="px-4 py-2 font-medium">Breaching</th>
                   <th className="px-4 py-2 font-medium">Waiting on Tech</th>
                   <th className="px-4 py-2 font-medium">Unacked</th>
-                  <th className="px-4 py-2 font-medium">Poor Reviews (30d)</th>
+                  <th className="px-4 py-2 font-medium">Poor Reviews (this week)</th>
                 </tr>
               </thead>
               <tbody>
@@ -508,12 +530,17 @@ function ScoreboardSection({
   scores,
   haloBaseUrl,
   loading,
+  scoreWindowStart,
+  generatedAt,
 }: {
   readonly scores: ReadonlyArray<CommandScore>;
   readonly haloBaseUrl: string;
   readonly loading: boolean;
+  readonly scoreWindowStart: string | null;
+  readonly generatedAt: string | null;
 }) {
   const [selected, setSelected] = useState<CommandScore | null>(null);
+  const showWinner = weeklyWinnerIsVisible(generatedAt);
 
   useEffect(() => {
     if (!selected) return;
@@ -534,7 +561,11 @@ function ScoreboardSection({
       <Section
         title="Tech Scoreboard"
         icon={<Trophy className="h-4 w-4 text-amber-400" />}
-        actions={<span className="text-[11px] text-zinc-500">Today + verified 30-day reviews</span>}
+        actions={(
+          <span className="text-[11px] text-zinc-500">
+            {scoreWeekLabel(scoreWindowStart)} · {showWinner ? "Friday winner selected" : "winner selected Friday"} · resets Monday
+          </span>
+        )}
       >
         {loading ? (
           <div className="p-5 text-sm text-zinc-500">Loading score evidence…</div>
@@ -575,6 +606,11 @@ function ScoreboardSection({
                             {index + 1}
                           </span>
                           <span className="font-semibold text-white/90">{score.tech}</span>
+                          {index === 0 && showWinner && (
+                            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-300">
+                              Winner of the week
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
@@ -671,7 +707,7 @@ function CommandScoreAudit({
   const emails = [...score.evidence.emails].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
   const ticketHref = (haloId: number): string => haloLink(haloBaseUrl, haloId);
   const components = [
-    { label: "Customer emails today", value: score.emailPoints, color: "#38bdf8" },
+    { label: "Customer emails this week", value: score.emailPoints, color: "#38bdf8" },
     { label: "Positive reviews", value: score.positiveReviewPoints, color: "#4ade80" },
     { label: "Verified delays", value: -score.responsePenaltyPoints, color: "#f87171" },
     {
@@ -748,7 +784,7 @@ function CommandScoreAudit({
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-2 lg:overflow-hidden">
           <AuditEvidenceSection title={`Verified reviews · ${reviews.length}`}>
             {reviews.length === 0 ? (
-              <AuditEmpty>No reviews are inside the 30-day scoring window.</AuditEmpty>
+              <AuditEmpty>No reviews are inside this week&apos;s scoring window.</AuditEmpty>
             ) : reviews.map((review) => (
               <div key={`${review.halo_id}-${review.occurredAt}`} className="border-b px-4 py-3 last:border-b-0" style={{ borderColor: HAIRLINE }}>
                 <div className="flex flex-wrap items-center gap-2">
@@ -777,7 +813,7 @@ function CommandScoreAudit({
             ))}
           </AuditEvidenceSection>
 
-          <AuditEvidenceSection title={`Today and live evidence · ${emails.length + score.evidence.live.length}`} rightBorder={false}>
+          <AuditEvidenceSection title={`This week and live evidence · ${emails.length + score.evidence.live.length}`} rightBorder={false}>
             {score.evidence.live.map((item) => (
               <div key={`live-${item.halo_id}-${item.label}`} className="border-b px-4 py-3" style={{ borderColor: HAIRLINE }}>
                 <div className="flex items-start gap-2">
@@ -803,13 +839,13 @@ function CommandScoreAudit({
               </div>
             ))}
             {score.evidence.live.length === 0 && emails.length === 0 && (
-              <AuditEmpty>No customer-email or live-ticket score events exist today.</AuditEmpty>
+              <AuditEmpty>No customer-email or live-ticket score events exist this week.</AuditEmpty>
             )}
           </AuditEvidenceSection>
         </div>
 
         <footer className="shrink-0 border-t px-5 py-3 text-xs leading-5 text-zinc-500" style={{ borderColor: HAIRLINE }}>
-          Formula: customer emails today + positive reviews from the latest 30 days − verified business-hour response delays − applicable live SLA/reply penalties.
+          Formula: customer emails this week + this week&apos;s positive reviews − this week&apos;s verified business-hour response delays − applicable live SLA/reply penalties.
           Coaching and poor labels are context only until deterministic evidence verifies a deduction.
         </footer>
       </div>

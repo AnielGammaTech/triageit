@@ -91,6 +91,14 @@ const presenceColor = (state: string): string => PRESENCE_COLOR[state] ?? "#f871
 const presenceLabel = (state: string): string =>
   PRESENCE_LABEL[state] ?? state.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+function weeklyWinnerIsVisible(generatedAt: string): boolean {
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).format(new Date(generatedAt));
+  return weekday === "Fri" || weekday === "Sat" || weekday === "Sun";
+}
+
 /** "Onsite — Allen Concrete until 4:00 PM" → "4:00 PM" (null when not parseable). */
 function untilTime(detail: string | null): string | null {
   const m = detail?.match(/\buntil (.+)$/i);
@@ -167,7 +175,7 @@ function BrandMark({ size }: { readonly size: string }) {
 
 const CAROUSEL_SLIDES = [
   { title: "Tech Load", icon: <Wrench className="h-[1vw] w-[1vw]" style={{ color: "#fb923c" }} /> },
-  { title: "Tech Scoreboard — Today + latest 30d reviews", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
+  { title: "Tech Scoreboard — Weekly competition · resets Monday", icon: <Trophy className="h-[1vw] w-[1vw]" style={{ color: "#facc15" }} /> },
   { title: "Tickets by Status", icon: <BarChart3 className="h-[1vw] w-[1vw]" style={{ color: "#0f75b1" }} /> },
 ] as const;
 
@@ -673,6 +681,7 @@ export default function TvPage() {
                 {slide === 1 && (
                   <div className="flex h-full flex-col">
                     {data.scoreboard.slice(0, 7).map((t, i, arr) => {
+                      const weeklyWinner = i === 0 && weeklyWinnerIsVisible(data.generatedAt);
                       const worst = i === arr.length - 1 && t.score < 0;
                       const appliedLivePenalty = t.livePenaltyDeferred > 0
                         ? 0
@@ -701,7 +710,14 @@ export default function TvPage() {
                           >
                             {i + 1}
                           </span>
-                          <span className="min-w-0 truncate text-[1.05vw] font-black text-white">{t.tech}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[1.05vw] font-black text-white">{t.tech}</span>
+                            {weeklyWinner && (
+                              <span className="mt-[0.1vh] block truncate text-[0.58vw] font-black uppercase tracking-[0.08em]" style={{ color: "#facc15" }}>
+                                Winner of the week
+                              </span>
+                            )}
+                          </span>
                           <span className="min-w-0">
                             <span className="block truncate text-[0.75vw] font-bold" style={{ color: "#d4d4d8" }}>
                               {formula.join(" · ")}

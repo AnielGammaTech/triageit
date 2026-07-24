@@ -1206,14 +1206,14 @@ export async function POST(request: NextRequest) {
         const lines = [
           `## ${score.tech} — Command score ${score.score >= 0 ? "+" : ""}${score.score}`,
           `Authoritative formula: +${score.emailPoints} customer-email points +${score.positiveReviewPoints} positive-review points -${score.responsePenaltyPoints} verified response-delay points -${appliedSla} live SLA points -${appliedReplies} overdue-customer-reply points = ${score.score >= 0 ? "+" : ""}${score.score}.`,
-          `Windows: emails and live queues are today/current; reviews and verified response gaps use the latest review per ticket from the last 30 days.`,
+          `Window: the scoreboard runs Monday through the current time and resets every Monday at 12:00 AM Eastern. Live SLA and reply queues reflect the current state.`,
           `Review labels visible on the board: ${score.good} positive, ${score.needs} coaching, ${score.poor} poor. A coaching/poor label is context, not automatically a deduction; only its deterministic max business-hour gap can subtract points.`,
         ];
         if (liveDeferred) {
           lines.push(`Schedule deferral: ${score.livePenaltyDeferred} live penalty point(s) are currently deferred because ${score.tech} is ${score.scheduleReason ?? score.scheduleState ?? "not scheduled to respond"}.`);
         }
 
-        lines.push("\n### Customer emails scored today");
+        lines.push("\n### Customer emails scored this week");
         if (score.evidence.emails.length === 0) {
           lines.push("- None.");
         } else {
@@ -1224,7 +1224,7 @@ export async function POST(request: NextRequest) {
 
         lines.push("\n### Reviews used");
         if (score.evidence.reviews.length === 0) {
-          lines.push("- None in the 30-day window.");
+          lines.push("- None in this week's window.");
         } else {
           for (const review of score.evidence.reviews) {
             const positive = review.positivePoints > 0 ? `+${review.positivePoints} review` : "";
